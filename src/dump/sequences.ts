@@ -12,7 +12,7 @@ export type SequenceDefinition = {
   cache_size: number;
 };
 
-export async function extractSequences(
+export async function extractSequenceDefinitions(
   db: PGClient,
 ): Promise<SequenceDefinition[]> {
   const sequences = await db.sql<SequenceDefinition>`
@@ -37,7 +37,9 @@ export async function extractSequences(
   return sequences.rows;
 }
 
-export function serializeSequences(sequences: SequenceDefinition[]): string {
+export function serializeSequenceDefinitions(
+  sequences: SequenceDefinition[],
+): string {
   if (sequences.length === 0) {
     return "";
   }

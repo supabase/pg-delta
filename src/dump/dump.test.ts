@@ -1,6 +1,6 @@
 import { describe, expect } from "vitest";
 import { test } from "#test";
-import { extract, serialize } from "./dump.ts";
+import { extractDefinitions, serializeDefinitions } from "./dump.ts";
 
 describe("dump", () => {
   test("should roundtrip simple database", async ({ db }) => {
@@ -12,10 +12,10 @@ describe("dump", () => {
         created_at timestamptz default now()
       );
     `;
-    const sourceDefinitions = await extract(db.source);
+    const sourceDefinitions = await extractDefinitions(db.source);
 
-    await db.target.exec(serialize(sourceDefinitions));
-    const targetDefinitions = await extract(db.target);
+    await db.target.exec(serializeDefinitions(sourceDefinitions));
+    const targetDefinitions = await extractDefinitions(db.target);
 
     expect(sourceDefinitions).toEqual(targetDefinitions);
   });

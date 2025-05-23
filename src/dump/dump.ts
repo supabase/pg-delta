@@ -1,9 +1,8 @@
 import type { PGClient } from "../types.ts";
-
 import {
-  extractSequences,
+  extractSequenceDefinitions,
   type SequenceDefinition,
-  serializeSequences,
+  serializeSequenceDefinitions,
 } from "./sequences.ts";
 import {
   extractTableDefinitions,
@@ -16,8 +15,8 @@ export type Definitions = {
   tables: TableDefinition[];
 };
 
-export async function extract(db: PGClient) {
-  const sequences = await extractSequences(db);
+export async function extractDefinitions(db: PGClient) {
+  const sequences = await extractSequenceDefinitions(db);
   const tables = await extractTableDefinitions(db);
   return {
     sequences,
@@ -25,9 +24,9 @@ export async function extract(db: PGClient) {
   };
 }
 
-export function serialize(definitions: Definitions) {
+export function serializeDefinitions(definitions: Definitions) {
   const statements = [];
-  statements.push(serializeSequences(definitions.sequences));
+  statements.push(serializeSequenceDefinitions(definitions.sequences));
   statements.push(serializeTableDefinitions(definitions.tables));
   return statements.join(";\n\n");
 }
