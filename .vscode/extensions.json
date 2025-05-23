@@ -1,0 +1,4 @@
+{
+  "recommendations": ["thebearingedge.vscode-sql-lit", "biomejs.biome"],
+  "unwantedRecommendations": ["esbenp.prettier-vscode"]
+}
