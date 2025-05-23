@@ -15,8 +15,10 @@ describe("dump sequences", () => {
         no cycle;
     `;
     const sourceSequences = await extractSequences(db.source);
+
     await db.target.query(serializeSequences(sourceSequences));
     const targetSequences = await extractSequences(db.target);
+
     expect(sourceSequences).toEqual(targetSequences);
   });
 });

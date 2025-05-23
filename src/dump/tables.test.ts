@@ -16,8 +16,10 @@ describe("dump tables", () => {
       );
     `;
     const sourceTables = await extractTableDefinitions(db.source);
+
     await db.target.query(serializeTableDefinitions(sourceTables));
     const targetTables = await extractTableDefinitions(db.target);
+
     expect(sourceTables).toEqual(targetTables);
   });
 });
