@@ -1,3 +1,6 @@
+import type { PGClient } from "../types.ts";
+import { extractDefinitions } from "./extract.ts";
+import { serializeSchemaDiff } from "./serialize.ts";
 import type {
   DatabaseDefinition,
   DiffInput,
@@ -78,4 +81,38 @@ export function computeSchemaDiff(input: DiffInput): SchemaDiff {
 
 export function computeSchemaDump(db: DatabaseDefinition): SchemaDiff {
   return computeSchemaDiff({ target: db });
+}
+
+export type MigrationResult = {
+  sql: string;
+  diff: SchemaDiff;
+};
+
+/**
+ * Generates a migration SQL script by comparing two database states.
+ * This is a convenience function that combines extracting definitions,
+ * computing the diff, and serializing it into SQL.
+ *
+ * @param sourceDb - The source database client (current state)
+ * @param targetDb - The target database client (desired state)
+ * @returns The migration SQL and the computed diff
+ */
+export async function generateMigration(
+  sourceDb: PGClient,
+  targetDb: PGClient,
+): Promise<MigrationResult> {
+  const sourceDefinitions = await extractDefinitions(sourceDb);
+  const targetDefinitions = await extractDefinitions(targetDb);
+
+  const diff = computeSchemaDiff({
+    source: sourceDefinitions,
+    target: targetDefinitions,
+  });
+
+  const sql = serializeSchemaDiff(diff);
+
+  return {
+    sql,
+    diff,
+  };
 }
