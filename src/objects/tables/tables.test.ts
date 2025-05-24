@@ -4,7 +4,7 @@ import { computeDiff } from "../../diff/diff.ts";
 import { extractTableDefinitions } from "./extract.ts";
 import { serializeTableOperation } from "./serialize/index.ts";
 
-describe("dump tables", () => {
+describe.concurrent("dump tables", () => {
   test("should roundtrip simple table", async ({ db }) => {
     await db.source.sql`
       create table public.users (

@@ -6,7 +6,7 @@ import {
   serializeSequenceOperation,
 } from "./index.ts";
 
-describe("dump sequences", () => {
+describe.concurrent("dump sequences", () => {
   test("should roundtrip simple sequence", async ({ db }) => {
     await db.source.sql`
       create sequence public.user_id_seq
