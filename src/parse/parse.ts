@@ -3,6 +3,7 @@ import { handleAlterOwnerStmt } from "./nodes/alter-owner-stmt.ts";
 import { handleCommentStmt } from "./nodes/comment-stmt.ts";
 import { handleCreateEnumStmt } from "./nodes/create-enum-stmt.ts";
 import { handleCreateExtensionStmt } from "./nodes/create-extension-stmt.ts";
+import { handleCreateFunctionStmt } from "./nodes/create-function-stmt.ts";
 import { handleCreateSchemaStmt } from "./nodes/create-schema-stmt.ts";
 import { handleCreateStmt } from "./nodes/create-stmt/create-stmt.ts";
 import type { ParseContext } from "./types.ts";
@@ -37,6 +38,7 @@ export async function parse(schema: string) {
   const tree = await unwrapParseResult(parser.parse(schema));
   const ctx: ParseContext = {
     extensions: new Map(),
+    functions: new Map(),
     schemas: new Map(),
     tables: new Map(),
     types: new Map(),
@@ -470,7 +472,7 @@ export async function parse(schema: string) {
     } else if ("AlterStatsStmt" in node) {
       // Handle AlterStatsStmt
     } else if ("CreateFunctionStmt" in node) {
-      // Handle CreateFunctionStmt
+      handleCreateFunctionStmt(ctx, node.CreateFunctionStmt);
     } else if ("FunctionParameter" in node) {
       // Handle FunctionParameter
     } else if ("AlterFunctionStmt" in node) {

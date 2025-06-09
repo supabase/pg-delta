@@ -2,6 +2,7 @@ import type { AlterOwnerStmt } from "@supabase/pg-parser/17/types";
 import type { ParseContext } from "../types.ts";
 import { getTypeId } from "./create-enum-stmt.ts";
 import { isList, isString } from "./guards.ts";
+import { getObjectIdentifier } from "./utils.ts";
 
 export function handleAlterOwnerStmt(ctx: ParseContext, node: AlterOwnerStmt) {
   if (!node.objectType) {
@@ -51,7 +52,14 @@ export function handleAlterOwnerStmt(ctx: ParseContext, node: AlterOwnerStmt) {
     case "OBJECT_FOREIGN_TABLE":
       throw new Error("Alter owner for foreign table not implemented");
     case "OBJECT_FUNCTION":
-      throw new Error("Alter owner for function not implemented");
+      if (isList(node.object)) {
+        const { id } = getObjectIdentifier(node.object.List.items);
+        const fn = ctx.functions.get(id);
+        if (fn) {
+          fn.owner = node.newowner;
+        }
+      }
+      break;
     case "OBJECT_INDEX":
       throw new Error("Alter owner for index not implemented");
     case "OBJECT_LANGUAGE":

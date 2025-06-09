@@ -4,6 +4,7 @@ import type {
   Constraint,
   CreateEnumStmt,
   CreateExtensionStmt,
+  CreateFunctionStmt,
   CreateRangeStmt,
   CreateSchemaStmt,
   RoleSpec,
@@ -36,8 +37,18 @@ export type TypeDefinition = {
   comment?: string;
 };
 
+export type FunctionDefinition = {
+  id: string;
+  schema: string;
+  name: string;
+  owner?: RoleSpec;
+  comment?: string;
+  statement: CreateFunctionStmt;
+};
+
 export type ParseContext = {
   extensions: Map<string, ExtensionDefinition>;
+  functions: Map<string, FunctionDefinition>;
   schemas: Map<string, CreateSchemaStmt>;
   tables: Map<string, TableDefinition>;
   types: Map<string, TypeDefinition>;
