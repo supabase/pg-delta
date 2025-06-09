@@ -1,3 +1,4 @@
 onlyBuiltDependencies:
-  - "@biomejs/biome"
+  - '@biomejs/biome'
   - esbuild
+  - supabase

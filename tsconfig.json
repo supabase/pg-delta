@@ -3,5 +3,5 @@
     "@tsconfig/node24/tsconfig.json",
     "@tsconfig/node-ts/tsconfig.json"
   ],
-  "include": ["./src", "./*.ts"]
+  "include": ["./src", "./*.ts", "tests/test.ts"]
 }
