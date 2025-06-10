@@ -1,6 +1,5 @@
 import type { AlterOwnerStmt } from "@supabase/pg-parser/17/types";
 import type { ParseContext } from "../types/context.ts";
-import { getTypeId } from "./create-enum-stmt.ts";
 import { isList, isString } from "./guards.ts";
 import { getObjectIdentifier } from "./utils.ts";
 
@@ -144,8 +143,8 @@ export function handleAlterOwnerStmt(ctx: ParseContext, node: AlterOwnerStmt) {
       throw new Error("Alter owner for text search template not implemented");
     case "OBJECT_TYPE":
       if (isList(node.object)) {
-        const typeId = getTypeId(node.object.List.items);
-        const type = ctx.types.get(typeId);
+        const { id } = getObjectIdentifier(node.object.List.items);
+        const type = ctx.types.get(id);
         if (type) {
           type.owner = node.newowner;
         }

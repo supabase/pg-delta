@@ -1,6 +1,7 @@
 import type {
   A_Const,
   AlterOwnerStmt,
+  AlterTableCmd,
   BitString,
   BoolExpr,
   ColumnDef,
@@ -311,4 +312,10 @@ export const isJsonArrayConstructor = (
   node: Node | undefined,
 ): node is { JsonArrayConstructor: JsonArrayConstructor } => {
   return Boolean(node && "JsonArrayConstructor" in node);
+};
+
+export const isAlterTableCmd = (
+  node: Node | undefined,
+): node is { AlterTableCmd: AlterTableCmd } => {
+  return Boolean(node && "AlterTableCmd" in node);
 };

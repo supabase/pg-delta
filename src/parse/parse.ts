@@ -1,12 +1,15 @@
 import { PgParser, unwrapNode, unwrapParseResult } from "@supabase/pg-parser";
 import { handleAlterOwnerStmt } from "./nodes/alter-owner-stmt.ts";
+import { handleAlterTableStmt } from "./nodes/alter-table-stmt.ts";
 import { handleCommentStmt } from "./nodes/comment-stmt.ts";
+import { handleCompositeTypeStmt } from "./nodes/composite-type-stmt.ts";
 import { handleCreateEnumStmt } from "./nodes/create-enum-stmt.ts";
 import { handleCreateEventTrigStmt } from "./nodes/create-event-trig-stmt.ts";
 import { handleCreateExtensionStmt } from "./nodes/create-extension-stmt.ts";
 import { handleCreateFunctionStmt } from "./nodes/create-function-stmt.ts";
 import { handleCreatePublicationStmt } from "./nodes/create-publication-stmt.ts";
 import { handleCreateSchemaStmt } from "./nodes/create-schema-stmt.ts";
+import { handleCreateSeqStmt } from "./nodes/create-seq-stmt.ts";
 import { handleCreateStmt } from "./nodes/create-stmt/create-stmt.ts";
 import type { ParseContext } from "./types/context.ts";
 
@@ -19,12 +22,12 @@ console.log(new Set(tree.stmts?.flatMap((stmt) => Object.keys(stmt.stmt))));
 'CreateSchemaStmt', X
 'AlterOwnerStmt', X
 'CreateExtensionStmt', X
-'CommentStmt',
-'CreateEnumStmt',
-'CompositeTypeStmt',
-'CreateFunctionStmt',
-'CreateStmt',
-'AlterTableStmt',
+'CommentStmt', X
+'CreateEnumStmt', X
+'CompositeTypeStmt', X
+'CreateFunctionStmt', X
+'CreateStmt', X
+'AlterTableStmt', 
 'CreateSeqStmt',
 'AlterSeqStmt',
 'IndexStmt',
@@ -44,8 +47,10 @@ export async function parse(schema: string) {
     eventTriggers: new Map(),
     extensions: new Map(),
     functions: new Map(),
+    indexes: new Map(),
     publications: new Map(),
     schemas: new Map(),
+    sequences: new Map(),
     tables: new Map(),
     types: new Map(),
   };
@@ -509,7 +514,7 @@ export async function parse(schema: string) {
         handleCreateSchemaStmt(ctx, node);
         break;
       case "AlterTableStmt":
-        // Handle AlterTableStmt
+        handleAlterTableStmt(ctx, node);
         break;
       case "ReplicaIdentityStmt":
         // Handle ReplicaIdentityStmt
@@ -635,7 +640,7 @@ export async function parse(schema: string) {
         // Handle DropRoleStmt
         break;
       case "CreateSeqStmt":
-        // Handle CreateSeqStmt
+        handleCreateSeqStmt(ctx, node);
         break;
       case "AlterSeqStmt":
         // Handle AlterSeqStmt
@@ -746,7 +751,7 @@ export async function parse(schema: string) {
         // Handle TransactionStmt
         break;
       case "CompositeTypeStmt":
-        // Handle CompositeTypeStmt
+        handleCompositeTypeStmt(ctx, node);
         break;
       case "CreateEnumStmt":
         handleCreateEnumStmt(ctx, node);

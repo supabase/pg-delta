@@ -12,7 +12,7 @@ export type TypeDefinition = {
   schema: string;
   name: string;
   kind: TypeKind;
-  statement: CreateEnumStmt | CompositeTypeStmt | CreateRangeStmt;
   owner?: RoleSpec;
   comment?: string;
+  statement: CreateEnumStmt | CompositeTypeStmt | CreateRangeStmt;
 };
