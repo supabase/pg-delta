@@ -1,5 +1,6 @@
 import type { CreateExtensionStmt } from "@supabase/pg-parser/17/types";
-import type { ExtensionDefinition, ParseContext } from "../types.ts";
+import type { ParseContext } from "../types/context.ts";
+import type { ExtensionDefinition } from "../types/objects/extension.ts";
 import { isString } from "./guards.ts";
 
 export function handleCreateExtensionStmt(

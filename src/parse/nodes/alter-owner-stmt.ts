@@ -1,5 +1,5 @@
 import type { AlterOwnerStmt } from "@supabase/pg-parser/17/types";
-import type { ParseContext } from "../types.ts";
+import type { ParseContext } from "../types/context.ts";
 import { getTypeId } from "./create-enum-stmt.ts";
 import { isList, isString } from "./guards.ts";
 import { getObjectIdentifier } from "./utils.ts";
@@ -42,7 +42,14 @@ export function handleAlterOwnerStmt(ctx: ParseContext, node: AlterOwnerStmt) {
     case "OBJECT_DOMCONSTRAINT":
       throw new Error("Alter owner for domain constraint not implemented");
     case "OBJECT_EVENT_TRIGGER":
-      throw new Error("Alter owner for event trigger not implemented");
+      if (isString(node.object)) {
+        const eventTriggerId = node.object.String.sval;
+        const eventTrigger = ctx.eventTriggers.get(eventTriggerId);
+        if (eventTrigger) {
+          eventTrigger.owner = node.newowner;
+        }
+      }
+      break;
     case "OBJECT_EXTENSION":
       throw new Error("Alter owner for extension not implemented");
     case "OBJECT_FDW":
@@ -81,7 +88,14 @@ export function handleAlterOwnerStmt(ctx: ParseContext, node: AlterOwnerStmt) {
     case "OBJECT_PROCEDURE":
       throw new Error("Alter owner for procedure not implemented");
     case "OBJECT_PUBLICATION":
-      throw new Error("Alter owner for publication not implemented");
+      if (isString(node.object)) {
+        const publicationId = node.object.String.sval;
+        const publication = ctx.publications.get(publicationId);
+        if (publication) {
+          publication.owner = node.newowner;
+        }
+      }
+      break;
     case "OBJECT_PUBLICATION_NAMESPACE":
       throw new Error("Alter owner for publication namespace not implemented");
     case "OBJECT_PUBLICATION_REL":
@@ -97,7 +111,7 @@ export function handleAlterOwnerStmt(ctx: ParseContext, node: AlterOwnerStmt) {
         const schemaName = node.object.String.sval;
         const schema = ctx.schemas.get(schemaName);
         if (schema) {
-          schema.authrole = node.newowner;
+          schema.owner = node.newowner;
         }
       }
       break;

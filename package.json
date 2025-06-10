@@ -26,21 +26,21 @@
   ],
   "author": "Supabase",
   "license": "MIT",
-  "packageManager": "pnpm@10.11.0",
+  "packageManager": "pnpm@10.12.1",
   "devDependencies": {
     "@biomejs/biome": "2.0.0-beta.5",
     "@electric-sql/pglite": "^0.3.3",
     "@electric-sql/pglite-tools": "^0.2.8",
     "@tsconfig/node-ts": "^23.6.1",
     "@tsconfig/node24": "^24.0.1",
-    "@types/node": "^22.15.29",
+    "@types/node": "^24.0.0",
     "knip": "^5.60.2",
-    "sql-formatter": "^15.6.2",
+    "sql-formatter": "^15.6.3",
     "supabase": "^2.24.3",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.1"
+    "vitest": "^3.2.3"
   },
   "dependencies": {
-    "@supabase/pg-parser": "^0.1.1"
+    "@supabase/pg-parser": "^0.1.2"
   }
 }

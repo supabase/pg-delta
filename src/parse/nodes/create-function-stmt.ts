@@ -1,5 +1,6 @@
 import type { CreateFunctionStmt } from "@supabase/pg-parser/17/types";
-import type { FunctionDefinition, ParseContext } from "../types.ts";
+import type { ParseContext } from "../types/context.ts";
+import type { FunctionDefinition } from "../types/objects/function.ts";
 import { getObjectIdentifier } from "./utils.ts";
 
 export function handleCreateFunctionStmt(

@@ -1,5 +1,5 @@
 import type { CreateEnumStmt, Node } from "@supabase/pg-parser/17/types";
-import type { ParseContext } from "../types.ts";
+import type { ParseContext } from "../types/context.ts";
 import { isString } from "./guards.ts";
 
 export function getTypeId(typeName: Node[]) {

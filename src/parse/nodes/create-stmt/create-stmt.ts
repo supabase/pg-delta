@@ -1,5 +1,5 @@
 import type { CreateStmt } from "@supabase/pg-parser/17/types";
-import type { ParseContext } from "../../types.ts";
+import type { ParseContext } from "../../types/context.ts";
 import {
   handleCreateTableStmt,
   isCreateTableStmt,

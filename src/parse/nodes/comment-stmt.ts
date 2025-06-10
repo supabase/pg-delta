@@ -1,5 +1,5 @@
 import type { CommentStmt } from "@supabase/pg-parser/17/types";
-import type { ParseContext } from "../types.ts";
+import type { ParseContext } from "../types/context.ts";
 
 export function handleCommentStmt(ctx: ParseContext, node: CommentStmt) {
   if (!node.objtype) {

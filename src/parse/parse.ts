@@ -2,11 +2,13 @@ import { PgParser, unwrapParseResult } from "@supabase/pg-parser";
 import { handleAlterOwnerStmt } from "./nodes/alter-owner-stmt.ts";
 import { handleCommentStmt } from "./nodes/comment-stmt.ts";
 import { handleCreateEnumStmt } from "./nodes/create-enum-stmt.ts";
+import { handleCreateEventTrigStmt } from "./nodes/create-event-trig-stmt.ts";
 import { handleCreateExtensionStmt } from "./nodes/create-extension-stmt.ts";
 import { handleCreateFunctionStmt } from "./nodes/create-function-stmt.ts";
+import { handleCreatePublicationStmt } from "./nodes/create-publication-stmt.ts";
 import { handleCreateSchemaStmt } from "./nodes/create-schema-stmt.ts";
 import { handleCreateStmt } from "./nodes/create-stmt/create-stmt.ts";
-import type { ParseContext } from "./types.ts";
+import type { ParseContext } from "./types/context.ts";
 
 /*
 Node types in the initial Supabase schema:
@@ -27,7 +29,7 @@ console.log(new Set(tree.stmts?.flatMap((stmt) => Object.keys(stmt.stmt))));
 'AlterSeqStmt',
 'IndexStmt',
 'CreateTrigStmt',
-'CreatePublicationStmt',
+'CreatePublicationStmt', X
 'GrantStmt',
 'AlterDefaultPrivilegesStmt',
 'CreateEventTrigStmt'
@@ -37,8 +39,10 @@ export async function parse(schema: string) {
   const parser = new PgParser();
   const tree = await unwrapParseResult(parser.parse(schema));
   const ctx: ParseContext = {
+    eventTriggers: new Map(),
     extensions: new Map(),
     functions: new Map(),
+    publications: new Map(),
     schemas: new Map(),
     tables: new Map(),
     types: new Map(),
@@ -420,7 +424,7 @@ export async function parse(schema: string) {
     } else if ("CreateTrigStmt" in node) {
       // Handle CreateTrigStmt
     } else if ("CreateEventTrigStmt" in node) {
-      // Handle CreateEventTrigStmt
+      handleCreateEventTrigStmt(ctx, node.CreateEventTrigStmt);
     } else if ("AlterEventTrigStmt" in node) {
       // Handle AlterEventTrigStmt
     } else if ("CreatePLangStmt" in node) {
@@ -578,7 +582,7 @@ export async function parse(schema: string) {
     } else if ("PublicationObjSpec" in node) {
       // Handle PublicationObjSpec
     } else if ("CreatePublicationStmt" in node) {
-      // Handle CreatePublicationStmt
+      handleCreatePublicationStmt(ctx, node.CreatePublicationStmt);
     } else if ("AlterPublicationStmt" in node) {
       // Handle AlterPublicationStmt
     } else if ("CreateSubscriptionStmt" in node) {
