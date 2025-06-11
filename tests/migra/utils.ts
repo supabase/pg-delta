@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import postgres from "postgres";
 import { test as baseTest } from "vitest";
