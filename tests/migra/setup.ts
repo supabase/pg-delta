@@ -11,12 +11,12 @@ export const test = baseTest.extend<{
       new PostgreSqlContainer("17-alpine").start(),
       new PostgreSqlContainer("17-alpine").start(),
     ]);
-
     const a = postgres(containerA.getConnectionUri());
     const b = postgres(containerB.getConnectionUri());
 
     await use({ a, b });
 
-    await Promise.all([a.end(), b.end(), containerA.stop(), containerB.stop()]);
+    await Promise.all([a.end(), b.end()]);
+    await Promise.all([containerA.stop(), containerB.stop()]);
   },
 });
