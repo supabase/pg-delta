@@ -59,22 +59,7 @@ export type InspectionResult = {
 };
 
 export async function inspect(sql: Sql): Promise<InspectionResult> {
-  const collations = await inspectCollations(sql);
-  const constraints = await inspectConstraints(sql);
-  const domains = await inspectDomains(sql);
-  const enums = await inspectEnums(sql);
-  const extensions = await inspectExtensions(sql);
-  const functions = await inspectFunctions(sql);
-  const indexes = await inspectIndexes(sql);
-  const privileges = await inspectPrivileges(sql);
-  const relations = await inspectRelations(sql);
-  const rlsPolicies = await inspectRLSPolicies(sql);
-  const schemas = await inspectSchemas(sql);
-  const sequences = await inspectSequences(sql);
-  const triggers = await inspectTriggers(sql);
-  const types = await inspectTypes(sql);
-
-  return {
+  const [
     collations,
     constraints,
     domains,
@@ -83,11 +68,46 @@ export async function inspect(sql: Sql): Promise<InspectionResult> {
     functions,
     indexes,
     privileges,
-    ...relations,
+    { compositeTypes, materializedViews, tables, views },
     rlsPolicies,
     schemas,
     sequences,
     triggers,
     types,
+  ] = await Promise.all([
+    inspectCollations(sql),
+    inspectConstraints(sql),
+    inspectDomains(sql),
+    inspectEnums(sql),
+    inspectExtensions(sql),
+    inspectFunctions(sql),
+    inspectIndexes(sql),
+    inspectPrivileges(sql),
+    inspectRelations(sql),
+    inspectRLSPolicies(sql),
+    inspectSchemas(sql),
+    inspectSequences(sql),
+    inspectTriggers(sql),
+    inspectTypes(sql),
+  ]);
+
+  return {
+    collations,
+    compositeTypes,
+    constraints,
+    domains,
+    enums,
+    extensions,
+    functions,
+    indexes,
+    materializedViews,
+    privileges,
+    rlsPolicies,
+    schemas,
+    sequences,
+    tables,
+    triggers,
+    types,
+    views,
   };
 }
