@@ -1,0 +1,87 @@
+import type { Sql } from "postgres";
+
+// PostgreSQL relation persistence types
+export type RelationPersistence =
+  /** Permanent relation (default) */
+  | "p"
+  /** Unlogged relation */
+  | "u"
+  /** Temporary relation */
+  | "t";
+
+// PostgreSQL replica identity types
+export type ReplicaIdentity =
+  /** DEFAULT */
+  | "d"
+  /** NOTHING */
+  | "n"
+  /** FULL */
+  | "f"
+  /** INDEX */
+  | "i";
+
+export interface InspectedTable {
+  schema: string;
+  name: string;
+  persistence: RelationPersistence;
+  row_security: boolean;
+  force_row_security: boolean;
+  page_size_estimate: number;
+  row_count_estimate: number;
+  has_indexes: boolean;
+  has_rules: boolean;
+  has_triggers: boolean;
+  has_subclasses: boolean;
+  is_populated: boolean;
+  replica_identity: ReplicaIdentity;
+  is_partition: boolean;
+  options: string[] | null;
+  partition_bound: string | null;
+  owner: string;
+}
+
+export async function inspectTables(sql: Sql): Promise<InspectedTable[]> {
+  const tables = await sql<InspectedTable[]>`
+with extension_oids as (
+  select
+    objid
+  from
+    pg_depend d
+  where
+    d.refclassid = 'pg_extension'::regclass
+    and d.classid = 'pg_class'::regclass
+)
+select
+  n.nspname as schema,
+  c.relname as name,
+  c.relpersistence as persistence,
+  c.relrowsecurity as row_security,
+  c.relforcerowsecurity as force_row_security,
+  c.relpages as page_size_estimate,
+  c.reltuples as row_count_estimate,
+  c.relhasindex as has_indexes,
+  c.relhasrules as has_rules,
+  c.relhastriggers as has_triggers,
+  c.relhassubclass as has_subclasses,
+  c.relispopulated as is_populated,
+  c.relreplident as replica_identity,
+  c.relispartition as is_partition,
+  c.reloptions as options,
+  pg_get_expr(c.relpartbound, c.oid) as partition_bound,
+  pg_get_userbyid(c.relowner) as owner
+from
+  pg_catalog.pg_class c
+  inner join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+  left outer join extension_oids e on c.oid = e.objid
+  -- <EXCLUDE_INTERNAL>
+  where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
+  and n.nspname not like 'pg_temp_%' and n.nspname not like 'pg_toast_temp_%'
+  and e.objid is null
+  and c.relkind in ('r', 'p')
+  -- </EXCLUDE_INTERNAL>
+order by
+  1, 2;
+  `;
+
+  return tables;
+}

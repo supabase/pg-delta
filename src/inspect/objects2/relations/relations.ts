@@ -22,6 +22,44 @@ export type RelationPersistence =
   /** Unlogged relation */
   | "u";
 
+/** PostgreSQL identity column types */
+export type IdentityType =
+  /** not identity */
+  | ""
+  /** always */
+  | "a"
+  /** by default */
+  | "d";
+
+/** PostgreSQL generated column types */
+export type GeneratedType =
+  /** not generated */
+  | ""
+  /** stored */
+  | "s";
+
+/** PostgreSQL attribute compression types */
+export type CompressionType =
+  /** default */
+  | ""
+  /** pglz */
+  | "p"
+  /** lz4 */
+  | "l"
+  /** external */
+  | "e";
+
+/** PostgreSQL attribute storage types */
+export type StorageType =
+  /** plain */
+  | "p"
+  /** external */
+  | "e"
+  /** main */
+  | "m"
+  /** extended */
+  | "x";
+
 /** Raw result from PostgreSQL's system catalogs where each row represents a column */
 export type RawRelationQueryResult = {
   relationtype: RelationType;
@@ -32,6 +70,10 @@ export type RawRelationQueryResult = {
   attname: string;
   not_null: boolean;
   datatype: string;
+  identity_type: IdentityType;
+  generated: GeneratedType;
+  compression: CompressionType;
+  storage_type: StorageType;
   is_identity: boolean;
   is_identity_always: boolean;
   collation: string | null;
@@ -50,6 +92,12 @@ export type RawRelationQueryResult = {
   page_size_estimate: number;
   row_count_estimate: number;
   owner: string;
+  storage_length: number;
+  type_modifier: number | null;
+  array_dimensions: number;
+  options: string[] | null;
+  fdw_options: string[] | null;
+  relation_options: string[] | null;
 }[];
 
 /** A single column in a relation */
@@ -58,6 +106,10 @@ export type RelationColumn = {
   attName: string;
   notNull: boolean;
   dataType: string;
+  identityType: IdentityType;
+  generated: GeneratedType;
+  compression: CompressionType;
+  storageType: StorageType;
   isIdentity: boolean;
   isIdentityAlways: boolean;
   collation: string | null;
@@ -66,6 +118,11 @@ export type RelationColumn = {
   isEnum: boolean;
   enumName: string | null;
   enumSchema: string | null;
+  storageLength: number;
+  typeModifier: number | null;
+  arrayDimensions: number;
+  options: string[] | null;
+  fdwOptions: string[] | null;
 };
 
 /** A grouped relation with its columns */
@@ -85,6 +142,7 @@ export type GroupedRelation = {
   rowCountEstimate: number;
   columns: RelationColumn[];
   owner: string;
+  relationOptions: string[] | null;
 };
 
 /** Relations grouped by type with their columns nested */
@@ -132,6 +190,7 @@ function groupAndCategorizeRelations(
         rowCountEstimate: relation.row_count_estimate,
         columns: [],
         owner: relation.owner,
+        relationOptions: relation.relation_options,
       };
 
       grouped.set(key, groupedRelation);
@@ -162,6 +221,10 @@ function groupAndCategorizeRelations(
       attName: relation.attname,
       notNull: relation.not_null,
       dataType: relation.datatype,
+      identityType: relation.identity_type,
+      generated: relation.generated,
+      compression: relation.compression,
+      storageType: relation.storage_type,
       isIdentity: relation.is_identity,
       isIdentityAlways: relation.is_identity_always,
       collation: relation.collation,
@@ -170,6 +233,11 @@ function groupAndCategorizeRelations(
       isEnum: relation.is_enum,
       enumName: relation.enum_name,
       enumSchema: relation.enum_schema,
+      storageLength: relation.storage_length,
+      typeModifier: relation.type_modifier,
+      arrayDimensions: relation.array_dimensions,
+      options: relation.options,
+      fdwOptions: relation.fdw_options,
     });
   }
 
@@ -239,6 +307,7 @@ export async function inspectRelations(sql: Sql): Promise<InspectedRelations> {
           c.relpersistence as persistence,
           c.relpages as page_size_estimate,
           c.reltuples as row_count_estimate,
+          c.reloptions as relation_options,
           pg_get_userbyid(c.relowner) as owner
         from
           pg_catalog.pg_class c
@@ -261,6 +330,10 @@ export async function inspectRelations(sql: Sql): Promise<InspectedRelations> {
       a.attname as attname,
       a.attnotnull as not_null,
       a.atttypid::regtype as datatype,
+      a.attidentity as identity_type,
+      a.attgenerated as generated,
+      a.attcompression as compression,
+      a.attstorage as storage_type,
       a.attidentity != '' as is_identity,
       a.attidentity = 'a' as is_identity_always,
       (
@@ -288,7 +361,13 @@ export async function inspectRelations(sql: Sql): Promise<InspectedRelations> {
       r.persistence,
       r.page_size_estimate,
       r.row_count_estimate,
-      r.owner
+      r.owner,
+      a.attlen as storage_length,
+      a.atttypmod as type_modifier,
+      a.attndims as array_dimensions,
+      a.attoptions as options,
+      a.attfdwoptions as fdw_options,
+      r.relation_options
     from
       r
       left join pg_catalog.pg_attribute a on r.oid = a.attrelid
