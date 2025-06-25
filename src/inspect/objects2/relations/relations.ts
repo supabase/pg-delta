@@ -60,12 +60,7 @@ export type StorageType =
   /** extended */
   | "x";
 
-/** Raw result from PostgreSQL's system catalogs where each row represents a column */
-export type RawRelationQueryResult = {
-  relationtype: RelationType;
-  schema: string;
-  name: string;
-  definition: string | null;
+export type RelationColumn = {
   position_number: number;
   attname: string;
   not_null: boolean;
@@ -78,11 +73,23 @@ export type RawRelationQueryResult = {
   is_identity_always: boolean;
   collation: string | null;
   defaultdef: string | null;
-  oid: number;
   datatypestring: string;
   is_enum: boolean;
   enum_name: string | null;
   enum_schema: string | null;
+  storage_length: number;
+  type_modifier: number | null;
+  array_dimensions: number;
+  options: string[] | null;
+  fdw_options: string[] | null;
+};
+
+export type RelationBase = {
+  relationtype: RelationType;
+  schema: string;
+  name: string;
+  definition: string | null;
+  oid: number;
   comment: string | null;
   parent_table: string | null;
   partition_def: string | null;
@@ -92,160 +99,73 @@ export type RawRelationQueryResult = {
   page_size_estimate: number;
   row_count_estimate: number;
   owner: string;
-  storage_length: number;
-  type_modifier: number | null;
-  array_dimensions: number;
-  options: string[] | null;
-  fdw_options: string[] | null;
   relation_options: string[] | null;
-}[];
-
-/** A single column in a relation */
-export type RelationColumn = {
-  positionNumber: number;
-  attName: string;
-  notNull: boolean;
-  dataType: string;
-  identityType: IdentityType;
-  generated: GeneratedType;
-  compression: CompressionType;
-  storageType: StorageType;
-  isIdentity: boolean;
-  isIdentityAlways: boolean;
-  collation: string | null;
-  defaultDef: string | null;
-  dataTypeString: string;
-  isEnum: boolean;
-  enumName: string | null;
-  enumSchema: string | null;
-  storageLength: number;
-  typeModifier: number | null;
-  arrayDimensions: number;
-  options: string[] | null;
-  fdwOptions: string[] | null;
 };
 
-/** A grouped relation with its columns */
-export type GroupedRelation = {
-  relationType: RelationType;
-  schema: string;
-  name: string;
-  definition: string | null;
-  oid: number;
-  comment: string | null;
-  parentTable: string | null;
-  partitionDef: string | null;
-  rowSecurity: boolean;
-  forceRowSecurity: boolean;
-  persistence: RelationPersistence;
-  pageSizeEstimate: number;
-  rowCountEstimate: number;
-  columns: RelationColumn[];
-  owner: string;
-  relationOptions: string[] | null;
-};
+export type RawRelationQueryResult = (RelationBase & RelationColumn)[];
 
-/** Relations grouped by type with their columns nested */
+export type GroupedRelation = RelationBase & { columns: RelationColumn[] };
+
 export type InspectedRelations = {
-  tables: GroupedRelation[]; // r, p
-  views: GroupedRelation[]; // v
-  materializedViews: GroupedRelation[]; // m
-  compositeTypes: GroupedRelation[]; // c
+  tables: RelationBase[];
+  views: RelationBase[];
+  materializedViews: RelationBase[];
+  compositeTypes: RelationBase[];
 };
 
-function groupAndCategorizeRelations(
-  relations: RawRelationQueryResult,
-): InspectedRelations {
-  const grouped = new Map<string, GroupedRelation>();
-  const categorized: InspectedRelations = {
-    tables: [],
-    views: [],
-    materializedViews: [],
-    compositeTypes: [],
-  };
-
-  // First group relations by their unique key
-  for (const relation of relations) {
-    const key = JSON.stringify([
-      relation.relationtype,
-      relation.schema,
-      relation.name,
-    ]);
-
+function groupRawRelations(raw: RawRelationQueryResult): InspectedRelations {
+  const grouped = new Map<string, RelationBase>();
+  for (const row of raw) {
+    const key = JSON.stringify([row.relationtype, row.schema, row.name]);
     if (!grouped.has(key)) {
-      // Create new relation entry
-      const groupedRelation: GroupedRelation = {
-        relationType: relation.relationtype,
-        schema: relation.schema,
-        name: relation.name,
-        definition: relation.definition,
-        oid: relation.oid,
-        comment: relation.comment,
-        parentTable: relation.parent_table,
-        partitionDef: relation.partition_def,
-        rowSecurity: relation.rowsecurity,
-        forceRowSecurity: relation.forcerowsecurity,
-        persistence: relation.persistence,
-        pageSizeEstimate: relation.page_size_estimate,
-        rowCountEstimate: relation.row_count_estimate,
-        columns: [],
-        owner: relation.owner,
-        relationOptions: relation.relation_options,
+      // Explicitly extract relation-level fields only
+      const relation: RelationBase = {
+        relationtype: row.relationtype,
+        schema: row.schema,
+        name: row.name,
+        definition: row.definition,
+        oid: row.oid,
+        comment: row.comment,
+        parent_table: row.parent_table,
+        partition_def: row.partition_def,
+        rowsecurity: row.rowsecurity,
+        forcerowsecurity: row.forcerowsecurity,
+        persistence: row.persistence,
+        page_size_estimate: row.page_size_estimate,
+        row_count_estimate: row.row_count_estimate,
+        owner: row.owner,
+        relation_options: row.relation_options,
       };
-
-      grouped.set(key, groupedRelation);
-
-      // Categorize the relation immediately
-      switch (relation.relationtype) {
-        case "r":
-        case "p":
-          categorized.tables.push(groupedRelation);
-          break;
-        case "v":
-          categorized.views.push(groupedRelation);
-          break;
-        case "m":
-          categorized.materializedViews.push(groupedRelation);
-          break;
-        case "c":
-          categorized.compositeTypes.push(groupedRelation);
-          break;
-      }
+      grouped.set(key, relation);
     }
-
-    // Add column information
-    // biome-ignore lint/style/noNonNullAssertion: defined because of the grouped.has(key) assertion above
-    const relationGroup = grouped.get(key)!;
-    relationGroup.columns.push({
-      positionNumber: relation.position_number,
-      attName: relation.attname,
-      notNull: relation.not_null,
-      dataType: relation.datatype,
-      identityType: relation.identity_type,
-      generated: relation.generated,
-      compression: relation.compression,
-      storageType: relation.storage_type,
-      isIdentity: relation.is_identity,
-      isIdentityAlways: relation.is_identity_always,
-      collation: relation.collation,
-      defaultDef: relation.defaultdef,
-      dataTypeString: relation.datatypestring,
-      isEnum: relation.is_enum,
-      enumName: relation.enum_name,
-      enumSchema: relation.enum_schema,
-      storageLength: relation.storage_length,
-      typeModifier: relation.type_modifier,
-      arrayDimensions: relation.array_dimensions,
-      options: relation.options,
-      fdwOptions: relation.fdw_options,
-    });
   }
-
-  return categorized;
+  // Dispatch to the right array
+  const tables: RelationBase[] = [];
+  const views: RelationBase[] = [];
+  const materializedViews: RelationBase[] = [];
+  const compositeTypes: RelationBase[] = [];
+  for (const relation of grouped.values()) {
+    switch (relation.relationtype) {
+      case "r":
+      case "p":
+        tables.push(relation);
+        break;
+      case "v":
+        views.push(relation);
+        break;
+      case "m":
+        materializedViews.push(relation);
+        break;
+      case "c":
+        compositeTypes.push(relation);
+        break;
+    }
+  }
+  return { tables, views, materializedViews, compositeTypes };
 }
 
 export async function inspectRelations(sql: Sql): Promise<InspectedRelations> {
-  const relations = await sql<RawRelationQueryResult>`
+  const raw = await sql<RawRelationQueryResult>`
     with
       extension_oids as (
         select
@@ -387,6 +307,5 @@ export async function inspectRelations(sql: Sql): Promise<InspectedRelations> {
       r.name,
       position_number;
   `;
-
-  return groupAndCategorizeRelations(relations);
+  return groupRawRelations(raw);
 }
