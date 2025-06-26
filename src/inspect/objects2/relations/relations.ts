@@ -11,7 +11,15 @@ export type RelationType =
   /** Composite type */
   | "c"
   /** Partitioned table */
-  | "p";
+  | "p"
+  /** Foreign table */
+  | "f"
+  /** Index */
+  | "i"
+  /** Sequence */
+  | "S"
+  /** TOAST table */
+  | "t";
 
 /** PostgreSQL relation persistence types */
 export type RelationPersistence =

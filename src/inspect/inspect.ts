@@ -1,42 +1,34 @@
 import type { Sql } from "postgres";
 import {
   type InspectedCollation,
-  inspectCollations,
-} from "./objects/collations.ts";
-import {
   type InspectedConstraint,
-  inspectConstraints,
-} from "./objects/constraints.ts";
-import { type InspectedDomain, inspectDomains } from "./objects/domains.ts";
-import { type InspectedEnum, inspectEnums } from "./objects/enums.ts";
-import {
+  type InspectedDomain,
+  type InspectedEnum,
   type InspectedExtension,
-  inspectExtensions,
-} from "./objects/extensions.ts";
-import {
   type InspectedFunction,
-  inspectFunctions,
-} from "./objects/functions.ts";
-import { type InspectedIndex, inspectIndexes } from "./objects/indexes.ts";
-import {
+  type InspectedIndex,
   type InspectedPrivilege,
-  inspectPrivileges,
-} from "./objects/privileges.ts";
-import {
   type InspectedRelations,
-  inspectRelations,
-} from "./objects/relations/relations.ts";
-import {
-  type InspectedRLSPolicy,
-  inspectRLSPolicies,
-} from "./objects/rls-policies.ts";
-import { type InspectedSchema, inspectSchemas } from "./objects/schemas.ts";
-import {
+  type InspectedRlsPolicy,
+  type InspectedSchema,
   type InspectedSequence,
+  type InspectedTrigger,
+  type InspectedType,
+  inspectCollations,
+  inspectConstraints,
+  inspectDomains,
+  inspectEnums,
+  inspectExtensions,
+  inspectFunctions,
+  inspectIndexes,
+  inspectPrivileges,
+  inspectRelations,
+  inspectRlsPolicies,
+  inspectSchemas,
   inspectSequences,
-} from "./objects/sequences.ts";
-import { type InspectedTrigger, inspectTriggers } from "./objects/triggers.ts";
-import { type InspectedType, inspectTypes } from "./objects/types.ts";
+  inspectTriggers,
+  inspectTypes,
+} from "./objects2/index.ts";
 
 export type InspectionResult = {
   collations: InspectedCollation[];
@@ -49,7 +41,7 @@ export type InspectionResult = {
   indexes: InspectedIndex[];
   materializedViews: InspectedRelations["materializedViews"];
   privileges: InspectedPrivilege[];
-  rlsPolicies: InspectedRLSPolicy[];
+  rlsPolicies: InspectedRlsPolicy[];
   schemas: InspectedSchema[];
   sequences: InspectedSequence[];
   tables: InspectedRelations["tables"];
@@ -84,7 +76,7 @@ export async function inspect(sql: Sql): Promise<InspectionResult> {
     inspectIndexes(sql),
     inspectPrivileges(sql),
     inspectRelations(sql),
-    inspectRLSPolicies(sql),
+    inspectRlsPolicies(sql),
     inspectSchemas(sql),
     inspectSequences(sql),
     inspectTriggers(sql),

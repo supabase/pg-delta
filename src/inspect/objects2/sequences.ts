@@ -10,8 +10,6 @@ export interface InspectedSequence {
   increment: number;
   cycle_option: boolean;
   cache_size: number;
-  last_value: number | null;
-  is_called: boolean;
   persistence: string;
   owner: string;
 }
@@ -37,8 +35,6 @@ select
   s.seqincrement as increment,
   s.seqcycle as cycle_option,
   s.seqcache as cache_size,
-  s.seqlast as last_value,
-  s.seqis_called as is_called,
   c.relpersistence as persistence,
   pg_get_userbyid(c.relowner) as owner
 from

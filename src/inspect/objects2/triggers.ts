@@ -44,7 +44,7 @@ with extension_oids as (
     and d.classid = 'pg_trigger'::regclass
 )
 select
-  n.nspname as schema,
+  tn.nspname as schema,
   t.tgname as name,
   tn.nspname as table_schema,
   tc.relname as table_name,
@@ -57,7 +57,7 @@ select
   t.tginitdeferred as initially_deferred,
   t.tgnargs as argument_count,
   t.tgattr as column_numbers,
-  string_to_array(encode(t.tgargs, 'escape'), '\000') as arguments,
+  case when t.tgnargs > 0 then array_fill(''::text, array[t.tgnargs]) else array[]::text[] end as arguments,
   pg_get_expr(t.tgqual, t.tgrelid) as when_condition,
   t.tgoldtable as old_table,
   t.tgnewtable as new_table,
@@ -68,7 +68,6 @@ from
   inner join pg_catalog.pg_namespace tn on tn.oid = tc.relnamespace
   inner join pg_catalog.pg_proc fc on fc.oid = t.tgfoid
   inner join pg_catalog.pg_namespace fn on fn.oid = fc.pronamespace
-  inner join pg_catalog.pg_namespace n on n.oid = t.tgrelid
   left outer join extension_oids e on t.oid = e.objid
   -- <EXCLUDE_INTERNAL>
   where tn.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
