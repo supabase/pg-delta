@@ -6,6 +6,20 @@ import { inspectViews } from "./views.ts";
 describe.concurrent(
   "inspect views",
   () => {
+    const assertions = new Map([
+      [
+        "15",
+        {
+          definition: " SELECT view_table.id\n   FROM view_table;",
+        },
+      ],
+      [
+        "default",
+        {
+          definition: " SELECT id\n   FROM view_table;",
+        },
+      ],
+    ]);
     for (const postgresVersion of POSTGRES_VERSIONS) {
       describe(`postgres ${postgresVersion}`, () => {
         const test = getTest(postgresVersion);
@@ -23,12 +37,16 @@ describe.concurrent(
           const resultA = await inspectViews(db.a);
           const resultB = await inspectViews(db.b);
           // assert
+          const assertion =
+            assertions.get(`${postgresVersion}`) === undefined
+              ? assertions.get("default")
+              : assertions.get(`${postgresVersion}`);
           expect(resultA).toEqual(
             new Map([
               [
                 "public.test_view",
                 {
-                  definition: " SELECT id\n   FROM view_table;",
+                  definition: assertion?.definition,
                   force_row_security: false,
                   has_indexes: false,
                   has_rules: true,
