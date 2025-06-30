@@ -6,6 +6,20 @@ import { inspectMaterializedViews } from "./materialized-views.ts";
 describe.concurrent(
   "inspect materialized views",
   () => {
+    const assertions = new Map([
+      [
+        "15",
+        {
+          definition: " SELECT mv_table.id\n   FROM mv_table;",
+        },
+      ],
+      [
+        "default",
+        {
+          definition: " SELECT id\n   FROM mv_table;",
+        },
+      ],
+    ]);
     for (const postgresVersion of POSTGRES_VERSIONS) {
       describe(`postgres ${postgresVersion}`, () => {
         const test = getTest(postgresVersion);
@@ -23,12 +37,16 @@ describe.concurrent(
           const resultA = await inspectMaterializedViews(db.a);
           const resultB = await inspectMaterializedViews(db.b);
           // assert
+          const assertion =
+            assertions.get(`${postgresVersion}`) === undefined
+              ? assertions.get("default")
+              : assertions.get(`${postgresVersion}`);
           expect(resultA).toEqual(
             new Map([
               [
                 "public.test_mv",
                 {
-                  definition: " SELECT id\n   FROM mv_table;",
+                  definition: assertion?.definition,
                   force_row_security: false,
                   has_indexes: false,
                   has_rules: true,
