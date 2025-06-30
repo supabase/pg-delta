@@ -69,7 +69,9 @@ export interface InspectedFunction {
   owner: string;
 }
 
-export async function inspectFunctions(sql: Sql): Promise<InspectedFunction[]> {
+export async function inspectFunctions(
+  sql: Sql,
+): Promise<Map<string, InspectedFunction>> {
   const functions = await sql<InspectedFunction[]>`
 with extension_oids as (
   select
@@ -128,5 +130,17 @@ order by
   1, 2;
   `;
 
-  return functions;
+  return new Map(functions.map((f) => [identifyFunction(f), f]));
+}
+
+export function identifyFunction(function_: InspectedFunction): string {
+  const argNames = function_.argument_names ?? [];
+  const argTypes = function_.argument_types ?? [];
+  const args = argTypes
+    .map((type, i) => {
+      const name = argNames[i] ?? "";
+      return name ? `${name} ${type}` : type;
+    })
+    .join(", ");
+  return `${function_.schema}.${function_.name}(${args})`;
 }

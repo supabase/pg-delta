@@ -22,36 +22,33 @@ describe.concurrent(
           const resultA = await inspectEnums(db.a);
           const resultB = await inspectEnums(db.b);
           // assert
-          expect(resultA).toEqual(
-            new Map([
-              [
-                "public.test_enum",
-                [
-                  {
-                    label: "a",
-                    name: "test_enum",
-                    owner: "test",
-                    schema: "public",
-                    sort_order: 1,
-                  },
-                  {
-                    label: "b",
-                    name: "test_enum",
-                    owner: "test",
-                    schema: "public",
-                    sort_order: 2,
-                  },
-                  {
-                    label: "c",
-                    name: "test_enum",
-                    owner: "test",
-                    schema: "public",
-                    sort_order: 3,
-                  },
-                ],
+          expect(resultA).toMatchInlineSnapshot(`
+            Map {
+              "public.test_enum" => [
+                {
+                  "label": "a",
+                  "name": "test_enum",
+                  "owner": "test",
+                  "schema": "public",
+                  "sort_order": 1,
+                },
+                {
+                  "label": "b",
+                  "name": "test_enum",
+                  "owner": "test",
+                  "schema": "public",
+                  "sort_order": 2,
+                },
+                {
+                  "label": "c",
+                  "name": "test_enum",
+                  "owner": "test",
+                  "schema": "public",
+                  "sort_order": 3,
+                },
               ],
-            ]),
-          );
+            }
+          `);
           expect(resultB).toEqual(resultA);
         });
       });
