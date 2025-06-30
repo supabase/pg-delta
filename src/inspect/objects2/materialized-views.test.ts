@@ -9,15 +9,54 @@ describe.concurrent(
     const assertions = new Map([
       [
         "15",
-        {
-          definition: " SELECT mv_table.id\n   FROM mv_table;",
-        },
+        new Map([
+          [
+            "public.test_mv",
+            {
+              definition: " SELECT mv_table.id\n   FROM mv_table;",
+              force_row_security: false,
+              has_indexes: false,
+              has_rules: true,
+              has_subclasses: false,
+              has_triggers: false,
+              is_partition: false,
+              is_populated: true,
+              name: "test_mv",
+              options: null,
+              owner: "test",
+              partition_bound: null,
+              replica_identity: "d",
+              row_security: false,
+              schema: "public",
+            },
+          ],
+        ]),
       ],
       [
         "default",
-        {
-          definition: " SELECT id\n   FROM mv_table;",
-        },
+        new Map([
+          [
+            "public.test_mv",
+            {
+              definition: " SELECT id\n   FROM mv_table;",
+
+              force_row_security: false,
+              has_indexes: false,
+              has_rules: true,
+              has_subclasses: false,
+              has_triggers: false,
+              is_partition: false,
+              is_populated: true,
+              name: "test_mv",
+              options: null,
+              owner: "test",
+              partition_bound: null,
+              replica_identity: "d",
+              row_security: false,
+              schema: "public",
+            },
+          ],
+        ]),
       ],
     ]);
     for (const postgresVersion of POSTGRES_VERSIONS) {
@@ -41,30 +80,7 @@ describe.concurrent(
             assertions.get(`${postgresVersion}`) === undefined
               ? assertions.get("default")
               : assertions.get(`${postgresVersion}`);
-          expect(resultA).toEqual(
-            new Map([
-              [
-                "public.test_mv",
-                {
-                  definition: assertion?.definition,
-                  force_row_security: false,
-                  has_indexes: false,
-                  has_rules: true,
-                  has_subclasses: false,
-                  has_triggers: false,
-                  is_partition: false,
-                  is_populated: true,
-                  name: "test_mv",
-                  options: null,
-                  owner: "test",
-                  partition_bound: null,
-                  replica_identity: "d",
-                  row_security: false,
-                  schema: "public",
-                },
-              ],
-            ]),
-          );
+          expect(resultA).toEqual(assertion);
           expect(resultB).toEqual(resultA);
         });
       });

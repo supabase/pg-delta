@@ -9,15 +9,53 @@ describe.concurrent(
     const assertions = new Map([
       [
         "15",
-        {
-          definition: " SELECT view_table.id\n   FROM view_table;",
-        },
+        new Map([
+          [
+            "public.test_view",
+            {
+              definition: " SELECT view_table.id\n   FROM view_table;",
+              force_row_security: false,
+              has_indexes: false,
+              has_rules: true,
+              has_subclasses: false,
+              has_triggers: false,
+              is_partition: false,
+              is_populated: true,
+              name: "test_view",
+              options: null,
+              owner: "test",
+              partition_bound: null,
+              replica_identity: "n",
+              row_security: false,
+              schema: "public",
+            },
+          ],
+        ]),
       ],
       [
         "default",
-        {
-          definition: " SELECT id\n   FROM view_table;",
-        },
+        new Map([
+          [
+            "public.test_view",
+            {
+              definition: " SELECT id\n   FROM view_table;",
+              force_row_security: false,
+              has_indexes: false,
+              has_rules: true,
+              has_subclasses: false,
+              has_triggers: false,
+              is_partition: false,
+              is_populated: true,
+              name: "test_view",
+              options: null,
+              owner: "test",
+              partition_bound: null,
+              replica_identity: "n",
+              row_security: false,
+              schema: "public",
+            },
+          ],
+        ]),
       ],
     ]);
     for (const postgresVersion of POSTGRES_VERSIONS) {
@@ -41,30 +79,7 @@ describe.concurrent(
             assertions.get(`${postgresVersion}`) === undefined
               ? assertions.get("default")
               : assertions.get(`${postgresVersion}`);
-          expect(resultA).toEqual(
-            new Map([
-              [
-                "public.test_view",
-                {
-                  definition: assertion?.definition,
-                  force_row_security: false,
-                  has_indexes: false,
-                  has_rules: true,
-                  has_subclasses: false,
-                  has_triggers: false,
-                  is_partition: false,
-                  is_populated: true,
-                  name: "test_view",
-                  options: null,
-                  owner: "test",
-                  partition_bound: null,
-                  replica_identity: "n",
-                  row_security: false,
-                  schema: "public",
-                },
-              ],
-            ]),
-          );
+          expect(resultA).toEqual(assertion);
           expect(resultB).toEqual(resultA);
         });
       });
