@@ -6,6 +6,60 @@ import { inspectMaterializedViews } from "./materialized-views.ts";
 describe.concurrent(
   "inspect materialized views",
   () => {
+    const assertions = new Map([
+      [
+        "15",
+        new Map([
+          [
+            "public.test_mv",
+            {
+              // In postgres 15, columns are prefixed with the table name automatically in definition
+              definition: " SELECT mv_table.id\n   FROM mv_table;",
+              force_row_security: false,
+              has_indexes: false,
+              has_rules: true,
+              has_subclasses: false,
+              has_triggers: false,
+              is_partition: false,
+              is_populated: true,
+              name: "test_mv",
+              options: null,
+              owner: "test",
+              partition_bound: null,
+              replica_identity: "d",
+              row_security: false,
+              schema: "public",
+            },
+          ],
+        ]),
+      ],
+      [
+        "default",
+        new Map([
+          [
+            "public.test_mv",
+            {
+              definition: " SELECT id\n   FROM mv_table;",
+
+              force_row_security: false,
+              has_indexes: false,
+              has_rules: true,
+              has_subclasses: false,
+              has_triggers: false,
+              is_partition: false,
+              is_populated: true,
+              name: "test_mv",
+              options: null,
+              owner: "test",
+              partition_bound: null,
+              replica_identity: "d",
+              row_security: false,
+              schema: "public",
+            },
+          ],
+        ]),
+      ],
+    ]);
     for (const postgresVersion of POSTGRES_VERSIONS) {
       describe(`postgres ${postgresVersion}`, () => {
         const test = getTest(postgresVersion);
@@ -23,30 +77,11 @@ describe.concurrent(
           const resultA = await inspectMaterializedViews(db.a);
           const resultB = await inspectMaterializedViews(db.b);
           // assert
-          expect(resultA).toEqual(
-            new Map([
-              [
-                "public.test_mv",
-                {
-                  definition: " SELECT id\n   FROM mv_table;",
-                  force_row_security: false,
-                  has_indexes: false,
-                  has_rules: true,
-                  has_subclasses: false,
-                  has_triggers: false,
-                  is_partition: false,
-                  is_populated: true,
-                  name: "test_mv",
-                  options: null,
-                  owner: "test",
-                  partition_bound: null,
-                  replica_identity: "d",
-                  row_security: false,
-                  schema: "public",
-                },
-              ],
-            ]),
-          );
+          const assertion =
+            assertions.get(`${postgresVersion}`) === undefined
+              ? assertions.get("default")
+              : assertions.get(`${postgresVersion}`);
+          expect(resultA).toEqual(assertion);
           expect(resultB).toEqual(resultA);
         });
       });
