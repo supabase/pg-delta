@@ -35,22 +35,22 @@ describe.concurrent(
           // assert
           expect(inspection).toMatchObject({
             "function:public.test_func_with_args(arg1 integer, arg2 text)": {
-              dependent_on: ["view:public.test_view_func"],
-              dependents: [],
+              dependent_on: [],
+              dependents: ["view:public.test_view_func"],
             },
             "table:public.test_table": {
-              dependent_on: ["view:public.test_view"],
-              dependents: [],
+              dependent_on: [],
+              dependents: ["view:public.test_view"],
             },
             "view:public.test_view": {
-              dependent_on: [],
-              dependents: ["table:public.test_table"],
+              dependent_on: ["table:public.test_table"],
+              dependents: [],
             },
             "view:public.test_view_func": {
-              dependent_on: [],
-              dependents: [
+              dependent_on: [
                 "function:public.test_func_with_args(arg1 integer, arg2 text)",
               ],
+              dependents: [],
             },
           });
         });

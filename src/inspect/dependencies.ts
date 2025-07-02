@@ -171,8 +171,8 @@ export async function buildDependencies(sql: Sql, inspection: InspectionMap) {
     const objectDependentOn = inspection[identityDependentOn];
 
     if (object && objectDependentOn) {
-      object.dependents.push(identityDependentOn);
-      objectDependentOn.dependent_on.push(identity);
+      object.dependent_on.push(identityDependentOn);
+      objectDependentOn.dependents.push(identity);
     }
   }
 }
