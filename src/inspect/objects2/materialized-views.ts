@@ -1,7 +1,8 @@
 import type { Sql } from "postgres";
-import type { ReplicaIdentity } from "./relations/tables.ts";
+import type { DependentDatabaseObject } from "../types.ts";
+import type { ReplicaIdentity } from "./tables.ts";
 
-export interface InspectedMaterializedView {
+export interface InspectedMaterializedViewRow {
   schema: string;
   name: string;
   definition: string | null;
@@ -19,8 +20,11 @@ export interface InspectedMaterializedView {
   owner: string;
 }
 
+export type InspectedMaterializedView = InspectedMaterializedViewRow &
+  DependentDatabaseObject;
+
 export function identifyMaterializedView(
-  view: InspectedMaterializedView,
+  view: InspectedMaterializedViewRow,
 ): string {
   return `${view.schema}.${view.name}`;
 }
@@ -28,7 +32,7 @@ export function identifyMaterializedView(
 export async function inspectMaterializedViews(
   sql: Sql,
 ): Promise<Map<string, InspectedMaterializedView>> {
-  const materializedViews = await sql<InspectedMaterializedView[]>`
+  const materializedViews = await sql<InspectedMaterializedViewRow[]>`
 with extension_oids as (
   select
     objid
@@ -69,6 +73,13 @@ order by
   `;
 
   return new Map(
-    materializedViews.map((v) => [identifyMaterializedView(v), v]),
+    materializedViews.map((v) => [
+      identifyMaterializedView(v),
+      {
+        ...v,
+        dependent_on: [],
+        dependents: [],
+      },
+    ]),
   );
 }

@@ -1,7 +1,8 @@
 import type { Sql } from "postgres";
-import type { ReplicaIdentity } from "./relations/tables.ts";
+import type { DependentDatabaseObject } from "../types.ts";
+import type { ReplicaIdentity } from "./tables.ts";
 
-export interface InspectedCompositeType {
+export interface InspectedCompositeTypeRow {
   schema: string;
   name: string;
   row_security: boolean;
@@ -18,14 +19,17 @@ export interface InspectedCompositeType {
   owner: string;
 }
 
-export function identifyCompositeType(type: InspectedCompositeType): string {
+export type InspectedCompositeType = InspectedCompositeTypeRow &
+  DependentDatabaseObject;
+
+export function identifyCompositeType(type: InspectedCompositeTypeRow): string {
   return `${type.schema}.${type.name}`;
 }
 
 export async function inspectCompositeTypes(
   sql: Sql,
 ): Promise<Map<string, InspectedCompositeType>> {
-  const compositeTypes = await sql<InspectedCompositeType[]>`
+  const compositeTypes = await sql<InspectedCompositeTypeRow[]>`
 with extension_oids as (
   select
     objid
@@ -64,5 +68,14 @@ order by
   1, 2;
   `;
 
-  return new Map(compositeTypes.map((t) => [identifyCompositeType(t), t]));
+  return new Map(
+    compositeTypes.map((t) => [
+      identifyCompositeType(t),
+      {
+        ...t,
+        dependent_on: [],
+        dependents: [],
+      },
+    ]),
+  );
 }

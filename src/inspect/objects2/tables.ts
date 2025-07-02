@@ -1,4 +1,5 @@
 import type { Sql } from "postgres";
+import type { DependentDatabaseObject } from "../types.ts";
 
 // PostgreSQL relation persistence types
 export type RelationPersistence =
@@ -20,7 +21,7 @@ export type ReplicaIdentity =
   /** INDEX */
   | "i";
 
-export interface InspectedTable {
+export interface InspectedTableRow {
   schema: string;
   name: string;
   persistence: RelationPersistence;
@@ -38,7 +39,9 @@ export interface InspectedTable {
   owner: string;
 }
 
-export function identifyTable(table: InspectedTable): string {
+export type InspectedTable = InspectedTableRow & DependentDatabaseObject;
+
+export function identifyTable(table: InspectedTableRow): string {
   return `${table.schema}.${table.name}`;
 }
 
@@ -85,5 +88,14 @@ order by
   1, 2;
   `;
 
-  return new Map(tables.map((t) => [identifyTable(t), t]));
+  return new Map(
+    tables.map((t) => [
+      identifyTable(t),
+      {
+        ...t,
+        dependent_on: [],
+        dependents: [],
+      },
+    ]),
+  );
 }

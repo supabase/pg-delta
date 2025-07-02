@@ -1,4 +1,5 @@
 import type { Sql } from "postgres";
+import type { DependentDatabaseObject } from "../types.ts";
 
 // PostgreSQL function/procedure kinds
 export type FunctionKind =
@@ -42,7 +43,7 @@ export type FunctionArgumentMode =
   /** TABLE */
   | "t";
 
-export interface InspectedFunction {
+export interface InspectedFunctionRow {
   schema: string;
   name: string;
   kind: FunctionKind;
@@ -69,10 +70,12 @@ export interface InspectedFunction {
   owner: string;
 }
 
+export type InspectedFunction = InspectedFunctionRow & DependentDatabaseObject;
+
 export async function inspectFunctions(
   sql: Sql,
 ): Promise<Map<string, InspectedFunction>> {
-  const functions = await sql<InspectedFunction[]>`
+  const functions = await sql<InspectedFunctionRow[]>`
 with extension_oids as (
   select
     objid
@@ -130,10 +133,19 @@ order by
   1, 2;
   `;
 
-  return new Map(functions.map((f) => [identifyFunction(f), f]));
+  return new Map(
+    functions.map((f) => [
+      identifyFunction(f),
+      {
+        ...f,
+        dependent_on: [],
+        dependents: [],
+      },
+    ]),
+  );
 }
 
-export function identifyFunction(function_: InspectedFunction): string {
+export function identifyFunction(function_: InspectedFunctionRow): string {
   const argNames = function_.argument_names ?? [];
   const argTypes = function_.argument_types ?? [];
   const args = argTypes

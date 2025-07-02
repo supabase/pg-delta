@@ -1,7 +1,8 @@
 import type { Sql } from "postgres";
+import type { DependentDatabaseObject } from "../types.ts";
 import type { ReplicaIdentity } from "./tables.ts";
 
-export interface InspectedView {
+export interface InspectedViewRow {
   schema: string;
   name: string;
   definition: string | null;
@@ -19,14 +20,16 @@ export interface InspectedView {
   owner: string;
 }
 
-export function identifyView(view: InspectedView): string {
+export type InspectedView = InspectedViewRow & DependentDatabaseObject;
+
+export function identifyView(view: InspectedViewRow): string {
   return `${view.schema}.${view.name}`;
 }
 
 export async function inspectViews(
   sql: Sql,
 ): Promise<Map<string, InspectedView>> {
-  const views = await sql<InspectedView[]>`
+  const views = await sql<InspectedViewRow[]>`
 with extension_oids as (
   select
     objid
@@ -66,5 +69,14 @@ order by
   1, 2;
   `;
 
-  return new Map(views.map((view) => [identifyView(view), view]));
+  return new Map(
+    views.map((view) => [
+      identifyView(view),
+      {
+        ...view,
+        dependent_on: [],
+        dependents: [],
+      },
+    ]),
+  );
 }
