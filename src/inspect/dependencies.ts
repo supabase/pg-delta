@@ -1,6 +1,8 @@
 import type { Sql } from "postgres";
 import { DEPENDENCY_KIND_PREFIX } from "./constants.js";
+import { identifyFunction } from "./objects/functions.ts";
 import { identifyTable } from "./objects/tables.ts";
+import type { InspectedTrigger } from "./objects/triggers.ts";
 import type { InspectionMap } from "./types.ts";
 
 // PostgreSQL dependency class types
@@ -194,6 +196,45 @@ export async function buildDependencies(sql: Sql, inspection: InspectionMap) {
         }
         if (!parent.dependents.includes(tableKey)) {
           parent.dependents.push(tableKey);
+        }
+      }
+    }
+  }
+
+  // Then process trigger dependencies
+  for (const [triggerKey, trigger] of filterInspectionByPrefix(
+    inspection,
+    "trigger",
+  )) {
+    // Table dependency
+    if (trigger.table_schema && trigger.table_name) {
+      const tableKey =
+        `table:${trigger.table_schema}.${trigger.table_name}` as const;
+      const table = inspection[tableKey];
+      if (table) {
+        if (!trigger.dependent_on.includes(tableKey)) {
+          trigger.dependent_on.push(tableKey);
+        }
+        if (!table.dependents.includes(triggerKey)) {
+          table.dependents.push(triggerKey);
+        }
+      }
+    }
+    // Function dependency
+    if (trigger.function_schema && trigger.function_name) {
+      const functionKey = `function:${identifyFunction({
+        schema: trigger.function_schema,
+        name: trigger.function_name,
+        argument_names: null,
+        argument_types: null,
+      })}` as const;
+      const function_ = inspection[functionKey];
+      if (function_) {
+        if (!trigger.dependent_on.includes(functionKey)) {
+          trigger.dependent_on.push(functionKey);
+        }
+        if (!function_.dependents.includes(triggerKey)) {
+          function_.dependents.push(triggerKey);
         }
       }
     }

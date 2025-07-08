@@ -145,7 +145,12 @@ order by
   );
 }
 
-export function identifyFunction(function_: InspectedFunctionRow): string {
+export function identifyFunction(
+  function_: Pick<
+    InspectedFunctionRow,
+    "schema" | "name" | "argument_names" | "argument_types"
+  >,
+): string {
   const argNames = function_.argument_names ?? [];
   const argTypes = function_.argument_types ?? [];
   const args = argTypes
