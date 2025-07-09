@@ -1,7 +1,7 @@
 import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
-export interface InspectedIndexRow {
+interface InspectedIndexRow {
   schema: string;
   name: string;
   table_schema: string;
@@ -22,7 +22,7 @@ export interface InspectedIndexRow {
 
 export type InspectedIndex = InspectedIndexRow & DependentDatabaseObject;
 
-export function identifyIndex(index: InspectedIndexRow): string {
+function identifyIndex(index: InspectedIndexRow): string {
   return `${index.schema}.${index.table_name}.${index.name}`;
 }
 

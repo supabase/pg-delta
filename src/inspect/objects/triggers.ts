@@ -2,7 +2,7 @@ import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
 // PostgreSQL trigger enabled status
-export type TriggerEnabled =
+type TriggerEnabled =
   /** enabled */
   | "O"
   /** disabled */
@@ -12,7 +12,7 @@ export type TriggerEnabled =
   /** always */
   | "A";
 
-export interface InspectedTriggerRow {
+interface InspectedTriggerRow {
   schema: string;
   name: string;
   table_schema: string;
@@ -35,7 +35,7 @@ export interface InspectedTriggerRow {
 
 export type InspectedTrigger = InspectedTriggerRow & DependentDatabaseObject;
 
-export function identifyTrigger(trigger: InspectedTriggerRow): string {
+function identifyTrigger(trigger: InspectedTriggerRow): string {
   return `${trigger.schema}.${trigger.table_name}.${trigger.name}`;
 }
 

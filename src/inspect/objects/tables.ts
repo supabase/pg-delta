@@ -2,7 +2,7 @@ import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
 // PostgreSQL relation persistence types
-export type RelationPersistence =
+type RelationPersistence =
   /** Permanent relation (default) */
   | "p"
   /** Unlogged relation */
@@ -21,7 +21,7 @@ export type ReplicaIdentity =
   /** INDEX */
   | "i";
 
-export interface InspectedTableRow {
+interface InspectedTableRow {
   schema: string;
   name: string;
   persistence: RelationPersistence;

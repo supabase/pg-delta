@@ -2,7 +2,7 @@ import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
 // PostgreSQL constraint types
-export type ConstraintType =
+type ConstraintType =
   /** CHECK */
   | "c"
   /** FOREIGN KEY */
@@ -16,7 +16,7 @@ export type ConstraintType =
 // c = CHECK, f = FOREIGN KEY, p = PRIMARY KEY, u = UNIQUE, x = EXCLUDE
 
 // PostgreSQL foreign key actions
-export type ForeignKeyAction =
+type ForeignKeyAction =
   /** NO ACTION */
   | "a"
   /** RESTRICT */
@@ -30,7 +30,7 @@ export type ForeignKeyAction =
 // a = NO ACTION, r = RESTRICT, c = CASCADE, n = SET NULL, d = SET DEFAULT
 
 // PostgreSQL foreign key match types
-export type ForeignKeyMatchType =
+type ForeignKeyMatchType =
   /** FULL */
   | "f"
   /** PARTIAL */
@@ -39,7 +39,7 @@ export type ForeignKeyMatchType =
   | "s";
 // f = FULL, p = PARTIAL, s = SIMPLE
 
-export interface InspectedConstraintRow {
+interface InspectedConstraintRow {
   schema: string;
   name: string;
   table_schema: string;
@@ -64,7 +64,7 @@ export interface InspectedConstraintRow {
 export type InspectedConstraint = InspectedConstraintRow &
   DependentDatabaseObject;
 
-export function identifyConstraint(constraint: InspectedConstraintRow): string {
+function identifyConstraint(constraint: InspectedConstraintRow): string {
   return `${constraint.schema}.${constraint.table_name}.${constraint.name}`;
 }
 

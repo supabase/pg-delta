@@ -2,43 +2,10 @@ import type { Sql } from "postgres";
 import { DEPENDENCY_KIND_PREFIX } from "./constants.js";
 import { identifyFunction } from "./objects/functions.ts";
 import { identifyTable } from "./objects/tables.ts";
-import type { InspectedTrigger } from "./objects/triggers.ts";
 import type { InspectionMap } from "./types.ts";
 
-// PostgreSQL dependency class types
-export type DependencyClass =
-  /** pg_class */
-  | "pg_class"
-  /** pg_type */
-  | "pg_type"
-  /** pg_proc */
-  | "pg_proc"
-  /** pg_constraint */
-  | "pg_constraint"
-  /** pg_trigger */
-  | "pg_trigger"
-  /** pg_policy */
-  | "pg_policy"
-  /** pg_namespace */
-  | "pg_namespace"
-  /** pg_collation */
-  | "pg_collation";
-
-// PostgreSQL dependency type
-export type DependencyType =
-  /** normal */
-  | "n"
-  /** auto */
-  | "a"
-  /** internal */
-  | "i"
-  /** extension */
-  | "e"
-  /** pin */
-  | "p";
-
 // PostgreSQL dependency kind (relation type)
-export type DependencyKind =
+type DependencyKind =
   /** table */
   | "r"
   /** view */
@@ -50,7 +17,7 @@ export type DependencyKind =
   /** function */
   | "f";
 
-export interface InspectedDependency {
+interface InspectedDependency {
   schema: string;
   name: string;
   identity_arguments: string | null;
@@ -61,9 +28,7 @@ export interface InspectedDependency {
   kind_dependent_on: DependencyKind;
 }
 
-export async function inspectDependencies(
-  sql: Sql,
-): Promise<InspectedDependency[]> {
+async function inspectDependencies(sql: Sql): Promise<InspectedDependency[]> {
   const dependencies = await sql<InspectedDependency[]>`
 with things1 as (
   select
@@ -258,7 +223,7 @@ type InspectionPrefix = keyof InspectionMap extends `${infer Prefix}:${string}`
   ? Prefix
   : never;
 
-export function filterInspectionByPrefix<P extends InspectionPrefix>(
+function filterInspectionByPrefix<P extends InspectionPrefix>(
   inspection: InspectionMap,
   prefix: P,
 ): [

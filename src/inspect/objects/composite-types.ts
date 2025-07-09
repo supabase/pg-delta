@@ -2,7 +2,7 @@ import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 import type { ReplicaIdentity } from "./tables.ts";
 
-export interface InspectedCompositeTypeRow {
+interface InspectedCompositeTypeRow {
   schema: string;
   name: string;
   row_security: boolean;
@@ -22,7 +22,7 @@ export interface InspectedCompositeTypeRow {
 export type InspectedCompositeType = InspectedCompositeTypeRow &
   DependentDatabaseObject;
 
-export function identifyCompositeType(type: InspectedCompositeTypeRow): string {
+function identifyCompositeType(type: InspectedCompositeTypeRow): string {
   return `${type.schema}.${type.name}`;
 }
 

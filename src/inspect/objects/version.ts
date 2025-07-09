@@ -1,6 +1,6 @@
 import type { Sql } from "postgres";
 
-export interface InspectedVersion {
+interface InspectedVersion {
   version: number;
 }
 
