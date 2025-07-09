@@ -43,7 +43,7 @@ from
   left outer join extension_oids ext on t.oid = ext.objid
   -- <EXCLUDE_INTERNAL>
   where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and n.nspname not like 'pg_temp_%' and n.nspname not like 'pg_toast_temp_%'
+  and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
   and ext.objid is null
   -- </EXCLUDE_INTERNAL>
 order by

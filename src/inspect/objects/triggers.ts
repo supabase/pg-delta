@@ -80,7 +80,7 @@ from
   left outer join extension_oids e on t.oid = e.objid
   -- <EXCLUDE_INTERNAL>
   where tn.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and tn.nspname not like 'pg_temp_%' and tn.nspname not like 'pg_toast_temp_%'
+  and tn.nspname not like 'pg\_temp\_%' and tn.nspname not like 'pg\_toast\_temp\_%'
   and e.objid is null
   and not t.tgisinternal
   -- </EXCLUDE_INTERNAL>
