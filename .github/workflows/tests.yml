@@ -29,9 +29,9 @@ jobs:
       - name: Type check
         run: pnpm typecheck
 
-  test-lint:
+  test-lint-and-format:
     if: github.event.pull_request.draft == false
-    name: Lint
+    name: Lint and format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -40,8 +40,8 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
 
-      - name: Lint
-        run: pnpm lint
+      - name: Lint and format
+        run: pnpm check
 
   test-knip:
     if: github.event.pull_request.draft == false

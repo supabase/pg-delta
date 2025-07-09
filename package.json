@@ -12,7 +12,8 @@
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "dev": "docker compose up",
-    "format": "biome format .",
+    "check": "biome check . --error-on-warnings",
+    "format": "biome format . --error-on-warnings",
     "lint": "biome lint . --error-on-warnings",
     "knip": "knip",
     "test": "vitest",
