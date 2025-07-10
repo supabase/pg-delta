@@ -2,6 +2,10 @@ import { readdir, readFile } from "node:fs/promises";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import postgres from "postgres";
 import { test as baseTest } from "vitest";
+import {
+  POSTGRES_VERSION_TO_DOCKER_TAG,
+  type PostgresVersion,
+} from "./constants.ts";
 
 export async function getFixtures() {
   // use TEST_MIGRA_FIXTURES to run specific tests, e.g. `TEST_MIGRA_FIXTURES=constraints,dependencies pnpm test`
@@ -46,15 +50,19 @@ export async function getFixtures() {
   return fixtures;
 }
 
-export function getTest(postgresVersion: number) {
+export function getTest(postgresVersion: PostgresVersion) {
   return baseTest.extend<{
     db: { a: postgres.Sql; b: postgres.Sql };
   }>({
     // biome-ignore lint/correctness/noEmptyPattern: The first argument inside a fixture must use object destructuring pattern
     db: async ({}, use) => {
       const [containerA, containerB] = await Promise.all([
-        new PostgreSqlContainer(`postgres:${postgresVersion}-alpine`).start(),
-        new PostgreSqlContainer(`postgres:${postgresVersion}-alpine`).start(),
+        new PostgreSqlContainer(
+          `supabase/postgres:${POSTGRES_VERSION_TO_DOCKER_TAG[postgresVersion]}`,
+        ).start(),
+        new PostgreSqlContainer(
+          `supabase/postgres:${POSTGRES_VERSION_TO_DOCKER_TAG[postgresVersion]}`,
+        ).start(),
       ]);
       const a = postgres(containerA.getConnectionUri());
       const b = postgres(containerB.getConnectionUri());
