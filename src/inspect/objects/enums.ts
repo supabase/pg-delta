@@ -1,6 +1,18 @@
 import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
+// All properties exposed by CREATE TYPE AS ENUM statement are included in diff output.
+// https://www.postgresql.org/docs/current/sql-createtype.html
+//
+// ALTER TYPE statement can be generated for changes to the following properties:
+//  - name, owner, schema, add or rename value
+// https://www.postgresql.org/docs/current/sql-altertype.html
+//
+// Sort order of values may be negative or fractional.
+// https://www.postgresql.org/docs/current/catalog-pg-enum.html
+//
+// Type ACL will be supported separately.
+// https://www.postgresql.org/docs/current/ddl-priv.html
 interface InspectedEnumRow {
   schema: string;
   name: string;
@@ -31,19 +43,17 @@ with extension_oids as (
     and d.classid = 'pg_type'::regclass
 )
 select
-  n.nspname as schema,
+  t.typnamespace::regnamespace as schema,
   t.typname as name,
   e.enumsortorder as sort_order,
   e.enumlabel as label,
-  pg_get_userbyid(t.typowner) as owner
+  t.typowner::regrole as owner
 from
   pg_catalog.pg_enum e
   inner join pg_catalog.pg_type t on t.oid = e.enumtypid
-  inner join pg_catalog.pg_namespace n on n.oid = t.typnamespace
   left outer join extension_oids ext on t.oid = ext.objid
   -- <EXCLUDE_INTERNAL>
-  where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
+  where not t.typnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   and ext.objid is null
   -- </EXCLUDE_INTERNAL>
 order by
