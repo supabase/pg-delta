@@ -1,6 +1,18 @@
 import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
+// All properties exposed by CREATE EXTENSION statement are included in diff output.
+// https://www.postgresql.org/docs/current/sql-createextension.html
+//
+// ALTER EXTENSION statement can be generated for changes to the following properties:
+//  - version (only for TLE), schema (only if relocatable)
+// https://www.postgresql.org/docs/current/sql-alterextension.html
+//
+// Adding or dropping member objects are not supported.
+//
+// The extension's configuration tables are not diffed.
+//  - extconfig, extcondition
+// https://www.postgresql.org/docs/current/catalog-pg-extension.html
 interface InspectedExtensionRow {
   name: string;
   schema: string;
@@ -22,16 +34,14 @@ export async function inspectExtensions(
   const extensions = await sql<InspectedExtension[]>`
 select
   extname as name,
-  n.nspname as schema,
+  e.extnamespace::regnamespace as schema,
   extrelocatable as relocatable,
   extversion as version,
-  pg_get_userbyid(extowner) as owner
+  extowner::regrole as owner
 from
   pg_catalog.pg_extension e
-  inner join pg_catalog.pg_namespace n on n.oid = e.extnamespace
   -- <EXCLUDE_INTERNAL>
-  where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
+  where not e.extnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   -- </EXCLUDE_INTERNAL>
 order by
   1;
