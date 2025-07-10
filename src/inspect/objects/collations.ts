@@ -74,7 +74,7 @@ export async function inspectCollations(
         pg_catalog.pg_collation c
         left outer join extension_oids e on c.oid = e.objid
         -- <EXCLUDE_INTERNAL>
-        where not c.collnamespace::regnamespace::text like any(array['pg\_*', 'information\_schema'])
+        where not c.collnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
         and e.objid is null
         -- </EXCLUDE_INTERNAL>
       order by
@@ -108,7 +108,7 @@ export async function inspectCollations(
         pg_catalog.pg_collation c
         left outer join extension_oids e on c.oid = e.objid
         -- <EXCLUDE_INTERNAL>
-        where not c.collnamespace::regnamespace::text like any(array['pg\_*', 'information\_schema'])
+        where not c.collnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
         and e.objid is null
         -- </EXCLUDE_INTERNAL>
       order by
@@ -142,7 +142,7 @@ export async function inspectCollations(
         pg_catalog.pg_collation c
         left outer join extension_oids e on c.oid = e.objid
         -- <EXCLUDE_INTERNAL>
-        where not c.collnamespace::regnamespace::text like any(array['pg\_*', 'information\_schema'])
+        where not c.collnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
         and e.objid is null
         -- </EXCLUDE_INTERNAL>
       order by
