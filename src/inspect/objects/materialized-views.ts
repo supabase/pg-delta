@@ -2,7 +2,7 @@ import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 import type { ReplicaIdentity } from "./tables.ts";
 
-export interface InspectedMaterializedViewRow {
+interface InspectedMaterializedViewRow {
   schema: string;
   name: string;
   definition: string | null;
@@ -23,9 +23,7 @@ export interface InspectedMaterializedViewRow {
 export type InspectedMaterializedView = InspectedMaterializedViewRow &
   DependentDatabaseObject;
 
-export function identifyMaterializedView(
-  view: InspectedMaterializedViewRow,
-): string {
+function identifyMaterializedView(view: InspectedMaterializedViewRow): string {
   return `${view.schema}.${view.name}`;
 }
 

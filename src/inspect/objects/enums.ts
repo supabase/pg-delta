@@ -1,7 +1,7 @@
 import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
-export interface InspectedEnumRow {
+interface InspectedEnumRow {
   schema: string;
   name: string;
   owner: string;
@@ -9,7 +9,7 @@ export interface InspectedEnumRow {
   label: string;
 }
 
-export type InspectedEnumLabel = Pick<InspectedEnumRow, "sort_order" | "label">;
+type InspectedEnumLabel = Pick<InspectedEnumRow, "sort_order" | "label">;
 
 export interface InspectedEnum
   extends Omit<InspectedEnumRow, keyof InspectedEnumLabel>,
@@ -70,7 +70,7 @@ order by
   return grouped;
 }
 
-export function identifyEnum(
+function identifyEnum(
   enum_: Pick<InspectedEnumRow, "schema" | "name">,
 ): string {
   return `${enum_.schema}.${enum_.name}`;

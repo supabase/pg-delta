@@ -2,7 +2,7 @@ import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
 // PostgreSQL function/procedure kinds
-export type FunctionKind =
+type FunctionKind =
   /** function */
   | "f"
   /** procedure */
@@ -13,7 +13,7 @@ export type FunctionKind =
   | "w";
 
 // PostgreSQL function volatility
-export type FunctionVolatility =
+type FunctionVolatility =
   /** immutable */
   | "i"
   /** stable */
@@ -22,7 +22,7 @@ export type FunctionVolatility =
   | "v";
 
 // PostgreSQL function parallel safety
-export type FunctionParallelSafety =
+type FunctionParallelSafety =
   /** unsafe */
   | "u"
   /** safe */
@@ -31,7 +31,7 @@ export type FunctionParallelSafety =
   | "r";
 
 // PostgreSQL function argument modes
-export type FunctionArgumentMode =
+type FunctionArgumentMode =
   /** IN */
   | "i"
   /** OUT */
@@ -43,7 +43,7 @@ export type FunctionArgumentMode =
   /** TABLE */
   | "t";
 
-export interface InspectedFunctionRow {
+interface InspectedFunctionRow {
   schema: string;
   name: string;
   kind: FunctionKind;

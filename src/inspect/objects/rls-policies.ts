@@ -2,7 +2,7 @@ import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
 // PostgreSQL RLS policy command types
-export type RlsPolicyCommand =
+type RlsPolicyCommand =
   /** SELECT */
   | "r"
   /** INSERT */
@@ -14,7 +14,7 @@ export type RlsPolicyCommand =
   /** ALL */
   | "*";
 
-export interface InspectedRlsPolicyRow {
+interface InspectedRlsPolicyRow {
   schema: string;
   name: string;
   table_schema: string;
@@ -30,7 +30,7 @@ export interface InspectedRlsPolicyRow {
 export type InspectedRlsPolicy = InspectedRlsPolicyRow &
   DependentDatabaseObject;
 
-export function identifyRlsPolicy(policy: InspectedRlsPolicyRow): string {
+function identifyRlsPolicy(policy: InspectedRlsPolicyRow): string {
   return `${policy.schema}.${policy.table_name}.${policy.name}`;
 }
 

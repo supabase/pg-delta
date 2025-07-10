@@ -36,26 +36,6 @@ export type InspectionMap = {
   [k: `view:${string}`]: InspectedView;
 };
 
-export type InspectionResult = {
-  collations: Map<string, InspectedCollation>;
-  compositeTypes: Map<string, InspectedCompositeType>;
-  constraints: Map<string, InspectedConstraint>;
-  domains: Map<string, InspectedDomain>;
-  enums: Map<string, InspectedEnum[]>;
-  extensions: Map<string, InspectedExtension>;
-  functions: Map<string, InspectedFunction>;
-  indexes: Map<string, InspectedIndex>;
-  materializedViews: Map<string, InspectedMaterializedView>;
-  privileges: Map<string, InspectedPrivilege>;
-  rlsPolicies: Map<string, InspectedRlsPolicy>;
-  schemas: Map<string, InspectedSchema>;
-  sequences: Map<string, InspectedSequence>;
-  tables: Map<string, InspectedTable>;
-  triggers: Map<string, InspectedTrigger>;
-  types: Map<string, InspectedType>;
-  views: Map<string, InspectedView>;
-};
-
 export interface DependentDatabaseObject {
   dependent_on: string[];
   dependents: string[];

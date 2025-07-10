@@ -1,0 +1,22 @@
+name: Setup
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: .nvmrc
+
+    - name: Enable Corepack
+      shell: bash
+      run: corepack enable
+
+    - name: Configure cache
+      uses: actions/setup-node@v4
+      with:
+        cache: pnpm
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install

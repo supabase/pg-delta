@@ -1,7 +1,7 @@
 import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
-export interface InspectedSequenceRow {
+interface InspectedSequenceRow {
   schema: string;
   name: string;
   data_type: string;
@@ -17,7 +17,7 @@ export interface InspectedSequenceRow {
 
 export type InspectedSequence = InspectedSequenceRow & DependentDatabaseObject;
 
-export function identifySequence(seq: InspectedSequenceRow): string {
+function identifySequence(seq: InspectedSequenceRow): string {
   return `${seq.schema}.${seq.name}`;
 }
 

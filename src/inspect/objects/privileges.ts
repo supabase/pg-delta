@@ -13,7 +13,7 @@ export interface InspectedPrivilege {
   config: string[] | null;
 }
 
-export function identifyPrivilege(priv: InspectedPrivilege): string {
+function identifyPrivilege(priv: InspectedPrivilege): string {
   return priv.role_name;
 }
 

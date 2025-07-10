@@ -1,14 +1,14 @@
 import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
-export interface InspectedSchemaRow {
+interface InspectedSchemaRow {
   schema: string;
   owner: string;
 }
 
 export type InspectedSchema = InspectedSchemaRow & DependentDatabaseObject;
 
-export function identifySchema(schema: InspectedSchemaRow): string {
+function identifySchema(schema: InspectedSchemaRow): string {
   return schema.schema;
 }
 

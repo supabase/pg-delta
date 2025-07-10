@@ -86,6 +86,7 @@ export async function inspect(sql: Sql): Promise<InspectionMap> {
     const prefix =
       OBJECT_KIND_PREFIX[mapName as keyof typeof OBJECT_KIND_PREFIX];
     for (const [key, value] of map.entries()) {
+      // biome-ignore lint/suspicious/noExplicitAny: we dynamically create the keys
       inspectionMap[`${prefix}:${key}`] = value as any;
     }
   }

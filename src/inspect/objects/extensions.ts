@@ -1,7 +1,7 @@
 import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
-export interface InspectedExtensionRow {
+interface InspectedExtensionRow {
   name: string;
   schema: string;
   relocatable: boolean;
@@ -12,7 +12,7 @@ export interface InspectedExtensionRow {
 export type InspectedExtension = InspectedExtensionRow &
   DependentDatabaseObject;
 
-export function identifyExtension(extension: InspectedExtensionRow): string {
+function identifyExtension(extension: InspectedExtensionRow): string {
   return `${extension.schema}.${extension.name}`;
 }
 

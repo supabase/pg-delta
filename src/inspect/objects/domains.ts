@@ -1,7 +1,7 @@
 import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
-export interface InspectedDomainRow {
+interface InspectedDomainRow {
   schema: string;
   name: string;
   base_type: string;
@@ -17,7 +17,7 @@ export interface InspectedDomainRow {
 
 export type InspectedDomain = InspectedDomainRow & DependentDatabaseObject;
 
-export function identifyDomain(domain: InspectedDomainRow): string {
+function identifyDomain(domain: InspectedDomainRow): string {
   return `${domain.schema}.${domain.name}`;
 }
 

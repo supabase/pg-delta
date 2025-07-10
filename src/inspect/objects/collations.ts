@@ -3,7 +3,7 @@ import type { DependentDatabaseObject } from "../types.ts";
 import { inspectVersion } from "./version.ts";
 
 // PostgreSQL collation provider types
-export type CollationProvider =
+type CollationProvider =
   /** default */
   | "d"
   /** libc */
@@ -19,7 +19,7 @@ export type CollationProvider =
 // https://www.postgresql.org/docs/current/sql-altercollation.html
 //
 // Other properties require dropping and creating a new collation.
-export interface InspectedCollationRow {
+interface InspectedCollationRow {
   schema: string;
   name: string;
   provider: CollationProvider;
@@ -36,7 +36,7 @@ export interface InspectedCollationRow {
 export type InspectedCollation = InspectedCollationRow &
   DependentDatabaseObject;
 
-export function identifyCollation(collation: InspectedCollationRow): string {
+function identifyCollation(collation: InspectedCollationRow): string {
   return `${collation.schema}.${collation.name}`;
 }
 

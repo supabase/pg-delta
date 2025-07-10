@@ -1,7 +1,7 @@
 import type { Sql } from "postgres";
 
 // PostgreSQL type kinds
-export type TypeKind =
+type TypeKind =
   /** base */
   | "b"
   /** composite */
@@ -14,7 +14,7 @@ export type TypeKind =
   | "p";
 
 // PostgreSQL type categories (see Postgres docs for full list)
-export type TypeCategory =
+type TypeCategory =
   /** array */
   | "A"
   /** boolean */
@@ -47,7 +47,7 @@ export type TypeCategory =
   | "X";
 
 // PostgreSQL type alignment
-export type TypeAlignment =
+type TypeAlignment =
   /** char */
   | "c"
   /** short */
@@ -58,7 +58,7 @@ export type TypeAlignment =
   | "d";
 
 // PostgreSQL type storage
-export type TypeStorage =
+type TypeStorage =
   /** plain */
   | "p"
   /** external */
@@ -88,7 +88,7 @@ export interface InspectedType {
   owner: string;
 }
 
-export function identifyType(type: InspectedType): string {
+function identifyType(type: InspectedType): string {
   return `${type.schema}.${type.name}`;
 }
 
