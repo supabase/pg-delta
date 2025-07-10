@@ -5,10 +5,12 @@ import type { DependentDatabaseObject } from "../types.ts";
 // https://www.postgresql.org/docs/current/sql-createextension.html
 //
 // ALTER EXTENSION statement can be generated for changes to the following properties:
-//  - version (only for TLE), schema (only if relocatable)
+//  - version (limited to available ones), schema (only if relocatable)
 // https://www.postgresql.org/docs/current/sql-alterextension.html
 //
-// Adding or dropping member objects are not supported.
+// Adding or dropping member objects are not supported. For eg. pgmq allows detaching
+// user defined queues by removing its entry from pg_depend. If the detached table
+// lives in an excluded schema like pg_catalog, it will not be diffed.
 //
 // The extension's configuration tables are not diffed.
 //  - extconfig, extcondition
@@ -34,7 +36,7 @@ export async function inspectExtensions(
   const extensions = await sql<InspectedExtension[]>`
 select
   extname as name,
-  e.extnamespace::regnamespace as schema,
+  extnamespace::regnamespace as schema,
   extrelocatable as relocatable,
   extversion as version,
   extowner::regrole as owner
