@@ -40,9 +40,6 @@ select
   extowner::regrole as owner
 from
   pg_catalog.pg_extension e
-  -- <EXCLUDE_INTERNAL>
-  where not e.extnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
-  -- </EXCLUDE_INTERNAL>
 order by
   1;
   `;
