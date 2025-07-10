@@ -11,6 +11,14 @@ type CollationProvider =
   /** icu */
   | "i";
 
+// All properties exposed by CREATE COLLATION statement are included in diff output.
+// https://www.postgresql.org/docs/current/sql-createcollation.html
+//
+// ALTER COLLATION statement can only be generated for a subset of properties:
+//  - version, name, owner, schema
+// https://www.postgresql.org/docs/current/sql-altercollation.html
+//
+// Other properties require dropping and creating a new collation.
 interface InspectedCollationRow {
   schema: string;
   name: string;
@@ -51,7 +59,7 @@ export async function inspectCollations(
           and d.classid = 'pg_collation'::regclass
       )
       select
-        n.nspname as schema,
+        c.collnamespace::regnamespace as schema,
         c.collname as name,
         c.collprovider as provider,
         c.collisdeterministic as is_deterministic,
@@ -61,14 +69,12 @@ export async function inspectCollations(
         c.colllocale as locale,
         c.collicurules as icu_rules,
         c.collversion as version,
-        pg_get_userbyid(c.collowner) as owner
+        c.collowner::regrole as owner
       from
         pg_catalog.pg_collation c
-        inner join pg_catalog.pg_namespace n on n.oid = c.collnamespace
         left outer join extension_oids e on c.oid = e.objid
         -- <EXCLUDE_INTERNAL>
-        where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-        and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
+        where not c.collnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
         and e.objid is null
         -- </EXCLUDE_INTERNAL>
       order by
@@ -87,7 +93,7 @@ export async function inspectCollations(
           and d.classid = 'pg_collation'::regclass
       )
       select
-        n.nspname as schema,
+        c.collnamespace::regnamespace as schema,
         c.collname as name,
         c.collprovider as provider,
         c.collisdeterministic as is_deterministic,
@@ -97,14 +103,12 @@ export async function inspectCollations(
         colliculocale as locale,
         c.collicurules as icu_rules,
         c.collversion as version,
-        pg_get_userbyid(c.collowner) as owner
+        c.collowner::regrole as owner
       from
         pg_catalog.pg_collation c
-        inner join pg_catalog.pg_namespace n on n.oid = c.collnamespace
         left outer join extension_oids e on c.oid = e.objid
         -- <EXCLUDE_INTERNAL>
-        where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-        and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
+        where not c.collnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
         and e.objid is null
         -- </EXCLUDE_INTERNAL>
       order by
@@ -123,7 +127,7 @@ export async function inspectCollations(
           and d.classid = 'pg_collation'::regclass
       )
       select
-        n.nspname as schema,
+        c.collnamespace::regnamespace as schema,
         c.collname as name,
         c.collprovider as provider,
         c.collisdeterministic as is_deterministic,
@@ -133,14 +137,12 @@ export async function inspectCollations(
         colliculocale as locale,
         null as icu_rules,
         c.collversion as version,
-        pg_get_userbyid(c.collowner) as owner
+        c.collowner::regrole as owner
       from
         pg_catalog.pg_collation c
-        inner join pg_catalog.pg_namespace n on n.oid = c.collnamespace
         left outer join extension_oids e on c.oid = e.objid
         -- <EXCLUDE_INTERNAL>
-        where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-        and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
+        where not c.collnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
         and e.objid is null
         -- </EXCLUDE_INTERNAL>
       order by
