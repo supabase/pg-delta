@@ -28,13 +28,15 @@ describe.concurrent(
               [
                 "public.test_indexes.test_idx",
                 {
+                  column_collations: [['"default"']],
                   column_options: "0",
                   immediate: true,
-                  included_columns: [1],
                   index_expressions: null,
                   index_type: "btree",
+                  is_clustered: false,
                   is_exclusion: false,
                   is_primary: false,
+                  is_replica_identity: false,
                   is_unique: false,
                   key_columns: "2",
                   name: "test_idx",
@@ -51,13 +53,15 @@ describe.concurrent(
               [
                 "public.test_indexes.test_indexes_pkey",
                 {
+                  column_collations: [["-"]],
                   column_options: "0",
                   immediate: true,
-                  included_columns: [],
                   index_expressions: null,
                   index_type: "btree",
+                  is_clustered: false,
                   is_exclusion: false,
                   is_primary: true,
+                  is_replica_identity: false,
                   is_unique: true,
                   key_columns: "1",
                   name: "test_indexes_pkey",

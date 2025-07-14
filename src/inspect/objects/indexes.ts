@@ -1,6 +1,18 @@
 import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
+// All properties exposed by CREATE INDEX statement are included in diff output.
+// https://www.postgresql.org/docs/current/sql-createindex.html
+//
+// ALTER INDEX statement can only be generated for a subset of properties:
+//  - name, tablespace, attach partition
+// https://www.postgresql.org/docs/current/sql-alterindex.html
+//
+// Unsupported alter properties include
+//  - storage param, statistics, depends on extension
+//
+// Other properties require dropping and creating a new index.
+//  - operator class and param (i.indclass)
 interface InspectedIndexRow {
   schema: string;
   name: string;
@@ -12,8 +24,10 @@ interface InspectedIndexRow {
   is_exclusion: boolean;
   nulls_not_distinct: boolean;
   immediate: boolean;
+  is_clustered: boolean;
+  is_replica_identity: boolean;
   key_columns: number[];
-  included_columns: number[];
+  column_collations: string[];
   column_options: number[];
   index_expressions: string | null;
   partial_predicate: string | null;
@@ -50,12 +64,10 @@ select
   i.indisexclusion as is_exclusion,
   i.indnullsnotdistinct as nulls_not_distinct,
   i.indimmediate as immediate,
+  i.indisclustered as is_clustered,
+  i.indisreplident as is_replica_identity,
   i.indkey as key_columns,
-  array(
-    select generate_series(1, array_length(i.indkey, 1))
-    except
-    select unnest(i.indkey)
-  ) as included_columns,
+  i.indcollation::regcollation[] as column_collations,
   i.indoption as column_options,
   pg_get_expr(i.indexprs, i.indrelid) as index_expressions,
   pg_get_expr(i.indpred, i.indrelid) as partial_predicate,
@@ -69,6 +81,7 @@ from
   -- <EXCLUDE_INTERNAL>
   where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   and e.objid is null
+  and indislive is true
   -- </EXCLUDE_INTERNAL>
 order by
   1, 2;
