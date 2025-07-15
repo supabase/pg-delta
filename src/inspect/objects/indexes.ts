@@ -31,7 +31,6 @@ interface InspectedIndexRow {
   column_options: number[];
   index_expressions: string | null;
   partial_predicate: string | null;
-  owner: string;
 }
 
 export type InspectedIndex = InspectedIndexRow & DependentDatabaseObject;
@@ -70,8 +69,7 @@ select
   i.indcollation::regcollation[] as column_collations,
   i.indoption as column_options,
   pg_get_expr(i.indexprs, i.indrelid) as index_expressions,
-  pg_get_expr(i.indpred, i.indrelid) as partial_predicate,
-  c.relowner::regrole as owner
+  pg_get_expr(i.indpred, i.indrelid) as partial_predicate
 from
   pg_catalog.pg_index i
   inner join pg_catalog.pg_class c on c.oid = i.indexrelid
