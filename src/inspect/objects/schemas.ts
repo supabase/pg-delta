@@ -14,7 +14,7 @@ function identifySchema(schema: InspectedSchemaRow): string {
 
 export async function inspectSchemas(
   sql: Sql,
-): Promise<Map<string, InspectedSchema>> {
+): Promise<Record<string, InspectedSchema>> {
   const schemas = await sql<InspectedSchemaRow[]>`
 with extension_oids as (
   select
@@ -40,10 +40,14 @@ order by
   1;
   `;
 
-  return new Map(
+  return Object.fromEntries(
     schemas.map((s) => [
       identifySchema(s),
-      { ...s, dependent_on: [], dependents: [] },
+      {
+        ...s,
+        dependent_on: [],
+        dependents: [],
+      },
     ]),
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect } from "vitest";
 import { POSTGRES_VERSIONS } from "../../../tests/migra/constants.ts";
-import { getTest } from "../../../tests/migra/utils.ts";
+import { getTest, pick } from "../../../tests/migra/utils.ts";
 import { inspectExtensions } from "./extensions.ts";
 
 describe.concurrent(
@@ -19,38 +19,33 @@ describe.concurrent(
           `;
           await Promise.all([db.a.unsafe(fixture), db.b.unsafe(fixture)]);
           // act
-          const resultA = await inspectExtensions(db.a);
-          const resultB = await inspectExtensions(db.b);
+          const filterResult = pick(["pg_catalog.plpgsql", "public.citext"]);
+          const [resultA, resultB] = await Promise.all([
+            inspectExtensions(db.a).then(filterResult),
+            inspectExtensions(db.b).then(filterResult),
+          ]);
           // assert
-          expect(resultA).toEqual(
-            new Map([
-              [
-                "pg_catalog.plpgsql",
-                {
-                  name: "plpgsql",
-                  owner: "test",
-                  relocatable: false,
-                  schema: "pg_catalog",
-                  version: "1.0",
-                  dependent_on: [],
-                  dependents: [],
-                },
-              ],
-              [
-                "public.citext",
-                {
-                  name: "citext",
-                  owner: "test",
-                  relocatable: true,
-                  schema: "public",
-                  version: "1.6",
-                  dependent_on: [],
-                  dependents: [],
-                },
-              ],
-            ]),
-          );
-          expect(resultB).toEqual(resultA);
+          expect(resultA).toStrictEqual({
+            "pg_catalog.plpgsql": {
+              name: "plpgsql",
+              owner: "supabase_admin",
+              relocatable: false,
+              schema: "pg_catalog",
+              version: "1.0",
+              dependent_on: [],
+              dependents: [],
+            },
+            "public.citext": {
+              name: "citext",
+              owner: "supabase_admin",
+              relocatable: true,
+              schema: "public",
+              version: "1.6",
+              dependent_on: [],
+              dependents: [],
+            },
+          });
+          expect(resultB).toStrictEqual(resultA);
         });
       });
     }

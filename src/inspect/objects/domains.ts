@@ -23,7 +23,7 @@ function identifyDomain(domain: InspectedDomainRow): string {
 
 export async function inspectDomains(
   sql: Sql,
-): Promise<Map<string, InspectedDomain>> {
+): Promise<Record<string, InspectedDomain>> {
   const domains = await sql<InspectedDomainRow[]>`
 with extension_oids as (
   select
@@ -63,7 +63,7 @@ order by
   1, 2;
   `;
 
-  return new Map(
+  return Object.fromEntries(
     domains.map((d) => [
       identifyDomain(d),
       {

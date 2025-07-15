@@ -41,7 +41,7 @@ function identifyTrigger(trigger: InspectedTriggerRow): string {
 
 export async function inspectTriggers(
   sql: Sql,
-): Promise<Map<string, InspectedTrigger>> {
+): Promise<Record<string, InspectedTrigger>> {
   const triggers = await sql<InspectedTriggerRow[]>`
 with extension_oids as (
   select
@@ -88,7 +88,7 @@ order by
   1, 2;
   `;
 
-  return new Map(
+  return Object.fromEntries(
     triggers.map((t) => [
       identifyTrigger(t),
       {

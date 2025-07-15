@@ -36,7 +36,7 @@ function identifyRlsPolicy(policy: InspectedRlsPolicyRow): string {
 
 export async function inspectRlsPolicies(
   sql: Sql,
-): Promise<Map<string, InspectedRlsPolicy>> {
+): Promise<Record<string, InspectedRlsPolicy>> {
   const policies = await sql<InspectedRlsPolicyRow[]>`
 with extension_oids as (
   select
@@ -77,7 +77,7 @@ order by
   1, 2;
   `;
 
-  return new Map(
+  return Object.fromEntries(
     policies.map((p) => [
       identifyRlsPolicy(p),
       {

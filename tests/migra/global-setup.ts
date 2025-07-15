@@ -1,13 +1,19 @@
 import { getContainerRuntimeClient, ImageName } from "testcontainers";
-import { POSTGRES_VERSIONS } from "./constants.ts";
+import {
+  POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
+  POSTGRES_VERSIONS,
+} from "./constants.ts";
 
 export async function setup() {
   const containerRuntimeClient = await getContainerRuntimeClient();
+  // pull all the images before running the tests
+  const images = POSTGRES_VERSIONS.map(
+    (postgresVersion) =>
+      `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[postgresVersion]}`,
+  );
   await Promise.all(
-    POSTGRES_VERSIONS.map((version) =>
-      containerRuntimeClient.image.pull(
-        ImageName.fromString(`postgres:${version}-alpine`),
-      ),
+    images.map((image) =>
+      containerRuntimeClient.image.pull(ImageName.fromString(image)),
     ),
   );
 }

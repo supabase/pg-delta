@@ -7,8 +7,8 @@ import type { InspectedExtension } from "./objects/extensions.ts";
 import type { InspectedFunction } from "./objects/functions.ts";
 import type { InspectedIndex } from "./objects/indexes.ts";
 import type { InspectedMaterializedView } from "./objects/materialized-views.ts";
-import type { InspectedPrivilege } from "./objects/privileges.ts";
 import type { InspectedRlsPolicy } from "./objects/rls-policies.ts";
+import type { InspectedRole } from "./objects/roles.ts";
 import type { InspectedSchema } from "./objects/schemas.ts";
 import type { InspectedSequence } from "./objects/sequences.ts";
 import type { InspectedTable } from "./objects/tables.ts";
@@ -26,7 +26,7 @@ export type InspectionMap = {
   [k: `function:${string}`]: InspectedFunction;
   [k: `index:${string}`]: InspectedIndex;
   [k: `materializedView:${string}`]: InspectedMaterializedView;
-  [k: `privilege:${string}`]: InspectedPrivilege;
+  [k: `privilege:${string}`]: InspectedRole;
   [k: `rlsPolicy:${string}`]: InspectedRlsPolicy;
   [k: `schema:${string}`]: InspectedSchema;
   [k: `sequence:${string}`]: InspectedSequence;

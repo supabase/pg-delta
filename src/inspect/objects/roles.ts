@@ -1,6 +1,6 @@
 import type { Sql } from "postgres";
 
-export interface InspectedPrivilege {
+export interface InspectedRole {
   role_name: string;
   is_superuser: boolean;
   can_inherit: boolean;
@@ -13,14 +13,14 @@ export interface InspectedPrivilege {
   config: string[] | null;
 }
 
-function identifyPrivilege(priv: InspectedPrivilege): string {
+function identifyRole(priv: InspectedRole): string {
   return priv.role_name;
 }
 
-export async function inspectPrivileges(
+export async function inspectRoles(
   sql: Sql,
-): Promise<Map<string, InspectedPrivilege>> {
-  const privileges = await sql<InspectedPrivilege[]>`
+): Promise<Record<string, InspectedRole>> {
+  const privileges = await sql<InspectedRole[]>`
 select
   rolname as role_name,
   rolsuper as is_superuser,
@@ -41,5 +41,5 @@ order by
   1;
   `;
 
-  return new Map(privileges.map((p) => [identifyPrivilege(p), p]));
+  return Object.fromEntries(privileges.map((p) => [identifyRole(p), p]));
 }

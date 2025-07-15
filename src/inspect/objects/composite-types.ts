@@ -36,7 +36,7 @@ function identifyCompositeType(type: InspectedCompositeTypeRow): string {
 
 export async function inspectCompositeTypes(
   sql: Sql,
-): Promise<Map<string, InspectedCompositeType>> {
+): Promise<Record<string, InspectedCompositeType>> {
   const compositeTypes = await sql<InspectedCompositeTypeRow[]>`
 with extension_oids as (
   select
@@ -135,7 +135,7 @@ order by
   ct.schema, ct.name;
   `;
 
-  return new Map(
+  return Object.fromEntries(
     compositeTypes.map((t) => [
       identifyCompositeType(t),
       {

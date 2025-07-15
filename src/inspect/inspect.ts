@@ -10,8 +10,8 @@ import {
   inspectFunctions,
   inspectIndexes,
   inspectMaterializedViews,
-  inspectPrivileges,
   inspectRlsPolicies,
+  inspectRoles,
   inspectSchemas,
   inspectSequences,
   inspectTables,
@@ -50,7 +50,7 @@ export async function inspect(sql: Sql): Promise<InspectionMap> {
     inspectFunctions(sql),
     inspectIndexes(sql),
     inspectMaterializedViews(sql),
-    inspectPrivileges(sql),
+    inspectRoles(sql),
     inspectRlsPolicies(sql),
     inspectSchemas(sql),
     inspectSequences(sql),
@@ -85,7 +85,7 @@ export async function inspect(sql: Sql): Promise<InspectionMap> {
   for (const [mapName, map] of Object.entries(inspection)) {
     const prefix =
       OBJECT_KIND_PREFIX[mapName as keyof typeof OBJECT_KIND_PREFIX];
-    for (const [key, value] of map.entries()) {
+    for (const [key, value] of Object.entries(map)) {
       // biome-ignore lint/suspicious/noExplicitAny: we dynamically create the keys
       inspectionMap[`${prefix}:${key}`] = value as any;
     }

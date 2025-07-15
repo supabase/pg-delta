@@ -2,10 +2,9 @@ version: '3.8'
 
 services:
   db:
-    image: postgres:17-alpine
+    image: supabase/postgres:17.4.1.054
     ports:
       - "5432:5432"
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf 
     environment:
-      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: postgres

@@ -70,7 +70,7 @@ function identifyConstraint(constraint: InspectedConstraintRow): string {
 
 export async function inspectConstraints(
   sql: Sql,
-): Promise<Map<string, InspectedConstraint>> {
+): Promise<Record<string, InspectedConstraint>> {
   const constraints = await sql<InspectedConstraintRow[]>`
 with extension_oids as (
   select
@@ -118,7 +118,7 @@ order by
   1, 2;
   `;
 
-  return new Map(
+  return Object.fromEntries(
     constraints.map((c) => [
       identifyConstraint(c),
       {

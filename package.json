@@ -31,10 +31,9 @@
   "packageManager": "pnpm@10.13.1",
   "devDependencies": {
     "@biomejs/biome": "2.1.1",
-    "@testcontainers/postgresql": "^11.2.1",
     "@tsconfig/node-ts": "^23.6.1",
     "@tsconfig/node24": "^24.0.1",
-    "@types/node": "^24.0.12",
+    "@types/node": "^24.0.14",
     "knip": "^5.61.3",
     "postgres": "^3.4.7",
     "testcontainers": "^11.2.1",

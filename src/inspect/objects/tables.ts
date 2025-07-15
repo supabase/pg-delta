@@ -72,7 +72,7 @@ export function identifyTable(
 
 export async function inspectTables(
   sql: Sql,
-): Promise<Map<string, InspectedTable>> {
+): Promise<Record<string, InspectedTable>> {
   const tables = await sql<InspectedTableRow[]>`
 with extension_oids as (
   select objid
@@ -179,7 +179,7 @@ order by
   t.schema, t.name;
   `;
 
-  return new Map(
+  return Object.fromEntries(
     tables.map((t) => [
       identifyTable(t),
       {

@@ -32,8 +32,8 @@ function identifyExtension(extension: InspectedExtensionRow): string {
 
 export async function inspectExtensions(
   sql: Sql,
-): Promise<Map<string, InspectedExtension>> {
-  const extensions = await sql<InspectedExtension[]>`
+): Promise<Record<string, InspectedExtension>> {
+  const extensions = await sql<InspectedExtensionRow[]>`
 select
   extname as name,
   extnamespace::regnamespace as schema,
@@ -46,7 +46,7 @@ order by
   1;
   `;
 
-  return new Map(
+  return Object.fromEntries(
     extensions.map((e) => [
       identifyExtension(e),
       {
