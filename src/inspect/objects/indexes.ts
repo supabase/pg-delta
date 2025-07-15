@@ -13,6 +13,7 @@ import type { DependentDatabaseObject } from "../types.ts";
 //
 // Other properties require dropping and creating a new index.
 //  - operator class and param (i.indclass)
+//  - storage param (i.indoption)
 interface InspectedIndexRow {
   table_schema: string;
   table_name: string;
@@ -28,6 +29,7 @@ interface InspectedIndexRow {
   is_replica_identity: boolean;
   key_columns: number[];
   column_collations: string[];
+  operator_classes: string[];
   column_options: number[];
   index_expressions: string | null;
   partial_predicate: string | null;
@@ -67,6 +69,11 @@ select
   i.indisreplident as is_replica_identity,
   i.indkey as key_columns,
   i.indcollation::regcollation[] as column_collations,
+  array(
+    select format('%I.%I', opcnamespace::regnamespace, opcname)
+    from unnest(i.indclass) op
+    inner join pg_opclass oc on oc.oid = op
+  ) as operator_classes,
   i.indoption as column_options,
   pg_get_expr(i.indexprs, i.indrelid) as index_expressions,
   pg_get_expr(i.indpred, i.indrelid) as partial_predicate
