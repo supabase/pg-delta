@@ -51,26 +51,16 @@ export async function getFixtures() {
   return fixtures;
 }
 
-export function getTest(
-  postgresVersion: PostgresVersion,
-  options?: {
-    useSupabasePostgres?: boolean;
-  },
-) {
+export function getTest(postgresVersion: PostgresVersion) {
   return baseTest.extend<{
     db: { a: postgres.Sql; b: postgres.Sql };
   }>({
     // biome-ignore lint/correctness/noEmptyPattern: The first argument inside a fixture must use object destructuring pattern
     db: async ({}, use) => {
-      const [ContainerClass, image] = options?.useSupabasePostgres
-        ? [
-            SupabasePostgreSqlContainer,
-            `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[postgresVersion]}`,
-          ]
-        : [PostgreSqlContainer, `postgres:${postgresVersion}-alpine`];
+      const image = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[postgresVersion]}`;
       const [containerA, containerB] = await Promise.all([
-        new ContainerClass(image).start(),
-        new ContainerClass(image).start(),
+        new SupabasePostgreSqlContainer(image).start(),
+        new SupabasePostgreSqlContainer(image).start(),
       ]);
       const a = postgres(containerA.getConnectionUri());
       const b = postgres(containerB.getConnectionUri());
@@ -81,4 +71,16 @@ export function getTest(
       await Promise.all([containerA.stop(), containerB.stop()]);
     },
   });
+}
+
+export function pick(keys: string[]) {
+  return (obj: Record<string, unknown>) => {
+    const result: Record<string, unknown> = {};
+    for (const key of keys) {
+      if (key in obj) {
+        result[key] = obj[key];
+      }
+    }
+    return result;
+  };
 }

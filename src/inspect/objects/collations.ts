@@ -42,7 +42,7 @@ function identifyCollation(collation: InspectedCollationRow): string {
 
 export async function inspectCollations(
   sql: Sql,
-): Promise<Map<string, InspectedCollation>> {
+): Promise<Record<string, InspectedCollation>> {
   const version = await inspectVersion(sql);
   const isPostgres17OrGreater = version.version >= 170000;
   const isPostgres16OrGreater = version.version >= 160000;
@@ -150,7 +150,7 @@ export async function inspectCollations(
     `;
   }
 
-  return new Map(
+  return Object.fromEntries(
     collations.map((c) => [
       identifyCollation(c),
       {
