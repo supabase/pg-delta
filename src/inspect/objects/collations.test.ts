@@ -19,11 +19,13 @@ describe.concurrent(
           `;
           await Promise.all([db.a.unsafe(fixture), db.b.unsafe(fixture)]);
           // act
-          const resultA = await inspectCollations(db.a);
-          const resultB = await inspectCollations(db.b);
-          // assert
           const filterResult = pick(["public.test_collation"]);
-          expect(filterResult(resultA)).toStrictEqual({
+          const [resultA, resultB] = await Promise.all([
+            inspectCollations(db.a).then(filterResult),
+            inspectCollations(db.b).then(filterResult),
+          ]);
+          // assert
+          expect(resultA).toStrictEqual({
             "public.test_collation": {
               collate: "C",
               ctype: "C",
@@ -40,7 +42,7 @@ describe.concurrent(
               dependents: [],
             },
           });
-          expect(filterResult(resultB)).toStrictEqual(filterResult(resultA));
+          expect(resultB).toStrictEqual(resultA);
         });
       });
     }

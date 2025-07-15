@@ -74,7 +74,7 @@ export type InspectedFunction = InspectedFunctionRow & DependentDatabaseObject;
 
 export async function inspectFunctions(
   sql: Sql,
-): Promise<Map<string, InspectedFunction>> {
+): Promise<Record<string, InspectedFunction>> {
   const functions = await sql<InspectedFunctionRow[]>`
 with extension_oids as (
   select
@@ -133,7 +133,7 @@ order by
   1, 2;
   `;
 
-  return new Map(
+  return Object.fromEntries(
     functions.map((f) => [
       identifyFunction(f),
       {

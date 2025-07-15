@@ -1,6 +1,6 @@
 import { describe, expect } from "vitest";
 import { POSTGRES_VERSIONS } from "../../../tests/migra/constants.ts";
-import { getTest } from "../../../tests/migra/utils.ts";
+import { getTest, pick } from "../../../tests/migra/utils.ts";
 import { inspectTypes } from "./types.ts";
 
 describe.concurrent(
@@ -19,58 +19,53 @@ describe.concurrent(
           `;
           await Promise.all([db.a.unsafe(fixture), db.b.unsafe(fixture)]);
           // act
-          const resultA = await inspectTypes(db.a);
-          const resultB = await inspectTypes(db.b);
+          const filterResult = pick(["public._test_type", "public.test_type"]);
+          const [resultA, resultB] = await Promise.all([
+            inspectTypes(db.a).then(filterResult),
+            inspectTypes(db.b).then(filterResult),
+          ]);
           // assert
-          expect(resultA).toEqual(
-            new Map([
-              [
-                "public._test_type",
-                {
-                  alignment: "d",
-                  array_dimensions: 0,
-                  default_bin: null,
-                  default_value: null,
-                  delimiter: ",",
-                  is_defined: true,
-                  is_preferred: false,
-                  name: "_test_type",
-                  not_null: false,
-                  owner: "test",
-                  passed_by_value: false,
-                  schema: "public",
-                  storage: "x",
-                  storage_length: -1,
-                  type_category: "A",
-                  type_modifier: -1,
-                  type_type: "b",
-                },
-              ],
-              [
-                "public.test_type",
-                {
-                  alignment: "d",
-                  array_dimensions: 0,
-                  default_bin: null,
-                  default_value: null,
-                  delimiter: ",",
-                  is_defined: true,
-                  is_preferred: false,
-                  name: "test_type",
-                  not_null: false,
-                  owner: "test",
-                  passed_by_value: false,
-                  schema: "public",
-                  storage: "x",
-                  storage_length: -1,
-                  type_category: "C",
-                  type_modifier: -1,
-                  type_type: "c",
-                },
-              ],
-            ]),
-          );
-          expect(resultB).toEqual(resultA);
+          expect(resultA).toStrictEqual({
+            "public._test_type": {
+              alignment: "d",
+              array_dimensions: 0,
+              default_bin: null,
+              default_value: null,
+              delimiter: ",",
+              is_defined: true,
+              is_preferred: false,
+              name: "_test_type",
+              not_null: false,
+              owner: "supabase_admin",
+              passed_by_value: false,
+              schema: "public",
+              storage: "x",
+              storage_length: -1,
+              type_category: "A",
+              type_modifier: -1,
+              type_type: "b",
+            },
+            "public.test_type": {
+              alignment: "d",
+              array_dimensions: 0,
+              default_bin: null,
+              default_value: null,
+              delimiter: ",",
+              is_defined: true,
+              is_preferred: false,
+              name: "test_type",
+              not_null: false,
+              owner: "supabase_admin",
+              passed_by_value: false,
+              schema: "public",
+              storage: "x",
+              storage_length: -1,
+              type_category: "C",
+              type_modifier: -1,
+              type_type: "c",
+            },
+          });
+          expect(resultB).toStrictEqual(resultA);
         });
       });
     }

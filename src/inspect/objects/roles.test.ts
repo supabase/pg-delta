@@ -1,42 +1,42 @@
 import { describe, expect } from "vitest";
 import { POSTGRES_VERSIONS } from "../../../tests/migra/constants.ts";
 import { getTest, pick } from "../../../tests/migra/utils.ts";
-import { inspectSchemas } from "./schemas.ts";
+import { inspectRoles } from "./roles.ts";
 
 describe.concurrent(
-  "inspect schemas",
+  "inspect roles",
   () => {
     for (const postgresVersion of POSTGRES_VERSIONS) {
       describe(`postgres ${postgresVersion}`, () => {
         const test = getTest(postgresVersion);
 
-        test(`should be able to inspect stable properties of schemas`, async ({
+        test(`should be able to inspect stable properties of roles`, async ({
           db,
         }) => {
           // arrange
           const fixture = /* sql */ `
-            create schema test_schema;
+            create role custom_role login;
           `;
           await Promise.all([db.a.unsafe(fixture), db.b.unsafe(fixture)]);
           // act
-          const filterResult = pick(["public", "test_schema"]);
+          const filterResult = pick(["custom_role"]);
           const [resultA, resultB] = await Promise.all([
-            inspectSchemas(db.a).then(filterResult),
-            inspectSchemas(db.b).then(filterResult),
+            inspectRoles(db.a).then(filterResult),
+            inspectRoles(db.b).then(filterResult),
           ]);
           // assert
           expect(resultA).toStrictEqual({
-            public: {
-              owner: "pg_database_owner",
-              schema: "public",
-              dependent_on: [],
-              dependents: [],
-            },
-            test_schema: {
-              owner: "supabase_admin",
-              schema: "test_schema",
-              dependent_on: [],
-              dependents: [],
+            custom_role: {
+              can_bypass_rls: false,
+              can_create_databases: false,
+              can_create_roles: false,
+              can_inherit: true,
+              can_login: true,
+              can_replicate: false,
+              config: null,
+              connection_limit: -1,
+              is_superuser: false,
+              role_name: "custom_role",
             },
           });
           expect(resultB).toStrictEqual(resultA);

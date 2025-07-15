@@ -28,7 +28,7 @@ function identifyIndex(index: InspectedIndexRow): string {
 
 export async function inspectIndexes(
   sql: Sql,
-): Promise<Map<string, InspectedIndex>> {
+): Promise<Record<string, InspectedIndex>> {
   const indexes = await sql<InspectedIndexRow[]>`
 with extension_oids as (
   select
@@ -78,7 +78,7 @@ order by
   1, 2;
   `;
 
-  return new Map(
+  return Object.fromEntries(
     indexes.map((i) => [
       identifyIndex(i),
       {

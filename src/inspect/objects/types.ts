@@ -94,7 +94,7 @@ function identifyType(type: InspectedType): string {
 
 export async function inspectTypes(
   sql: Sql,
-): Promise<Map<string, InspectedType>> {
+): Promise<Record<string, InspectedType>> {
   const types = await sql<InspectedType[]>`
 with extension_oids as (
   select
@@ -136,5 +136,5 @@ order by
   1, 2;
   `;
 
-  return new Map(types.map((t) => [identifyType(t), t]));
+  return Object.fromEntries(types.map((t) => [identifyType(t), t]));
 }

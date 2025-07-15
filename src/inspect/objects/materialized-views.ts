@@ -37,7 +37,7 @@ function identifyMaterializedView(view: InspectedMaterializedViewRow): string {
 
 export async function inspectMaterializedViews(
   sql: Sql,
-): Promise<Map<string, InspectedMaterializedView>> {
+): Promise<Record<string, InspectedMaterializedView>> {
   const materializedViews = await sql<InspectedMaterializedViewRow[]>`
 with extension_oids as (
   select
@@ -138,7 +138,7 @@ order by
   mv.schema, mv.name;
   `;
 
-  return new Map(
+  return Object.fromEntries(
     materializedViews.map((v) => [
       identifyMaterializedView(v),
       {

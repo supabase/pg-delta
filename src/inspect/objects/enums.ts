@@ -31,7 +31,7 @@ export interface InspectedEnum
 
 export async function inspectEnums(
   sql: Sql,
-): Promise<Map<string, InspectedEnum>> {
+): Promise<Record<string, InspectedEnum>> {
   const enums = await sql<InspectedEnumRow[]>`
 with extension_oids as (
   select
@@ -60,12 +60,11 @@ order by
   1, 2, 3;
   `;
 
-  const grouped = new Map<string, InspectedEnum>();
+  const grouped: Record<string, InspectedEnum> = {};
   for (const e of enums) {
     const key = identifyEnum(e);
-    let obj = grouped.get(key);
-    if (!obj) {
-      obj = {
+    if (!grouped[key]) {
+      grouped[key] = {
         schema: e.schema,
         name: e.name,
         owner: e.owner,
@@ -73,9 +72,8 @@ order by
         dependents: [],
         labels: [],
       };
-      grouped.set(key, obj);
     }
-    obj.labels.push({ sort_order: e.sort_order, label: e.label });
+    grouped[key].labels.push({ sort_order: e.sort_order, label: e.label });
   }
   return grouped;
 }

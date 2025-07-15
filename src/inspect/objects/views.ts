@@ -34,7 +34,7 @@ function identifyView(view: InspectedViewRow): string {
 
 export async function inspectViews(
   sql: Sql,
-): Promise<Map<string, InspectedView>> {
+): Promise<Record<string, InspectedView>> {
   const views = await sql<InspectedViewRow[]>`
 with extension_oids as (
   select
@@ -135,7 +135,7 @@ order by
   v.schema, v.name;
   `;
 
-  return new Map(
+  return Object.fromEntries(
     views.map((view) => [
       identifyView(view),
       {

@@ -23,7 +23,7 @@ function identifySequence(seq: InspectedSequenceRow): string {
 
 export async function inspectSequences(
   sql: Sql,
-): Promise<Map<string, InspectedSequence>> {
+): Promise<Record<string, InspectedSequence>> {
   const sequences = await sql<InspectedSequenceRow[]>`
 with extension_oids as (
   select
@@ -61,7 +61,7 @@ order by
   1, 2;
   `;
 
-  return new Map(
+  return Object.fromEntries(
     sequences.map((s) => [
       identifySequence(s),
       {

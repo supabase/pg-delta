@@ -1,6 +1,6 @@
 import { describe, expect } from "vitest";
 import { POSTGRES_VERSIONS } from "../../../tests/migra/constants.ts";
-import { getTest } from "../../../tests/migra/utils.ts";
+import { getTest, pick } from "../../../tests/migra/utils.ts";
 import { inspectEnums } from "./enums.ts";
 
 describe.concurrent(
@@ -19,38 +19,36 @@ describe.concurrent(
           `;
           await Promise.all([db.a.unsafe(fixture), db.b.unsafe(fixture)]);
           // act
-          const resultA = await inspectEnums(db.a);
-          const resultB = await inspectEnums(db.b);
+          const filterResult = pick(["public.test_enum"]);
+          const [resultA, resultB] = await Promise.all([
+            inspectEnums(db.a).then(filterResult),
+            inspectEnums(db.b).then(filterResult),
+          ]);
           // assert
-          expect(resultA).toEqual(
-            new Map([
-              [
-                "public.test_enum",
+          expect(resultA).toStrictEqual({
+            "public.test_enum": {
+              schema: "public",
+              name: "test_enum",
+              owner: "supabase_admin",
+              dependent_on: [],
+              dependents: [],
+              labels: [
                 {
-                  schema: "public",
-                  name: "test_enum",
-                  owner: "test",
-                  dependent_on: [],
-                  dependents: [],
-                  labels: [
-                    {
-                      sort_order: 1,
-                      label: "a",
-                    },
-                    {
-                      sort_order: 2,
-                      label: "b",
-                    },
-                    {
-                      sort_order: 3,
-                      label: "c",
-                    },
-                  ],
+                  sort_order: 1,
+                  label: "a",
+                },
+                {
+                  sort_order: 2,
+                  label: "b",
+                },
+                {
+                  sort_order: 3,
+                  label: "c",
                 },
               ],
-            ]),
-          );
-          expect(resultB).toEqual(resultA);
+            },
+          });
+          expect(resultB).toStrictEqual(resultA);
         });
       });
     }

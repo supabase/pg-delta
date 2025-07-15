@@ -1,6 +1,6 @@
 import { describe, expect } from "vitest";
 import { POSTGRES_VERSIONS } from "../../../tests/migra/constants.ts";
-import { getTest } from "../../../tests/migra/utils.ts";
+import { getTest, pick } from "../../../tests/migra/utils.ts";
 import { inspectTriggers } from "./triggers.ts";
 
 describe.concurrent(
@@ -21,39 +21,37 @@ describe.concurrent(
           `;
           await Promise.all([db.a.unsafe(fixture), db.b.unsafe(fixture)]);
           // act
-          const resultA = await inspectTriggers(db.a);
-          const resultB = await inspectTriggers(db.b);
+          const filterResult = pick(["public.trg_table.test_trigger"]);
+          const [resultA, resultB] = await Promise.all([
+            inspectTriggers(db.a).then(filterResult),
+            inspectTriggers(db.b).then(filterResult),
+          ]);
           // assert
-          expect(resultA).toEqual(
-            new Map([
-              [
-                "public.trg_table.test_trigger",
-                {
-                  argument_count: 0,
-                  arguments: [],
-                  column_numbers: "",
-                  deferrable: false,
-                  enabled: "O",
-                  function_name: "trg_func",
-                  function_schema: "public",
-                  initially_deferred: false,
-                  is_internal: false,
-                  name: "test_trigger",
-                  new_table: null,
-                  old_table: null,
-                  owner: "test",
-                  schema: "public",
-                  table_name: "trg_table",
-                  table_schema: "public",
-                  trigger_type: 7,
-                  when_condition: null,
-                  dependent_on: [],
-                  dependents: [],
-                },
-              ],
-            ]),
-          );
-          expect(resultB).toEqual(resultA);
+          expect(resultA).toStrictEqual({
+            "public.trg_table.test_trigger": {
+              argument_count: 0,
+              arguments: [],
+              column_numbers: "",
+              deferrable: false,
+              enabled: "O",
+              function_name: "trg_func",
+              function_schema: "public",
+              initially_deferred: false,
+              is_internal: false,
+              name: "test_trigger",
+              new_table: null,
+              old_table: null,
+              owner: "supabase_admin",
+              schema: "public",
+              table_name: "trg_table",
+              table_schema: "public",
+              trigger_type: 7,
+              when_condition: null,
+              dependent_on: [],
+              dependents: [],
+            },
+          });
+          expect(resultB).toStrictEqual(resultA);
         });
       });
     }

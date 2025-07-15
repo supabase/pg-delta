@@ -1,6 +1,6 @@
 import { describe, expect } from "vitest";
 import { POSTGRES_VERSIONS } from "../../../tests/migra/constants.ts";
-import { getTest } from "../../../tests/migra/utils.ts";
+import { getTest, pick } from "../../../tests/migra/utils.ts";
 import { inspectDomains } from "./domains.ts";
 
 describe.concurrent(
@@ -19,32 +19,30 @@ describe.concurrent(
           `;
           await Promise.all([db.a.unsafe(fixture), db.b.unsafe(fixture)]);
           // act
-          const resultA = await inspectDomains(db.a);
-          const resultB = await inspectDomains(db.b);
+          const filterResult = pick(["public.test_domain"]);
+          const [resultA, resultB] = await Promise.all([
+            inspectDomains(db.a).then(filterResult),
+            inspectDomains(db.b).then(filterResult),
+          ]);
           // assert
-          expect(resultA).toEqual(
-            new Map([
-              [
-                "public.test_domain",
-                {
-                  array_dimensions: 0,
-                  base_type: "int4",
-                  base_type_schema: "pg_catalog",
-                  collation: null,
-                  default_bin: null,
-                  default_value: null,
-                  name: "test_domain",
-                  not_null: true,
-                  owner: "test",
-                  schema: "public",
-                  type_modifier: -1,
-                  dependent_on: [],
-                  dependents: [],
-                },
-              ],
-            ]),
-          );
-          expect(resultB).toEqual(resultA);
+          expect(resultA).toStrictEqual({
+            "public.test_domain": {
+              array_dimensions: 0,
+              base_type: "int4",
+              base_type_schema: "pg_catalog",
+              collation: null,
+              default_bin: null,
+              default_value: null,
+              name: "test_domain",
+              not_null: true,
+              owner: "supabase_admin",
+              schema: "public",
+              type_modifier: -1,
+              dependent_on: [],
+              dependents: [],
+            },
+          });
+          expect(resultB).toStrictEqual(resultA);
         });
       });
     }
