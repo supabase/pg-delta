@@ -5,19 +5,19 @@ import type { DependentDatabaseObject } from "../types.ts";
 // https://www.postgresql.org/docs/current/sql-createindex.html
 //
 // ALTER INDEX statement can only be generated for a subset of properties:
-//  - name, tablespace, attach partition
+//  - name, storage param, tablespace, attach partition
 // https://www.postgresql.org/docs/current/sql-alterindex.html
 //
 // Unsupported alter properties include
-//  - storage param, statistics, depends on extension
+//  - statistics (expression indexes must wait for autovacuum)
+//  - depends on extension (all extension dependencies are excluded)
 //
 // Other properties require dropping and creating a new index.
-//  - operator class and param (i.indclass)
-//  - storage param (i.indoption)
 interface InspectedIndexRow {
   table_schema: string;
   table_name: string;
   name: string;
+  storage_params: string[];
   index_type: string;
   tablespace: string | null;
   is_unique: boolean;
@@ -58,6 +58,7 @@ select
   tc.relnamespace::regnamespace as table_schema,
   tc.relname as table_name,
   c.relname as name,
+  coalesce(c.reloptions, array[]::text[]) as storage_params,
   am.amname as index_type,
   ts.spcname as tablespace,
   i.indisunique as is_unique,
@@ -72,7 +73,7 @@ select
   array(
     select format('%I.%I', opcnamespace::regnamespace, opcname)
     from unnest(i.indclass) op
-    inner join pg_opclass oc on oc.oid = op
+    left join pg_opclass oc on oc.oid = op
   ) as operator_classes,
   i.indoption as column_options,
   pg_get_expr(i.indexprs, i.indrelid) as index_expressions,
@@ -86,8 +87,8 @@ from
   left outer join extension_oids e on c.oid = e.objid
   -- <EXCLUDE_INTERNAL>
   where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
+  and i.indislive is true
   and e.objid is null
-  and indislive is true
   -- </EXCLUDE_INTERNAL>
 order by
   1, 2;
