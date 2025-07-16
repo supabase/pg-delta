@@ -5,11 +5,10 @@ import type { DependentDatabaseObject } from "../types.ts";
 // https://www.postgresql.org/docs/current/sql-createindex.html
 //
 // ALTER INDEX statement can only be generated for a subset of properties:
-//  - name, storage param, tablespace, attach partition
+//  - name, storage param, statistics, tablespace, attach partition
 // https://www.postgresql.org/docs/current/sql-alterindex.html
 //
 // Unsupported alter properties include
-//  - statistics (expression indexes must wait for autovacuum)
 //  - depends on extension (all extension dependencies are excluded)
 //
 // Other properties require dropping and creating a new index.
@@ -18,6 +17,7 @@ interface InspectedIndexRow {
   table_name: string;
   name: string;
   storage_params: string[];
+  statistics_target: number[];
   index_type: string;
   tablespace: string | null;
   is_unique: boolean;
@@ -70,6 +70,11 @@ select
   i.indisreplident as is_replica_identity,
   i.indkey as key_columns,
   i.indcollation::regcollation[] as column_collations,
+  array(
+    select coalesce(attstattarget, -1)
+    from pg_catalog.pg_attribute a
+    where a.attrelid = i.indexrelid
+  ) as statistics_target,
   array(
     select format('%I.%I', opcnamespace::regnamespace, opcname)
     from unnest(i.indclass) op
