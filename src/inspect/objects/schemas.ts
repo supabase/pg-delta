@@ -27,13 +27,12 @@ with extension_oids as (
 )
 select
   nspname as schema,
-  pg_get_userbyid(nspowner) as owner
+  nspowner::regrole as owner
 from
   pg_catalog.pg_namespace
   left outer join extension_oids e on e.objid = oid
   -- <EXCLUDE_INTERNAL>
-  where nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and nspname not like 'pg\_temp\_%' and nspname not like 'pg\_toast\_temp\_%'
+  where not nspname like any(array['pg\\_%', 'information\\_schema'])
   and e.objid is null
   -- </EXCLUDE_INTERNAL>
 order by
