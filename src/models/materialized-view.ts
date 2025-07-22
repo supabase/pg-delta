@@ -60,8 +60,8 @@ export class MaterializedView extends BasePgModel {
     this.owner = props.owner;
   }
 
-  get stableId() {
-    return `${this.schema}.${this.name}`;
+  get stableId(): `materializedView:${string}` {
+    return `materializedView:${this.schema}.${this.name}`;
   }
 
   get identityFields() {

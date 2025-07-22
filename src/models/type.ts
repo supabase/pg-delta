@@ -85,8 +85,8 @@ export class Type extends BasePgModel {
     this.owner = props.owner;
   }
 
-  get stableId() {
-    return `${this.schema}.${this.name}`;
+  get stableId(): `type:${string}` {
+    return `type:${this.schema}.${this.name}`;
   }
 
   get identityFields() {

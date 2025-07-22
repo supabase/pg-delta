@@ -20,8 +20,8 @@ export class Schema extends BasePgModel {
     this.owner = props.owner;
   }
 
-  get stableId() {
-    return this.schema;
+  get stableId(): `schema:${string}` {
+    return `schema:${this.schema}`;
   }
 
   get identityFields() {

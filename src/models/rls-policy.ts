@@ -46,8 +46,8 @@ export class RlsPolicy extends BasePgModel {
     this.owner = props.owner;
   }
 
-  get stableId() {
-    return `${this.schema}.${this.table_name}.${this.name}`;
+  get stableId(): `rlsPolicy:${string}` {
+    return `rlsPolicy:${this.schema}.${this.table_name}.${this.name}`;
   }
 
   get identityFields() {

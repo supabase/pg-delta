@@ -31,8 +31,8 @@ export class Enum extends BasePgModel {
     this.labels = props.labels;
   }
 
-  get stableId() {
-    return `${this.schema}.${this.name}`;
+  get stableId(): `enum:${string}` {
+    return `enum:${this.schema}.${this.name}`;
   }
 
   get identityFields() {

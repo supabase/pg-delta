@@ -74,8 +74,8 @@ export class Index extends BasePgModel {
     this.partial_predicate = props.partial_predicate;
   }
 
-  get stableId() {
-    return `${this.table_schema}.${this.table_name}.${this.name}`;
+  get stableId(): `index:${string}` {
+    return `index:${this.table_schema}.${this.table_name}.${this.name}`;
   }
 
   get identityFields() {

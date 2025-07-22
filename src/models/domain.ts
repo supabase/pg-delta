@@ -47,8 +47,8 @@ export class Domain extends BasePgModel {
     this.owner = props.owner;
   }
 
-  get stableId() {
-    return `${this.schema}.${this.name}`;
+  get stableId(): `domain:${string}` {
+    return `domain:${this.schema}.${this.name}`;
   }
 
   get identityFields() {

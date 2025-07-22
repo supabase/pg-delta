@@ -47,8 +47,8 @@ export class Sequence extends BasePgModel {
     this.owner = props.owner;
   }
 
-  get stableId() {
-    return `${this.schema}.${this.name}`;
+  get stableId(): `sequence:${string}` {
+    return `sequence:${this.schema}.${this.name}`;
   }
 
   get identityFields() {

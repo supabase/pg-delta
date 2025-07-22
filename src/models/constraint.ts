@@ -75,8 +75,8 @@ export class Constraint extends BasePgModel {
     this.owner = props.owner;
   }
 
-  get stableId() {
-    return `${this.schema}.${this.table_name}.${this.name}`;
+  get stableId(): `constraint:${string}` {
+    return `constraint:${this.schema}.${this.table_name}.${this.name}`;
   }
 
   get identityFields() {

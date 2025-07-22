@@ -29,8 +29,8 @@ export class Extension extends BasePgModel {
     this.owner = props.owner;
   }
 
-  get stableId() {
-    return `${this.schema}.${this.name}`;
+  get stableId(): `extension:${string}` {
+    return `extension:${this.schema}.${this.name}`;
   }
 
   get identityFields() {

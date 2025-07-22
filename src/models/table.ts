@@ -68,8 +68,8 @@ export class Table extends BasePgModel {
     this.parent_name = props.parent_name;
   }
 
-  get stableId() {
-    return `${this.schema}.${this.name}`;
+  get stableId(): `table:${string}` {
+    return `table:${this.schema}.${this.name}`;
   }
 
   get identityFields() {

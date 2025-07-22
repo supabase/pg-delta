@@ -91,8 +91,8 @@ export class Procedure extends BasePgModel {
     this.owner = props.owner;
   }
 
-  get stableId() {
-    return `${this.schema}.${this.name}`;
+  get stableId(): `procedure:${string}` {
+    return `procedure:${this.schema}.${this.name}`;
   }
 
   get identityFields() {

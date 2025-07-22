@@ -44,8 +44,8 @@ export class Role extends BasePgModel {
     this.config = props.config;
   }
 
-  get stableId() {
-    return this.role_name;
+  get stableId(): `role:${string}` {
+    return `role:${this.role_name}`;
   }
 
   get identityFields() {
