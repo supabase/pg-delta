@@ -110,7 +110,9 @@ export class Index extends BasePgModel {
 }
 
 export async function extractIndexes(sql: Sql): Promise<Index[]> {
-  const indexRows = await sql<IndexProps[]>`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const indexRows = await sql<IndexProps[]>`
 with extension_oids as (
   select
     objid
@@ -161,6 +163,7 @@ from
   and e.objid is null
 order by
   1, 2;
-  `;
-  return indexRows.map((row) => new Index(row));
+    `;
+    return indexRows.map((row) => new Index(row));
+  });
 }

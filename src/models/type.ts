@@ -118,7 +118,9 @@ export class Type extends BasePgModel {
 }
 
 export async function extractTypes(sql: Sql): Promise<Type[]> {
-  const typeRows = await sql<TypeProps[]>`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const typeRows = await sql<TypeProps[]>`
 with extension_oids as (
   select
     objid
@@ -155,6 +157,7 @@ from
   and e.objid is null
 order by
   1, 2;
-  `;
-  return typeRows.map((row) => new Type(row));
+    `;
+    return typeRows.map((row) => new Type(row));
+  });
 }

@@ -93,7 +93,9 @@ export class MaterializedView extends BasePgModel {
 export async function extractMaterializedViews(
   sql: Sql,
 ): Promise<MaterializedView[]> {
-  const mvRows = await sql<MaterializedViewProps[]>`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const mvRows = await sql<MaterializedViewProps[]>`
 with extension_oids as (
   select
     objid
@@ -149,6 +151,7 @@ from
   materialized_views mv
 order by
   mv.schema, mv.name;
-  `;
-  return mvRows.map((row) => new MaterializedView(row));
+    `;
+    return mvRows.map((row) => new MaterializedView(row));
+  });
 }

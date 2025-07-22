@@ -91,7 +91,9 @@ export class View extends BasePgModel {
 }
 
 export async function extractViews(sql: Sql): Promise<View[]> {
-  const viewRows = await sql<ViewProps[]>`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const viewRows = await sql<ViewProps[]>`
 with extension_oids as (
   select
     objid
@@ -147,6 +149,7 @@ from
   views v
 order by
   v.schema, v.name;
-  `;
-  return viewRows.map((row) => new View(row));
+    `;
+    return viewRows.map((row) => new View(row));
+  });
 }

@@ -109,7 +109,9 @@ export class Constraint extends BasePgModel {
 }
 
 export async function extractConstraints(sql: Sql): Promise<Constraint[]> {
-  const constraintRows = await sql<ConstraintProps[]>`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const constraintRows = await sql<ConstraintProps[]>`
 with extension_oids as (
   select
     objid
@@ -152,6 +154,7 @@ from
   and e.objid is null
 order by
   1, 2;
-  `;
-  return constraintRows.map((row) => new Constraint(row));
+    `;
+    return constraintRows.map((row) => new Constraint(row));
+  });
 }

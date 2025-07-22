@@ -104,7 +104,9 @@ export class Trigger extends BasePgModel {
 }
 
 export async function extractTriggers(sql: Sql): Promise<Trigger[]> {
-  const triggerRows = await sql<TriggerProps[]>`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const triggerRows = await sql<TriggerProps[]>`
 with extension_oids as (
   select
     objid
@@ -146,6 +148,7 @@ from
   and not t.tgisinternal
 order by
   1, 2;
-  `;
-  return triggerRows.map((row) => new Trigger(row));
+    `;
+    return triggerRows.map((row) => new Trigger(row));
+  });
 }

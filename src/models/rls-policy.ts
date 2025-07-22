@@ -71,7 +71,9 @@ export class RlsPolicy extends BasePgModel {
 }
 
 export async function extractRlsPolicies(sql: Sql): Promise<RlsPolicy[]> {
-  const policyRows = await sql<RlsPolicyProps[]>`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const policyRows = await sql<RlsPolicyProps[]>`
 with extension_oids as (
   select
     objid
@@ -107,6 +109,7 @@ from
   and e.objid is null
 order by
   1, 2;
-  `;
-  return policyRows.map((row) => new RlsPolicy(row));
+    `;
+    return policyRows.map((row) => new RlsPolicy(row));
+  });
 }

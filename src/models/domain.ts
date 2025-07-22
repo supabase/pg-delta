@@ -74,7 +74,9 @@ export class Domain extends BasePgModel {
 }
 
 export async function extractDomains(sql: Sql): Promise<Domain[]> {
-  const domainRows = await sql<DomainProps[]>`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const domainRows = await sql<DomainProps[]>`
 with extension_oids as (
   select
     objid
@@ -109,6 +111,7 @@ from
   and t.typtype = 'd'
 order by
   1, 2;
-  `;
-  return domainRows.map((row) => new Domain(row));
+    `;
+    return domainRows.map((row) => new Domain(row));
+  });
 }

@@ -131,7 +131,9 @@ export class Procedure extends BasePgModel {
 }
 
 export async function extractProcedures(sql: Sql): Promise<Procedure[]> {
-  const procedureRows = await sql<ProcedureProps[]>`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const procedureRows = await sql<ProcedureProps[]>`
 with extension_oids as (
   select
     objid
@@ -185,6 +187,7 @@ from
   and l.lanname not in ('c', 'internal')
 order by
   1, 2;
-  `;
-  return procedureRows.map((row) => new Procedure(row));
+    `;
+    return procedureRows.map((row) => new Procedure(row));
+  });
 }

@@ -101,7 +101,9 @@ export class Table extends BasePgModel {
 }
 
 export async function extractTables(sql: Sql): Promise<Table[]> {
-  const tableRows = await sql<TableProps[]>`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const tableRows = await sql<TableProps[]>`
 with extension_oids as (
   select objid
   from pg_depend d
@@ -163,6 +165,7 @@ from
   tables t
 order by
   t.schema, t.name;
-  `;
-  return tableRows.map((row) => new Table(row));
+    `;
+    return tableRows.map((row) => new Table(row));
+  });
 }
