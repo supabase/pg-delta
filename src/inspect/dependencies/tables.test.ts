@@ -1,6 +1,6 @@
 import { describe, expect } from "vitest";
-import { POSTGRES_VERSIONS } from "../../../tests/migra/constants.ts";
-import { getTest } from "../../../tests/migra/utils.ts";
+import { POSTGRES_VERSIONS } from "../../../tests/constants.ts";
+import { getTest } from "../../../tests/utils.ts";
 import { inspect } from "../inspect.ts";
 import { buildDependencies, inspectDependencies } from "./dependencies.ts";
 import { buildTableDependencies } from "./tables.ts";
@@ -93,7 +93,9 @@ describe.concurrent("table dependencies", () => {
         const inspection = await inspect(db.a);
         const dependencies = await inspectDependencies(db.a);
         buildTableDependencies(dependencies, inspection);
-        console.log(JSON.stringify(inspection["table:public.t_composite"], null, 2));
+        console.log(
+          JSON.stringify(inspection["table:public.t_composite"], null, 2),
+        );
         // assert
         expect(inspection).toMatchObject({
           "table:public.t_composite": {

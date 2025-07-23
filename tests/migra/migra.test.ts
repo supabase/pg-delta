@@ -1,6 +1,7 @@
 import { describe, expect } from "vitest";
-import { POSTGRES_VERSIONS } from "./constants.ts";
-import { getFixtures, getTest } from "./utils.ts";
+import { POSTGRES_VERSIONS } from "../constants.ts";
+import { getTest } from "../utils.ts";
+import { getFixtures } from "./utils.ts";
 
 const fixtures = await getFixtures();
 

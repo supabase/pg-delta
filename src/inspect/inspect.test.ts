@@ -1,5 +1,5 @@
 import { describe } from "vitest";
-import { getTest } from "../../tests/migra/utils.ts";
+import { getTest } from "../../tests/utils.ts";
 import { inspect } from "./inspect.ts";
 
 describe("inspect", () => {
