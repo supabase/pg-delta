@@ -1,19 +1,19 @@
 import type { BasePgModel } from "./base.model.ts";
 
 export function diffObjects<T extends BasePgModel>(
-  master: Record<string, T>,
+  main: Record<string, T>,
   branch: Record<string, T>,
 ) {
-  const masterIds = new Set(Object.keys(master));
+  const mainIds = new Set(Object.keys(main));
   const branchIds = new Set(Object.keys(branch));
 
-  const created = [...branchIds.difference(masterIds)];
-  const dropped = [...masterIds.difference(branchIds)];
-  const altered = [...masterIds.intersection(branchIds)].filter((id) => {
-    const masterModel = master[id];
+  const created = [...branchIds.difference(mainIds)];
+  const dropped = [...mainIds.difference(branchIds)];
+  const altered = [...mainIds.intersection(branchIds)].filter((id) => {
+    const mainModel = main[id];
     const branchModel = branch[id];
 
-    return !masterModel.equals(branchModel);
+    return !mainModel.equals(branchModel);
   });
 
   return { created, dropped, altered };

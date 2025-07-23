@@ -6,17 +6,17 @@ import { DropDomain } from "./changes/domain.drop.ts";
 import type { Domain } from "./domain.model.ts";
 
 /**
- * Diff two sets of domains from master and branch catalogs.
+ * Diff two sets of domains from main and branch catalogs.
  *
- * @param master - The domains in the master catalog.
+ * @param main - The domains in the main catalog.
  * @param branch - The domains in the branch catalog.
- * @returns A list of changes to apply to master to make it match branch.
+ * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffDomains(
-  master: Record<string, Domain>,
+  main: Record<string, Domain>,
   branch: Record<string, Domain>,
 ): Change[] {
-  const { created, dropped, altered } = diffObjects(master, branch);
+  const { created, dropped, altered } = diffObjects(main, branch);
 
   const changes: Change[] = [];
 
@@ -25,12 +25,12 @@ export function diffDomains(
   }
 
   for (const domainId of dropped) {
-    changes.push(new DropDomain({ domain: master[domainId] }));
+    changes.push(new DropDomain({ domain: main[domainId] }));
   }
 
   for (const domainId of altered) {
     changes.push(
-      new AlterDomain({ master: master[domainId], branch: branch[domainId] }),
+      new AlterDomain({ main: main[domainId], branch: branch[domainId] }),
     );
   }
 

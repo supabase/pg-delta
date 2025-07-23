@@ -34,16 +34,16 @@ import type { Domain } from "../domain.model.ts";
  * ```
  */
 export class AlterDomain extends Change {
-  public readonly master: Domain;
+  public readonly main: Domain;
   public readonly branch: Domain;
 
-  constructor(props: { master: Domain; branch: Domain }) {
+  constructor(props: { main: Domain; branch: Domain }) {
     super();
-    this.master = props.master;
+    this.main = props.main;
     this.branch = props.branch;
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${quoteIdentifier(this.master.schema)}.${quoteIdentifier(this.master.name)} RENAME TO ${quoteIdentifier(this.branch.name)}`;
+    return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} RENAME TO ${quoteIdentifier(this.branch.name)}`;
   }
 }
