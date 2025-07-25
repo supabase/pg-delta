@@ -1,6 +1,11 @@
 import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
+// All properties exposed by CREATE SCHEMA statement are included in diff output.
+// https://www.postgresql.org/docs/current/sql-createschema.html
+//
+// ALTER SCHEMA statement can be generated for all properties.
+// https://www.postgresql.org/docs/current/sql-alterschema.html
 interface InspectedSchemaRow {
   schema: string;
   owner: string;
@@ -27,13 +32,12 @@ with extension_oids as (
 )
 select
   nspname as schema,
-  pg_get_userbyid(nspowner) as owner
+  nspowner::regrole as owner
 from
   pg_catalog.pg_namespace
   left outer join extension_oids e on e.objid = oid
   -- <EXCLUDE_INTERNAL>
-  where nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and nspname not like 'pg\_temp\_%' and nspname not like 'pg\_toast\_temp\_%'
+  where not nspname like any(array['pg\\_%', 'information\\_schema'])
   and e.objid is null
   -- </EXCLUDE_INTERNAL>
 order by
