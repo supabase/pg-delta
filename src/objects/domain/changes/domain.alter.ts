@@ -1,4 +1,4 @@
-import { Change, quoteIdentifier } from "../../base.change.ts";
+import { AlterChange, quoteIdentifier } from "../../base.change.ts";
 import type { Domain } from "../domain.model.ts";
 
 /**
@@ -47,7 +47,7 @@ export type AlterDomain =
 /**
  * ALTER DOMAIN ... SET DEFAULT ...
  */
-export class AlterDomainSetDefault extends Change {
+export class AlterDomainSetDefault extends AlterChange {
   public readonly main: Domain;
   public readonly branch: Domain;
 
@@ -65,7 +65,7 @@ export class AlterDomainSetDefault extends Change {
 /**
  * ALTER DOMAIN ... DROP DEFAULT
  */
-export class AlterDomainDropDefault extends Change {
+export class AlterDomainDropDefault extends AlterChange {
   public readonly main: Domain;
   public readonly branch: Domain;
 
@@ -83,7 +83,7 @@ export class AlterDomainDropDefault extends Change {
 /**
  * ALTER DOMAIN ... SET NOT NULL
  */
-export class AlterDomainSetNotNull extends Change {
+export class AlterDomainSetNotNull extends AlterChange {
   public readonly main: Domain;
   public readonly branch: Domain;
 
@@ -101,7 +101,7 @@ export class AlterDomainSetNotNull extends Change {
 /**
  * ALTER DOMAIN ... DROP NOT NULL
  */
-export class AlterDomainDropNotNull extends Change {
+export class AlterDomainDropNotNull extends AlterChange {
   public readonly main: Domain;
   public readonly branch: Domain;
 
@@ -119,7 +119,7 @@ export class AlterDomainDropNotNull extends Change {
 /**
  * ALTER DOMAIN ... OWNER TO ...
  */
-export class AlterDomainChangeOwner extends Change {
+export class AlterDomainChangeOwner extends AlterChange {
   public readonly main: Domain;
   public readonly branch: Domain;
 
@@ -137,7 +137,7 @@ export class AlterDomainChangeOwner extends Change {
 /**
  * Dummy class for ADD CONSTRAINT (to be implemented when constraints are added to Domain)
  */
-export class AlterDomainAddConstraint extends Change {
+export class AlterDomainAddConstraint extends AlterChange {
   // TODO: Implement when constraints are tracked in Domain
   serialize(): string {
     throw new Error("AlterDomainAddConstraint.serialize not implemented");
@@ -147,7 +147,7 @@ export class AlterDomainAddConstraint extends Change {
 /**
  * Dummy class for DROP CONSTRAINT (to be implemented when constraints are added to Domain)
  */
-export class AlterDomainDropConstraint extends Change {
+export class AlterDomainDropConstraint extends AlterChange {
   // TODO: Implement when constraints are tracked in Domain
   serialize(): string {
     throw new Error("AlterDomainDropConstraint.serialize not implemented");
@@ -157,7 +157,7 @@ export class AlterDomainDropConstraint extends Change {
 /**
  * Dummy class for RENAME CONSTRAINT (to be implemented when constraints are added to Domain)
  */
-export class AlterDomainRenameConstraint extends Change {
+export class AlterDomainRenameConstraint extends AlterChange {
   // TODO: Implement when constraints are tracked in Domain
   serialize(): string {
     throw new Error("AlterDomainRenameConstraint.serialize not implemented");
@@ -167,7 +167,7 @@ export class AlterDomainRenameConstraint extends Change {
 /**
  * Dummy class for VALIDATE CONSTRAINT (to be implemented when constraints are added to Domain)
  */
-export class AlterDomainValidateConstraint extends Change {
+export class AlterDomainValidateConstraint extends AlterChange {
   // TODO: Implement when constraints are tracked in Domain
   serialize(): string {
     throw new Error("AlterDomainValidateConstraint.serialize not implemented");

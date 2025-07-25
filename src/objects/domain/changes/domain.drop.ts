@@ -1,4 +1,4 @@
-import { Change, quoteIdentifier } from "../../base.change.ts";
+import { DropChange, quoteIdentifier } from "../../base.change.ts";
 import type { Domain } from "../domain.model.ts";
 
 /**
@@ -11,7 +11,7 @@ import type { Domain } from "../domain.model.ts";
  * DROP DOMAIN [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropDomain extends Change {
+export class DropDomain extends DropChange {
   public readonly domain: Domain;
 
   constructor(props: { domain: Domain }) {

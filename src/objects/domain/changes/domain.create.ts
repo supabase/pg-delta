@@ -1,4 +1,4 @@
-import { Change, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange, quoteIdentifier } from "../../base.change.ts";
 import type { Domain } from "../domain.model.ts";
 
 /**
@@ -19,7 +19,7 @@ import type { Domain } from "../domain.model.ts";
  * { NOT NULL | NULL | CHECK (expression) }
  * ```
  */
-export class CreateDomain extends Change {
+export class CreateDomain extends CreateChange {
   public readonly domain: Domain;
 
   constructor(props: { domain: Domain }) {

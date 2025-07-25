@@ -1,5 +1,23 @@
+type ChangeKind = "create" | "drop" | "alter" | "replace";
 export abstract class Change {
+  abstract kind: ChangeKind;
   abstract serialize(): string;
+}
+
+export abstract class CreateChange extends Change {
+  kind = "create" as const;
+}
+
+export abstract class DropChange extends Change {
+  kind = "drop" as const;
+}
+
+export abstract class AlterChange extends Change {
+  kind = "alter" as const;
+}
+
+export abstract class ReplaceChange extends Change {
+  kind = "replace" as const;
 }
 
 // PostgreSQL reserved keywords
