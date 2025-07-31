@@ -49,10 +49,8 @@ export async function inspectLanguages(
     from
       pg_catalog.pg_language lan
       left outer join extension_oids e on lan.oid = e.objid
-      -- <EXCLUDE_INTERNAL>
+      -- <EXCLUDE_INTERNAL and default>
       where lan.lanname not in ('internal', 'c')
-      and e.objid is null
-      -- </EXCLUDE_INTERNAL>
     order by
       lan.lanname;
   `;
