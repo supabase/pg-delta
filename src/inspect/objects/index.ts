@@ -6,6 +6,7 @@ export * from "./enums.ts";
 export * from "./extensions.ts";
 export * from "./functions.ts";
 export * from "./indexes.ts";
+export * from "./languages.ts";
 export * from "./materialized-views.ts";
 export * from "./rls-policies.ts";
 export * from "./roles.ts";

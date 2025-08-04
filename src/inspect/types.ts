@@ -6,6 +6,7 @@ import type { InspectedEnum } from "./objects/enums.ts";
 import type { InspectedExtension } from "./objects/extensions.ts";
 import type { InspectedFunction } from "./objects/functions.ts";
 import type { InspectedIndex } from "./objects/indexes.ts";
+import type { InspectedLanguage } from "./objects/languages.ts";
 import type { InspectedMaterializedView } from "./objects/materialized-views.ts";
 import type { InspectedRlsPolicy } from "./objects/rls-policies.ts";
 import type { InspectedRole } from "./objects/roles.ts";
@@ -25,6 +26,7 @@ export type InspectionMap = {
   [k: `extension:${string}`]: InspectedExtension;
   [k: `function:${string}`]: InspectedFunction;
   [k: `index:${string}`]: InspectedIndex;
+  [k: `language:${string}`]: InspectedLanguage;
   [k: `materializedView:${string}`]: InspectedMaterializedView;
   [k: `role:${string}`]: InspectedRole;
   [k: `rlsPolicy:${string}`]: InspectedRlsPolicy;
