@@ -39,9 +39,7 @@ export class AlterCollationChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER COLLATION",
-      quoteIdentifier(this.main.schema),
-      ".",
-      quoteIdentifier(this.main.name),
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "OWNER TO",
       quoteIdentifier(this.branch.owner),
     ].join(" ");
@@ -64,9 +62,7 @@ export class AlterCollationRefreshVersion extends AlterChange {
   serialize(): string {
     return [
       "ALTER COLLATION",
-      quoteIdentifier(this.main.schema),
-      ".",
-      quoteIdentifier(this.main.name),
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "REFRESH VERSION",
     ].join(" ");
   }

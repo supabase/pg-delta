@@ -27,9 +27,7 @@ export class CreateSequence extends CreateChange {
 
     // Add schema and name
     parts.push(
-      quoteIdentifier(this.sequence.schema),
-      ".",
-      quoteIdentifier(this.sequence.name),
+      `${quoteIdentifier(this.sequence.schema)}.${quoteIdentifier(this.sequence.name)}`,
     );
 
     // Add data type if not default

@@ -22,11 +22,7 @@ export class DropIndex extends DropChange {
   serialize(): string {
     return [
       "DROP INDEX",
-      quoteIdentifier(this.index.table_schema),
-      ".",
-      quoteIdentifier(this.index.table_name),
-      ".",
-      quoteIdentifier(this.index.name),
+      `${quoteIdentifier(this.index.table_schema)}.${quoteIdentifier(this.index.name)}`,
     ].join(" ");
   }
 }

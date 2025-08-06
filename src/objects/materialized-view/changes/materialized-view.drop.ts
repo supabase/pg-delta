@@ -22,9 +22,7 @@ export class DropMaterializedView extends DropChange {
   serialize(): string {
     return [
       "DROP MATERIALIZED VIEW",
-      quoteIdentifier(this.materializedView.schema),
-      ".",
-      quoteIdentifier(this.materializedView.name),
+      `${quoteIdentifier(this.materializedView.schema)}.${quoteIdentifier(this.materializedView.name)}`,
     ].join(" ");
   }
 }

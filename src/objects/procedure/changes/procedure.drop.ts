@@ -26,9 +26,7 @@ export class DropProcedure extends DropChange {
     return [
       "DROP",
       objectType,
-      quoteIdentifier(this.procedure.schema),
-      ".",
-      quoteIdentifier(this.procedure.name),
+      `${quoteIdentifier(this.procedure.schema)}.${quoteIdentifier(this.procedure.name)}`,
       "()",
     ].join(" ");
   }

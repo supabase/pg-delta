@@ -22,9 +22,7 @@ export class DropSequence extends DropChange {
   serialize(): string {
     return [
       "DROP SEQUENCE",
-      quoteIdentifier(this.sequence.schema),
-      ".",
-      quoteIdentifier(this.sequence.name),
+      `${quoteIdentifier(this.sequence.schema)}.${quoteIdentifier(this.sequence.name)}`,
     ].join(" ");
   }
 }

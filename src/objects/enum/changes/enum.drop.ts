@@ -22,9 +22,7 @@ export class DropEnum extends DropChange {
   serialize(): string {
     return [
       "DROP TYPE",
-      quoteIdentifier(this.enum.schema),
-      ".",
-      quoteIdentifier(this.enum.name),
+      `${quoteIdentifier(this.enum.schema)}.${quoteIdentifier(this.enum.name)}`,
     ].join(" ");
   }
 }

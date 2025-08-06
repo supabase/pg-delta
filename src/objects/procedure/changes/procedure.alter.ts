@@ -52,9 +52,7 @@ export class AlterProcedureChangeOwner extends AlterChange {
     return [
       "ALTER",
       objectType,
-      quoteIdentifier(this.main.schema),
-      ".",
-      quoteIdentifier(this.main.name),
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "OWNER TO",
       quoteIdentifier(this.branch.owner),
     ].join(" ");

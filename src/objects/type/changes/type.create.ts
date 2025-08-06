@@ -57,12 +57,10 @@ export class CreateType extends CreateChange {
 
     // Add schema and name
     parts.push(
-      quoteIdentifier(this.type.schema),
-      ".",
-      quoteIdentifier(this.type.name),
+      `${quoteIdentifier(this.type.schema)}.${quoteIdentifier(this.type.name)}`,
     );
 
-    // Add AS clause based on type type
+    // Add type-specific syntax based on type type
     switch (this.type.type_type) {
       case "c":
         parts.push("AS ()"); // Composite type
@@ -73,11 +71,13 @@ export class CreateType extends CreateChange {
       case "d":
         parts.push("AS RANGE ()"); // Range type
         break;
-      case "b":
-        parts.push("AS ()"); // Base type
+      case "b": {
+        // Base type - no AS keyword, no options for minimal creation
+        // Options would be included only when explicitly needed
         break;
+      }
       case "p":
-        parts.push("AS ()"); // Pseudo type
+        // Pseudo type - no options needed
         break;
       default:
         parts.push("AS ()");

@@ -17,9 +17,7 @@ export class DropView extends DropChange {
   serialize(): string {
     return [
       "DROP VIEW",
-      quoteIdentifier(this.view.schema),
-      ".",
-      quoteIdentifier(this.view.name),
+      `${quoteIdentifier(this.view.schema)}.${quoteIdentifier(this.view.name)}`,
     ].join(" ");
   }
 }

@@ -24,9 +24,7 @@ export class DropTrigger extends DropChange {
       "DROP TRIGGER",
       quoteIdentifier(this.trigger.name),
       "ON",
-      quoteIdentifier(this.trigger.table_schema),
-      ".",
-      quoteIdentifier(this.trigger.table_name),
+      `${quoteIdentifier(this.trigger.table_schema)}.${quoteIdentifier(this.trigger.table_name)}`,
     ].join(" ");
   }
 }

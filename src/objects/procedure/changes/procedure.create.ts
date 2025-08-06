@@ -46,9 +46,7 @@ export class CreateProcedure extends CreateChange {
 
     // Add schema and name
     parts.push(
-      quoteIdentifier(this.procedure.schema),
-      ".",
-      quoteIdentifier(this.procedure.name),
+      `${quoteIdentifier(this.procedure.schema)}.${quoteIdentifier(this.procedure.name)}`,
     );
 
     // Add arguments (simplified)

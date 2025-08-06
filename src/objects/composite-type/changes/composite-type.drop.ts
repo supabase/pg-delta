@@ -22,9 +22,7 @@ export class DropCompositeType extends DropChange {
   serialize(): string {
     return [
       "DROP TYPE",
-      quoteIdentifier(this.compositeType.schema),
-      ".",
-      quoteIdentifier(this.compositeType.name),
+      `${quoteIdentifier(this.compositeType.schema)}.${quoteIdentifier(this.compositeType.name)}`,
     ].join(" ");
   }
 }

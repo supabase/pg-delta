@@ -78,9 +78,7 @@ export class AlterTableChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      quoteIdentifier(this.main.schema),
-      ".",
-      quoteIdentifier(this.main.name),
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "OWNER TO",
       quoteIdentifier(this.branch.owner),
     ].join(" ");

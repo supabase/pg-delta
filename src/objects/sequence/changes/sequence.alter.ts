@@ -38,9 +38,7 @@ export class AlterSequenceChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER SEQUENCE",
-      quoteIdentifier(this.main.schema),
-      ".",
-      quoteIdentifier(this.main.name),
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "OWNER TO",
       quoteIdentifier(this.branch.owner),
     ].join(" ");

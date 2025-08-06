@@ -34,9 +34,7 @@ export class CreateCollation extends CreateChange {
 
     // Add schema and name
     parts.push(
-      quoteIdentifier(this.collation.schema),
-      ".",
-      quoteIdentifier(this.collation.name),
+      `${quoteIdentifier(this.collation.schema)}.${quoteIdentifier(this.collation.name)}`,
     );
 
     // Add properties
@@ -85,7 +83,7 @@ export class CreateCollation extends CreateChange {
     }
 
     if (properties.length > 0) {
-      parts.push("(", properties.join(", "), ")");
+      parts.push(["(", properties.join(", "), ")"].join(""));
     }
 
     return parts.join(" ");

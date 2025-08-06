@@ -38,9 +38,7 @@ export class AlterEnumChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER TYPE",
-      quoteIdentifier(this.main.schema),
-      ".",
-      quoteIdentifier(this.main.name),
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "OWNER TO",
       quoteIdentifier(this.branch.owner),
     ].join(" ");
@@ -72,9 +70,7 @@ export class AlterEnumAddValue extends AlterChange {
   serialize(): string {
     const parts = [
       "ALTER TYPE",
-      quoteIdentifier(this.main.schema),
-      ".",
-      quoteIdentifier(this.main.name),
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "ADD VALUE",
       quoteIdentifier(this.newValue),
     ];

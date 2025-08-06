@@ -22,9 +22,7 @@ export class DropCollation extends DropChange {
   serialize(): string {
     return [
       "DROP COLLATION",
-      quoteIdentifier(this.collation.schema),
-      ".",
-      quoteIdentifier(this.collation.name),
+      `${quoteIdentifier(this.collation.schema)}.${quoteIdentifier(this.collation.name)}`,
     ].join(" ");
   }
 }

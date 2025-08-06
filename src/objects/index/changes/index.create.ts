@@ -40,9 +40,7 @@ export class CreateIndex extends CreateChange {
     // Add ON table
     parts.push(
       "ON",
-      quoteIdentifier(this.index.table_schema),
-      ".",
-      quoteIdentifier(this.index.table_name),
+      `${quoteIdentifier(this.index.table_schema)}.${quoteIdentifier(this.index.table_name)}`,
     );
 
     // Add USING method if specified

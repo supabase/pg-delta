@@ -38,9 +38,7 @@ export class AlterCompositeTypeChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER TYPE",
-      quoteIdentifier(this.main.schema),
-      ".",
-      quoteIdentifier(this.main.name),
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "OWNER TO",
       quoteIdentifier(this.branch.owner),
     ].join(" ");

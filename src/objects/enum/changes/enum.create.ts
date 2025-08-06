@@ -24,9 +24,7 @@ export class CreateEnum extends CreateChange {
 
     // Add schema and name
     parts.push(
-      quoteIdentifier(this.enum.schema),
-      ".",
-      quoteIdentifier(this.enum.name),
+      `${quoteIdentifier(this.enum.schema)}.${quoteIdentifier(this.enum.name)}`,
     );
 
     // Add AS ENUM

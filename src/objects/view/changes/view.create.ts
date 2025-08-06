@@ -27,9 +27,7 @@ export class CreateView extends CreateChange {
 
     // Add schema and name
     parts.push(
-      quoteIdentifier(this.view.schema),
-      ".",
-      quoteIdentifier(this.view.name),
+      `${quoteIdentifier(this.view.schema)}.${quoteIdentifier(this.view.name)}`,
     );
 
     // Add WITH options if specified

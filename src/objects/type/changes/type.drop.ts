@@ -22,9 +22,7 @@ export class DropType extends DropChange {
   serialize(): string {
     return [
       "DROP TYPE",
-      quoteIdentifier(this.type.schema),
-      ".",
-      quoteIdentifier(this.type.name),
+      `${quoteIdentifier(this.type.schema)}.${quoteIdentifier(this.type.name)}`,
     ].join(" ");
   }
 }

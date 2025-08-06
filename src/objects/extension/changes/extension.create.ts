@@ -28,10 +28,8 @@ export class CreateExtension extends CreateChange {
     // Add extension name
     parts.push(quoteIdentifier(this.extension.name));
 
-    // Add schema if not default
-    if (this.extension.schema !== "public") {
-      parts.push("WITH SCHEMA", quoteIdentifier(this.extension.schema));
-    }
+    // Add schema
+    parts.push("WITH SCHEMA", quoteIdentifier(this.extension.schema));
 
     // Add version
     if (this.extension.version) {

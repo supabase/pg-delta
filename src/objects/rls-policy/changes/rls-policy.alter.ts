@@ -38,11 +38,9 @@ export class AlterRlsPolicyChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER POLICY",
-      quoteIdentifier(this.main.name),
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "ON",
-      quoteIdentifier(this.main.table_schema),
-      ".",
-      quoteIdentifier(this.main.table_name),
+      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.table_name)}`,
       "OWNER TO",
       quoteIdentifier(this.branch.owner),
     ].join(" ");

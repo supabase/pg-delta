@@ -103,11 +103,7 @@ export class AlterIndexSetTablespace extends AlterChange {
   serialize(): string {
     return [
       "ALTER INDEX",
-      quoteIdentifier(this.main.table_schema),
-      ".",
-      quoteIdentifier(this.main.table_name),
-      ".",
-      quoteIdentifier(this.main.name),
+      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.table_name)}.${quoteIdentifier(this.main.name)}`,
       "SET TABLESPACE",
       // biome-ignore lint/style/noNonNullAssertion: the tablespace is set in this case
       quoteIdentifier(this.branch.tablespace!),

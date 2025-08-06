@@ -29,9 +29,7 @@ export class CreateMaterializedView extends CreateChange {
 
     // Add schema and name
     parts.push(
-      quoteIdentifier(this.materializedView.schema),
-      ".",
-      quoteIdentifier(this.materializedView.name),
+      `${quoteIdentifier(this.materializedView.schema)}.${quoteIdentifier(this.materializedView.name)}`,
     );
 
     // Add storage parameters if specified

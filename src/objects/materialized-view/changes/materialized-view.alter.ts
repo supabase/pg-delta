@@ -48,9 +48,7 @@ export class AlterMaterializedViewChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER MATERIALIZED VIEW",
-      quoteIdentifier(this.main.schema),
-      ".",
-      quoteIdentifier(this.main.name),
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "OWNER TO",
       quoteIdentifier(this.branch.owner),
     ].join(" ");
