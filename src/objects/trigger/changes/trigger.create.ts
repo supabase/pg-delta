@@ -3,29 +3,29 @@ import type { Trigger } from "../trigger.model.ts";
 
 /**
  * PostgreSQL trigger type constants
- * Based on PostgreSQL source code: src/include/commands/trigger.h
+ * Based on PostgreSQL source code: https://github.com/postgres/postgres/blob/572c0f1b0e2a9ed61816239f59d568217079bb8c/src/include/catalog/pg_trigger.h
  */
-const TRIGGER_TYPE_ROW = 4; // 0x04 - FOR EACH ROW
-const TRIGGER_TYPE_BEFORE = 32; // 0x20 - BEFORE
-const TRIGGER_TYPE_AFTER = 64; // 0x40 - AFTER
-const TRIGGER_TYPE_INSTEAD = 128; // 0x80 - INSTEAD OF
-const TRIGGER_TYPE_INSERT = 1; // 0x01 - INSERT
-const TRIGGER_TYPE_UPDATE = 2; // 0x02 - UPDATE
-const TRIGGER_TYPE_DELETE = 4; // 0x04 - DELETE
-const TRIGGER_TYPE_TRUNCATE = 8; // 0x08 - TRUNCATE
+const TRIGGER_TYPE_ROW = 1 << 0; // FOR EACH ROW
+const TRIGGER_TYPE_BEFORE = 1 << 1; // BEFORE
+const TRIGGER_TYPE_INSERT = 1 << 2; // INSERT
+const TRIGGER_TYPE_DELETE = 1 << 3; // DELETE
+const TRIGGER_TYPE_UPDATE = 1 << 4; // UPDATE
+const TRIGGER_TYPE_TRUNCATE = 1 << 5; // TRUNCATE
+const TRIGGER_TYPE_INSTEAD = 1 << 6; // INSTEAD OF
+const TRIGGER_TYPE_TIMING_MASK = TRIGGER_TYPE_BEFORE | TRIGGER_TYPE_INSTEAD;
 
 /**
  * Decode trigger timing from trigger_type
+ * Based on PostgreSQL macros: TRIGGER_FOR_BEFORE, TRIGGER_FOR_AFTER, TRIGGER_FOR_INSTEAD
  */
 function decodeTriggerTiming(triggerType: number): string {
-  if (triggerType & TRIGGER_TYPE_INSTEAD) {
+  if ((triggerType & TRIGGER_TYPE_TIMING_MASK) === TRIGGER_TYPE_INSTEAD) {
     return "INSTEAD OF";
-  } else if (triggerType & TRIGGER_TYPE_BEFORE) {
+  } else if ((triggerType & TRIGGER_TYPE_TIMING_MASK) === TRIGGER_TYPE_BEFORE) {
     return "BEFORE";
-  } else if (triggerType & TRIGGER_TYPE_AFTER) {
-    return "AFTER";
+  } else {
+    return "AFTER"; // Default when no timing bit is set
   }
-  return "AFTER"; // Default fallback
 }
 
 /**
@@ -52,6 +52,7 @@ function decodeTriggerEvents(triggerType: number): string[] {
 
 /**
  * Decode trigger level from trigger_type
+ * Based on PostgreSQL macros: TRIGGER_FOR_ROW
  */
 function decodeTriggerLevel(triggerType: number): string {
   if (triggerType & TRIGGER_TYPE_ROW) {
@@ -104,36 +105,33 @@ export class CreateTrigger extends CreateChange {
       `${quoteIdentifier(this.trigger.table_schema)}.${quoteIdentifier(this.trigger.table_name)}`,
     );
 
-    // Add deferrable options
+    // Add deferrable options (only if deferrable, since NOT DEFERRABLE is default)
     if (this.trigger.deferrable) {
       parts.push("DEFERRABLE");
+      // Only add INITIALLY DEFERRED if it's actually deferred, since IMMEDIATE is default
       if (this.trigger.initially_deferred) {
         parts.push("INITIALLY DEFERRED");
-      } else {
-        parts.push("INITIALLY IMMEDIATE");
       }
-    } else {
-      parts.push("NOT DEFERRABLE");
     }
 
-    // Add FOR EACH ROW/STATEMENT (decoded from trigger_type)
-    parts.push(decodeTriggerLevel(this.trigger.trigger_type));
+    // Add FOR EACH ROW/STATEMENT (only if STATEMENT, since ROW is default)
+    const level = decodeTriggerLevel(this.trigger.trigger_type);
+    if (level === "FOR EACH STATEMENT") {
+      parts.push(level);
+    }
 
     // Add WHEN condition
     if (this.trigger.when_condition) {
       parts.push("WHEN", `(${this.trigger.when_condition})`);
     }
 
-    // Add EXECUTE FUNCTION
-    parts.push(
-      "EXECUTE FUNCTION",
-      `${quoteIdentifier(this.trigger.function_schema)}.${quoteIdentifier(this.trigger.function_name)}`,
-    );
+    // Add EXECUTE FUNCTION with arguments (no space before parentheses)
+    const functionCall =
+      this.trigger.arguments && this.trigger.arguments.length > 0
+        ? `${quoteIdentifier(this.trigger.function_schema)}.${quoteIdentifier(this.trigger.function_name)}(${this.trigger.arguments.join(", ")})`
+        : `${quoteIdentifier(this.trigger.function_schema)}.${quoteIdentifier(this.trigger.function_name)}()`;
 
-    // Add arguments
-    if (this.trigger.arguments && this.trigger.arguments.length > 0) {
-      parts.push(`(${this.trigger.arguments.join(", ")})`);
-    }
+    parts.push("EXECUTE FUNCTION", functionCall);
 
     return parts.join(" ");
   }

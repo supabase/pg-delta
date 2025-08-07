@@ -12,10 +12,10 @@ describe.concurrent("trigger", () => {
         table_name: "test_table",
         function_schema: "public",
         function_name: "test_function",
-        trigger_type: 66,
+        trigger_type: 1 << 4, // UPDATE (1<<4) = 16, AFTER is default (0), STATEMENT is default (0)
         enabled: "O",
         is_internal: false,
-        deferrable: false,
+        deferrable: true,
         initially_deferred: false,
         argument_count: 0,
         column_numbers: null,
@@ -32,10 +32,10 @@ describe.concurrent("trigger", () => {
         table_name: "test_table",
         function_schema: "public",
         function_name: "test_function",
-        trigger_type: 66,
+        trigger_type: 1 << 4, // UPDATE (1<<4) = 16, AFTER is default (0), STATEMENT is default (0)
         enabled: "D",
         is_internal: false,
-        deferrable: false,
+        deferrable: true,
         initially_deferred: false,
         argument_count: 0,
         column_numbers: null,
@@ -52,7 +52,7 @@ describe.concurrent("trigger", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP TRIGGER test_trigger ON public.test_table;\nCREATE TRIGGER test_trigger BEFORE INSERT ON public.test_table FOR EACH ROW EXECUTE FUNCTION public.test_function()",
+        "DROP TRIGGER test_trigger ON public.test_table;\nCREATE TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE FOR EACH STATEMENT EXECUTE FUNCTION public.test_function()",
       );
     });
   });

@@ -11,7 +11,7 @@ describe("trigger", () => {
       table_name: "test_table",
       function_schema: "public",
       function_name: "test_function",
-      trigger_type: 66,
+      trigger_type: (1 << 1) | (1 << 2) | (1 << 0), // BEFORE (1<<1) | INSERT (1<<2) | ROW (1<<0) = 7
       enabled: "O",
       is_internal: false,
       deferrable: false,
@@ -30,7 +30,7 @@ describe("trigger", () => {
     });
 
     expect(change.serialize()).toBe(
-      "CREATE TRIGGER test_trigger BEFORE INSERT ON public.test_table FOR EACH ROW EXECUTE FUNCTION public.test_function()",
+      "CREATE TRIGGER test_trigger BEFORE INSERT ON public.test_table EXECUTE FUNCTION public.test_function()",
     );
   });
 });
