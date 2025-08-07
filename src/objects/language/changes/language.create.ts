@@ -28,11 +28,6 @@ export class CreateLanguage extends CreateChange {
       parts.push("TRUSTED");
     }
 
-    // PROCEDURAL keyword
-    if (this.language.is_procedural) {
-      parts.push("PROCEDURAL");
-    }
-
     parts.push("LANGUAGE", quoteIdentifier(this.language.name));
 
     // HANDLER

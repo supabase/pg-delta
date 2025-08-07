@@ -22,11 +22,6 @@ export class DropLanguage extends DropChange {
   serialize(): string {
     const parts: string[] = ["DROP"];
 
-    // PROCEDURAL keyword (optional but can be included for clarity)
-    if (this.language.is_procedural) {
-      parts.push("PROCEDURAL");
-    }
-
     parts.push("LANGUAGE", quoteIdentifier(this.language.name));
 
     return parts.join(" ");

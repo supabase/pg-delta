@@ -18,6 +18,8 @@ describe("language", () => {
       language,
     });
 
-    expect(change.serialize()).toBe("CREATE PROCEDURAL LANGUAGE plpgsql");
+    expect(change.serialize()).toBe(
+      "CREATE TRUSTED LANGUAGE plpgsql HANDLER plpgsql_call_handler INLINE plpgsql_inline_handler VALIDATOR plpgsql_validator",
+    );
   });
 });

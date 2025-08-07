@@ -78,7 +78,7 @@ describe.concurrent("materialized-view", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP MATERIALIZED VIEW public.test_mv;\nCREATE MATERIALIZED VIEW public.test_mv AS SELECT id, name FROM test_table",
+        "DROP MATERIALIZED VIEW public.test_mv;\nCREATE MATERIALIZED VIEW public.test_mv AS SELECT id, name FROM test_table WITH DATA",
       );
     });
   });
