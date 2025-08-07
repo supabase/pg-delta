@@ -13,6 +13,8 @@ describe("schema", () => {
       schema,
     });
 
-    expect(change.serialize()).toBe("CREATE SCHEMA test_schema");
+    expect(change.serialize()).toBe(
+      "CREATE SCHEMA test_schema AUTHORIZATION test",
+    );
   });
 });

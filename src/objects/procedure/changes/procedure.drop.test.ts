@@ -35,6 +35,6 @@ describe("procedure", () => {
       procedure,
     });
 
-    expect(change.serialize()).toBe("DROP PROCEDURE public.test_procedure");
+    expect(change.serialize()).toBe("DROP PROCEDURE public.test_procedure()");
   });
 });

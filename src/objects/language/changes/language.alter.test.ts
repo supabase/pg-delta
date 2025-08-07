@@ -56,7 +56,7 @@ describe.concurrent("language", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP LANGUAGE plpgsql;\nCREATE PROCEDURAL LANGUAGE plpgsql",
+        "DROP LANGUAGE plpgsql;\nCREATE LANGUAGE plpgsql HANDLER plpgsql_call_handler INLINE plpgsql_inline_handler VALIDATOR plpgsql_validator",
       );
     });
   });

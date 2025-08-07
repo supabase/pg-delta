@@ -41,7 +41,7 @@ describe.concurrent("schema", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP SCHEMA test_schema;\nCREATE SCHEMA test_schema",
+        "DROP SCHEMA test_schema;\nCREATE SCHEMA test_schema AUTHORIZATION test",
       );
     });
   });

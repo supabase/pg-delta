@@ -1,5 +1,6 @@
 import { DropChange, quoteIdentifier } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
+import { formatFunctionArguments } from "../utils.ts";
 
 /**
  * Drop a procedure.
@@ -23,11 +24,17 @@ export class DropProcedure extends DropChange {
   serialize(): string {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
 
+    // Build argument list
+    const args = formatFunctionArguments(
+      this.procedure.argument_names,
+      this.procedure.argument_types,
+      this.procedure.argument_modes,
+    );
+
     return [
       "DROP",
       objectType,
-      `${quoteIdentifier(this.procedure.schema)}.${quoteIdentifier(this.procedure.name)}`,
-      "()",
+      `${quoteIdentifier(this.procedure.schema)}.${quoteIdentifier(this.procedure.name)}(${args})`,
     ].join(" ");
   }
 }
