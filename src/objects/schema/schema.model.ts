@@ -8,7 +8,7 @@ import { BasePgModel } from "../base.model.ts";
  * ALTER SCHEMA statement can be generated for all properties.
  * https://www.postgresql.org/docs/current/sql-alterschema.html
  */
-interface SchemaProps {
+export interface SchemaProps {
   schema: string;
   owner: string;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { Domain } from "../domain.model.ts";
+import { Domain, type DomainProps } from "../domain.model.ts";
 import {
   AlterDomainAddConstraint,
   AlterDomainChangeOwner,
@@ -15,7 +15,7 @@ import {
 describe.concurrent("domain", () => {
   describe("alter", () => {
     test("set default", () => {
-      const main = new Domain({
+      const props: Omit<DomainProps, "default_value"> = {
         schema: "public",
         name: "test_domain",
         base_type: "integer",
@@ -25,21 +25,15 @@ describe.concurrent("domain", () => {
         array_dimensions: null,
         collation: null,
         default_bin: null,
-        default_value: null,
         owner: "test",
+      };
+      const main = new Domain({
+        ...props,
+        default_value: null,
       });
       const branch = new Domain({
-        schema: "public",
-        name: "test_domain",
-        base_type: "integer",
-        base_type_schema: "pg_catalog",
-        not_null: false,
-        type_modifier: null,
-        array_dimensions: null,
-        collation: null,
-        default_bin: null,
+        ...props,
         default_value: "42",
-        owner: "test",
       });
 
       const change = new AlterDomainSetDefault({
@@ -53,7 +47,7 @@ describe.concurrent("domain", () => {
     });
 
     test("drop default", () => {
-      const main = new Domain({
+      const props: Omit<DomainProps, "default_value"> = {
         schema: "public",
         name: "test_domain",
         base_type: "integer",
@@ -63,21 +57,15 @@ describe.concurrent("domain", () => {
         array_dimensions: null,
         collation: null,
         default_bin: null,
-        default_value: "42",
         owner: "test",
+      };
+      const main = new Domain({
+        ...props,
+        default_value: "42",
       });
       const branch = new Domain({
-        schema: "public",
-        name: "test_domain",
-        base_type: "integer",
-        base_type_schema: "pg_catalog",
-        not_null: false,
-        type_modifier: null,
-        array_dimensions: null,
-        collation: null,
-        default_bin: null,
+        ...props,
         default_value: null,
-        owner: "test",
       });
 
       const change = new AlterDomainDropDefault({
@@ -91,31 +79,25 @@ describe.concurrent("domain", () => {
     });
 
     test("set not null", () => {
-      const main = new Domain({
+      const props: Omit<DomainProps, "not_null"> = {
         schema: "public",
         name: "test_domain",
         base_type: "integer",
         base_type_schema: "pg_catalog",
-        not_null: false,
         type_modifier: null,
         array_dimensions: null,
         collation: null,
         default_bin: null,
         default_value: null,
         owner: "test",
+      };
+      const main = new Domain({
+        ...props,
+        not_null: false,
       });
       const branch = new Domain({
-        schema: "public",
-        name: "test_domain",
-        base_type: "integer",
-        base_type_schema: "pg_catalog",
+        ...props,
         not_null: true,
-        type_modifier: null,
-        array_dimensions: null,
-        collation: null,
-        default_bin: null,
-        default_value: null,
-        owner: "test",
       });
 
       const change = new AlterDomainSetNotNull({
@@ -129,31 +111,25 @@ describe.concurrent("domain", () => {
     });
 
     test("drop not null", () => {
-      const main = new Domain({
+      const props: Omit<DomainProps, "not_null"> = {
         schema: "public",
         name: "test_domain",
         base_type: "integer",
         base_type_schema: "pg_catalog",
-        not_null: true,
         type_modifier: null,
         array_dimensions: null,
         collation: null,
         default_bin: null,
         default_value: null,
         owner: "test",
+      };
+      const main = new Domain({
+        ...props,
+        not_null: true,
       });
       const branch = new Domain({
-        schema: "public",
-        name: "test_domain",
-        base_type: "integer",
-        base_type_schema: "pg_catalog",
+        ...props,
         not_null: false,
-        type_modifier: null,
-        array_dimensions: null,
-        collation: null,
-        default_bin: null,
-        default_value: null,
-        owner: "test",
       });
 
       const change = new AlterDomainDropNotNull({
@@ -167,7 +143,7 @@ describe.concurrent("domain", () => {
     });
 
     test("change owner", () => {
-      const main = new Domain({
+      const props: Omit<DomainProps, "owner"> = {
         schema: "public",
         name: "test_domain",
         base_type: "integer",
@@ -178,19 +154,13 @@ describe.concurrent("domain", () => {
         collation: null,
         default_bin: null,
         default_value: null,
+      };
+      const main = new Domain({
+        ...props,
         owner: "old_owner",
       });
       const branch = new Domain({
-        schema: "public",
-        name: "test_domain",
-        base_type: "integer",
-        base_type_schema: "pg_catalog",
-        not_null: false,
-        type_modifier: null,
-        array_dimensions: null,
-        collation: null,
-        default_bin: null,
-        default_value: null,
+        ...props,
         owner: "new_owner",
       });
 
@@ -205,7 +175,7 @@ describe.concurrent("domain", () => {
     });
 
     test.skip("add constraint", () => {
-      const main = new Domain({
+      const props: DomainProps = {
         schema: "public",
         name: "test_domain",
         base_type: "integer",
@@ -217,27 +187,11 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
-      });
-      const branch = new Domain({
-        schema: "public",
-        name: "test_domain",
-        base_type: "integer",
-        base_type_schema: "pg_catalog",
-        not_null: false,
-        type_modifier: null,
-        array_dimensions: null,
-        collation: null,
-        default_bin: null,
-        default_value: null,
-        owner: "test",
-      });
+      };
+      const main = new Domain(props);
+      const branch = new Domain(props);
 
-      const change = new AlterDomainAddConstraint({
-        main,
-        branch,
-        constraintName: "test_check",
-        constraintDefinition: "CHECK (VALUE > 0)",
-      });
+      const change = new AlterDomainAddConstraint();
 
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain ADD CONSTRAINT test_check CHECK (VALUE > 0)",
@@ -245,7 +199,7 @@ describe.concurrent("domain", () => {
     });
 
     test.skip("drop constraint", () => {
-      const main = new Domain({
+      const props: DomainProps = {
         schema: "public",
         name: "test_domain",
         base_type: "integer",
@@ -257,26 +211,11 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
-      });
-      const branch = new Domain({
-        schema: "public",
-        name: "test_domain",
-        base_type: "integer",
-        base_type_schema: "pg_catalog",
-        not_null: false,
-        type_modifier: null,
-        array_dimensions: null,
-        collation: null,
-        default_bin: null,
-        default_value: null,
-        owner: "test",
-      });
+      };
+      const main = new Domain(props);
+      const branch = new Domain(props);
 
-      const change = new AlterDomainDropConstraint({
-        main,
-        branch,
-        constraintName: "test_check",
-      });
+      const change = new AlterDomainDropConstraint();
 
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain DROP CONSTRAINT test_check",
@@ -284,7 +223,7 @@ describe.concurrent("domain", () => {
     });
 
     test.skip("rename constraint", () => {
-      const main = new Domain({
+      const props: DomainProps = {
         schema: "public",
         name: "test_domain",
         base_type: "integer",
@@ -296,27 +235,11 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
-      });
-      const branch = new Domain({
-        schema: "public",
-        name: "test_domain",
-        base_type: "integer",
-        base_type_schema: "pg_catalog",
-        not_null: false,
-        type_modifier: null,
-        array_dimensions: null,
-        collation: null,
-        default_bin: null,
-        default_value: null,
-        owner: "test",
-      });
+      };
+      const main = new Domain(props);
+      const branch = new Domain(props);
 
-      const change = new AlterDomainRenameConstraint({
-        main,
-        branch,
-        oldConstraintName: "old_check",
-        newConstraintName: "new_check",
-      });
+      const change = new AlterDomainRenameConstraint();
 
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain RENAME CONSTRAINT old_check TO new_check",
@@ -324,7 +247,7 @@ describe.concurrent("domain", () => {
     });
 
     test.skip("validate constraint", () => {
-      const main = new Domain({
+      const props: DomainProps = {
         schema: "public",
         name: "test_domain",
         base_type: "integer",
@@ -336,26 +259,11 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
-      });
-      const branch = new Domain({
-        schema: "public",
-        name: "test_domain",
-        base_type: "integer",
-        base_type_schema: "pg_catalog",
-        not_null: false,
-        type_modifier: null,
-        array_dimensions: null,
-        collation: null,
-        default_bin: null,
-        default_value: null,
-        owner: "test",
-      });
+      };
+      const main = new Domain(props);
+      const branch = new Domain(props);
 
-      const change = new AlterDomainValidateConstraint({
-        main,
-        branch,
-        constraintName: "test_check",
-      });
+      const change = new AlterDomainValidateConstraint();
 
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain VALIDATE CONSTRAINT test_check",

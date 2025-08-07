@@ -3,7 +3,7 @@ import { BasePgModel } from "../base.model.ts";
 
 export type ReplicaIdentity = "d" | "n" | "f" | "i";
 
-interface ViewProps {
+export interface ViewProps {
   schema: string;
   name: string;
   definition: string | null;

@@ -14,7 +14,7 @@ import { BasePgModel } from "../base.model.ts";
  *
  * Other properties require dropping and creating a new index.
  */
-interface IndexProps {
+export interface IndexProps {
   table_schema: string;
   table_name: string;
   name: string;

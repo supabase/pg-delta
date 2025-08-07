@@ -1,11 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { Sequence } from "../sequence.model.ts";
+import { Sequence, type SequenceProps } from "../sequence.model.ts";
 import { AlterSequenceChangeOwner, ReplaceSequence } from "./sequence.alter.ts";
 
 describe.concurrent("sequence", () => {
   describe("alter", () => {
     test("change owner", () => {
-      const main = new Sequence({
+      const props: Omit<SequenceProps, "owner"> = {
         schema: "public",
         name: "test_sequence",
         data_type: "integer",
@@ -16,19 +16,13 @@ describe.concurrent("sequence", () => {
         cycle_option: false,
         cache_size: 1,
         persistence: "p",
+      };
+      const main = new Sequence({
+        ...props,
         owner: "old_owner",
       });
       const branch = new Sequence({
-        schema: "public",
-        name: "test_sequence",
-        data_type: "integer",
-        start_value: 1,
-        minimum_value: 1,
-        maximum_value: 2147483647,
-        increment: 1,
-        cycle_option: false,
-        cache_size: 1,
-        persistence: "p",
+        ...props,
         owner: "new_owner",
       });
 
@@ -43,31 +37,26 @@ describe.concurrent("sequence", () => {
     });
 
     test("replace sequence", () => {
-      const main = new Sequence({
+      const props: Omit<SequenceProps, "data_type" | "maximum_value"> = {
         schema: "public",
         name: "test_sequence",
-        data_type: "integer",
         start_value: 1,
         minimum_value: 1,
-        maximum_value: 2147483647,
         increment: 1,
         cycle_option: false,
         cache_size: 1,
         persistence: "p",
         owner: "test",
+      };
+      const main = new Sequence({
+        ...props,
+        data_type: "integer",
+        maximum_value: 2147483647,
       });
       const branch = new Sequence({
-        schema: "public",
-        name: "test_sequence",
+        ...props,
         data_type: "bigint",
-        start_value: 1,
-        minimum_value: 1,
-        maximum_value: 9223372036854775807n,
-        increment: 1,
-        cycle_option: false,
-        cache_size: 1,
-        persistence: "p",
-        owner: "test",
+        maximum_value: Number.MAX_SAFE_INTEGER,
       });
 
       const change = new ReplaceSequence({

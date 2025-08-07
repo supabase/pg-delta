@@ -17,7 +17,7 @@ import { BasePgModel } from "../base.model.ts";
  *  - extconfig, extcondition
  * https://www.postgresql.org/docs/current/catalog-pg-extension.html
  */
-interface ExtensionProps {
+export interface ExtensionProps {
   name: string;
   schema: string;
   relocatable: boolean;

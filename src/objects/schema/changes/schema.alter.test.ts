@@ -1,16 +1,19 @@
 import { describe, expect, test } from "vitest";
-import { Schema } from "../schema.model.ts";
+import { Schema, type SchemaProps } from "../schema.model.ts";
 import { AlterSchemaChangeOwner, ReplaceSchema } from "./schema.alter.ts";
 
 describe.concurrent("schema", () => {
   describe("alter", () => {
     test("change owner", () => {
-      const main = new Schema({
+      const props: Omit<SchemaProps, "owner"> = {
         schema: "test_schema",
+      };
+      const main = new Schema({
+        ...props,
         owner: "old_owner",
       });
       const branch = new Schema({
-        schema: "test_schema",
+        ...props,
         owner: "new_owner",
       });
 
@@ -25,14 +28,12 @@ describe.concurrent("schema", () => {
     });
 
     test("replace schema", () => {
-      const main = new Schema({
+      const props: SchemaProps = {
         schema: "test_schema",
         owner: "test",
-      });
-      const branch = new Schema({
-        schema: "test_schema",
-        owner: "test",
-      });
+      };
+      const main = new Schema(props);
+      const branch = new Schema(props);
 
       const change = new ReplaceSchema({
         main,

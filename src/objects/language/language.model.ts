@@ -10,7 +10,7 @@ import { BasePgModel } from "../base.model.ts";
  *
  * Other properties require dropping and creating a new language.
  */
-interface LanguageProps {
+export interface LanguageProps {
   name: string;
   is_trusted: boolean;
   is_procedural: boolean;

@@ -22,9 +22,7 @@ export class DropTable extends DropChange {
   serialize(): string {
     return [
       "DROP TABLE",
-      quoteIdentifier(this.table.schema),
-      ".",
-      quoteIdentifier(this.table.name),
+      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
     ].join(" ");
   }
 }

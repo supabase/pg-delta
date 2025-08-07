@@ -20,7 +20,7 @@ interface EnumLabel {
  * Type ACL will be supported separately.
  * https://www.postgresql.org/docs/current/ddl-priv.html
  */
-interface EnumProps {
+export interface EnumProps {
   schema: string;
   name: string;
   owner: string;

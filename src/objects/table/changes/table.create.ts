@@ -44,9 +44,7 @@ export class CreateTable extends CreateChange {
 
     // Add schema and name
     parts.push(
-      quoteIdentifier(this.table.schema),
-      ".",
-      quoteIdentifier(this.table.name),
+      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
     );
 
     // Add columns (simplified - would need actual column definitions)
@@ -56,11 +54,7 @@ export class CreateTable extends CreateChange {
     if (this.table.parent_schema && this.table.parent_name) {
       parts.push(
         "INHERITS",
-        "(",
-        quoteIdentifier(this.table.parent_schema),
-        ".",
-        quoteIdentifier(this.table.parent_name),
-        ")",
+        `(${quoteIdentifier(this.table.parent_schema)}.${quoteIdentifier(this.table.parent_name)})`,
       );
     }
 

@@ -14,7 +14,7 @@ type CollationProvider = "d" | "c" | "i";
  *
  * Other properties require dropping and creating a new collation.
  */
-interface CollationProps {
+export interface CollationProps {
   schema: string;
   name: string;
   provider: CollationProvider;

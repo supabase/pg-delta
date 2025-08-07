@@ -3,7 +3,7 @@ import { BasePgModel } from "../base.model.ts";
 
 type RlsPolicyCommand = "r" | "a" | "w" | "d" | "*";
 
-interface RlsPolicyProps {
+export interface RlsPolicyProps {
   schema: string;
   name: string;
   table_schema: string;

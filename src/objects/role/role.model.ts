@@ -1,7 +1,7 @@
 import type { Sql } from "postgres";
 import { BasePgModel } from "../base.model.ts";
 
-interface RoleProps {
+export interface RoleProps {
   role_name: string;
   is_superuser: boolean;
   can_inherit: boolean;

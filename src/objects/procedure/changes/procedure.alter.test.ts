@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { Procedure } from "../procedure.model.ts";
+import { Procedure, type ProcedureProps } from "../procedure.model.ts";
 import {
   AlterProcedureChangeOwner,
   ReplaceProcedure,
@@ -8,7 +8,7 @@ import {
 describe.concurrent("procedure", () => {
   describe("alter", () => {
     test("change owner", () => {
-      const main = new Procedure({
+      const props: Omit<ProcedureProps, "owner"> = {
         schema: "public",
         name: "test_procedure",
         kind: "p",
@@ -32,32 +32,13 @@ describe.concurrent("procedure", () => {
         binary_path: null,
         sql_body: null,
         config: null,
+      };
+      const main = new Procedure({
+        ...props,
         owner: "old_owner",
       });
       const branch = new Procedure({
-        schema: "public",
-        name: "test_procedure",
-        kind: "p",
-        return_type: "void",
-        return_type_schema: "pg_catalog",
-        language: "plpgsql",
-        security_definer: false,
-        volatility: "v",
-        parallel_safety: "u",
-        is_strict: false,
-        leakproof: false,
-        returns_set: false,
-        argument_count: 0,
-        argument_default_count: 0,
-        argument_names: null,
-        argument_types: null,
-        all_argument_types: null,
-        argument_modes: null,
-        argument_defaults: null,
-        source_code: "BEGIN RETURN; END;",
-        binary_path: null,
-        sql_body: null,
-        config: null,
+        ...props,
         owner: "new_owner",
       });
 
@@ -72,14 +53,13 @@ describe.concurrent("procedure", () => {
     });
 
     test("replace procedure", () => {
-      const main = new Procedure({
+      const props: Omit<ProcedureProps, "security_definer"> = {
         schema: "public",
         name: "test_procedure",
         kind: "p",
         return_type: "void",
         return_type_schema: "pg_catalog",
         language: "plpgsql",
-        security_definer: false,
         volatility: "v",
         parallel_safety: "u",
         is_strict: false,
@@ -97,32 +77,14 @@ describe.concurrent("procedure", () => {
         sql_body: null,
         config: null,
         owner: "test",
+      };
+      const main = new Procedure({
+        ...props,
+        security_definer: false,
       });
       const branch = new Procedure({
-        schema: "public",
-        name: "test_procedure",
-        kind: "p",
-        return_type: "void",
-        return_type_schema: "pg_catalog",
-        language: "plpgsql",
+        ...props,
         security_definer: true,
-        volatility: "v",
-        parallel_safety: "u",
-        is_strict: false,
-        leakproof: false,
-        returns_set: false,
-        argument_count: 0,
-        argument_default_count: 0,
-        argument_names: null,
-        argument_types: null,
-        all_argument_types: null,
-        argument_modes: null,
-        argument_defaults: null,
-        source_code: "BEGIN RETURN; END;",
-        binary_path: null,
-        sql_body: null,
-        config: null,
-        owner: "test",
       });
 
       const change = new ReplaceProcedure({

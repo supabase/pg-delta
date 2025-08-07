@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { Extension } from "../extension.model.ts";
+import { Extension, type ExtensionProps } from "../extension.model.ts";
 import {
   AlterExtensionChangeOwner,
   AlterExtensionSetSchema,
@@ -10,19 +10,19 @@ import {
 describe.concurrent("extension", () => {
   describe("alter", () => {
     test("update version", () => {
-      const main = new Extension({
+      const props: Omit<ExtensionProps, "version"> = {
         name: "test_extension",
         schema: "public",
         relocatable: true,
-        version: "1.0",
         owner: "test",
+      };
+      const main = new Extension({
+        ...props,
+        version: "1.0",
       });
       const branch = new Extension({
-        name: "test_extension",
-        schema: "public",
-        relocatable: true,
+        ...props,
         version: "2.0",
-        owner: "test",
       });
 
       const change = new AlterExtensionUpdateVersion({
@@ -36,19 +36,19 @@ describe.concurrent("extension", () => {
     });
 
     test("set schema", () => {
-      const main = new Extension({
+      const props: Omit<ExtensionProps, "schema"> = {
         name: "test_extension",
-        schema: "public",
         relocatable: true,
         version: "1.0",
         owner: "test",
+      };
+      const main = new Extension({
+        ...props,
+        schema: "public",
       });
       const branch = new Extension({
-        name: "test_extension",
+        ...props,
         schema: "extensions",
-        relocatable: true,
-        version: "1.0",
-        owner: "test",
       });
 
       const change = new AlterExtensionSetSchema({
@@ -62,18 +62,18 @@ describe.concurrent("extension", () => {
     });
 
     test("change owner", () => {
-      const main = new Extension({
+      const props: Omit<ExtensionProps, "owner"> = {
         name: "test_extension",
         schema: "public",
         relocatable: true,
         version: "1.0",
+      };
+      const main = new Extension({
+        ...props,
         owner: "old_owner",
       });
       const branch = new Extension({
-        name: "test_extension",
-        schema: "public",
-        relocatable: true,
-        version: "1.0",
+        ...props,
         owner: "new_owner",
       });
 
@@ -88,19 +88,19 @@ describe.concurrent("extension", () => {
     });
 
     test("replace extension", () => {
-      const main = new Extension({
+      const props: Omit<ExtensionProps, "relocatable"> = {
         name: "test_extension",
         schema: "public",
-        relocatable: false,
         version: "1.0",
         owner: "test",
+      };
+      const main = new Extension({
+        ...props,
+        relocatable: false,
       });
       const branch = new Extension({
-        name: "test_extension",
-        schema: "public",
+        ...props,
         relocatable: true,
-        version: "1.0",
-        owner: "test",
       });
 
       const change = new ReplaceExtension({

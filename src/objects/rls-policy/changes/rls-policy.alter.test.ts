@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { RlsPolicy } from "../rls-policy.model.ts";
+import { RlsPolicy, type RlsPolicyProps } from "../rls-policy.model.ts";
 import {
   AlterRlsPolicyChangeOwner,
   ReplaceRlsPolicy,
@@ -8,7 +8,7 @@ import {
 describe.concurrent("rls-policy", () => {
   describe("alter", () => {
     test("change owner", () => {
-      const main = new RlsPolicy({
+      const props: Omit<RlsPolicyProps, "owner"> = {
         schema: "public",
         name: "test_policy",
         table_schema: "public",
@@ -18,18 +18,13 @@ describe.concurrent("rls-policy", () => {
         roles: ["public"],
         using_expression: "user_id = current_user_id()",
         with_check_expression: null,
+      };
+      const main = new RlsPolicy({
+        ...props,
         owner: "old_owner",
       });
       const branch = new RlsPolicy({
-        schema: "public",
-        name: "test_policy",
-        table_schema: "public",
-        table_name: "test_table",
-        command: "r",
-        permissive: true,
-        roles: ["public"],
-        using_expression: "user_id = current_user_id()",
-        with_check_expression: null,
+        ...props,
         owner: "new_owner",
       });
 
@@ -44,29 +39,24 @@ describe.concurrent("rls-policy", () => {
     });
 
     test("replace rls policy", () => {
-      const main = new RlsPolicy({
+      const props: Omit<RlsPolicyProps, "permissive"> = {
         schema: "public",
         name: "test_policy",
         table_schema: "public",
         table_name: "test_table",
         command: "r",
-        permissive: true,
         roles: ["public"],
         using_expression: "user_id = current_user_id()",
         with_check_expression: null,
         owner: "test",
+      };
+      const main = new RlsPolicy({
+        ...props,
+        permissive: true,
       });
       const branch = new RlsPolicy({
-        schema: "public",
-        name: "test_policy",
-        table_schema: "public",
-        table_name: "test_table",
-        command: "r",
+        ...props,
         permissive: false,
-        roles: ["public"],
-        using_expression: "user_id = current_user_id()",
-        with_check_expression: null,
-        owner: "test",
       });
 
       const change = new ReplaceRlsPolicy({

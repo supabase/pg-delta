@@ -1,11 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { Table } from "../table.model.ts";
+import { Table, type TableProps } from "../table.model.ts";
 import { AlterTableChangeOwner, ReplaceTable } from "./table.alter.ts";
 
 describe.concurrent("table", () => {
   describe("alter", () => {
     test("change owner", () => {
-      const main = new Table({
+      const props: Omit<TableProps, "owner"> = {
         schema: "public",
         name: "test_table",
         persistence: "p",
@@ -20,28 +20,16 @@ describe.concurrent("table", () => {
         is_partition: false,
         options: null,
         partition_bound: null,
-        owner: "old_owner",
         parent_schema: null,
         parent_name: null,
+      };
+      const main = new Table({
+        ...props,
+        owner: "old_owner",
       });
       const branch = new Table({
-        schema: "public",
-        name: "test_table",
-        persistence: "p",
-        row_security: false,
-        force_row_security: false,
-        has_indexes: false,
-        has_rules: false,
-        has_triggers: false,
-        has_subclasses: false,
-        is_populated: false,
-        replica_identity: "d",
-        is_partition: false,
-        options: null,
-        partition_bound: null,
+        ...props,
         owner: "new_owner",
-        parent_schema: null,
-        parent_name: null,
       });
 
       const change = new AlterTableChangeOwner({
@@ -55,10 +43,9 @@ describe.concurrent("table", () => {
     });
 
     test("replace table", () => {
-      const main = new Table({
+      const props: Omit<TableProps, "persistence"> = {
         schema: "public",
         name: "test_table",
-        persistence: "p",
         row_security: false,
         force_row_security: false,
         has_indexes: false,
@@ -73,25 +60,14 @@ describe.concurrent("table", () => {
         owner: "test",
         parent_schema: null,
         parent_name: null,
+      };
+      const main = new Table({
+        ...props,
+        persistence: "p",
       });
       const branch = new Table({
-        schema: "public",
-        name: "test_table",
+        ...props,
         persistence: "u",
-        row_security: false,
-        force_row_security: false,
-        has_indexes: false,
-        has_rules: false,
-        has_triggers: false,
-        has_subclasses: false,
-        is_populated: false,
-        replica_identity: "d",
-        is_partition: false,
-        options: null,
-        partition_bound: null,
-        owner: "test",
-        parent_schema: null,
-        parent_name: null,
       });
 
       const change = new ReplaceTable({

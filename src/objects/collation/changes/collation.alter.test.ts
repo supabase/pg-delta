@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { Collation } from "../collation.model.ts";
+import { Collation, type CollationProps } from "../collation.model.ts";
 import {
   AlterCollationChangeOwner,
   AlterCollationRefreshVersion,
@@ -8,7 +8,7 @@ import {
 describe.concurrent("collation", () => {
   describe("alter", () => {
     test("change owner", () => {
-      const main = new Collation({
+      const props: Omit<CollationProps, "owner"> = {
         schema: "public",
         name: "test",
         provider: "c",
@@ -19,19 +19,13 @@ describe.concurrent("collation", () => {
         version: "1.0",
         ctype: "test",
         icu_rules: "test",
+      };
+      const main = new Collation({
+        ...props,
         owner: "old_owner",
       });
       const branch = new Collation({
-        schema: "public",
-        name: "test",
-        provider: "c",
-        is_deterministic: true,
-        encoding: 1,
-        collate: "en_US",
-        locale: "en_US",
-        version: "1.0",
-        ctype: "test",
-        icu_rules: "test",
+        ...props,
         owner: "new_owner",
       });
 
@@ -46,7 +40,7 @@ describe.concurrent("collation", () => {
     });
 
     test("refresh version", () => {
-      const main = new Collation({
+      const props: Omit<CollationProps, "version"> = {
         schema: "public",
         name: "test",
         provider: "c",
@@ -54,23 +48,17 @@ describe.concurrent("collation", () => {
         encoding: 1,
         collate: "en_US",
         locale: "en_US",
-        version: "1.0",
         ctype: "test",
         icu_rules: "test",
         owner: "test",
+      };
+      const main = new Collation({
+        ...props,
+        version: "1.0",
       });
       const branch = new Collation({
-        schema: "public",
-        name: "test",
-        provider: "c",
-        is_deterministic: true,
-        encoding: 1,
-        collate: "en_US",
-        locale: "en_US",
+        ...props,
         version: "2.0",
-        ctype: "test",
-        icu_rules: "test",
-        owner: "test",
       });
 
       const change = new AlterCollationRefreshVersion({

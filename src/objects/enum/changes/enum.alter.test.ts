@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { Enum } from "../enum.model.ts";
+import { Enum, type EnumProps } from "../enum.model.ts";
 import {
   AlterEnumAddValue,
   AlterEnumChangeOwner,
@@ -9,23 +9,21 @@ import {
 describe.concurrent("enum", () => {
   describe("alter", () => {
     test("change owner", () => {
-      const main = new Enum({
+      const props: Omit<EnumProps, "owner"> = {
         schema: "public",
         name: "test_enum",
-        owner: "old_owner",
         labels: [
           { sort_order: 1, label: "value1" },
           { sort_order: 2, label: "value2" },
         ],
+      };
+      const main = new Enum({
+        ...props,
+        owner: "old_owner",
       });
       const branch = new Enum({
-        schema: "public",
-        name: "test_enum",
+        ...props,
         owner: "new_owner",
-        labels: [
-          { sort_order: 1, label: "value1" },
-          { sort_order: 2, label: "value2" },
-        ],
       });
 
       const change = new AlterEnumChangeOwner({
@@ -39,7 +37,7 @@ describe.concurrent("enum", () => {
     });
 
     test("add value", () => {
-      const main = new Enum({
+      const props: EnumProps = {
         schema: "public",
         name: "test_enum",
         owner: "test",
@@ -47,16 +45,11 @@ describe.concurrent("enum", () => {
           { sort_order: 1, label: "value1" },
           { sort_order: 2, label: "value2" },
         ],
-      });
+      };
+      const main = new Enum(props);
       const branch = new Enum({
-        schema: "public",
-        name: "test_enum",
-        owner: "test",
-        labels: [
-          { sort_order: 1, label: "value1" },
-          { sort_order: 2, label: "value2" },
-          { sort_order: 3, label: "value3" },
-        ],
+        ...props,
+        labels: [...props.labels, { sort_order: 3, label: "value3" }],
       });
 
       const change = new AlterEnumAddValue({
@@ -71,7 +64,7 @@ describe.concurrent("enum", () => {
     });
 
     test("add value before", () => {
-      const main = new Enum({
+      const props: EnumProps = {
         schema: "public",
         name: "test_enum",
         owner: "test",
@@ -79,11 +72,10 @@ describe.concurrent("enum", () => {
           { sort_order: 1, label: "value1" },
           { sort_order: 2, label: "value2" },
         ],
-      });
+      };
+      const main = new Enum(props);
       const branch = new Enum({
-        schema: "public",
-        name: "test_enum",
-        owner: "test",
+        ...props,
         labels: [
           { sort_order: 1, label: "value1" },
           { sort_order: 1.5, label: "value1_5" },
@@ -104,7 +96,7 @@ describe.concurrent("enum", () => {
     });
 
     test("add value after", () => {
-      const main = new Enum({
+      const props: EnumProps = {
         schema: "public",
         name: "test_enum",
         owner: "test",
@@ -112,11 +104,10 @@ describe.concurrent("enum", () => {
           { sort_order: 1, label: "value1" },
           { sort_order: 2, label: "value2" },
         ],
-      });
+      };
+      const main = new Enum(props);
       const branch = new Enum({
-        schema: "public",
-        name: "test_enum",
-        owner: "test",
+        ...props,
         labels: [
           { sort_order: 1, label: "value1" },
           { sort_order: 1.5, label: "value1_5" },
@@ -137,7 +128,7 @@ describe.concurrent("enum", () => {
     });
 
     test("replace enum", () => {
-      const main = new Enum({
+      const props: EnumProps = {
         schema: "public",
         name: "test_enum",
         owner: "test",
@@ -145,16 +136,11 @@ describe.concurrent("enum", () => {
           { sort_order: 1, label: "value1" },
           { sort_order: 2, label: "value2" },
         ],
-      });
+      };
+      const main = new Enum(props);
       const branch = new Enum({
-        schema: "public",
-        name: "test_enum",
-        owner: "test",
-        labels: [
-          { sort_order: 1, label: "value1" },
-          { sort_order: 2, label: "value2" },
-          { sort_order: 3, label: "value3" },
-        ],
+        ...props,
+        labels: [...props.labels, { sort_order: 3, label: "value3" }],
       });
 
       const change = new ReplaceEnum({

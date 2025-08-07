@@ -21,7 +21,7 @@ export type TypeCategory =
 type TypeAlignment = "c" | "s" | "i" | "d";
 type TypeStorage = "p" | "e" | "m" | "x";
 
-interface TypeProps {
+export interface TypeProps {
   schema: string;
   name: string;
   type_type: TypeKind;

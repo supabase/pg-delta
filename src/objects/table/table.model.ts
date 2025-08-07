@@ -4,7 +4,7 @@ import { BasePgModel } from "../base.model.ts";
 export type RelationPersistence = "p" | "u" | "t";
 export type ReplicaIdentity = "d" | "n" | "f" | "i";
 
-interface TableProps {
+export interface TableProps {
   schema: string;
   name: string;
   persistence: RelationPersistence;

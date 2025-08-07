@@ -1,11 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { View } from "../view.model.ts";
+import { View, type ViewProps } from "../view.model.ts";
 import { AlterViewChangeOwner, ReplaceView } from "./view.alter.ts";
 
 describe.concurrent("view", () => {
   describe("alter", () => {
     test("change owner", () => {
-      const main = new View({
+      const props: Omit<ViewProps, "owner"> = {
         schema: "public",
         name: "test_view",
         definition: "SELECT * FROM test_table",
@@ -20,23 +20,13 @@ describe.concurrent("view", () => {
         is_partition: false,
         options: null,
         partition_bound: null,
+      };
+      const main = new View({
+        ...props,
         owner: "old_owner",
       });
       const branch = new View({
-        schema: "public",
-        name: "test_view",
-        definition: "SELECT * FROM test_table",
-        row_security: false,
-        force_row_security: false,
-        has_indexes: false,
-        has_rules: false,
-        has_triggers: false,
-        has_subclasses: false,
-        is_populated: false,
-        replica_identity: "d",
-        is_partition: false,
-        options: null,
-        partition_bound: null,
+        ...props,
         owner: "new_owner",
       });
 
@@ -51,10 +41,9 @@ describe.concurrent("view", () => {
     });
 
     test("replace view", () => {
-      const main = new View({
+      const props: Omit<ViewProps, "definition"> = {
         schema: "public",
         name: "test_view",
-        definition: "SELECT * FROM test_table",
         row_security: false,
         force_row_security: false,
         has_indexes: false,
@@ -67,23 +56,14 @@ describe.concurrent("view", () => {
         options: null,
         partition_bound: null,
         owner: "test",
+      };
+      const main = new View({
+        ...props,
+        definition: "SELECT * FROM test_table",
       });
       const branch = new View({
-        schema: "public",
-        name: "test_view",
+        ...props,
         definition: "SELECT id, name FROM test_table",
-        row_security: false,
-        force_row_security: false,
-        has_indexes: false,
-        has_rules: false,
-        has_triggers: false,
-        has_subclasses: false,
-        is_populated: false,
-        replica_identity: "d",
-        is_partition: false,
-        options: null,
-        partition_bound: null,
-        owner: "test",
       });
 
       const change = new ReplaceView({

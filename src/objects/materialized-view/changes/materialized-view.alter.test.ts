@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { MaterializedView } from "../materialized-view.model.ts";
+import {
+  MaterializedView,
+  type MaterializedViewProps,
+} from "../materialized-view.model.ts";
 import {
   AlterMaterializedViewChangeOwner,
   ReplaceMaterializedView,
@@ -8,7 +11,7 @@ import {
 describe.concurrent("materialized-view", () => {
   describe("alter", () => {
     test("change owner", () => {
-      const main = new MaterializedView({
+      const props: Omit<MaterializedViewProps, "owner"> = {
         schema: "public",
         name: "test_mv",
         definition: "SELECT * FROM test_table",
@@ -23,23 +26,13 @@ describe.concurrent("materialized-view", () => {
         is_partition: false,
         options: null,
         partition_bound: null,
+      };
+      const main = new MaterializedView({
+        ...props,
         owner: "old_owner",
       });
       const branch = new MaterializedView({
-        schema: "public",
-        name: "test_mv",
-        definition: "SELECT * FROM test_table",
-        row_security: false,
-        force_row_security: false,
-        has_indexes: false,
-        has_rules: false,
-        has_triggers: false,
-        has_subclasses: false,
-        is_populated: true,
-        replica_identity: "d",
-        is_partition: false,
-        options: null,
-        partition_bound: null,
+        ...props,
         owner: "new_owner",
       });
 
@@ -54,10 +47,9 @@ describe.concurrent("materialized-view", () => {
     });
 
     test("replace materialized view", () => {
-      const main = new MaterializedView({
+      const props: Omit<MaterializedViewProps, "definition"> = {
         schema: "public",
         name: "test_mv",
-        definition: "SELECT * FROM test_table",
         row_security: false,
         force_row_security: false,
         has_indexes: false,
@@ -70,23 +62,14 @@ describe.concurrent("materialized-view", () => {
         options: null,
         partition_bound: null,
         owner: "test",
+      };
+      const main = new MaterializedView({
+        ...props,
+        definition: "SELECT * FROM test_table",
       });
       const branch = new MaterializedView({
-        schema: "public",
-        name: "test_mv",
+        ...props,
         definition: "SELECT id, name FROM test_table",
-        row_security: false,
-        force_row_security: false,
-        has_indexes: false,
-        has_rules: false,
-        has_triggers: false,
-        has_subclasses: false,
-        is_populated: true,
-        replica_identity: "d",
-        is_partition: false,
-        options: null,
-        partition_bound: null,
-        owner: "test",
       });
 
       const change = new ReplaceMaterializedView({

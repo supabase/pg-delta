@@ -5,7 +5,7 @@ type ConstraintType = "c" | "f" | "p" | "u" | "x";
 type ForeignKeyAction = "a" | "r" | "c" | "n" | "d";
 type ForeignKeyMatchType = "f" | "p" | "s";
 
-interface ConstraintProps {
+export interface ConstraintProps {
   schema: string;
   name: string;
   table_schema: string;

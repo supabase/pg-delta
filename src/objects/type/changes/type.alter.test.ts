@@ -1,11 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { Type } from "../type.model.ts";
+import { Type, type TypeProps } from "../type.model.ts";
 import { AlterTypeChangeOwner, ReplaceType } from "./type.alter.ts";
 
 describe.concurrent("type", () => {
   describe("alter", () => {
     test("change owner", () => {
-      const main = new Type({
+      const props: Omit<TypeProps, "owner"> = {
         schema: "public",
         name: "test_type",
         type_type: "b",
@@ -22,25 +22,13 @@ describe.concurrent("type", () => {
         array_dimensions: null,
         default_bin: null,
         default_value: null,
+      };
+      const main = new Type({
+        ...props,
         owner: "old_owner",
       });
       const branch = new Type({
-        schema: "public",
-        name: "test_type",
-        type_type: "b",
-        type_category: "U",
-        is_preferred: false,
-        is_defined: true,
-        delimiter: ",",
-        storage_length: -1,
-        passed_by_value: false,
-        alignment: "i",
-        storage: "x",
-        not_null: false,
-        type_modifier: null,
-        array_dimensions: null,
-        default_bin: null,
-        default_value: null,
+        ...props,
         owner: "new_owner",
       });
 
@@ -55,7 +43,7 @@ describe.concurrent("type", () => {
     });
 
     test("replace type", () => {
-      const main = new Type({
+      const props: Omit<TypeProps, "not_null"> = {
         schema: "public",
         name: "test_type",
         type_type: "b",
@@ -67,31 +55,19 @@ describe.concurrent("type", () => {
         passed_by_value: false,
         alignment: "i",
         storage: "x",
-        not_null: false,
         type_modifier: null,
         array_dimensions: null,
         default_bin: null,
         default_value: null,
         owner: "test",
+      };
+      const main = new Type({
+        ...props,
+        not_null: false,
       });
       const branch = new Type({
-        schema: "public",
-        name: "test_type",
-        type_type: "b",
-        type_category: "U",
-        is_preferred: false,
-        is_defined: true,
-        delimiter: ",",
-        storage_length: -1,
-        passed_by_value: false,
-        alignment: "i",
-        storage: "x",
+        ...props,
         not_null: true,
-        type_modifier: null,
-        array_dimensions: null,
-        default_bin: null,
-        default_value: null,
-        owner: "test",
       });
 
       const change = new ReplaceType({

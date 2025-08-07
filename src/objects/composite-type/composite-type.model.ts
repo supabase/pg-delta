@@ -11,7 +11,7 @@ export type ReplicaIdentity =
   /** INDEX */
   | "i";
 
-interface CompositeTypeProps {
+export interface CompositeTypeProps {
   schema: string;
   name: string;
   row_security: boolean;

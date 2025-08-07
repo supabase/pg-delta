@@ -2,7 +2,7 @@ import type { Sql } from "postgres";
 import { BasePgModel } from "../base.model.ts";
 import type { ReplicaIdentity } from "../table/table.model.ts";
 
-interface MaterializedViewProps {
+export interface MaterializedViewProps {
   schema: string;
   name: string;
   definition: string | null;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { Index } from "../index.model.ts";
+import { Index, type IndexProps } from "../index.model.ts";
 import {
   AlterIndexSetStatistics,
   AlterIndexSetStorageParams,
@@ -10,11 +10,10 @@ import {
 describe.concurrent("index", () => {
   describe("alter", () => {
     test("set storage params", () => {
-      const main = new Index({
+      const props: Omit<IndexProps, "storage_params"> = {
         table_schema: "public",
         table_name: "test_table",
         name: "test_index",
-        storage_params: [],
         statistics_target: [0],
         index_type: "btree",
         tablespace: null,
@@ -31,28 +30,14 @@ describe.concurrent("index", () => {
         column_options: [],
         index_expressions: null,
         partial_predicate: null,
+      };
+      const main = new Index({
+        ...props,
+        storage_params: [],
       });
       const branch = new Index({
-        table_schema: "public",
-        table_name: "test_table",
-        name: "test_index",
+        ...props,
         storage_params: ["fillfactor=90"],
-        statistics_target: [0],
-        index_type: "btree",
-        tablespace: null,
-        is_unique: false,
-        is_primary: false,
-        is_exclusion: false,
-        nulls_not_distinct: false,
-        immediate: true,
-        is_clustered: false,
-        is_replica_identity: false,
-        key_columns: [1],
-        column_collations: [],
-        operator_classes: [],
-        column_options: [],
-        index_expressions: null,
-        partial_predicate: null,
       });
 
       const change = new AlterIndexSetStorageParams({
@@ -66,12 +51,11 @@ describe.concurrent("index", () => {
     });
 
     test("set statistics", () => {
-      const main = new Index({
+      const props: Omit<IndexProps, "statistics_target"> = {
         table_schema: "public",
         table_name: "test_table",
         name: "test_index",
         storage_params: [],
-        statistics_target: [0],
         index_type: "btree",
         tablespace: null,
         is_unique: false,
@@ -87,28 +71,14 @@ describe.concurrent("index", () => {
         column_options: [],
         index_expressions: null,
         partial_predicate: null,
+      };
+      const main = new Index({
+        ...props,
+        statistics_target: [0],
       });
       const branch = new Index({
-        table_schema: "public",
-        table_name: "test_table",
-        name: "test_index",
-        storage_params: [],
+        ...props,
         statistics_target: [100],
-        index_type: "btree",
-        tablespace: null,
-        is_unique: false,
-        is_primary: false,
-        is_exclusion: false,
-        nulls_not_distinct: false,
-        immediate: true,
-        is_clustered: false,
-        is_replica_identity: false,
-        key_columns: [1],
-        column_collations: [],
-        operator_classes: [],
-        column_options: [],
-        index_expressions: null,
-        partial_predicate: null,
       });
 
       const change = new AlterIndexSetStatistics({
@@ -122,14 +92,13 @@ describe.concurrent("index", () => {
     });
 
     test("set tablespace", () => {
-      const main = new Index({
+      const props: Omit<IndexProps, "tablespace"> = {
         table_schema: "public",
         table_name: "test_table",
         name: "test_index",
         storage_params: [],
         statistics_target: [0],
         index_type: "btree",
-        tablespace: null,
         is_unique: false,
         is_primary: false,
         is_exclusion: false,
@@ -143,28 +112,14 @@ describe.concurrent("index", () => {
         column_options: [],
         index_expressions: null,
         partial_predicate: null,
+      };
+      const main = new Index({
+        ...props,
+        tablespace: null,
       });
       const branch = new Index({
-        table_schema: "public",
-        table_name: "test_table",
-        name: "test_index",
-        storage_params: [],
-        statistics_target: [0],
-        index_type: "btree",
+        ...props,
         tablespace: "fast_space",
-        is_unique: false,
-        is_primary: false,
-        is_exclusion: false,
-        nulls_not_distinct: false,
-        immediate: true,
-        is_clustered: false,
-        is_replica_identity: false,
-        key_columns: [1],
-        column_collations: [],
-        operator_classes: [],
-        column_options: [],
-        index_expressions: null,
-        partial_predicate: null,
       });
 
       const change = new AlterIndexSetTablespace({
@@ -178,13 +133,12 @@ describe.concurrent("index", () => {
     });
 
     test("replace index", () => {
-      const main = new Index({
+      const props: Omit<IndexProps, "index_type"> = {
         table_schema: "public",
         table_name: "test_table",
         name: "test_index",
         storage_params: [],
         statistics_target: [0],
-        index_type: "btree",
         tablespace: null,
         is_unique: false,
         is_primary: false,
@@ -199,28 +153,14 @@ describe.concurrent("index", () => {
         column_options: [],
         index_expressions: null,
         partial_predicate: null,
+      };
+      const main = new Index({
+        ...props,
+        index_type: "btree",
       });
       const branch = new Index({
-        table_schema: "public",
-        table_name: "test_table",
-        name: "test_index",
-        storage_params: [],
-        statistics_target: [0],
+        ...props,
         index_type: "hash",
-        tablespace: null,
-        is_unique: false,
-        is_primary: false,
-        is_exclusion: false,
-        nulls_not_distinct: false,
-        immediate: true,
-        is_clustered: false,
-        is_replica_identity: false,
-        key_columns: [1],
-        column_collations: [],
-        operator_classes: [],
-        column_options: [],
-        index_expressions: null,
-        partial_predicate: null,
       });
 
       const change = new ReplaceIndex({

@@ -6,7 +6,7 @@ type FunctionVolatility = "i" | "s" | "v";
 type FunctionParallelSafety = "u" | "s" | "r";
 type FunctionArgumentMode = "i" | "o" | "b" | "v" | "t";
 
-interface ProcedureProps {
+export interface ProcedureProps {
   schema: string;
   name: string;
   kind: FunctionKind;

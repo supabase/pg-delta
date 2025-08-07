@@ -1,7 +1,7 @@
 import type { Sql } from "postgres";
 import { BasePgModel } from "../base.model.ts";
 
-interface SequenceProps {
+export interface SequenceProps {
   schema: string;
   name: string;
   data_type: string;

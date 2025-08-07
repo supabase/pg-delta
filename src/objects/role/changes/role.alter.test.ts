@@ -1,33 +1,28 @@
 import { describe, expect, test } from "vitest";
-import { Role } from "../role.model.ts";
+import { Role, type RoleProps } from "../role.model.ts";
 import { ReplaceRole } from "./role.alter.ts";
 
 describe.concurrent("role", () => {
   describe("alter", () => {
     test("replace role", () => {
-      const main = new Role({
+      const props: Omit<RoleProps, "can_create_roles"> = {
         role_name: "test_role",
         is_superuser: false,
         can_inherit: true,
-        can_create_roles: false,
         can_create_databases: false,
         can_login: true,
         can_replicate: false,
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+      };
+      const main = new Role({
+        ...props,
+        can_create_roles: false,
       });
       const branch = new Role({
-        role_name: "test_role",
-        is_superuser: false,
-        can_inherit: true,
+        ...props,
         can_create_roles: true,
-        can_create_databases: false,
-        can_login: true,
-        can_replicate: false,
-        connection_limit: null,
-        can_bypass_rls: false,
-        config: null,
       });
 
       const change = new ReplaceRole({

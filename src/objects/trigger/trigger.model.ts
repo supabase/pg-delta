@@ -3,7 +3,7 @@ import { BasePgModel } from "../base.model.ts";
 
 type TriggerEnabled = "O" | "D" | "R" | "A";
 
-interface TriggerProps {
+export interface TriggerProps {
   schema: string;
   name: string;
   table_schema: string;

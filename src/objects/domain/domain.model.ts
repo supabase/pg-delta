@@ -1,7 +1,7 @@
 import type { Sql } from "postgres";
 import { BasePgModel } from "../base.model.ts";
 
-interface DomainProps {
+export interface DomainProps {
   schema: string;
   name: string;
   base_type: string;
