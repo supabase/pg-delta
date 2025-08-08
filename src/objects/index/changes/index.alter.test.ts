@@ -169,7 +169,7 @@ describe.concurrent("index", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP INDEX public . test_table . test_index;\nCREATE INDEX test_index ON public.test_table USING hash (column1)",
+        "DROP INDEX public.test_index;\nCREATE INDEX test_index ON public.test_table USING hash(column1)",
       );
     });
   });
