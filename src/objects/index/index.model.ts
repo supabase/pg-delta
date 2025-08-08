@@ -35,6 +35,7 @@ export interface IndexProps {
   column_options: number[];
   index_expressions: string | null;
   partial_predicate: string | null;
+  table_relkind: string; // 'r' for table, 'm' for materialized view
 }
 
 export class Index extends BasePgModel {
@@ -58,6 +59,7 @@ export class Index extends BasePgModel {
   public readonly column_options: IndexProps["column_options"];
   public readonly index_expressions: IndexProps["index_expressions"];
   public readonly partial_predicate: IndexProps["partial_predicate"];
+  public readonly table_relkind: IndexProps["table_relkind"];
 
   constructor(props: IndexProps) {
     super();
@@ -85,6 +87,7 @@ export class Index extends BasePgModel {
     this.column_options = props.column_options;
     this.index_expressions = props.index_expressions;
     this.partial_predicate = props.partial_predicate;
+    this.table_relkind = props.table_relkind;
   }
 
   get stableId(): `index:${string}` {
@@ -118,6 +121,7 @@ export class Index extends BasePgModel {
       column_options: this.column_options,
       index_expressions: this.index_expressions,
       partial_predicate: this.partial_predicate,
+      table_relkind: this.table_relkind,
     };
   }
 }
@@ -138,6 +142,7 @@ with extension_oids as (
 select
   tc.relnamespace::regnamespace as table_schema,
   tc.relname as table_name,
+  tc.relkind as table_relkind,
   c.relname as name,
   coalesce(c.reloptions, array[]::text[]) as storage_params,
   am.amname as index_type,

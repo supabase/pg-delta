@@ -1,4 +1,5 @@
 import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import type { TableLikeObject } from "../../base.model.ts";
 import type { Index } from "../index.model.ts";
 
 /**
@@ -18,10 +19,49 @@ import type { Index } from "../index.model.ts";
  */
 export class CreateIndex extends CreateChange {
   public readonly index: Index;
+  public readonly indexableObject?: TableLikeObject;
 
-  constructor(props: { index: Index }) {
+  constructor(props: { index: Index; indexableObject?: TableLikeObject }) {
     super();
     this.index = props.index;
+    this.indexableObject = props.indexableObject;
+  }
+
+  /**
+   * Get column names from key_columns array using the indexable object's columns.
+   */
+  private getColumnNames(): string[] {
+    if (this.index.index_expressions) {
+      // If there are index expressions, use them directly
+      return [this.index.index_expressions];
+    }
+
+    if (!this.indexableObject || this.indexableObject.columns.length === 0) {
+      // If no indexable object provided or no columns, fall back to generic column names
+      return this.index.key_columns.map(
+        (colNum, index) => `column${colNum || index + 1}`,
+      );
+    }
+
+    // Create a mapping from column position to column name
+    const columnMap = new Map<number, string>();
+    for (const column of this.indexableObject.columns) {
+      columnMap.set(column.position, column.name);
+    }
+
+    // Resolve column numbers to names
+    const columnNames: string[] = [];
+    for (const colNum of this.index.key_columns) {
+      const columnName = columnMap.get(colNum);
+      if (columnName) {
+        columnNames.push(quoteIdentifier(columnName));
+      } else {
+        // Fallback if column not found
+        columnNames.push(`column${colNum}`);
+      }
+    }
+
+    return columnNames;
   }
 
   serialize(): string {
@@ -37,7 +77,7 @@ export class CreateIndex extends CreateChange {
     // Add index name
     parts.push(quoteIdentifier(this.index.name));
 
-    // Add ON table
+    // Add ON table/materialized view
     parts.push(
       "ON",
       `${quoteIdentifier(this.index.table_schema)}.${quoteIdentifier(this.index.table_name)}`,
@@ -48,8 +88,9 @@ export class CreateIndex extends CreateChange {
       parts.push("USING", this.index.index_type);
     }
 
-    // Add columns (simplified - would need actual column names)
-    parts.push("()");
+    // Add columns
+    const columnNames = this.getColumnNames();
+    parts.push(`(${columnNames.join(", ")})`);
 
     // Add WHERE clause if partial index
     if (this.index.partial_predicate) {

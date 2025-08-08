@@ -1,27 +1,12 @@
 import type { Sql } from "postgres";
-import { BasePgModel } from "../base.model.ts";
+import {
+  BasePgModel,
+  type ColumnProps,
+  type TableLikeObject,
+} from "../base.model.ts";
 
 export type RelationPersistence = "p" | "u" | "t";
 export type ReplicaIdentity = "d" | "n" | "f" | "i";
-
-export interface ColumnProps {
-  name: string;
-  position: number;
-  data_type: string;
-  data_type_str: string;
-  is_custom_type: boolean;
-  custom_type_type: string | null;
-  custom_type_category: string | null;
-  custom_type_schema: string | null;
-  custom_type_name: string | null;
-  not_null: boolean;
-  is_identity: boolean;
-  is_identity_always: boolean;
-  is_generated: boolean;
-  collation: string | null;
-  default: string | null;
-  comment: string | null;
-}
 
 export interface TableProps {
   schema: string;
@@ -44,7 +29,7 @@ export interface TableProps {
   columns: ColumnProps[];
 }
 
-export class Table extends BasePgModel {
+export class Table extends BasePgModel implements TableLikeObject {
   public readonly schema: TableProps["schema"];
   public readonly name: TableProps["name"];
   public readonly persistence: TableProps["persistence"];
