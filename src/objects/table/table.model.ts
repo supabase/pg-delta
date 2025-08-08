@@ -4,6 +4,25 @@ import { BasePgModel } from "../base.model.ts";
 export type RelationPersistence = "p" | "u" | "t";
 export type ReplicaIdentity = "d" | "n" | "f" | "i";
 
+export interface ColumnProps {
+  name: string;
+  position: number;
+  data_type: string;
+  data_type_str: string;
+  is_custom_type: boolean;
+  custom_type_type: string | null;
+  custom_type_category: string | null;
+  custom_type_schema: string | null;
+  custom_type_name: string | null;
+  not_null: boolean;
+  is_identity: boolean;
+  is_identity_always: boolean;
+  is_generated: boolean;
+  collation: string | null;
+  default: string | null;
+  comment: string | null;
+}
+
 export interface TableProps {
   schema: string;
   name: string;
@@ -22,6 +41,7 @@ export interface TableProps {
   owner: string;
   parent_schema: string | null;
   parent_name: string | null;
+  columns: ColumnProps[];
 }
 
 export class Table extends BasePgModel {
@@ -42,6 +62,7 @@ export class Table extends BasePgModel {
   public readonly owner: TableProps["owner"];
   public readonly parent_schema: TableProps["parent_schema"];
   public readonly parent_name: TableProps["parent_name"];
+  public readonly columns: TableProps["columns"];
 
   constructor(props: TableProps) {
     super();
@@ -66,6 +87,7 @@ export class Table extends BasePgModel {
     this.owner = props.owner;
     this.parent_schema = props.parent_schema;
     this.parent_name = props.parent_name;
+    this.columns = props.columns;
   }
 
   get stableId(): `table:${string}` {
@@ -96,6 +118,7 @@ export class Table extends BasePgModel {
       owner: this.owner,
       parent_schema: this.parent_schema,
       parent_name: this.parent_name,
+      columns: this.columns,
     };
   }
 }
@@ -160,9 +183,44 @@ select
   t.partition_bound,
   t.owner,
   t.parent_schema,
-  t.parent_name
+  t.parent_name,
+  coalesce(json_agg(
+    case when a.attname is not null then
+      json_build_object(
+        'name', a.attname,
+        'position', a.attnum,
+        'data_type', a.atttypid::regtype::text,
+        'data_type_str', format_type(a.atttypid, a.atttypmod),
+        'is_custom_type', n.nspname not in ('pg_catalog', 'information_schema'),
+        'custom_type_type', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typtype else null end,
+        'custom_type_category', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typcategory else null end,
+        'custom_type_schema', case when n.nspname not in ('pg_catalog', 'information_schema') then n.nspname else null end,
+        'custom_type_name', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typname else null end,
+        'not_null', a.attnotnull,
+        'is_identity', a.attidentity != '',
+        'is_identity_always', a.attidentity = 'a',
+        'is_generated', a.attgenerated != '',
+        'collation', (
+          select c2.collname
+          from pg_collation c2, pg_type t2
+          where c2.oid = a.attcollation
+            and t2.oid = a.atttypid
+            and a.attcollation <> t2.typcollation
+        ),
+        'default', pg_get_expr(ad.adbin, ad.adrelid),
+        'comment', col_description(a.attrelid, a.attnum)
+      )
+    end
+    order by a.attnum
+  ) filter (where a.attname is not null), '[]') as columns
 from
   tables t
+  left join pg_attribute a on a.attrelid = t.oid and a.attnum > 0 and not a.attisdropped
+  left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum
+  left join pg_type ty on ty.oid = a.atttypid
+  left join pg_namespace n on n.oid = ty.typnamespace
+group by
+  t.schema, t.name, t.persistence, t.row_security, t.force_row_security, t.has_indexes, t.has_rules, t.has_triggers, t.has_subclasses, t.is_populated, t.replica_identity, t.is_partition, t.options, t.partition_bound, t.owner, t.parent_schema, t.parent_name
 order by
   t.schema, t.name;
     `;
