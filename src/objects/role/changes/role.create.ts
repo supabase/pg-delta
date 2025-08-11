@@ -42,56 +42,42 @@ export class CreateRole extends CreateChange {
     // Add role name
     parts.push(quoteIdentifier(this.role.role_name));
 
-    // Add options
+    // Add options (only non-default values)
     const options: string[] = [];
 
-    // SUPERUSER
+    // SUPERUSER (default is NOSUPERUSER)
     if (this.role.is_superuser) {
       options.push("SUPERUSER");
-    } else {
-      options.push("NOSUPERUSER");
     }
 
-    // CREATEDB
+    // CREATEDB (default is NOCREATEDB)
     if (this.role.can_create_databases) {
       options.push("CREATEDB");
-    } else {
-      options.push("NOCREATEDB");
     }
 
-    // CREATEROLE
+    // CREATEROLE (default is NOCREATEROLE)
     if (this.role.can_create_roles) {
       options.push("CREATEROLE");
-    } else {
-      options.push("NOCREATEROLE");
     }
 
-    // INHERIT
-    if (this.role.can_inherit) {
-      options.push("INHERIT");
-    } else {
+    // INHERIT (default is INHERIT, so only print if false)
+    if (!this.role.can_inherit) {
       options.push("NOINHERIT");
     }
 
-    // LOGIN
+    // LOGIN (default is NOLOGIN)
     if (this.role.can_login) {
       options.push("LOGIN");
-    } else {
-      options.push("NOLOGIN");
     }
 
-    // REPLICATION
+    // REPLICATION (default is NOREPLICATION)
     if (this.role.can_replicate) {
       options.push("REPLICATION");
-    } else {
-      options.push("NOREPLICATION");
     }
 
-    // BYPASSRLS
+    // BYPASSRLS (default is NOBYPASSRLS)
     if (this.role.can_bypass_rls) {
       options.push("BYPASSRLS");
-    } else {
-      options.push("NOBYPASSRLS");
     }
 
     // CONNECTION LIMIT

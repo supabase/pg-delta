@@ -27,8 +27,10 @@ export class CreateRlsPolicy extends CreateChange {
   serialize(): string {
     const parts: string[] = ["CREATE POLICY"];
 
-    // Add policy name
-    parts.push(quoteIdentifier(this.rlsPolicy.name));
+    // Add policy name with schema
+    parts.push(
+      `${quoteIdentifier(this.rlsPolicy.schema)}.${quoteIdentifier(this.rlsPolicy.name)}`,
+    );
 
     // Add ON table
     parts.push(
@@ -36,10 +38,8 @@ export class CreateRlsPolicy extends CreateChange {
       `${quoteIdentifier(this.rlsPolicy.table_schema)}.${quoteIdentifier(this.rlsPolicy.table_name)}`,
     );
 
-    // Add AS PERMISSIVE/RESTRICTIVE
-    if (this.rlsPolicy.permissive) {
-      parts.push("AS PERMISSIVE");
-    } else {
+    // Add AS RESTRICTIVE only if false (default is PERMISSIVE)
+    if (!this.rlsPolicy.permissive) {
       parts.push("AS RESTRICTIVE");
     }
 

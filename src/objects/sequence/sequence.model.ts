@@ -6,8 +6,8 @@ export interface SequenceProps {
   name: string;
   data_type: string;
   start_value: number;
-  minimum_value: number;
-  maximum_value: number;
+  minimum_value: bigint;
+  maximum_value: bigint;
   increment: number;
   cycle_option: boolean;
   cache_size: number;

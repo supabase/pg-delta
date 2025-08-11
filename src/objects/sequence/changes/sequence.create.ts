@@ -40,13 +40,17 @@ export class CreateSequence extends CreateChange {
       parts.push("INCREMENT BY", this.sequence.increment.toString());
     }
 
-    // Add MINVALUE
-    if (this.sequence.minimum_value !== 1) {
+    // Add MINVALUE if not default (1)
+    if (this.sequence.minimum_value !== BigInt(1)) {
       parts.push("MINVALUE", this.sequence.minimum_value.toString());
     }
 
-    // Add MAXVALUE
-    if (this.sequence.maximum_value.toString() !== "9223372036854775807") {
+    // Add MAXVALUE if not default (depends on data type)
+    const defaultMaxValue =
+      this.sequence.data_type === "integer"
+        ? BigInt("2147483647")
+        : BigInt("9223372036854775807");
+    if (this.sequence.maximum_value !== defaultMaxValue) {
       parts.push("MAXVALUE", this.sequence.maximum_value.toString());
     }
 
@@ -60,11 +64,9 @@ export class CreateSequence extends CreateChange {
       parts.push("CACHE", this.sequence.cache_size.toString());
     }
 
-    // Add CYCLE
+    // Add CYCLE only if true (default is NO CYCLE)
     if (this.sequence.cycle_option) {
       parts.push("CYCLE");
-    } else {
-      parts.push("NO CYCLE");
     }
 
     return parts.join(" ");

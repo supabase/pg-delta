@@ -93,7 +93,7 @@ describe.concurrent("procedure", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP PROCEDURE public.test_procedure;\nCREATE PROCEDURE public.test_procedure() SECURITY DEFINER LANGUAGE plpgsql AS $$BEGIN RETURN; END;$$",
+        "DROP PROCEDURE public.test_procedure();\nCREATE PROCEDURE public.test_procedure() LANGUAGE plpgsql SECURITY DEFINER AS $$BEGIN RETURN; END;$$",
       );
     });
   });

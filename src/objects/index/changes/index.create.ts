@@ -83,14 +83,15 @@ export class CreateIndex extends CreateChange {
       `${quoteIdentifier(this.index.table_schema)}.${quoteIdentifier(this.index.table_name)}`,
     );
 
-    // Add USING method if specified
-    if (this.index.index_type && this.index.index_type !== "btree") {
-      parts.push("USING", this.index.index_type);
-    }
-
     // Add columns
     const columnNames = this.getColumnNames();
-    parts.push(`(${columnNames.join(", ")})`);
+
+    // Add USING method if specified (concatenated with opening parenthesis)
+    if (this.index.index_type && this.index.index_type !== "btree") {
+      parts.push(`USING ${this.index.index_type}(${columnNames.join(", ")})`);
+    } else {
+      parts.push(`(${columnNames.join(", ")})`);
+    }
 
     // Add WHERE clause if partial index
     if (this.index.partial_predicate) {

@@ -31,7 +31,7 @@ describe.concurrent("role", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP ROLE test_role;\nCREATE ROLE test_role LOGIN CREATEROLE",
+        "DROP ROLE test_role;\nCREATE ROLE test_role WITH CREATEROLE LOGIN",
       );
     });
   });

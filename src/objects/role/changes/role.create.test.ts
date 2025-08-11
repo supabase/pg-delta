@@ -21,6 +21,6 @@ describe("role", () => {
       role,
     });
 
-    expect(change.serialize()).toBe("CREATE ROLE test_role LOGIN");
+    expect(change.serialize()).toBe("CREATE ROLE test_role WITH LOGIN");
   });
 });

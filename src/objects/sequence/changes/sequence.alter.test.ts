@@ -10,8 +10,8 @@ describe.concurrent("sequence", () => {
         name: "test_sequence",
         data_type: "integer",
         start_value: 1,
-        minimum_value: 1,
-        maximum_value: 2147483647,
+        minimum_value: 1n,
+        maximum_value: 2147483647n,
         increment: 1,
         cycle_option: false,
         cache_size: 1,
@@ -41,7 +41,7 @@ describe.concurrent("sequence", () => {
         schema: "public",
         name: "test_sequence",
         start_value: 1,
-        minimum_value: 1,
+        minimum_value: 1n,
         increment: 1,
         cycle_option: false,
         cache_size: 1,
@@ -51,12 +51,12 @@ describe.concurrent("sequence", () => {
       const main = new Sequence({
         ...props,
         data_type: "integer",
-        maximum_value: 2147483647,
+        maximum_value: 2147483647n,
       });
       const branch = new Sequence({
         ...props,
         data_type: "bigint",
-        maximum_value: Number.MAX_SAFE_INTEGER,
+        maximum_value: 9223372036854775807n,
       });
 
       const change = new ReplaceSequence({
@@ -65,7 +65,7 @@ describe.concurrent("sequence", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP SEQUENCE public.test_sequence;\nCREATE SEQUENCE public.test_sequence AS bigint",
+        "DROP SEQUENCE public.test_sequence;\nCREATE SEQUENCE public.test_sequence",
       );
     });
   });

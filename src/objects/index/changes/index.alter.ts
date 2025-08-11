@@ -46,14 +46,8 @@ export class AlterIndexSetStorageParams extends AlterChange {
 
     return [
       "ALTER INDEX",
-      quoteIdentifier(this.main.table_schema),
-      ".",
-      quoteIdentifier(this.main.table_name),
-      ".",
-      quoteIdentifier(this.main.name),
-      "SET (",
-      storageParams,
-      ")",
+      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.table_name)}.${quoteIdentifier(this.main.name)}`,
+      `SET (${storageParams})`,
     ].join(" ");
   }
 }
@@ -76,11 +70,7 @@ export class AlterIndexSetStatistics extends AlterChange {
 
     return [
       "ALTER INDEX",
-      quoteIdentifier(this.main.table_schema),
-      ".",
-      quoteIdentifier(this.main.table_name),
-      ".",
-      quoteIdentifier(this.main.name),
+      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.table_name)}.${quoteIdentifier(this.main.name)}`,
       "SET STATISTICS",
       statisticsTarget.toString(),
     ].join(" ");

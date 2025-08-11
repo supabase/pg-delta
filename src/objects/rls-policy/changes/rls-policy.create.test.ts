@@ -22,7 +22,7 @@ describe("rls-policy", () => {
     });
 
     expect(change.serialize()).toBe(
-      "CREATE POLICY test_policy ON public.test_table AS PERMISSIVE FOR SELECT TO public USING (user_id = current_user_id())",
+      "CREATE POLICY public.test_policy ON public.test_table FOR SELECT TO public USING (user_id = current_user_id())",
     );
   });
 });

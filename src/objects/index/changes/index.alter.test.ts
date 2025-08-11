@@ -47,7 +47,7 @@ describe.concurrent("index", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER INDEX public . test_table . test_index SET (fillfactor=90)",
+        "ALTER INDEX public.test_table.test_index SET (fillfactor=90)",
       );
     });
 
@@ -89,7 +89,7 @@ describe.concurrent("index", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER INDEX public . test_table . test_index SET STATISTICS 100",
+        "ALTER INDEX public.test_table.test_index SET STATISTICS 100",
       );
     });
 
@@ -131,7 +131,7 @@ describe.concurrent("index", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER INDEX public . test_table . test_index SET TABLESPACE fast_space",
+        "ALTER INDEX public.test_table.test_index SET TABLESPACE fast_space",
       );
     });
 

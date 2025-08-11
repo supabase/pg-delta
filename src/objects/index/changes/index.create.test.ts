@@ -33,7 +33,7 @@ describe("index", () => {
     });
 
     expect(change.serialize()).toBe(
-      "CREATE INDEX test_index ON public.test_table USING btree (column1)",
+      "CREATE INDEX test_index ON public.test_table (column1)",
     );
   });
 });

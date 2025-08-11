@@ -34,7 +34,7 @@ describe.concurrent("rls-policy", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER POLICY test_policy ON public . test_table OWNER TO new_owner",
+        "ALTER POLICY public.test_policy ON public.test_table OWNER TO new_owner",
       );
     });
 
@@ -65,7 +65,7 @@ describe.concurrent("rls-policy", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP POLICY test_policy ON public.test_table;\nCREATE POLICY test_policy ON public.test_table FOR SELECT TO public USING (user_id = current_user_id())",
+        "DROP POLICY public.test_policy ON public.test_table;\nCREATE POLICY public.test_policy ON public.test_table AS RESTRICTIVE FOR SELECT TO public USING (user_id = current_user_id())",
       );
     });
   });
