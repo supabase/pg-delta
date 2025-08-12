@@ -22,9 +22,7 @@ export class DropConstraint extends DropChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      quoteIdentifier(this.constraint.table_schema),
-      ".",
-      quoteIdentifier(this.constraint.table_name),
+      `${quoteIdentifier(this.constraint.table_schema)}.${quoteIdentifier(this.constraint.table_name)}`,
       "DROP CONSTRAINT",
       quoteIdentifier(this.constraint.name),
     ].join(" ");

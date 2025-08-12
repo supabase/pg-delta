@@ -25,6 +25,7 @@ describe.concurrent("composite-type", () => {
         is_partition: false,
         options: null,
         partition_bound: null,
+        columns: [],
       };
       const main = new CompositeType({
         ...props,
@@ -62,6 +63,7 @@ describe.concurrent("composite-type", () => {
         options: null,
         partition_bound: null,
         owner: "test",
+        columns: [],
       };
       const main = new CompositeType({
         ...props,
@@ -80,7 +82,7 @@ describe.concurrent("composite-type", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP TYPE public.test_type;\nCREATE TYPE public . test_type AS ()",
+        "DROP TYPE public.test_type;\nCREATE TYPE public.test_type AS ()",
       );
     });
   });

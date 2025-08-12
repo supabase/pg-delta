@@ -1,5 +1,9 @@
 import type { Sql } from "postgres";
-import { BasePgModel } from "../base.model.ts";
+import {
+  BasePgModel,
+  type ColumnProps,
+  type TableLikeObject,
+} from "../base.model.ts";
 
 export type ReplicaIdentity =
   /** DEFAULT */
@@ -26,9 +30,10 @@ export interface CompositeTypeProps {
   options: string[] | null;
   partition_bound: string | null;
   owner: string;
+  columns: ColumnProps[];
 }
 
-export class CompositeType extends BasePgModel {
+export class CompositeType extends BasePgModel implements TableLikeObject {
   public readonly schema: CompositeTypeProps["schema"];
   public readonly name: CompositeTypeProps["name"];
   public readonly row_security: CompositeTypeProps["row_security"];
@@ -43,6 +48,7 @@ export class CompositeType extends BasePgModel {
   public readonly options: CompositeTypeProps["options"];
   public readonly partition_bound: CompositeTypeProps["partition_bound"];
   public readonly owner: CompositeTypeProps["owner"];
+  public readonly columns: CompositeTypeProps["columns"];
 
   constructor(props: CompositeTypeProps) {
     super();
@@ -64,6 +70,7 @@ export class CompositeType extends BasePgModel {
     this.options = props.options;
     this.partition_bound = props.partition_bound;
     this.owner = props.owner;
+    this.columns = props.columns;
   }
 
   get stableId(): `compositeType:${string}` {
@@ -91,6 +98,7 @@ export class CompositeType extends BasePgModel {
       options: this.options,
       partition_bound: this.partition_bound,
       owner: this.owner,
+      columns: this.columns,
     };
   }
 }
@@ -110,16 +118,6 @@ export async function extractCompositeTypes(
         where
           d.refclassid = 'pg_extension'::regclass
           and d.classid = 'pg_class'::regclass
-      ), enums as (
-        select
-          t.oid as enum_oid,
-          n.nspname as enum_schema,
-          t.typname as enum_name
-        from pg_type t
-        left join pg_namespace n on n.oid = t.typnamespace
-        left join extension_oids e on t.oid = e.objid
-        where t.typcategory = 'E'
-          and e.objid is null
       ), composite_types as (
         select
           n.nspname as schema,
@@ -168,8 +166,9 @@ export async function extractCompositeTypes(
               'position', a.attnum,
               'data_type', a.atttypid::regtype::text,
               'data_type_str', format_type(a.atttypid, a.atttypmod),
-              'is_enum', (e.enum_oid is not null),
-              'is_custom_type', (n.nspname not in ('pg_catalog', 'information_schema')),
+              'is_custom_type', n.nspname not in ('pg_catalog', 'information_schema'),
+              'custom_type_type', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typtype else null end,
+              'custom_type_category', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typcategory else null end,
               'custom_type_schema', case when n.nspname not in ('pg_catalog', 'information_schema') then n.nspname else null end,
               'custom_type_name', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typname else null end,
               'not_null', a.attnotnull,
@@ -193,11 +192,10 @@ export async function extractCompositeTypes(
         composite_types ct
         left join pg_attribute a on a.attrelid = ct.oid and a.attnum > 0 and not a.attisdropped
         left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum
-        left join enums e on a.atttypid = e.enum_oid
         left join pg_type ty on ty.oid = a.atttypid
         left join pg_namespace n on n.oid = ty.typnamespace
       group by
-        ct.schema, ct.name, ct.row_security, ct.force_row_security, ct.has_indexes, ct.has_rules, ct.has_triggers, ct.has_subclasses, ct.is_populated, ct.replica_identity, ct.is_partition, ct.options, ct.partition_bound, ct.owner
+        ct.schema, ct.name, ct.row_security, ct.force_row_security, ct.has_indexes, ct.has_rules, ct.has_triggers, ct.has_subclasses, ct.is_populated, ct.replica_identity, ct.is_partition, ct.options, ct.partition_bound, ct.owner, ct.oid
       order by
         ct.schema, ct.name;
     `;

@@ -26,17 +26,17 @@ export class CreateCompositeType extends CreateChange {
 
     // Add schema and name
     parts.push(
-      quoteIdentifier(this.compositeType.schema),
-      ".",
-      quoteIdentifier(this.compositeType.name),
+      `${quoteIdentifier(this.compositeType.schema)}.${quoteIdentifier(this.compositeType.name)}`,
     );
 
     // Add AS keyword
     parts.push("AS");
 
-    // Note: The actual attributes would need to be extracted from the columns property
-    // For now, we'll create a placeholder structure
-    parts.push("()");
+    parts.push(
+      `(${this.compositeType.columns
+        .map((column) => `${column.name} ${column.data_type}`)
+        .join(", ")})`,
+    );
 
     return parts.join(" ");
   }

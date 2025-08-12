@@ -22,9 +22,7 @@ export class CreateConstraint extends CreateChange {
   serialize(): string {
     const parts: string[] = [
       "ALTER TABLE",
-      quoteIdentifier(this.constraint.table_schema),
-      ".",
-      quoteIdentifier(this.constraint.table_name),
+      `${quoteIdentifier(this.constraint.table_schema)}.${quoteIdentifier(this.constraint.table_name)}`,
       "ADD CONSTRAINT",
       quoteIdentifier(this.constraint.name),
     ];

@@ -19,6 +19,7 @@ describe("composite-type", () => {
       options: null,
       partition_bound: null,
       owner: "test",
+      columns: [],
     });
 
     const change = new DropCompositeType({

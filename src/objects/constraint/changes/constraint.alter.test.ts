@@ -42,7 +42,7 @@ describe.concurrent("constraint", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER TABLE public . test_table DROP CONSTRAINT test_constraint;\nALTER TABLE public . test_table ADD CONSTRAINT test_constraint CHECK (value > 0) DEFERRABLE INITIALLY DEFERRED",
+        "ALTER TABLE public.test_table DROP CONSTRAINT test_constraint;\nALTER TABLE public.test_table ADD CONSTRAINT test_constraint CHECK (value > 0) DEFERRABLE INITIALLY DEFERRED",
       );
     });
   });

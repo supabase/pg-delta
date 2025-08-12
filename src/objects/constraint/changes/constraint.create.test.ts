@@ -31,7 +31,7 @@ describe("constraint", () => {
     });
 
     expect(change.serialize()).toBe(
-      "ALTER TABLE public . test_table ADD CONSTRAINT test_check CHECK (value > 0) NOT DEFERRABLE",
+      "ALTER TABLE public.test_table ADD CONSTRAINT test_check CHECK (value > 0) NOT DEFERRABLE",
     );
   });
 
@@ -63,7 +63,7 @@ describe("constraint", () => {
     });
 
     expect(change.serialize()).toBe(
-      "ALTER TABLE public . test_table ADD CONSTRAINT test_pk PRIMARY KEY NOT DEFERRABLE",
+      "ALTER TABLE public.test_table ADD CONSTRAINT test_pk PRIMARY KEY NOT DEFERRABLE",
     );
   });
 
@@ -95,7 +95,7 @@ describe("constraint", () => {
     });
 
     expect(change.serialize()).toBe(
-      "ALTER TABLE public . test_table ADD CONSTRAINT test_unique UNIQUE NOT DEFERRABLE",
+      "ALTER TABLE public.test_table ADD CONSTRAINT test_unique UNIQUE NOT DEFERRABLE",
     );
   });
 
@@ -127,7 +127,7 @@ describe("constraint", () => {
     });
 
     expect(change.serialize()).toBe(
-      "ALTER TABLE public . test_table ADD CONSTRAINT test_fk FOREIGN KEY NOT DEFERRABLE",
+      "ALTER TABLE public.test_table ADD CONSTRAINT test_fk FOREIGN KEY NOT DEFERRABLE",
     );
   });
 
@@ -159,7 +159,7 @@ describe("constraint", () => {
     });
 
     expect(change.serialize()).toBe(
-      "ALTER TABLE public . test_table ADD CONSTRAINT test_exclude EXCLUDE NOT DEFERRABLE",
+      "ALTER TABLE public.test_table ADD CONSTRAINT test_exclude EXCLUDE NOT DEFERRABLE",
     );
   });
 });

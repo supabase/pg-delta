@@ -31,7 +31,7 @@ describe("constraint", () => {
     });
 
     expect(change.serialize()).toBe(
-      "ALTER TABLE public . test_table DROP CONSTRAINT test_constraint",
+      "ALTER TABLE public.test_table DROP CONSTRAINT test_constraint",
     );
   });
 });

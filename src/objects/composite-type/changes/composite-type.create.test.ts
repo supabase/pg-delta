@@ -19,12 +19,34 @@ describe("composite-type", () => {
       options: null,
       partition_bound: null,
       owner: "test",
+      columns: [
+        {
+          name: "id",
+          position: 1,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
     });
 
     const change = new CreateCompositeType({
       compositeType,
     });
 
-    expect(change.serialize()).toBe("CREATE TYPE public . test_type AS ()");
+    expect(change.serialize()).toBe(
+      "CREATE TYPE public.test_type AS (id integer)",
+    );
   });
 });
