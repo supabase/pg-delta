@@ -61,6 +61,7 @@ export class CreateType extends CreateChange {
     );
 
     // Add type-specific syntax based on type type
+    // TODO: Complete the implementation for each types
     switch (this.type.type_type) {
       case "c":
         parts.push("AS ()"); // Composite type

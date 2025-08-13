@@ -1,5 +1,14 @@
 import { describe, expect, test } from "vitest";
-import { AlterTableChangeOwner, ReplaceTable } from "./changes/table.alter.ts";
+import {
+  AlterTableChangeOwner,
+  AlterTableDisableRowLevelSecurity,
+  AlterTableEnableRowLevelSecurity,
+  AlterTableForceRowLevelSecurity,
+  AlterTableNoForceRowLevelSecurity,
+  AlterTableSetLogged,
+  AlterTableSetStorageParams,
+  AlterTableSetUnlogged,
+} from "./changes/table.alter.ts";
 import { CreateTable } from "./changes/table.create.ts";
 import { DropTable } from "./changes/table.drop.ts";
 import { diffTables } from "./table.diff.ts";
@@ -45,13 +54,120 @@ describe.concurrent("table.diff", () => {
     expect(changes[0]).toBeInstanceOf(AlterTableChangeOwner);
   });
 
-  test("replace on non-alterable change", () => {
+  test("options change uses ALTER TABLE SET (...) instead of replace", () => {
     const main = new Table(base);
-    const branch = new Table({ ...base, options: ["autovacuum_enabled=off"] });
+    const branch = new Table({ ...base, options: ["fillfactor=90"] });
     const changes = diffTables(
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
-    expect(changes[0]).toBeInstanceOf(ReplaceTable);
+    expect(changes[0]).toBeInstanceOf(AlterTableSetStorageParams);
+  });
+
+  test("persistence p->u uses ALTER TABLE SET UNLOGGED", () => {
+    const main = new Table(base);
+    const branch = new Table({ ...base, persistence: "u" });
+    const changes = diffTables(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((c) => c instanceof AlterTableSetUnlogged)).toBe(true);
+  });
+
+  test("persistence u->p uses ALTER TABLE SET LOGGED", () => {
+    const main = new Table({ ...base, persistence: "u" });
+    const branch = new Table({ ...base, persistence: "p" });
+    const changes = diffTables(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((c) => c instanceof AlterTableSetLogged)).toBe(true);
+  });
+
+  test("row level security toggles", () => {
+    const enable = diffTables(
+      {
+        "table:public.t1": new Table({
+          ...base,
+          name: "t1",
+          row_security: false,
+        }),
+      },
+      {
+        "table:public.t1": new Table({
+          ...base,
+          name: "t1",
+          row_security: true,
+        }),
+      },
+    );
+    expect(
+      enable.some((c) => c instanceof AlterTableEnableRowLevelSecurity),
+    ).toBe(true);
+    const disable = diffTables(
+      {
+        "table:public.t2": new Table({
+          ...base,
+          name: "t2",
+          row_security: true,
+        }),
+      },
+      {
+        "table:public.t2": new Table({
+          ...base,
+          name: "t2",
+          row_security: false,
+        }),
+      },
+    );
+    expect(
+      disable.some((c) => c instanceof AlterTableDisableRowLevelSecurity),
+    ).toBe(true);
+  });
+
+  test("force row level security toggles", () => {
+    const force = diffTables(
+      {
+        "table:public.t3": new Table({
+          ...base,
+          name: "t3",
+          row_security: true,
+          force_row_security: false,
+        }),
+      },
+      {
+        "table:public.t3": new Table({
+          ...base,
+          name: "t3",
+          row_security: true,
+          force_row_security: true,
+        }),
+      },
+    );
+    expect(
+      force.some((c) => c instanceof AlterTableForceRowLevelSecurity),
+    ).toBe(true);
+
+    const noforce = diffTables(
+      {
+        "table:public.t4": new Table({
+          ...base,
+          name: "t4",
+          row_security: true,
+          force_row_security: true,
+        }),
+      },
+      {
+        "table:public.t4": new Table({
+          ...base,
+          name: "t4",
+          row_security: true,
+          force_row_security: false,
+        }),
+      },
+    );
+    expect(
+      noforce.some((c) => c instanceof AlterTableNoForceRowLevelSecurity),
+    ).toBe(true);
   });
 });

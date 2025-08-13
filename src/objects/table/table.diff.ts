@@ -1,7 +1,17 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
-import { AlterTableChangeOwner, ReplaceTable } from "./changes/table.alter.ts";
+import {
+  AlterTableChangeOwner,
+  AlterTableDisableRowLevelSecurity,
+  AlterTableEnableRowLevelSecurity,
+  AlterTableForceRowLevelSecurity,
+  AlterTableNoForceRowLevelSecurity,
+  AlterTableSetLogged,
+  AlterTableSetStorageParams,
+  AlterTableSetUnlogged,
+  ReplaceTable,
+} from "./changes/table.alter.ts";
 import { CreateTable } from "./changes/table.create.ts";
 import { DropTable } from "./changes/table.drop.ts";
 import type { Table } from "./table.model.ts";
@@ -36,9 +46,6 @@ export function diffTables(
     // Check if non-alterable properties have changed
     // These require dropping and recreating the table
     const NON_ALTERABLE_FIELDS: Array<keyof Table> = [
-      "persistence",
-      "row_security",
-      "force_row_security",
       "has_indexes",
       "has_rules",
       "has_triggers",
@@ -46,7 +53,6 @@ export function diffTables(
       "is_populated",
       "replica_identity",
       "is_partition",
-      "options",
       "partition_bound",
       "parent_schema",
       "parent_name",
@@ -63,6 +69,81 @@ export function diffTables(
       changes.push(new ReplaceTable({ main: mainTable, branch: branchTable }));
     } else {
       // Only alterable properties changed - check each one
+
+      // PERSISTENCE (LOGGED/UNLOGGED)
+      if (mainTable.persistence !== branchTable.persistence) {
+        const involvesTemporary =
+          mainTable.persistence === "t" || branchTable.persistence === "t";
+        if (involvesTemporary) {
+          changes.push(
+            new ReplaceTable({ main: mainTable, branch: branchTable }),
+          );
+        } else if (
+          branchTable.persistence === "u" &&
+          mainTable.persistence === "p"
+        ) {
+          changes.push(
+            new AlterTableSetUnlogged({ main: mainTable, branch: branchTable }),
+          );
+        } else if (
+          branchTable.persistence === "p" &&
+          mainTable.persistence === "u"
+        ) {
+          changes.push(
+            new AlterTableSetLogged({ main: mainTable, branch: branchTable }),
+          );
+        }
+      }
+
+      // ROW LEVEL SECURITY
+      if (mainTable.row_security !== branchTable.row_security) {
+        if (branchTable.row_security) {
+          changes.push(
+            new AlterTableEnableRowLevelSecurity({
+              main: mainTable,
+              branch: branchTable,
+            }),
+          );
+        } else {
+          changes.push(
+            new AlterTableDisableRowLevelSecurity({
+              main: mainTable,
+              branch: branchTable,
+            }),
+          );
+        }
+      }
+
+      // FORCE ROW LEVEL SECURITY
+      if (mainTable.force_row_security !== branchTable.force_row_security) {
+        if (branchTable.force_row_security) {
+          changes.push(
+            new AlterTableForceRowLevelSecurity({
+              main: mainTable,
+              branch: branchTable,
+            }),
+          );
+        } else {
+          changes.push(
+            new AlterTableNoForceRowLevelSecurity({
+              main: mainTable,
+              branch: branchTable,
+            }),
+          );
+        }
+      }
+
+      // STORAGE PARAMS (WITH (...))
+      if (!deepEqual(mainTable.options, branchTable.options)) {
+        if (branchTable.options && branchTable.options.length > 0) {
+          changes.push(
+            new AlterTableSetStorageParams({
+              main: mainTable,
+              branch: branchTable,
+            }),
+          );
+        }
+      }
 
       // OWNER
       if (mainTable.owner !== branchTable.owner) {

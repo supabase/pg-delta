@@ -60,7 +60,15 @@ import { DropTable } from "./table.drop.ts";
  *     DETACH PARTITION partition_name [ CONCURRENTLY | FINALIZE ]
  * ```
  */
-export type AlterTable = AlterTableChangeOwner;
+export type AlterTable =
+  | AlterTableChangeOwner
+  | AlterTableSetLogged
+  | AlterTableSetUnlogged
+  | AlterTableEnableRowLevelSecurity
+  | AlterTableDisableRowLevelSecurity
+  | AlterTableForceRowLevelSecurity
+  | AlterTableNoForceRowLevelSecurity
+  | AlterTableSetStorageParams;
 
 /**
  * ALTER TABLE ... OWNER TO ...
@@ -81,6 +89,161 @@ export class AlterTableChangeOwner extends AlterChange {
       `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "OWNER TO",
       quoteIdentifier(this.branch.owner),
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... SET LOGGED
+ */
+export class AlterTableSetLogged extends AlterChange {
+  public readonly main: Table;
+  public readonly branch: Table;
+
+  constructor(props: { main: Table; branch: Table }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      "SET LOGGED",
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... SET UNLOGGED
+ */
+export class AlterTableSetUnlogged extends AlterChange {
+  public readonly main: Table;
+  public readonly branch: Table;
+
+  constructor(props: { main: Table; branch: Table }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      "SET UNLOGGED",
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... ENABLE ROW LEVEL SECURITY
+ */
+export class AlterTableEnableRowLevelSecurity extends AlterChange {
+  public readonly main: Table;
+  public readonly branch: Table;
+
+  constructor(props: { main: Table; branch: Table }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      "ENABLE ROW LEVEL SECURITY",
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... DISABLE ROW LEVEL SECURITY
+ */
+export class AlterTableDisableRowLevelSecurity extends AlterChange {
+  public readonly main: Table;
+  public readonly branch: Table;
+
+  constructor(props: { main: Table; branch: Table }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      "DISABLE ROW LEVEL SECURITY",
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... FORCE ROW LEVEL SECURITY
+ */
+export class AlterTableForceRowLevelSecurity extends AlterChange {
+  public readonly main: Table;
+  public readonly branch: Table;
+
+  constructor(props: { main: Table; branch: Table }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      "FORCE ROW LEVEL SECURITY",
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... NO FORCE ROW LEVEL SECURITY
+ */
+export class AlterTableNoForceRowLevelSecurity extends AlterChange {
+  public readonly main: Table;
+  public readonly branch: Table;
+
+  constructor(props: { main: Table; branch: Table }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      "NO FORCE ROW LEVEL SECURITY",
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... SET ( storage_parameter = value [, ... ] )
+ */
+export class AlterTableSetStorageParams extends AlterChange {
+  public readonly main: Table;
+  public readonly branch: Table;
+
+  constructor(props: { main: Table; branch: Table }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    const storageParams = (this.branch.options ?? []).join(", ");
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `SET (${storageParams})`,
     ].join(" ");
   }
 }
