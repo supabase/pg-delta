@@ -1,4 +1,4 @@
-import type { Sql } from "postgres";
+import { deepEqual } from "./utils.ts";
 
 export interface ColumnProps {
   name: string;
@@ -53,7 +53,7 @@ export abstract class BasePgModel {
   equals(other: BasePgModel): boolean {
     return (
       this.stableId === other.stableId &&
-      JSON.stringify(this.dataFields) === JSON.stringify(other.dataFields)
+      deepEqual(this.dataFields, other.dataFields)
     );
   }
 }

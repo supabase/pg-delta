@@ -2,6 +2,17 @@ export type Comparator<T> = (a: T, b: T) => boolean;
 
 type Indexable<T> = { [P in keyof T]: unknown };
 
+/**
+ * JSON.stringify replacement that safely serializes BigInt values by converting
+ * them to strings. This ensures stable serialization for deep equality checks
+ * without throwing on BigInt instances.
+ */
+export function stringifyWithBigInt(value: unknown): string {
+  return JSON.stringify(value, (_key, v) =>
+    typeof v === "bigint" ? v.toString() : v,
+  );
+}
+
 export function hasNonAlterableChanges<T, K extends keyof T>(
   main: T,
   branch: T,
@@ -21,4 +32,4 @@ export function hasNonAlterableChanges<T, K extends keyof T>(
 }
 
 export const deepEqual: Comparator<unknown> = (a: unknown, b: unknown) =>
-  JSON.stringify(a) === JSON.stringify(b);
+  stringifyWithBigInt(a) === stringifyWithBigInt(b);

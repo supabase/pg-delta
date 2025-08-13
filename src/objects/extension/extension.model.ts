@@ -36,28 +36,29 @@ export class Extension extends BasePgModel {
     super();
 
     // Identity fields
-    this.schema = props.schema;
     this.name = props.name;
 
     // Data fields
+    this.schema = props.schema;
     this.relocatable = props.relocatable;
     this.version = props.version;
     this.owner = props.owner;
   }
 
   get stableId(): `extension:${string}` {
-    return `extension:${this.schema}.${this.name}`;
+    // Extension names are unique per database; schema is relocatable
+    return `extension:${this.name}`;
   }
 
   get identityFields() {
     return {
-      schema: this.schema,
       name: this.name,
     };
   }
 
   get dataFields() {
     return {
+      schema: this.schema,
       relocatable: this.relocatable,
       version: this.version,
       owner: this.owner,

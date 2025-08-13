@@ -1,6 +1,5 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
-import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterExtensionChangeOwner,
   AlterExtensionSetSchema,
@@ -38,61 +37,47 @@ export function diffExtensions(
     const mainExtension = main[extensionId];
     const branchExtension = branch[extensionId];
 
-    // Check if non-alterable properties have changed
-    // These require dropping and recreating the extension
-    const NON_ALTERABLE_FIELDS: Array<keyof Extension> = [];
-    const nonAlterablePropsChanged =
-      hasNonAlterableChanges(
-        mainExtension,
-        branchExtension,
-        NON_ALTERABLE_FIELDS,
-      ) || !mainExtension.relocatable;
-
-    if (nonAlterablePropsChanged) {
-      // Replace the entire extension (drop + create)
+    const schemaChanged = mainExtension.schema !== branchExtension.schema;
+    if (schemaChanged && !mainExtension.relocatable) {
+      // Cannot ALTER schema if not relocatable: must replace
       changes.push(
         new ReplaceExtension({ main: mainExtension, branch: branchExtension }),
       );
-    } else {
-      // Only alterable properties changed - check each one
-
-      // VERSION
-      if (mainExtension.version !== branchExtension.version) {
-        changes.push(
-          new AlterExtensionUpdateVersion({
-            main: mainExtension,
-            branch: branchExtension,
-          }),
-        );
-      }
-
-      // SCHEMA (only if relocatable)
-      if (
-        mainExtension.relocatable &&
-        mainExtension.schema !== branchExtension.schema
-      ) {
-        changes.push(
-          new AlterExtensionSetSchema({
-            main: mainExtension,
-            branch: branchExtension,
-          }),
-        );
-      }
-
-      // OWNER
-      if (mainExtension.owner !== branchExtension.owner) {
-        changes.push(
-          new AlterExtensionChangeOwner({
-            main: mainExtension,
-            branch: branchExtension,
-          }),
-        );
-      }
-
-      // Note: Extension renaming would also use ALTER EXTENSION ... RENAME TO ...
-      // But since our Extension model uses 'name' as the identity field,
-      // a name change would be handled as drop + create by diffObjects()
+      continue;
     }
+
+    // VERSION
+    if (mainExtension.version !== branchExtension.version) {
+      changes.push(
+        new AlterExtensionUpdateVersion({
+          main: mainExtension,
+          branch: branchExtension,
+        }),
+      );
+    }
+
+    // SCHEMA (only if relocatable)
+    if (schemaChanged && mainExtension.relocatable) {
+      changes.push(
+        new AlterExtensionSetSchema({
+          main: mainExtension,
+          branch: branchExtension,
+        }),
+      );
+    }
+
+    // OWNER
+    if (mainExtension.owner !== branchExtension.owner) {
+      changes.push(
+        new AlterExtensionChangeOwner({
+          main: mainExtension,
+          branch: branchExtension,
+        }),
+      );
+    }
+
+    // Note: Extension renaming would also use ALTER EXTENSION ... RENAME TO ...
+    // Name is identity; renames are handled as drop + create by diffObjects()
   }
 
   return changes;

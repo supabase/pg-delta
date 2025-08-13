@@ -1,6 +1,5 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
-import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterEnumAddValue,
   AlterEnumChangeOwner,
@@ -37,43 +36,25 @@ export function diffEnums(
     const mainEnum = main[enumId];
     const branchEnum = branch[enumId];
 
-    // Check if non-alterable properties have changed
-    // These require dropping and recreating the enum
-    const NON_ALTERABLE_FIELDS: Array<keyof Enum> = [];
-    const nonAlterablePropsChanged = hasNonAlterableChanges(
-      mainEnum,
-      branchEnum,
-      NON_ALTERABLE_FIELDS,
-    ); // All enum properties are alterable
-
-    if (nonAlterablePropsChanged) {
-      // Replace the entire enum (drop + create)
-      changes.push(new ReplaceEnum({ main: mainEnum, branch: branchEnum }));
-    } else {
-      // Only alterable properties changed - check each one
-
-      // OWNER
-      if (mainEnum.owner !== branchEnum.owner) {
-        changes.push(
-          new AlterEnumChangeOwner({
-            main: mainEnum,
-            branch: branchEnum,
-          }),
-        );
-      }
-
-      // LABELS (enum values)
-      if (
-        JSON.stringify(mainEnum.labels) !== JSON.stringify(branchEnum.labels)
-      ) {
-        const labelChanges = diffEnumLabels(mainEnum, branchEnum);
-        changes.push(...labelChanges);
-      }
-
-      // Note: Enum renaming would also use ALTER TYPE ... RENAME TO ...
-      // But since our Enum model uses 'name' as the identity field,
-      // a name change would be handled as drop + create by diffObjects()
+    // OWNER
+    if (mainEnum.owner !== branchEnum.owner) {
+      changes.push(
+        new AlterEnumChangeOwner({
+          main: mainEnum,
+          branch: branchEnum,
+        }),
+      );
     }
+
+    // LABELS (enum values)
+    if (JSON.stringify(mainEnum.labels) !== JSON.stringify(branchEnum.labels)) {
+      const labelChanges = diffEnumLabels(mainEnum, branchEnum);
+      changes.push(...labelChanges);
+    }
+
+    // Note: Enum renaming would also use ALTER TYPE ... RENAME TO ...
+    // But since our Enum model uses 'name' as the identity field,
+    // a name change would be handled as drop + create by diffObjects()
   }
 
   return changes;
