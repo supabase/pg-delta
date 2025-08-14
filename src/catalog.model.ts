@@ -4,14 +4,8 @@ import {
   type Collation,
   extractCollations,
 } from "./objects/collation/collation.model.ts";
-import {
-  type CompositeType,
-  extractCompositeTypes,
-} from "./objects/composite-type/composite-type.model.ts";
-// Removed global constraint extraction; constraints are fetched per owner now
 import type { Domain } from "./objects/domain/domain.model.ts";
 import { extractDomains } from "./objects/domain/domain.model.ts";
-import { type Enum, extractEnums } from "./objects/enum/enum.model.ts";
 import {
   type Extension,
   extractExtensions,
@@ -40,6 +34,11 @@ import {
   extractTriggers,
   type Trigger,
 } from "./objects/trigger/trigger.model.ts";
+import {
+  type CompositeType,
+  extractCompositeTypes,
+} from "./objects/type/composite-type/composite-type.model.ts";
+import { type Enum, extractEnums } from "./objects/type/enum/enum.model.ts";
 import { extractTypes, type Type } from "./objects/type/type.model.ts";
 import { extractViews, type View } from "./objects/view/view.model.ts";
 

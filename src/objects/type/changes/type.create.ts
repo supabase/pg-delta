@@ -61,14 +61,12 @@ export class CreateType extends CreateChange {
     );
 
     // Add type-specific syntax based on type type
-    // TODO: Complete the implementation for each types
     switch (this.type.type_type) {
       case "c":
-        parts.push("AS ()"); // Composite type
-        break;
       case "e":
-        parts.push("AS ENUM ()"); // Enum type
-        break;
+        throw new Error(
+          "Composite and Enum types are handled by dedicated modules",
+        );
       case "d":
         parts.push("AS RANGE ()"); // Range type
         break;
