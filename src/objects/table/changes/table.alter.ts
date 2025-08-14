@@ -1,11 +1,7 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
-import type { Table } from "../table.model.ts";
-import { CreateTable } from "./table.create.ts";
-import { DropTable } from "./table.drop.ts";
+import { AlterChange, quoteIdentifier } from "../../base.change.ts";
+import type { ColumnProps } from "../../base.model.ts";
+import type { Table, TableConstraintProps } from "../table.model.ts";
+// No drop+create paths; destructive operations are out of scope
 
 /**
  * Alter a table.
@@ -68,7 +64,18 @@ export type AlterTable =
   | AlterTableDisableRowLevelSecurity
   | AlterTableForceRowLevelSecurity
   | AlterTableNoForceRowLevelSecurity
-  | AlterTableSetStorageParams;
+  | AlterTableSetStorageParams
+  | AlterTableAddConstraint
+  | AlterTableDropConstraint
+  | AlterTableValidateConstraint
+  | AlterTableSetReplicaIdentity
+  | AlterTableAddColumn
+  | AlterTableDropColumn
+  | AlterTableAlterColumnType
+  | AlterTableAlterColumnSetDefault
+  | AlterTableAlterColumnDropDefault
+  | AlterTableAlterColumnSetNotNull
+  | AlterTableAlterColumnDropNotNull;
 
 /**
  * ALTER TABLE ... OWNER TO ...
@@ -248,11 +255,112 @@ export class AlterTableSetStorageParams extends AlterChange {
   }
 }
 
+// Intentionally no ReplaceTable: destructive changes are not emitted
+
 /**
- * Replace a table by dropping and recreating it.
- * This is used when properties that cannot be altered via ALTER TABLE change.
+ * ALTER TABLE ... ADD CONSTRAINT ...
  */
-export class ReplaceTable extends ReplaceChange {
+export class AlterTableAddConstraint extends AlterChange {
+  public readonly table: Table;
+  public readonly constraint: TableConstraintProps;
+
+  constructor(props: { table: Table; constraint: TableConstraintProps }) {
+    super();
+    this.table = props.table;
+    this.constraint = props.constraint;
+  }
+
+  serialize(): string {
+    const parts: string[] = [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      "ADD CONSTRAINT",
+      quoteIdentifier(this.constraint.name),
+    ];
+    switch (this.constraint.constraint_type) {
+      case "p":
+        parts.push("PRIMARY KEY");
+        break;
+      case "u":
+        parts.push("UNIQUE");
+        break;
+      case "f":
+        parts.push("FOREIGN KEY");
+        break;
+      case "c":
+        parts.push("CHECK");
+        if (this.constraint.check_expression) {
+          parts.push(`(${this.constraint.check_expression})`);
+        }
+        break;
+      case "x":
+        parts.push("EXCLUDE");
+        break;
+    }
+    if (this.constraint.deferrable) {
+      parts.push("DEFERRABLE");
+      parts.push(
+        this.constraint.initially_deferred
+          ? "INITIALLY DEFERRED"
+          : "INITIALLY IMMEDIATE",
+      );
+    } else {
+      parts.push("NOT DEFERRABLE");
+    }
+    return parts.join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... DROP CONSTRAINT ...
+ */
+export class AlterTableDropConstraint extends AlterChange {
+  public readonly table: Table;
+  public readonly constraint: TableConstraintProps;
+
+  constructor(props: { table: Table; constraint: TableConstraintProps }) {
+    super();
+    this.table = props.table;
+    this.constraint = props.constraint;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      "DROP CONSTRAINT",
+      quoteIdentifier(this.constraint.name),
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... VALIDATE CONSTRAINT ...
+ */
+export class AlterTableValidateConstraint extends AlterChange {
+  public readonly table: Table;
+  public readonly constraint: TableConstraintProps;
+
+  constructor(props: { table: Table; constraint: TableConstraintProps }) {
+    super();
+    this.table = props.table;
+    this.constraint = props.constraint;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      "VALIDATE CONSTRAINT",
+      quoteIdentifier(this.constraint.name),
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... REPLICA IDENTITY ...
+ */
+export class AlterTableSetReplicaIdentity extends AlterChange {
   public readonly main: Table;
   public readonly branch: Table;
 
@@ -263,9 +371,203 @@ export class ReplaceTable extends ReplaceChange {
   }
 
   serialize(): string {
-    const dropChange = new DropTable({ table: this.main });
-    const createChange = new CreateTable({ table: this.branch });
+    const mode = this.branch.replica_identity;
+    const clause =
+      mode === "d"
+        ? "DEFAULT"
+        : mode === "n"
+          ? "NOTHING"
+          : mode === "f"
+            ? "FULL"
+            : "DEFAULT"; // 'i' (USING INDEX) is handled via index changes; fallback to DEFAULT
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      "REPLICA IDENTITY",
+      clause,
+    ].join(" ");
+  }
+}
 
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
+/**
+ * ALTER TABLE ... ADD COLUMN ...
+ */
+export class AlterTableAddColumn extends AlterChange {
+  public readonly table: Table;
+  public readonly column: ColumnProps;
+
+  constructor(props: { table: Table; column: ColumnProps }) {
+    super();
+    this.table = props.table;
+    this.column = props.column;
+  }
+
+  serialize(): string {
+    const parts: string[] = [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      "ADD COLUMN",
+      quoteIdentifier(this.column.name),
+      this.column.data_type_str,
+    ];
+    if (this.column.collation) {
+      parts.push("COLLATE", quoteIdentifier(this.column.collation));
+    }
+    if (this.column.default !== null) {
+      parts.push("DEFAULT", this.column.default);
+    }
+    if (this.column.not_null) {
+      parts.push("NOT NULL");
+    }
+    return parts.join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... DROP COLUMN ...
+ */
+export class AlterTableDropColumn extends AlterChange {
+  public readonly table: Table;
+  public readonly column: ColumnProps;
+
+  constructor(props: { table: Table; column: ColumnProps }) {
+    super();
+    this.table = props.table;
+    this.column = props.column;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      "DROP COLUMN",
+      quoteIdentifier(this.column.name),
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... ALTER COLUMN ... TYPE ...
+ */
+export class AlterTableAlterColumnType extends AlterChange {
+  public readonly table: Table;
+  public readonly column: ColumnProps;
+
+  constructor(props: { table: Table; column: ColumnProps }) {
+    super();
+    this.table = props.table;
+    this.column = props.column;
+  }
+
+  serialize(): string {
+    const parts: string[] = [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      "ALTER COLUMN",
+      quoteIdentifier(this.column.name),
+      "TYPE",
+      this.column.data_type_str,
+    ];
+    if (this.column.collation) {
+      parts.push("COLLATE", quoteIdentifier(this.column.collation));
+    }
+    return parts.join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... ALTER COLUMN ... SET DEFAULT ...
+ */
+export class AlterTableAlterColumnSetDefault extends AlterChange {
+  public readonly table: Table;
+  public readonly column: ColumnProps;
+
+  constructor(props: { table: Table; column: ColumnProps }) {
+    super();
+    this.table = props.table;
+    this.column = props.column;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      "ALTER COLUMN",
+      quoteIdentifier(this.column.name),
+      "SET DEFAULT",
+      this.column.default ?? "NULL",
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... ALTER COLUMN ... DROP DEFAULT
+ */
+export class AlterTableAlterColumnDropDefault extends AlterChange {
+  public readonly table: Table;
+  public readonly column: ColumnProps;
+
+  constructor(props: { table: Table; column: ColumnProps }) {
+    super();
+    this.table = props.table;
+    this.column = props.column;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      "ALTER COLUMN",
+      quoteIdentifier(this.column.name),
+      "DROP DEFAULT",
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... ALTER COLUMN ... SET NOT NULL
+ */
+export class AlterTableAlterColumnSetNotNull extends AlterChange {
+  public readonly table: Table;
+  public readonly column: ColumnProps;
+
+  constructor(props: { table: Table; column: ColumnProps }) {
+    super();
+    this.table = props.table;
+    this.column = props.column;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      "ALTER COLUMN",
+      quoteIdentifier(this.column.name),
+      "SET NOT NULL",
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL
+ */
+export class AlterTableAlterColumnDropNotNull extends AlterChange {
+  public readonly table: Table;
+  public readonly column: ColumnProps;
+
+  constructor(props: { table: Table; column: ColumnProps }) {
+    super();
+    this.table = props.table;
+    this.column = props.column;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      "ALTER COLUMN",
+      quoteIdentifier(this.column.name),
+      "DROP NOT NULL",
+    ].join(" ");
   }
 }

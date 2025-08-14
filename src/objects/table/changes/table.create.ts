@@ -87,7 +87,7 @@ export class CreateTable extends CreateChange {
         return tokens.join(" ");
       });
 
-      parts.push(`( ${columnDefinitions.join(", ")} )`);
+      parts.push(`(${columnDefinitions.join(", ")})`);
     }
 
     // Add INHERITS if parent table exists

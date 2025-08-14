@@ -1,16 +1,26 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
-import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
+import { deepEqual } from "../utils.ts";
 import {
+  AlterTableAddColumn,
+  AlterTableAddConstraint,
+  AlterTableAlterColumnDropDefault,
+  AlterTableAlterColumnDropNotNull,
+  AlterTableAlterColumnSetDefault,
+  AlterTableAlterColumnSetNotNull,
+  AlterTableAlterColumnType,
   AlterTableChangeOwner,
   AlterTableDisableRowLevelSecurity,
+  AlterTableDropColumn,
+  AlterTableDropConstraint,
   AlterTableEnableRowLevelSecurity,
   AlterTableForceRowLevelSecurity,
   AlterTableNoForceRowLevelSecurity,
   AlterTableSetLogged,
+  AlterTableSetReplicaIdentity,
   AlterTableSetStorageParams,
   AlterTableSetUnlogged,
-  ReplaceTable,
+  AlterTableValidateConstraint,
 } from "./changes/table.alter.ts";
 import { CreateTable } from "./changes/table.create.ts";
 import { DropTable } from "./changes/table.drop.ts";
@@ -43,45 +53,14 @@ export function diffTables(
     const mainTable = main[tableId];
     const branchTable = branch[tableId];
 
-    // Check if non-alterable properties have changed
-    // These require dropping and recreating the table
-    const NON_ALTERABLE_FIELDS: Array<keyof Table> = [
-      "has_indexes",
-      "has_rules",
-      "has_triggers",
-      "has_subclasses",
-      "is_populated",
-      "replica_identity",
-      "is_partition",
-      "partition_bound",
-      "parent_schema",
-      "parent_name",
-    ];
-    const nonAlterablePropsChanged = hasNonAlterableChanges(
-      mainTable,
-      branchTable,
-      NON_ALTERABLE_FIELDS,
-      { options: deepEqual },
-    );
-
-    if (nonAlterablePropsChanged) {
-      // Replace the entire table (drop + create)
-      changes.push(new ReplaceTable({ main: mainTable, branch: branchTable }));
-    } else {
+    // Dangerous operations (drop+create) are not performed by this tool.
+    // Only emit safe ALTER statements below.
+    {
       // Only alterable properties changed - check each one
 
       // PERSISTENCE (LOGGED/UNLOGGED)
       if (mainTable.persistence !== branchTable.persistence) {
-        const involvesTemporary =
-          mainTable.persistence === "t" || branchTable.persistence === "t";
-        if (involvesTemporary) {
-          changes.push(
-            new ReplaceTable({ main: mainTable, branch: branchTable }),
-          );
-        } else if (
-          branchTable.persistence === "u" &&
-          mainTable.persistence === "p"
-        ) {
+        if (branchTable.persistence === "u" && mainTable.persistence === "p") {
           changes.push(
             new AlterTableSetUnlogged({ main: mainTable, branch: branchTable }),
           );
@@ -145,6 +124,16 @@ export function diffTables(
         }
       }
 
+      // REPLICA IDENTITY
+      if (mainTable.replica_identity !== branchTable.replica_identity) {
+        changes.push(
+          new AlterTableSetReplicaIdentity({
+            main: mainTable,
+            branch: branchTable,
+          }),
+        );
+      }
+
       // OWNER
       if (mainTable.owner !== branchTable.owner) {
         changes.push(
@@ -158,6 +147,167 @@ export function diffTables(
       // Note: Table renaming would also use ALTER TABLE ... RENAME TO ...
       // But since our Table model uses 'name' as the identity field,
       // a name change would be handled as drop + create by diffObjects()
+
+      // TABLE CONSTRAINTS
+      const mainByName = new Map(
+        (mainTable.constraints ?? []).map((c) => [c.name, c]),
+      );
+      const branchByName = new Map(
+        (branchTable.constraints ?? []).map((c) => [c.name, c]),
+      );
+
+      // Created constraints
+      for (const [name, c] of branchByName) {
+        if (!mainByName.has(name)) {
+          changes.push(
+            new AlterTableAddConstraint({ table: branchTable, constraint: c }),
+          );
+          if (!c.validated) {
+            changes.push(
+              new AlterTableValidateConstraint({
+                table: branchTable,
+                constraint: c,
+              }),
+            );
+          }
+        }
+      }
+
+      // Dropped constraints
+      for (const [name, c] of mainByName) {
+        if (!branchByName.has(name)) {
+          changes.push(
+            new AlterTableDropConstraint({ table: mainTable, constraint: c }),
+          );
+        }
+      }
+
+      // Altered constraints -> drop + add
+      for (const [name, mainC] of mainByName) {
+        const branchC = branchByName.get(name);
+        if (!branchC) continue;
+        const changed =
+          mainC.constraint_type !== branchC.constraint_type ||
+          mainC.deferrable !== branchC.deferrable ||
+          mainC.initially_deferred !== branchC.initially_deferred ||
+          mainC.validated !== branchC.validated ||
+          mainC.is_local !== branchC.is_local ||
+          mainC.no_inherit !== branchC.no_inherit ||
+          JSON.stringify(mainC.key_columns) !==
+            JSON.stringify(branchC.key_columns) ||
+          JSON.stringify(mainC.foreign_key_columns) !==
+            JSON.stringify(branchC.foreign_key_columns) ||
+          mainC.foreign_key_table !== branchC.foreign_key_table ||
+          mainC.foreign_key_schema !== branchC.foreign_key_schema ||
+          mainC.on_update !== branchC.on_update ||
+          mainC.on_delete !== branchC.on_delete ||
+          mainC.match_type !== branchC.match_type ||
+          mainC.check_expression !== branchC.check_expression ||
+          mainC.owner !== branchC.owner;
+        if (changed) {
+          changes.push(
+            new AlterTableDropConstraint({
+              table: mainTable,
+              constraint: mainC,
+            }),
+          );
+          changes.push(
+            new AlterTableAddConstraint({
+              table: branchTable,
+              constraint: branchC,
+            }),
+          );
+          if (!branchC.validated) {
+            changes.push(
+              new AlterTableValidateConstraint({
+                table: branchTable,
+                constraint: branchC,
+              }),
+            );
+          }
+        }
+      }
+
+      // COLUMNS
+      {
+        const mainCols = new Map(mainTable.columns.map((c) => [c.name, c]));
+        const branchCols = new Map(branchTable.columns.map((c) => [c.name, c]));
+
+        // Added columns
+        for (const [name, col] of branchCols) {
+          if (!mainCols.has(name)) {
+            changes.push(
+              new AlterTableAddColumn({ table: branchTable, column: col }),
+            );
+          }
+        }
+
+        // Dropped columns
+        for (const [name, col] of mainCols) {
+          if (!branchCols.has(name)) {
+            changes.push(
+              new AlterTableDropColumn({ table: mainTable, column: col }),
+            );
+          }
+        }
+
+        // Altered columns
+        for (const [name, mainCol] of mainCols) {
+          const branchCol = branchCols.get(name);
+          if (!branchCol) continue;
+
+          // TYPE or COLLATION change
+          if (
+            mainCol.data_type_str !== branchCol.data_type_str ||
+            mainCol.collation !== branchCol.collation
+          ) {
+            changes.push(
+              new AlterTableAlterColumnType({
+                table: branchTable,
+                column: branchCol,
+              }),
+            );
+          }
+
+          // DEFAULT change
+          if (mainCol.default !== branchCol.default) {
+            if (branchCol.default === null) {
+              changes.push(
+                new AlterTableAlterColumnDropDefault({
+                  table: branchTable,
+                  column: branchCol,
+                }),
+              );
+            } else {
+              changes.push(
+                new AlterTableAlterColumnSetDefault({
+                  table: branchTable,
+                  column: branchCol,
+                }),
+              );
+            }
+          }
+
+          // NOT NULL change
+          if (mainCol.not_null !== branchCol.not_null) {
+            if (branchCol.not_null) {
+              changes.push(
+                new AlterTableAlterColumnSetNotNull({
+                  table: branchTable,
+                  column: branchCol,
+                }),
+              );
+            } else {
+              changes.push(
+                new AlterTableAlterColumnDropNotNull({
+                  table: branchTable,
+                  column: branchCol,
+                }),
+              );
+            }
+          }
+        }
+      }
     }
   }
 

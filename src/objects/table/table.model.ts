@@ -8,6 +8,28 @@ import {
 export type RelationPersistence = "p" | "u" | "t";
 export type ReplicaIdentity = "d" | "n" | "f" | "i";
 
+type ForeignKeyAction = "a" | "r" | "c" | "n" | "d";
+type ForeignKeyMatchType = "f" | "p" | "s";
+
+export interface TableConstraintProps {
+  name: string;
+  constraint_type: "c" | "f" | "p" | "u" | "x";
+  deferrable: boolean;
+  initially_deferred: boolean;
+  validated: boolean;
+  is_local: boolean;
+  no_inherit: boolean;
+  key_columns: number[];
+  foreign_key_columns: number[] | null;
+  foreign_key_table: string | null;
+  foreign_key_schema: string | null;
+  on_update: ForeignKeyAction | null;
+  on_delete: ForeignKeyAction | null;
+  match_type: ForeignKeyMatchType | null;
+  check_expression: string | null;
+  owner: string;
+}
+
 export interface TableProps {
   schema: string;
   name: string;
@@ -27,6 +49,7 @@ export interface TableProps {
   parent_schema: string | null;
   parent_name: string | null;
   columns: ColumnProps[];
+  constraints?: TableConstraintProps[];
 }
 
 export class Table extends BasePgModel implements TableLikeObject {
@@ -48,6 +71,7 @@ export class Table extends BasePgModel implements TableLikeObject {
   public readonly parent_schema: TableProps["parent_schema"];
   public readonly parent_name: TableProps["parent_name"];
   public readonly columns: TableProps["columns"];
+  public readonly constraints: TableConstraintProps[];
 
   constructor(props: TableProps) {
     super();
@@ -73,6 +97,7 @@ export class Table extends BasePgModel implements TableLikeObject {
     this.parent_schema = props.parent_schema;
     this.parent_name = props.parent_name;
     this.columns = props.columns;
+    this.constraints = props.constraints ?? [];
   }
 
   get stableId(): `table:${string}` {
@@ -88,22 +113,15 @@ export class Table extends BasePgModel implements TableLikeObject {
 
   get dataFields() {
     return {
+      // Only include fields that can be managed via ALTER safely
       persistence: this.persistence,
       row_security: this.row_security,
       force_row_security: this.force_row_security,
-      has_indexes: this.has_indexes,
-      has_rules: this.has_rules,
-      has_triggers: this.has_triggers,
-      has_subclasses: this.has_subclasses,
-      is_populated: this.is_populated,
       replica_identity: this.replica_identity,
-      is_partition: this.is_partition,
       options: this.options,
-      partition_bound: this.partition_bound,
       owner: this.owner,
-      parent_schema: this.parent_schema,
-      parent_name: this.parent_name,
       columns: this.columns,
+      constraints: this.constraints,
     };
   }
 }
@@ -169,6 +187,40 @@ select
   t.owner,
   t.parent_schema,
   t.parent_name,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object(
+          'name', c.conname,
+          'constraint_type', c.contype,
+          'deferrable', c.condeferrable,
+          'initially_deferred', c.condeferred,
+          'validated', c.convalidated,
+          'is_local', c.conislocal,
+          'no_inherit', c.connoinherit,
+          'key_columns', c.conkey,
+          'foreign_key_columns', c.confkey,
+          'foreign_key_table', ftc.relname,
+          'foreign_key_schema', ftn.nspname,
+          'on_update', c.confupdtype,
+          'on_delete', c.confdeltype,
+          'match_type', c.confmatchtype,
+          'check_expression', pg_get_expr(c.conbin, c.conrelid),
+          'owner', t.owner
+        )
+        order by c.conname
+      )
+      from pg_catalog.pg_constraint c
+      inner join pg_catalog.pg_namespace cn on cn.oid = c.connamespace
+      left join pg_catalog.pg_class ftc on ftc.oid = c.confrelid
+      left join pg_catalog.pg_namespace ftn on ftn.oid = ftc.relnamespace
+      left join pg_depend de on de.classid = 'pg_constraint'::regclass and de.objid = c.oid and de.refclassid = 'pg_extension'::regclass
+      where c.conrelid = t.oid
+        and cn.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
+        and cn.nspname not like 'pg\_temp\_%' and cn.nspname not like 'pg\_toast\_temp\_%'
+        and de.objid is null
+    ), '[]'
+  ) as constraints,
   coalesce(json_agg(
     case when a.attname is not null then
       json_build_object(

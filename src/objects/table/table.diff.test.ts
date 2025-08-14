@@ -1,13 +1,24 @@
 import { describe, expect, test } from "vitest";
 import {
+  AlterTableAddColumn,
+  AlterTableAddConstraint,
+  AlterTableAlterColumnDropDefault,
+  AlterTableAlterColumnDropNotNull,
+  AlterTableAlterColumnSetDefault,
+  AlterTableAlterColumnSetNotNull,
+  AlterTableAlterColumnType,
   AlterTableChangeOwner,
   AlterTableDisableRowLevelSecurity,
+  AlterTableDropColumn,
+  AlterTableDropConstraint,
   AlterTableEnableRowLevelSecurity,
   AlterTableForceRowLevelSecurity,
   AlterTableNoForceRowLevelSecurity,
   AlterTableSetLogged,
+  AlterTableSetReplicaIdentity,
   AlterTableSetStorageParams,
   AlterTableSetUnlogged,
+  AlterTableValidateConstraint,
 } from "./changes/table.alter.ts";
 import { CreateTable } from "./changes/table.create.ts";
 import { DropTable } from "./changes/table.drop.ts";
@@ -168,6 +179,192 @@ describe.concurrent("table.diff", () => {
     );
     expect(
       noforce.some((c) => c instanceof AlterTableNoForceRowLevelSecurity),
+    ).toBe(true);
+  });
+
+  test("replica identity diff emits REPLICA IDENTITY", () => {
+    const main = new Table(base);
+    const branch = new Table({ ...base, replica_identity: "n" });
+    const changes = diffTables(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((c) => c instanceof AlterTableSetReplicaIdentity)).toBe(
+      true,
+    );
+  });
+
+  test("constraints create/drop/alter and validate", () => {
+    const t1 = new Table({ ...base, name: "t1", constraints: [] });
+    const pkey = {
+      name: "pk_t1",
+      constraint_type: "p" as const,
+      deferrable: false,
+      initially_deferred: false,
+      validated: false,
+      is_local: true,
+      no_inherit: false,
+      key_columns: [1],
+      foreign_key_columns: null,
+      foreign_key_table: null,
+      foreign_key_schema: null,
+      on_update: null,
+      on_delete: null,
+      match_type: null,
+      check_expression: null,
+      owner: "o1",
+    };
+    const created = diffTables(
+      { [t1.stableId]: t1 },
+      {
+        [t1.stableId]: new Table({ ...base, name: "t1", constraints: [pkey] }),
+      },
+    );
+    expect(created.some((c) => c instanceof AlterTableAddConstraint)).toBe(
+      true,
+    );
+    expect(created.some((c) => c instanceof AlterTableValidateConstraint)).toBe(
+      true,
+    );
+
+    const dropped = diffTables(
+      {
+        [t1.stableId]: new Table({ ...base, name: "t1", constraints: [pkey] }),
+      },
+      { [t1.stableId]: t1 },
+    );
+    expect(dropped.some((c) => c instanceof AlterTableDropConstraint)).toBe(
+      true,
+    );
+
+    const altered = diffTables(
+      {
+        [t1.stableId]: new Table({ ...base, name: "t1", constraints: [pkey] }),
+      },
+      {
+        [t1.stableId]: new Table({
+          ...base,
+          name: "t1",
+          constraints: [
+            {
+              ...pkey,
+              deferrable: true,
+              initially_deferred: true,
+              validated: true,
+            },
+          ],
+        }),
+      },
+    );
+    expect(altered.some((c) => c instanceof AlterTableDropConstraint)).toBe(
+      true,
+    );
+    expect(altered.some((c) => c instanceof AlterTableAddConstraint)).toBe(
+      true,
+    );
+  });
+
+  test("columns added/dropped/altered (type, default, not null)", () => {
+    const main = new Table({ ...base, name: "t2", columns: [] });
+    const withCol = new Table({
+      ...base,
+      name: "t2",
+      columns: [
+        {
+          name: "a",
+          position: 1,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+    });
+    const added = diffTables(
+      { [main.stableId]: main },
+      { [withCol.stableId]: withCol },
+    );
+    expect(added.some((c) => c instanceof AlterTableAddColumn)).toBe(true);
+
+    const dropped = diffTables(
+      { [withCol.stableId]: withCol },
+      { [main.stableId]: main },
+    );
+    expect(dropped.some((c) => c instanceof AlterTableDropColumn)).toBe(true);
+
+    const typeChanged = new Table({
+      ...base,
+      name: "t2",
+      columns: [
+        {
+          ...withCol.columns[0],
+          data_type: "text",
+          data_type_str: "text",
+        },
+      ],
+    });
+    const typeChanges = diffTables(
+      { [withCol.stableId]: withCol },
+      { [typeChanged.stableId]: typeChanged },
+    );
+    expect(
+      typeChanges.some((c) => c instanceof AlterTableAlterColumnType),
+    ).toBe(true);
+
+    const defaultAdded = new Table({
+      ...base,
+      name: "t2",
+      columns: [{ ...withCol.columns[0], default: "0" }],
+    });
+    const defaultAddedChanges = diffTables(
+      { [withCol.stableId]: withCol },
+      { [defaultAdded.stableId]: defaultAdded },
+    );
+    expect(
+      defaultAddedChanges.some(
+        (c) => c instanceof AlterTableAlterColumnSetDefault,
+      ),
+    ).toBe(true);
+
+    const defaultDropped = diffTables(
+      { [defaultAdded.stableId]: defaultAdded },
+      { [withCol.stableId]: withCol },
+    );
+    expect(
+      defaultDropped.some((c) => c instanceof AlterTableAlterColumnDropDefault),
+    ).toBe(true);
+
+    const notNullSet = new Table({
+      ...base,
+      name: "t2",
+      columns: [{ ...withCol.columns[0], not_null: true }],
+    });
+    const notNullSetChanges = diffTables(
+      { [withCol.stableId]: withCol },
+      { [notNullSet.stableId]: notNullSet },
+    );
+    expect(
+      notNullSetChanges.some(
+        (c) => c instanceof AlterTableAlterColumnSetNotNull,
+      ),
+    ).toBe(true);
+
+    const notNullDropped = diffTables(
+      { [notNullSet.stableId]: notNullSet },
+      { [withCol.stableId]: withCol },
+    );
+    expect(
+      notNullDropped.some((c) => c instanceof AlterTableAlterColumnDropNotNull),
     ).toBe(true);
   });
 });

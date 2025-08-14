@@ -1,15 +1,26 @@
 import { describe, expect, test } from "vitest";
+import type { ColumnProps } from "../../base.model.ts";
 import { Table, type TableProps } from "../table.model.ts";
 import {
+  AlterTableAddColumn,
+  AlterTableAddConstraint,
+  AlterTableAlterColumnDropDefault,
+  AlterTableAlterColumnDropNotNull,
+  AlterTableAlterColumnSetDefault,
+  AlterTableAlterColumnSetNotNull,
+  AlterTableAlterColumnType,
   AlterTableChangeOwner,
   AlterTableDisableRowLevelSecurity,
+  AlterTableDropColumn,
+  AlterTableDropConstraint,
   AlterTableEnableRowLevelSecurity,
   AlterTableForceRowLevelSecurity,
   AlterTableNoForceRowLevelSecurity,
   AlterTableSetLogged,
+  AlterTableSetReplicaIdentity,
   AlterTableSetStorageParams,
   AlterTableSetUnlogged,
-  ReplaceTable,
+  AlterTableValidateConstraint,
 } from "./table.alter.ts";
 
 describe.concurrent("table", () => {
@@ -50,45 +61,6 @@ describe.concurrent("table", () => {
 
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table OWNER TO new_owner",
-      );
-    });
-
-    test("replace table when switching to temporary", () => {
-      const props: Omit<TableProps, "persistence"> = {
-        schema: "public",
-        name: "test_table",
-        row_security: false,
-        force_row_security: false,
-        has_indexes: false,
-        has_rules: false,
-        has_triggers: false,
-        has_subclasses: false,
-        is_populated: false,
-        replica_identity: "d",
-        is_partition: false,
-        options: null,
-        partition_bound: null,
-        owner: "test",
-        parent_schema: null,
-        parent_name: null,
-        columns: [],
-      };
-      const main = new Table({
-        ...props,
-        persistence: "p",
-      });
-      const branch = new Table({
-        ...props,
-        persistence: "t",
-      });
-
-      const change = new ReplaceTable({
-        main,
-        branch,
-      });
-
-      expect(change.serialize()).toBe(
-        "DROP TABLE public.test_table;\nCREATE TEMPORARY TABLE public.test_table ()",
       );
     });
 
@@ -293,6 +265,300 @@ describe.concurrent("table", () => {
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table SET (fillfactor=90)",
       );
+    });
+
+    test("replica identity default/nothing/full", () => {
+      const baseProps: Omit<
+        TableProps,
+        "owner" | "options" | "replica_identity"
+      > = {
+        schema: "public",
+        name: "test_table",
+        persistence: "p",
+        row_security: false,
+        force_row_security: false,
+        has_indexes: false,
+        has_rules: false,
+        has_triggers: false,
+        has_subclasses: false,
+        is_populated: false,
+        is_partition: false,
+        partition_bound: null,
+        parent_schema: null,
+        parent_name: null,
+        columns: [],
+      };
+      const main = new Table({
+        ...baseProps,
+        owner: "o1",
+        options: null,
+        replica_identity: "d",
+      });
+      const toNothing = new Table({
+        ...baseProps,
+        owner: "o1",
+        options: null,
+        replica_identity: "n",
+      });
+      const toFull = new Table({
+        ...baseProps,
+        owner: "o1",
+        options: null,
+        replica_identity: "f",
+      });
+      expect(
+        new AlterTableSetReplicaIdentity({
+          main,
+          branch: toNothing,
+        }).serialize(),
+      ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY NOTHING");
+      expect(
+        new AlterTableSetReplicaIdentity({ main, branch: toFull }).serialize(),
+      ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY FULL");
+    });
+
+    test("columns add/drop/alter", () => {
+      const tableProps: Omit<TableProps, "owner" | "options"> = {
+        schema: "public",
+        name: "test_table",
+        persistence: "p",
+        row_security: false,
+        force_row_security: false,
+        has_indexes: false,
+        has_rules: false,
+        has_triggers: false,
+        has_subclasses: false,
+        is_populated: false,
+        replica_identity: "d",
+        is_partition: false,
+        partition_bound: null,
+        parent_schema: null,
+        parent_name: null,
+        columns: [],
+      };
+      const colInt: ColumnProps = {
+        name: "a",
+        position: 1,
+        data_type: "integer",
+        data_type_str: "integer",
+        is_custom_type: false,
+        custom_type_type: null,
+        custom_type_category: null,
+        custom_type_schema: null,
+        custom_type_name: null,
+        not_null: false,
+        is_identity: false,
+        is_identity_always: false,
+        is_generated: false,
+        collation: null,
+        default: null,
+        comment: null,
+      };
+      const colText: ColumnProps = {
+        ...colInt,
+        name: "b",
+        data_type: "text",
+        data_type_str: "text",
+      };
+      const withCols = new Table({
+        ...tableProps,
+        owner: "o1",
+        options: null,
+        columns: [colInt],
+      });
+      const changeAdd = new AlterTableAddColumn({
+        table: withCols,
+        column: colInt,
+      });
+      expect(changeAdd.serialize()).toBe(
+        "ALTER TABLE public.test_table ADD COLUMN a integer",
+      );
+
+      const dropFrom = new Table({
+        ...tableProps,
+        owner: "o1",
+        options: null,
+        columns: [colInt, colText],
+      });
+      const changeDrop = new AlterTableDropColumn({
+        table: dropFrom,
+        column: colText,
+      });
+      expect(changeDrop.serialize()).toBe(
+        "ALTER TABLE public.test_table DROP COLUMN b",
+      );
+
+      const changeType = new AlterTableAlterColumnType({
+        table: withCols,
+        column: colText,
+      });
+      expect(changeType.serialize()).toBe(
+        "ALTER TABLE public.test_table ALTER COLUMN b TYPE text",
+      );
+
+      const changeSetDefault = new AlterTableAlterColumnSetDefault({
+        table: withCols,
+        column: { ...colInt, default: "0" },
+      });
+      expect(changeSetDefault.serialize()).toBe(
+        "ALTER TABLE public.test_table ALTER COLUMN a SET DEFAULT 0",
+      );
+
+      const changeDropDefault = new AlterTableAlterColumnDropDefault({
+        table: withCols,
+        column: { ...colInt, default: null },
+      });
+      expect(changeDropDefault.serialize()).toBe(
+        "ALTER TABLE public.test_table ALTER COLUMN a DROP DEFAULT",
+      );
+
+      const changeSetNotNull = new AlterTableAlterColumnSetNotNull({
+        table: withCols,
+        column: { ...colInt, not_null: true },
+      });
+      expect(changeSetNotNull.serialize()).toBe(
+        "ALTER TABLE public.test_table ALTER COLUMN a SET NOT NULL",
+      );
+
+      const changeDropNotNull = new AlterTableAlterColumnDropNotNull({
+        table: withCols,
+        column: { ...colInt, not_null: false },
+      });
+      expect(changeDropNotNull.serialize()).toBe(
+        "ALTER TABLE public.test_table ALTER COLUMN a DROP NOT NULL",
+      );
+    });
+
+    test("constraints add/drop/validate and flavors", () => {
+      const t = new Table({
+        schema: "public",
+        name: "test_table",
+        persistence: "p",
+        row_security: false,
+        force_row_security: false,
+        has_indexes: false,
+        has_rules: false,
+        has_triggers: false,
+        has_subclasses: false,
+        is_populated: false,
+        replica_identity: "d",
+        is_partition: false,
+        options: null,
+        partition_bound: null,
+        owner: "o1",
+        parent_schema: null,
+        parent_name: null,
+        columns: [],
+      });
+
+      const pkey = {
+        name: "pk_t",
+        constraint_type: "p" as const,
+        deferrable: false,
+        initially_deferred: false,
+        validated: true,
+        is_local: true,
+        no_inherit: false,
+        key_columns: [1],
+        foreign_key_columns: null,
+        foreign_key_table: null,
+        foreign_key_schema: null,
+        on_update: null,
+        on_delete: null,
+        match_type: null,
+        check_expression: null,
+        owner: "o1",
+      };
+      const uniq = { ...pkey, name: "uq_t", constraint_type: "u" as const };
+      const fkey = {
+        ...pkey,
+        name: "fk_t",
+        constraint_type: "f" as const,
+        foreign_key_columns: [1],
+        foreign_key_table: "other",
+        foreign_key_schema: "public",
+      };
+      const check = {
+        ...pkey,
+        name: "ck_t",
+        constraint_type: "c" as const,
+        check_expression: "a > 0",
+      };
+      const exclude = { ...pkey, name: "ex_t", constraint_type: "x" as const };
+
+      expect(
+        new AlterTableAddConstraint({ table: t, constraint: pkey }).serialize(),
+      ).toBe(
+        "ALTER TABLE public.test_table ADD CONSTRAINT pk_t PRIMARY KEY NOT DEFERRABLE",
+      );
+      expect(
+        new AlterTableAddConstraint({ table: t, constraint: uniq }).serialize(),
+      ).toBe(
+        "ALTER TABLE public.test_table ADD CONSTRAINT uq_t UNIQUE NOT DEFERRABLE",
+      );
+      expect(
+        new AlterTableAddConstraint({ table: t, constraint: fkey }).serialize(),
+      ).toBe(
+        "ALTER TABLE public.test_table ADD CONSTRAINT fk_t FOREIGN KEY NOT DEFERRABLE",
+      );
+      expect(
+        new AlterTableAddConstraint({
+          table: t,
+          constraint: check,
+        }).serialize(),
+      ).toBe(
+        "ALTER TABLE public.test_table ADD CONSTRAINT ck_t CHECK (a > 0) NOT DEFERRABLE",
+      );
+      expect(
+        new AlterTableAddConstraint({
+          table: t,
+          constraint: exclude,
+        }).serialize(),
+      ).toBe(
+        "ALTER TABLE public.test_table ADD CONSTRAINT ex_t EXCLUDE NOT DEFERRABLE",
+      );
+
+      // deferrable + initially immediate/deferred
+      expect(
+        new AlterTableAddConstraint({
+          table: t,
+          constraint: {
+            ...pkey,
+            name: "pk_d",
+            deferrable: true,
+            initially_deferred: false,
+          },
+        }).serialize(),
+      ).toBe(
+        "ALTER TABLE public.test_table ADD CONSTRAINT pk_d PRIMARY KEY DEFERRABLE INITIALLY IMMEDIATE",
+      );
+      expect(
+        new AlterTableAddConstraint({
+          table: t,
+          constraint: {
+            ...pkey,
+            name: "pk_dd",
+            deferrable: true,
+            initially_deferred: true,
+          },
+        }).serialize(),
+      ).toBe(
+        "ALTER TABLE public.test_table ADD CONSTRAINT pk_dd PRIMARY KEY DEFERRABLE INITIALLY DEFERRED",
+      );
+
+      // drop + validate
+      expect(
+        new AlterTableDropConstraint({
+          table: t,
+          constraint: pkey,
+        }).serialize(),
+      ).toBe("ALTER TABLE public.test_table DROP CONSTRAINT pk_t");
+      expect(
+        new AlterTableValidateConstraint({
+          table: t,
+          constraint: pkey,
+        }).serialize(),
+      ).toBe("ALTER TABLE public.test_table VALIDATE CONSTRAINT pk_t");
     });
   });
 });

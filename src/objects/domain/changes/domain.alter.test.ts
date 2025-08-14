@@ -6,7 +6,6 @@ import {
   AlterDomainDropConstraint,
   AlterDomainDropDefault,
   AlterDomainDropNotNull,
-  AlterDomainRenameConstraint,
   AlterDomainSetDefault,
   AlterDomainSetNotNull,
   AlterDomainValidateConstraint,
@@ -174,7 +173,7 @@ describe.concurrent("domain", () => {
       );
     });
 
-    test.skip("add constraint", () => {
+    test("add constraint", () => {
       const props: DomainProps = {
         schema: "public",
         name: "test_domain",
@@ -188,17 +187,26 @@ describe.concurrent("domain", () => {
         default_value: null,
         owner: "test",
       };
-      const _main = new Domain(props);
-      const _branch = new Domain(props);
+      const domain = new Domain(props);
 
-      const change = new AlterDomainAddConstraint();
+      const change = new AlterDomainAddConstraint({
+        domain,
+        constraint: {
+          name: "test_check",
+          validated: true,
+          is_local: true,
+          no_inherit: false,
+          check_expression: "VALUE > 0",
+          owner: "test",
+        },
+      });
 
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain ADD CONSTRAINT test_check CHECK (VALUE > 0)",
       );
     });
 
-    test.skip("drop constraint", () => {
+    test("drop constraint", () => {
       const props: DomainProps = {
         schema: "public",
         name: "test_domain",
@@ -212,17 +220,26 @@ describe.concurrent("domain", () => {
         default_value: null,
         owner: "test",
       };
-      const _main = new Domain(props);
-      const _branch = new Domain(props);
+      const domain = new Domain(props);
 
-      const change = new AlterDomainDropConstraint();
+      const change = new AlterDomainDropConstraint({
+        domain,
+        constraint: {
+          name: "test_check",
+          validated: true,
+          is_local: true,
+          no_inherit: false,
+          check_expression: "VALUE > 0",
+          owner: "test",
+        },
+      });
 
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain DROP CONSTRAINT test_check",
       );
     });
 
-    test.skip("rename constraint", () => {
+    test("validate constraint", () => {
       const props: DomainProps = {
         schema: "public",
         name: "test_domain",
@@ -236,34 +253,19 @@ describe.concurrent("domain", () => {
         default_value: null,
         owner: "test",
       };
-      const _main = new Domain(props);
-      const _branch = new Domain(props);
+      const domain = new Domain(props);
 
-      const change = new AlterDomainRenameConstraint();
-
-      expect(change.serialize()).toBe(
-        "ALTER DOMAIN public.test_domain RENAME CONSTRAINT old_check TO new_check",
-      );
-    });
-
-    test.skip("validate constraint", () => {
-      const props: DomainProps = {
-        schema: "public",
-        name: "test_domain",
-        base_type: "integer",
-        base_type_schema: "pg_catalog",
-        not_null: false,
-        type_modifier: null,
-        array_dimensions: null,
-        collation: null,
-        default_bin: null,
-        default_value: null,
-        owner: "test",
-      };
-      const _main = new Domain(props);
-      const _branch = new Domain(props);
-
-      const change = new AlterDomainValidateConstraint();
+      const change = new AlterDomainValidateConstraint({
+        domain,
+        constraint: {
+          name: "test_check",
+          validated: true,
+          is_local: true,
+          no_inherit: false,
+          check_expression: "VALUE > 0",
+          owner: "test",
+        },
+      });
 
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain VALIDATE CONSTRAINT test_check",

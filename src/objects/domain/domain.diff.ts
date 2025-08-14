@@ -1,11 +1,14 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
+  AlterDomainAddConstraint,
   AlterDomainChangeOwner,
+  AlterDomainDropConstraint,
   AlterDomainDropDefault,
   AlterDomainDropNotNull,
   AlterDomainSetDefault,
   AlterDomainSetNotNull,
+  AlterDomainValidateConstraint,
 } from "./changes/domain.alter.ts";
 import { CreateDomain } from "./changes/domain.create.ts";
 import { DropDomain } from "./changes/domain.drop.ts";
@@ -67,6 +70,85 @@ export function diffDomains(
             branch: branchDomain,
           }),
         );
+      }
+    }
+
+    // DOMAIN CONSTRAINTS
+    if (mainDomain.constraints || branchDomain.constraints) {
+      const mainByName = new Map(
+        (mainDomain.constraints ?? []).map((c) => [c.name, c]),
+      );
+      const branchByName = new Map(
+        (branchDomain.constraints ?? []).map((c) => [c.name, c]),
+      );
+
+      // Note: Constraint renames are modeled as drop+add because name is part
+      // of the identity we diff on. No dedicated rename class is generated here.
+
+      // Created
+      for (const [name, c] of branchByName) {
+        if (!mainByName.has(name)) {
+          changes.push(
+            new AlterDomainAddConstraint({
+              domain: branchDomain,
+              constraint: c,
+            }),
+          );
+          if (!c.validated) {
+            changes.push(
+              new AlterDomainValidateConstraint({
+                domain: branchDomain,
+                constraint: c,
+              }),
+            );
+          }
+        }
+      }
+
+      // Dropped
+      for (const [name, c] of mainByName) {
+        if (!branchByName.has(name)) {
+          changes.push(
+            new AlterDomainDropConstraint({
+              domain: mainDomain,
+              constraint: c,
+            }),
+          );
+        }
+      }
+
+      // Altered (drop + add for now)
+      for (const [name, mainC] of mainByName) {
+        const branchC = branchByName.get(name);
+        if (!branchC) continue;
+        const changed =
+          mainC.validated !== branchC.validated ||
+          mainC.is_local !== branchC.is_local ||
+          mainC.no_inherit !== branchC.no_inherit ||
+          mainC.check_expression !== branchC.check_expression ||
+          mainC.owner !== branchC.owner;
+        if (changed) {
+          changes.push(
+            new AlterDomainDropConstraint({
+              domain: mainDomain,
+              constraint: mainC,
+            }),
+          );
+          changes.push(
+            new AlterDomainAddConstraint({
+              domain: branchDomain,
+              constraint: branchC,
+            }),
+          );
+          if (!branchC.validated) {
+            changes.push(
+              new AlterDomainValidateConstraint({
+                domain: branchDomain,
+                constraint: branchC,
+              }),
+            );
+          }
+        }
       }
     }
 

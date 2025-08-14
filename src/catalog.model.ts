@@ -8,10 +8,7 @@ import {
   type CompositeType,
   extractCompositeTypes,
 } from "./objects/composite-type/composite-type.model.ts";
-import {
-  type Constraint,
-  extractConstraints,
-} from "./objects/constraint/constraint.model.ts";
+// Removed global constraint extraction; constraints are fetched per owner now
 import type { Domain } from "./objects/domain/domain.model.ts";
 import { extractDomains } from "./objects/domain/domain.model.ts";
 import { type Enum, extractEnums } from "./objects/enum/enum.model.ts";
@@ -49,7 +46,6 @@ import { extractViews, type View } from "./objects/view/view.model.ts";
 interface CatalogProps {
   collations: Record<string, Collation>;
   compositeTypes: Record<string, CompositeType>;
-  constraints: Record<string, Constraint>;
   domains: Record<string, Domain>;
   enums: Record<string, Enum>;
   extensions: Record<string, Extension>;
@@ -69,7 +65,6 @@ interface CatalogProps {
 export class Catalog {
   public readonly collations: CatalogProps["collations"];
   public readonly compositeTypes: CatalogProps["compositeTypes"];
-  public readonly constraints: CatalogProps["constraints"];
   public readonly domains: CatalogProps["domains"];
   public readonly enums: CatalogProps["enums"];
   public readonly extensions: CatalogProps["extensions"];
@@ -88,7 +83,6 @@ export class Catalog {
   constructor(props: CatalogProps) {
     this.collations = props.collations;
     this.compositeTypes = props.compositeTypes;
-    this.constraints = props.constraints;
     this.domains = props.domains;
     this.enums = props.enums;
     this.extensions = props.extensions;
@@ -110,7 +104,6 @@ export async function extractCatalog(sql: Sql) {
   const [
     collations,
     compositeTypes,
-    constraints,
     domains,
     enums,
     extensions,
@@ -128,7 +121,6 @@ export async function extractCatalog(sql: Sql) {
   ] = await Promise.all([
     extractCollations(sql).then(listToRecord),
     extractCompositeTypes(sql).then(listToRecord),
-    extractConstraints(sql).then(listToRecord),
     extractDomains(sql).then(listToRecord),
     extractEnums(sql).then(listToRecord),
     extractExtensions(sql).then(listToRecord),
@@ -148,13 +140,12 @@ export async function extractCatalog(sql: Sql) {
   return new Catalog({
     collations,
     compositeTypes,
-    constraints,
     domains,
     enums,
     extensions,
+    procedures,
     indexes,
     materializedViews,
-    procedures,
     rlsPolicies,
     roles,
     schemas,

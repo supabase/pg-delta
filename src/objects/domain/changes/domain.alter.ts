@@ -1,5 +1,5 @@
 import { AlterChange, quoteIdentifier } from "../../base.change.ts";
-import type { Domain } from "../domain.model.ts";
+import type { Domain, DomainConstraintProps } from "../domain.model.ts";
 
 /**
  * Alter a domain.
@@ -41,7 +41,6 @@ export type AlterDomain =
   | AlterDomainChangeOwner
   | AlterDomainAddConstraint
   | AlterDomainDropConstraint
-  | AlterDomainRenameConstraint
   | AlterDomainValidateConstraint;
 
 /**
@@ -138,9 +137,31 @@ export class AlterDomainChangeOwner extends AlterChange {
  * Dummy class for ADD CONSTRAINT (to be implemented when constraints are added to Domain)
  */
 export class AlterDomainAddConstraint extends AlterChange {
-  // TODO: Implement when constraints are tracked in Domain
+  public readonly domain: Domain;
+  public readonly constraint: DomainConstraintProps;
+
+  constructor(props: { domain: Domain; constraint: DomainConstraintProps }) {
+    super();
+    this.domain = props.domain;
+    this.constraint = props.constraint;
+  }
+
   serialize(): string {
-    throw new Error("AlterDomainAddConstraint.serialize not implemented");
+    const domainName = `${quoteIdentifier(this.domain.schema)}.${quoteIdentifier(this.domain.name)}`;
+    const parts: string[] = [
+      "ALTER DOMAIN",
+      domainName,
+      "ADD CONSTRAINT",
+      quoteIdentifier(this.constraint.name),
+      "CHECK",
+    ];
+    if (this.constraint.check_expression) {
+      parts.push(`(${this.constraint.check_expression})`);
+    }
+    if (!this.constraint.validated) {
+      parts.push("NOT VALID");
+    }
+    return parts.join(" ");
   }
 }
 
@@ -148,28 +169,52 @@ export class AlterDomainAddConstraint extends AlterChange {
  * Dummy class for DROP CONSTRAINT (to be implemented when constraints are added to Domain)
  */
 export class AlterDomainDropConstraint extends AlterChange {
-  // TODO: Implement when constraints are tracked in Domain
+  public readonly domain: Domain;
+  public readonly constraint: DomainConstraintProps;
+
+  constructor(props: { domain: Domain; constraint: DomainConstraintProps }) {
+    super();
+    this.domain = props.domain;
+    this.constraint = props.constraint;
+  }
+
   serialize(): string {
-    throw new Error("AlterDomainDropConstraint.serialize not implemented");
+    const domainName = `${quoteIdentifier(this.domain.schema)}.${quoteIdentifier(this.domain.name)}`;
+    return [
+      "ALTER DOMAIN",
+      domainName,
+      "DROP CONSTRAINT",
+      quoteIdentifier(this.constraint.name),
+    ].join(" ");
   }
 }
 
 /**
  * Dummy class for RENAME CONSTRAINT (to be implemented when constraints are added to Domain)
  */
-export class AlterDomainRenameConstraint extends AlterChange {
-  // TODO: Implement when constraints are tracked in Domain
-  serialize(): string {
-    throw new Error("AlterDomainRenameConstraint.serialize not implemented");
-  }
-}
+// Note: Domain constraint renames are modeled as drop+add because the
+// constraint name is part of the identity used in diffing and deps.
 
 /**
  * Dummy class for VALIDATE CONSTRAINT (to be implemented when constraints are added to Domain)
  */
 export class AlterDomainValidateConstraint extends AlterChange {
-  // TODO: Implement when constraints are tracked in Domain
+  public readonly domain: Domain;
+  public readonly constraint: DomainConstraintProps;
+
+  constructor(props: { domain: Domain; constraint: DomainConstraintProps }) {
+    super();
+    this.domain = props.domain;
+    this.constraint = props.constraint;
+  }
+
   serialize(): string {
-    throw new Error("AlterDomainValidateConstraint.serialize not implemented");
+    const domainName = `${quoteIdentifier(this.domain.schema)}.${quoteIdentifier(this.domain.name)}`;
+    return [
+      "ALTER DOMAIN",
+      domainName,
+      "VALIDATE CONSTRAINT",
+      quoteIdentifier(this.constraint.name),
+    ].join(" ");
   }
 }

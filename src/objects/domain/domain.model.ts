@@ -13,6 +13,16 @@ export interface DomainProps {
   default_bin: string | null;
   default_value: string | null;
   owner: string;
+  constraints?: DomainConstraintProps[];
+}
+
+export interface DomainConstraintProps {
+  name: string;
+  validated: boolean;
+  is_local: boolean;
+  no_inherit: boolean;
+  check_expression: string | null;
+  owner: string;
 }
 
 /**
@@ -32,6 +42,7 @@ export class Domain extends BasePgModel {
   public readonly default_bin: DomainProps["default_bin"];
   public readonly default_value: DomainProps["default_value"];
   public readonly owner: DomainProps["owner"];
+  public readonly constraints: DomainConstraintProps[];
 
   constructor(props: DomainProps) {
     super();
@@ -50,6 +61,7 @@ export class Domain extends BasePgModel {
     this.default_bin = props.default_bin;
     this.default_value = props.default_value;
     this.owner = props.owner;
+    this.constraints = props.constraints ?? [];
   }
 
   get stableId(): `domain:${string}` {
@@ -108,7 +120,29 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
         c.collname as collation,
         pg_get_expr(t.typdefaultbin, 0) as default_bin,
         t.typdefault as default_value,
-        pg_get_userbyid(t.typowner) as owner
+        pg_get_userbyid(t.typowner) as owner,
+        coalesce(
+          (
+            select json_agg(
+              json_build_object(
+                'name', con.conname,
+                'validated', con.convalidated,
+                'is_local', con.conislocal,
+                'no_inherit', con.connoinherit,
+                'check_expression', pg_get_expr(con.conbin, 0),
+                'owner', pg_get_userbyid(t.typowner)
+              )
+              order by con.conname
+            )
+            from pg_catalog.pg_constraint con
+            inner join pg_catalog.pg_namespace cn on cn.oid = con.connamespace
+            left join pg_depend de on de.classid = 'pg_constraint'::regclass and de.objid = con.oid and de.refclassid = 'pg_extension'::regclass
+            where con.contypid = t.oid
+              and cn.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
+              and cn.nspname not like 'pg\_temp\_%' and cn.nspname not like 'pg\_toast\_temp\_%'
+              and de.objid is null
+          ), '[]'
+        ) as constraints
       from
         pg_catalog.pg_type t
         inner join pg_catalog.pg_namespace n on n.oid = t.typnamespace
