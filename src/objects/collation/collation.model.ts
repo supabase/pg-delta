@@ -2,7 +2,18 @@ import type { Sql } from "postgres";
 import { extractVersion } from "../../version.ts";
 import { BasePgModel } from "../base.model.ts";
 
-type CollationProvider = "d" | "c" | "i" | "b";
+/**
+ * Collation provider codes as stored in pg_collation.collprovider
+ */
+type CollationProvider =
+  /** d = database default provider (omit PROVIDER clause) */
+  | "d"
+  /** b = builtin */
+  | "b"
+  /** c = libc */
+  | "c"
+  /** i = icu */
+  | "i";
 
 /**
  * All properties exposed by CREATE COLLATION statement are included in diff output.
