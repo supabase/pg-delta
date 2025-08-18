@@ -29,7 +29,7 @@ export interface DomainConstraintProps {
 /**
  * A domain is a user-defined data type that is based on another underlying type.
  *
- * @see https://www.postgresql.org/docs/17/domains.html#DOMAINS
+ * @see https://www.postgresql.org/docs/17/domains.html
  */
 export class Domain extends BasePgModel {
   public readonly schema: DomainProps["schema"];
