@@ -114,7 +114,7 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
           and d.classid = 'pg_type'::regclass
       )
       select
-        n.nspname as schema,
+        t.typnamespace::regnamespace as schema,
         t.typname as name,
         bt.typname as base_type,
         bn.nspname as base_type_schema,
