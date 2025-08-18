@@ -146,7 +146,6 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
         pg_catalog.pg_type t
         inner join pg_catalog.pg_namespace n on n.oid = t.typnamespace
         inner join pg_catalog.pg_type bt on bt.oid = t.typbasetype
-        inner join pg_catalog.pg_namespace bn on bn.oid = bt.typnamespace
         left join pg_catalog.pg_collation c on c.oid = t.typcollation
         left outer join extension_oids e on t.oid = e.objid
         where not t.typnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
