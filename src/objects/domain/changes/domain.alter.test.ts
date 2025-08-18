@@ -25,6 +25,7 @@ describe.concurrent("domain", () => {
         collation: null,
         default_bin: null,
         owner: "test",
+        constraints: [],
       };
       const main = new Domain({
         ...props,
@@ -57,6 +58,7 @@ describe.concurrent("domain", () => {
         collation: null,
         default_bin: null,
         owner: "test",
+        constraints: [],
       };
       const main = new Domain({
         ...props,
@@ -89,6 +91,7 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
+        constraints: [],
       };
       const main = new Domain({
         ...props,
@@ -121,6 +124,7 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
+        constraints: [],
       };
       const main = new Domain({
         ...props,
@@ -153,6 +157,7 @@ describe.concurrent("domain", () => {
         collation: null,
         default_bin: null,
         default_value: null,
+        constraints: [],
       };
       const main = new Domain({
         ...props,
@@ -186,6 +191,7 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
+        constraints: [],
       };
       const domain = new Domain(props);
 
@@ -206,6 +212,40 @@ describe.concurrent("domain", () => {
       );
     });
 
+    test("add constraint not valid", () => {
+      const props: DomainProps = {
+        schema: "public",
+        name: "test_domain",
+        base_type: "integer",
+        base_type_schema: "pg_catalog",
+        not_null: false,
+        type_modifier: null,
+        array_dimensions: null,
+        collation: null,
+        default_bin: null,
+        default_value: null,
+        owner: "test",
+        constraints: [],
+      };
+      const domain = new Domain(props);
+
+      const change = new AlterDomainAddConstraint({
+        domain,
+        constraint: {
+          name: "test_check",
+          validated: false,
+          is_local: true,
+          no_inherit: false,
+          check_expression: "VALUE > 0",
+          owner: "test",
+        },
+      });
+
+      expect(change.serialize()).toBe(
+        "ALTER DOMAIN public.test_domain ADD CONSTRAINT test_check CHECK (VALUE > 0) NOT VALID",
+      );
+    });
+
     test("drop constraint", () => {
       const props: DomainProps = {
         schema: "public",
@@ -219,6 +259,7 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
+        constraints: [],
       };
       const domain = new Domain(props);
 
@@ -252,6 +293,7 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
+        constraints: [],
       };
       const domain = new Domain(props);
 

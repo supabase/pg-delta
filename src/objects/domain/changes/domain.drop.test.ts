@@ -16,6 +16,7 @@ describe("domain", () => {
       default_bin: null,
       default_value: null,
       owner: "test",
+      constraints: [],
     });
 
     const change = new DropDomain({

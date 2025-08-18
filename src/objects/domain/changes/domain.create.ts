@@ -33,12 +33,14 @@ export class CreateDomain extends CreateChange {
     // Schema-qualified name
     const domainName = `${quoteIdentifier(this.domain.schema)}.${quoteIdentifier(this.domain.name)}`;
 
-    // Base type with schema
-    let baseType =
+    // Base type (use formatted string for type+typmod and add schema if needed)
+    let baseType = this.domain.base_type_str as string;
+    if (
       this.domain.base_type_schema &&
       this.domain.base_type_schema !== "pg_catalog"
-        ? `${quoteIdentifier(this.domain.base_type_schema)}.${quoteIdentifier(this.domain.base_type)}`
-        : quoteIdentifier(this.domain.base_type);
+    ) {
+      baseType = `${quoteIdentifier(this.domain.base_type_schema)}.${baseType}`;
+    }
 
     // Array dimensions
     if (this.domain.array_dimensions && this.domain.array_dimensions > 0) {

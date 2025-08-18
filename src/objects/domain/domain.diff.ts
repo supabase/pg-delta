@@ -30,7 +30,26 @@ export function diffDomains(
   const changes: Change[] = [];
 
   for (const domainId of created) {
-    changes.push(new CreateDomain({ domain: branch[domainId] }));
+    const newDomain = branch[domainId];
+    changes.push(new CreateDomain({ domain: newDomain }));
+    // For unvalidated constraints, CREATE DOMAIN cannot specify NOT VALID.
+    // Add them after creation and validate to match branch state semantics
+    // (consistent with altered flow tests which add + validate).
+    if (newDomain.constraints && newDomain.constraints.length > 0) {
+      for (const c of newDomain.constraints) {
+        changes.push(
+          new AlterDomainAddConstraint({ domain: newDomain, constraint: c }),
+        );
+        if (c.validated === false) {
+          changes.push(
+            new AlterDomainValidateConstraint({
+              domain: newDomain,
+              constraint: c,
+            }),
+          );
+        }
+      }
+    }
   }
 
   for (const domainId of dropped) {
@@ -74,80 +93,75 @@ export function diffDomains(
     }
 
     // DOMAIN CONSTRAINTS
-    if (mainDomain.constraints || branchDomain.constraints) {
-      const mainByName = new Map(
-        (mainDomain.constraints ?? []).map((c) => [c.name, c]),
-      );
-      const branchByName = new Map(
-        (branchDomain.constraints ?? []).map((c) => [c.name, c]),
-      );
+    const mainByName = new Map(mainDomain.constraints.map((c) => [c.name, c]));
+    const branchByName = new Map(
+      branchDomain.constraints.map((c) => [c.name, c]),
+    );
 
-      // Note: Constraint renames are modeled as drop+add because name is part
-      // of the identity we diff on. No dedicated rename class is generated here.
+    // Note: Constraint renames are modeled as drop+add because name is part
+    // of the identity we diff on. No dedicated rename class is generated here.
 
-      // Created
-      for (const [name, c] of branchByName) {
-        if (!mainByName.has(name)) {
+    // Created
+    for (const [name, c] of branchByName) {
+      if (!mainByName.has(name)) {
+        changes.push(
+          new AlterDomainAddConstraint({
+            domain: branchDomain,
+            constraint: c,
+          }),
+        );
+        if (!c.validated) {
           changes.push(
-            new AlterDomainAddConstraint({
+            new AlterDomainValidateConstraint({
               domain: branchDomain,
               constraint: c,
             }),
           );
-          if (!c.validated) {
-            changes.push(
-              new AlterDomainValidateConstraint({
-                domain: branchDomain,
-                constraint: c,
-              }),
-            );
-          }
         }
       }
+    }
 
-      // Dropped
-      for (const [name, c] of mainByName) {
-        if (!branchByName.has(name)) {
-          changes.push(
-            new AlterDomainDropConstraint({
-              domain: mainDomain,
-              constraint: c,
-            }),
-          );
-        }
+    // Dropped
+    for (const [name, c] of mainByName) {
+      if (!branchByName.has(name)) {
+        changes.push(
+          new AlterDomainDropConstraint({
+            domain: mainDomain,
+            constraint: c,
+          }),
+        );
       }
+    }
 
-      // Altered (drop + add for now)
-      for (const [name, mainC] of mainByName) {
-        const branchC = branchByName.get(name);
-        if (!branchC) continue;
-        const changed =
-          mainC.validated !== branchC.validated ||
-          mainC.is_local !== branchC.is_local ||
-          mainC.no_inherit !== branchC.no_inherit ||
-          mainC.check_expression !== branchC.check_expression ||
-          mainC.owner !== branchC.owner;
-        if (changed) {
+    // Altered (drop + add for now)
+    for (const [name, mainC] of mainByName) {
+      const branchC = branchByName.get(name);
+      if (!branchC) continue;
+      const changed =
+        mainC.validated !== branchC.validated ||
+        mainC.is_local !== branchC.is_local ||
+        mainC.no_inherit !== branchC.no_inherit ||
+        mainC.check_expression !== branchC.check_expression;
+      if (changed) {
+        changes.push(
+          new AlterDomainDropConstraint({
+            domain: mainDomain,
+            constraint: mainC,
+          }),
+        );
+        changes.push(
+          new AlterDomainAddConstraint({
+            domain: branchDomain,
+            constraint: branchC,
+          }),
+        );
+        if (!branchC.validated) {
           changes.push(
-            new AlterDomainDropConstraint({
-              domain: mainDomain,
-              constraint: mainC,
-            }),
-          );
-          changes.push(
-            new AlterDomainAddConstraint({
+            new AlterDomainValidateConstraint({
               domain: branchDomain,
               constraint: branchC,
             }),
           );
-          if (!branchC.validated) {
-            changes.push(
-              new AlterDomainValidateConstraint({
-                domain: branchDomain,
-                constraint: branchC,
-              }),
-            );
-          }
         }
       }
     }

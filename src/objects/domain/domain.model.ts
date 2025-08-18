@@ -6,6 +6,7 @@ export interface DomainProps {
   name: string;
   base_type: string;
   base_type_schema: string;
+  base_type_str?: string;
   not_null: boolean;
   type_modifier: number | null;
   array_dimensions: number | null;
@@ -13,7 +14,7 @@ export interface DomainProps {
   default_bin: string | null;
   default_value: string | null;
   owner: string;
-  constraints?: DomainConstraintProps[];
+  constraints: DomainConstraintProps[];
 }
 
 export interface DomainConstraintProps {
@@ -35,6 +36,7 @@ export class Domain extends BasePgModel {
   public readonly name: DomainProps["name"];
   public readonly base_type: DomainProps["base_type"];
   public readonly base_type_schema: DomainProps["base_type_schema"];
+  public readonly base_type_str?: DomainProps["base_type_str"];
   public readonly not_null: DomainProps["not_null"];
   public readonly type_modifier: DomainProps["type_modifier"];
   public readonly array_dimensions: DomainProps["array_dimensions"];
@@ -54,6 +56,7 @@ export class Domain extends BasePgModel {
     // Data fields
     this.base_type = props.base_type;
     this.base_type_schema = props.base_type_schema;
+    this.base_type_str = props.base_type_str;
     this.not_null = props.not_null;
     this.type_modifier = props.type_modifier;
     this.array_dimensions = props.array_dimensions;
@@ -61,7 +64,7 @@ export class Domain extends BasePgModel {
     this.default_bin = props.default_bin;
     this.default_value = props.default_value;
     this.owner = props.owner;
-    this.constraints = props.constraints ?? [];
+    this.constraints = props.constraints;
   }
 
   get stableId(): `domain:${string}` {
@@ -86,6 +89,7 @@ export class Domain extends BasePgModel {
       default_bin: this.default_bin,
       default_value: this.default_value,
       owner: this.owner,
+      constraints: this.constraints,
     };
   }
 }
@@ -114,10 +118,11 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
         t.typname as name,
         bt.typname as base_type,
         bn.nspname as base_type_schema,
+        format_type(t.typbasetype, t.typtypmod) as base_type_str,
         t.typnotnull as not_null,
         t.typtypmod as type_modifier,
         t.typndims as array_dimensions,
-        c.collname as collation,
+        case when t.typcollation <> bt.typcollation then c.collname else null end as collation,
         pg_get_expr(t.typdefaultbin, 0) as default_bin,
         t.typdefault as default_value,
         pg_get_userbyid(t.typowner) as owner,

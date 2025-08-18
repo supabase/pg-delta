@@ -134,7 +134,7 @@ export class AlterDomainChangeOwner extends AlterChange {
 }
 
 /**
- * Dummy class for ADD CONSTRAINT (to be implemented when constraints are added to Domain)
+ * ALTER DOMAIN ... ADD CONSTRAINT ... [ NOT VALID ]
  */
 export class AlterDomainAddConstraint extends AlterChange {
   public readonly domain: Domain;
@@ -153,10 +153,9 @@ export class AlterDomainAddConstraint extends AlterChange {
       domainName,
       "ADD CONSTRAINT",
       quoteIdentifier(this.constraint.name),
-      "CHECK",
     ];
     if (this.constraint.check_expression) {
-      parts.push(`(${this.constraint.check_expression})`);
+      parts.push(`CHECK (${this.constraint.check_expression})`);
     }
     if (!this.constraint.validated) {
       parts.push("NOT VALID");
@@ -166,7 +165,7 @@ export class AlterDomainAddConstraint extends AlterChange {
 }
 
 /**
- * Dummy class for DROP CONSTRAINT (to be implemented when constraints are added to Domain)
+ * ALTER DOMAIN ... DROP CONSTRAINT ...
  */
 export class AlterDomainDropConstraint extends AlterChange {
   public readonly domain: Domain;
@@ -189,14 +188,11 @@ export class AlterDomainDropConstraint extends AlterChange {
   }
 }
 
-/**
- * Dummy class for RENAME CONSTRAINT (to be implemented when constraints are added to Domain)
- */
-// Note: Domain constraint renames are modeled as drop+add because the
-// constraint name is part of the identity used in diffing and deps.
+// Constraint renames are modeled as drop+add because the constraint name
+// is part of the identity used in diffing and dependency resolution.
 
 /**
- * Dummy class for VALIDATE CONSTRAINT (to be implemented when constraints are added to Domain)
+ * ALTER DOMAIN ... VALIDATE CONSTRAINT ...
  */
 export class AlterDomainValidateConstraint extends AlterChange {
   public readonly domain: Domain;

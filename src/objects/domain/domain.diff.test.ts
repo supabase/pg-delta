@@ -26,6 +26,7 @@ const base: DomainProps = {
   default_bin: null,
   default_value: null,
   owner: "o1",
+  constraints: [],
 };
 
 describe.concurrent("domain.diff", () => {
@@ -35,6 +36,41 @@ describe.concurrent("domain.diff", () => {
     expect(created[0]).toBeInstanceOf(CreateDomain);
     const dropped = diffDomains({ [d.stableId]: d }, {});
     expect(dropped[0]).toBeInstanceOf(DropDomain);
+  });
+
+  test("create with constraints results in add (+validate if needed) after create", () => {
+    const d = new Domain({
+      ...base,
+      constraints: [
+        {
+          name: "c_valid",
+          validated: true,
+          is_local: true,
+          no_inherit: false,
+          check_expression: "VALUE > 0",
+          owner: base.owner,
+        },
+        {
+          name: "c_not_valid",
+          validated: false,
+          is_local: true,
+          no_inherit: false,
+          check_expression: "VALUE < 100",
+          owner: base.owner,
+        },
+      ],
+    });
+
+    const created = diffDomains({}, { [d.stableId]: d });
+    expect(created[0]).toBeInstanceOf(CreateDomain);
+    // Expect ADD for both constraints
+    expect(created.some((c) => c instanceof AlterDomainAddConstraint)).toBe(
+      true,
+    );
+    // Expect VALIDATE for the unvalidated one
+    expect(
+      created.some((c) => c instanceof AlterDomainValidateConstraint),
+    ).toBe(true);
   });
 
   test("alter default set/drop and not null set/drop and owner", () => {
@@ -95,8 +131,6 @@ describe.concurrent("domain.diff", () => {
     });
     const branch = new Domain({
       ...base,
-      // Trigger altered detection without generating extra ALTER statements
-      type_modifier: 1,
       constraints: [
         {
           name: "c_check",
@@ -136,8 +170,6 @@ describe.concurrent("domain.diff", () => {
     });
     const branch = new Domain({
       ...base,
-      // Trigger altered detection without generating extra ALTER statements
-      type_modifier: 1,
       constraints: [
         {
           name: "c_check",
@@ -158,5 +190,84 @@ describe.concurrent("domain.diff", () => {
     expect(changes.length).toBe(2);
     expect(changes[0]).toBeInstanceOf(AlterDomainDropConstraint);
     expect(changes[1]).toBeInstanceOf(AlterDomainAddConstraint);
+  });
+
+  test("alter: add new validated constraint produces add only", () => {
+    const main = new Domain(base);
+    const branch = new Domain({
+      ...base,
+      constraints: [
+        {
+          name: "c_new",
+          validated: true,
+          is_local: true,
+          no_inherit: false,
+          check_expression: "VALUE <> ''",
+          owner: base.owner,
+        },
+      ],
+    });
+
+    const changes = diffDomains(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+
+    expect(changes.length).toBe(1);
+    expect(changes[0]).toBeInstanceOf(AlterDomainAddConstraint);
+  });
+
+  test("alter: add new not validated constraint produces add + validate", () => {
+    const main = new Domain(base);
+    const branch = new Domain({
+      ...base,
+      constraints: [
+        {
+          name: "c_new",
+          validated: false,
+          is_local: true,
+          no_inherit: false,
+          check_expression: "VALUE <> ''",
+          owner: base.owner,
+        },
+      ],
+    });
+
+    const changes = diffDomains(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+
+    expect(changes.length).toBe(2);
+    expect(changes[0]).toBeInstanceOf(AlterDomainAddConstraint);
+    expect(changes[1]).toBeInstanceOf(AlterDomainValidateConstraint);
+  });
+
+  test("alter: drop existing constraint produces drop only", () => {
+    const main = new Domain({
+      ...base,
+      constraints: [
+        {
+          name: "c_drop",
+          validated: true,
+          is_local: true,
+          no_inherit: false,
+          check_expression: "VALUE <> ''",
+          owner: base.owner,
+        },
+      ],
+    });
+    const branch = new Domain({
+      ...base,
+      constraints: [],
+    });
+
+    const changes = diffDomains(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+
+    expect(changes.length).toBe(1);
+    expect(changes[0]).toBeInstanceOf(AlterDomainDropConstraint);
   });
 });
