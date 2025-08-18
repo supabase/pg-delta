@@ -149,8 +149,7 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
         inner join pg_catalog.pg_namespace bn on bn.oid = bt.typnamespace
         left join pg_catalog.pg_collation c on c.oid = t.typcollation
         left outer join extension_oids e on t.oid = e.objid
-        where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-        and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
+        where not t.typnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
         and e.objid is null
         and t.typtype = 'd'
       order by
