@@ -3,6 +3,7 @@ import {
   quoteIdentifier,
   ReplaceChange,
 } from "../../base.change.ts";
+import type { TableLikeObject } from "../../base.model.ts";
 import type { Index } from "../index.model.ts";
 import { CreateIndex } from "./index.create.ts";
 import { DropIndex } from "./index.drop.ts";
@@ -108,16 +109,25 @@ export class AlterIndexSetTablespace extends AlterChange {
 export class ReplaceIndex extends ReplaceChange {
   public readonly main: Index;
   public readonly branch: Index;
+  public readonly indexableObject?: TableLikeObject;
 
-  constructor(props: { main: Index; branch: Index }) {
+  constructor(props: {
+    main: Index;
+    branch: Index;
+    indexableObject?: TableLikeObject;
+  }) {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.indexableObject = props.indexableObject;
   }
 
   serialize(): string {
     const dropChange = new DropIndex({ index: this.main });
-    const createChange = new CreateIndex({ index: this.branch });
+    const createChange = new CreateIndex({
+      index: this.branch,
+      indexableObject: this.indexableObject,
+    });
 
     return [dropChange.serialize(), createChange.serialize()].join(";\n");
   }

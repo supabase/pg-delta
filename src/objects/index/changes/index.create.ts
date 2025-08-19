@@ -37,9 +37,8 @@ export class CreateIndex extends CreateChange {
     }
 
     if (!this.indexableObject || this.indexableObject.columns.length === 0) {
-      // If no indexable object provided or no columns, fall back to generic column names
-      return this.index.key_columns.map(
-        (colNum, index) => `column${colNum || index + 1}`,
+      throw new Error(
+        "CreateIndex requires an indexableObject with columns when key_columns are used",
       );
     }
 
@@ -53,12 +52,12 @@ export class CreateIndex extends CreateChange {
     const columnNames: string[] = [];
     for (const colNum of this.index.key_columns) {
       const columnName = columnMap.get(colNum);
-      if (columnName) {
-        columnNames.push(quoteIdentifier(columnName));
-      } else {
-        // Fallback if column not found
-        columnNames.push(`column${colNum}`);
+      if (!columnName) {
+        throw new Error(
+          `CreateIndex could not resolve column position ${colNum} to a column name`,
+        );
       }
+      columnNames.push(quoteIdentifier(columnName));
     }
 
     return columnNames;
@@ -83,14 +82,43 @@ export class CreateIndex extends CreateChange {
       `${quoteIdentifier(this.index.table_schema)}.${quoteIdentifier(this.index.table_name)}`,
     );
 
-    // Add columns
+    // Add columns (with per-column options)
     const columnNames = this.getColumnNames();
+    const isExpressionOnly = this.index.index_expressions !== null;
+    const columnItems = isExpressionOnly
+      ? columnNames
+      : columnNames.map((col, i) => {
+          const itemParts: string[] = [col];
+          const collation = this.index.column_collations[i];
+          if (collation) {
+            itemParts.push(`COLLATE ${collation}`);
+          }
+          const opclass = this.index.operator_classes[i];
+          if (opclass) {
+            itemParts.push(opclass);
+          }
+          const optionBits = this.index.column_options[i] ?? 0;
+          const isDesc = (optionBits & 1) === 1; // INDOPTION_DESC
+          const isNullsFirst = (optionBits & 2) === 2; // INDOPTION_NULLS_FIRST
+          if (isDesc) {
+            itemParts.push("DESC");
+          }
+          if (isNullsFirst) {
+            itemParts.push("NULLS FIRST");
+          }
+          return itemParts.join(" ");
+        });
 
     // Add USING method if specified (concatenated with opening parenthesis)
     if (this.index.index_type && this.index.index_type !== "btree") {
-      parts.push(`USING ${this.index.index_type}(${columnNames.join(", ")})`);
+      parts.push(`USING ${this.index.index_type}(${columnItems.join(", ")})`);
     } else {
-      parts.push(`(${columnNames.join(", ")})`);
+      parts.push(`(${columnItems.join(", ")})`);
+    }
+
+    // UNIQUE indexes can specify NULLS NOT DISTINCT
+    if (this.index.is_unique && this.index.nulls_not_distinct) {
+      parts.push("NULLS NOT DISTINCT");
     }
 
     // Add WHERE clause if partial index
