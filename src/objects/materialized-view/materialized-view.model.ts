@@ -112,49 +112,23 @@ with extension_oids as (
   where
     d.refclassid = 'pg_extension'::regclass
     and d.classid = 'pg_class'::regclass
-), materialized_views as (
-  select
-    n.nspname as schema,
-    c.relname as name,
-    pg_get_viewdef(c.oid) as definition,
-    c.relrowsecurity as row_security,
-    c.relforcerowsecurity as force_row_security,
-    c.relhasindex as has_indexes,
-    c.relhasrules as has_rules,
-    c.relhastriggers as has_triggers,
-    c.relhassubclass as has_subclasses,
-    c.relispopulated as is_populated,
-    c.relreplident as replica_identity,
-    c.relispartition as is_partition,
-    c.reloptions as options,
-    pg_get_expr(c.relpartbound, c.oid) as partition_bound,
-    pg_get_userbyid(c.relowner) as owner,
-    c.oid as oid
-  from
-    pg_catalog.pg_class c
-    inner join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-    left outer join extension_oids e on c.oid = e.objid
-  where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-    and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
-    and e.objid is null
-    and c.relkind = 'm'
 )
 select
-  mv.schema,
-  mv.name,
-  mv.definition,
-  mv.row_security,
-  mv.force_row_security,
-  mv.has_indexes,
-  mv.has_rules,
-  mv.has_triggers,
-  mv.has_subclasses,
-  mv.is_populated,
-  mv.replica_identity,
-  mv.is_partition,
-  mv.options,
-  mv.partition_bound,
-  mv.owner,
+  c.relnamespace::regnamespace as schema,
+  c.relname as name,
+  pg_get_viewdef(c.oid) as definition,
+  c.relrowsecurity as row_security,
+  c.relforcerowsecurity as force_row_security,
+  c.relhasindex as has_indexes,
+  c.relhasrules as has_rules,
+  c.relhastriggers as has_triggers,
+  c.relhassubclass as has_subclasses,
+  c.relispopulated as is_populated,
+  c.relreplident as replica_identity,
+  c.relispartition as is_partition,
+  c.reloptions as options,
+  pg_get_expr(c.relpartbound, c.oid) as partition_bound,
+  c.relowner::regrole as owner,
   coalesce(json_agg(
     case when a.attname is not null then
       json_build_object(
@@ -162,11 +136,11 @@ select
         'position', a.attnum,
         'data_type', a.atttypid::regtype::text,
         'data_type_str', format_type(a.atttypid, a.atttypmod),
-        'is_custom_type', n.nspname not in ('pg_catalog', 'information_schema'),
-        'custom_type_type', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typtype else null end,
-        'custom_type_category', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typcategory else null end,
-        'custom_type_schema', case when n.nspname not in ('pg_catalog', 'information_schema') then n.nspname else null end,
-        'custom_type_name', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typname else null end,
+        'is_custom_type', ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema'),
+        'custom_type_type', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typtype else null end,
+        'custom_type_category', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typcategory else null end,
+        'custom_type_schema', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typnamespace::regnamespace else null end,
+        'custom_type_name', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typname else null end,
         'not_null', a.attnotnull,
         'is_identity', a.attidentity != '',
         'is_identity_always', a.attidentity = 'a',
@@ -185,15 +159,18 @@ select
     order by a.attnum
   ) filter (where a.attname is not null), '[]') as columns
 from
-  materialized_views mv
-  left join pg_attribute a on a.attrelid = mv.oid and a.attnum > 0 and not a.attisdropped
+  pg_catalog.pg_class c
+  left outer join extension_oids e on c.oid = e.objid
+  left join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
   left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum
   left join pg_type ty on ty.oid = a.atttypid
-  left join pg_namespace n on n.oid = ty.typnamespace
+where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
+  and e.objid is null
+  and c.relkind = 'm'
 group by
-  mv.schema, mv.name, mv.definition, mv.row_security, mv.force_row_security, mv.has_indexes, mv.has_rules, mv.has_triggers, mv.has_subclasses, mv.is_populated, mv.replica_identity, mv.is_partition, mv.options, mv.partition_bound, mv.owner
+  c.relnamespace, c.relname, pg_get_viewdef(c.oid), c.relrowsecurity, c.relforcerowsecurity, c.relhasindex, c.relhasrules, c.relhastriggers, c.relhassubclass, c.relispopulated, c.relreplident, c.relispartition, c.reloptions, pg_get_expr(c.relpartbound, c.oid), c.relowner
 order by
-  mv.schema, mv.name;
+  c.relnamespace::regnamespace, c.relname;
     `;
     return mvRows.map((row) => new MaterializedView(row));
   });
