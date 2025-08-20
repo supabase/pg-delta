@@ -36,10 +36,9 @@ export class AlterLanguageChangeOwner extends AlterChange {
   serialize(): string {
     const parts: string[] = ["ALTER"];
 
-    // PROCEDURAL keyword (optional but can be included for clarity)
-    if (this.main.is_procedural) {
-      parts.push("PROCEDURAL");
-    }
+    // Do not print the optional PROCEDURAL keyword.
+    // It is syntactic noise and the default for procedural languages,
+    // so we purposely omit it to avoid emitting defaults.
 
     parts.push(
       "LANGUAGE",

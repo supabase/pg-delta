@@ -23,24 +23,27 @@ export class CreateLanguage extends CreateChange {
   serialize(): string {
     const parts: string[] = ["CREATE"];
 
-    // TRUSTED keyword
+    // Only include non-default flags. We never print the optional
+    // PROCEDURAL keyword or any defaults.
+
+    // TRUSTED keyword (default is untrusted -> omitted unless true)
     if (this.language.is_trusted) {
       parts.push("TRUSTED");
     }
 
     parts.push("LANGUAGE", quoteIdentifier(this.language.name));
 
-    // HANDLER
+    // HANDLER (omit when null)
     if (this.language.call_handler) {
       parts.push("HANDLER", this.language.call_handler);
     }
 
-    // INLINE
+    // INLINE (omit when null)
     if (this.language.inline_handler) {
       parts.push("INLINE", this.language.inline_handler);
     }
 
-    // VALIDATOR
+    // VALIDATOR (omit when null)
     if (this.language.validator) {
       parts.push("VALIDATOR", this.language.validator);
     }

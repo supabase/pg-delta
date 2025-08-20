@@ -28,7 +28,7 @@ describe.concurrent("language", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER PROCEDURAL LANGUAGE plpgsql OWNER TO new_owner",
+        "ALTER LANGUAGE plpgsql OWNER TO new_owner",
       );
     });
 
