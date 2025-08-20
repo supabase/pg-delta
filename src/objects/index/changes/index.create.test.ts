@@ -106,10 +106,14 @@ describe("index", () => {
       immediate: true,
       is_clustered: false,
       is_replica_identity: false,
-      key_columns: [1, 2],
-      column_collations: ["pg_catalog.C", "pg_catalog.C"],
-      operator_classes: ["pg_catalog.int4_ops", "pg_catalog.timestamptz_ops"],
-      column_options: [0, 1],
+      key_columns: [1, 2, 3],
+      column_collations: ["pg_catalog.C", "pg_catalog.C", "pg_catalog.C"],
+      operator_classes: [
+        "pg_catalog.int4_ops",
+        "pg_catalog.timestamptz_ops",
+        "pg_catalog.int4_ops",
+      ],
+      column_options: [0, 3, 1],
       index_expressions: null,
       partial_predicate: null,
       table_relkind: "r",
@@ -152,17 +156,33 @@ describe("index", () => {
         default: null,
         comment: null,
       },
+      {
+        name: "priority",
+        position: 3,
+        data_type: "integer",
+        data_type_str: "integer",
+        is_custom_type: false,
+        custom_type_type: null,
+        custom_type_category: null,
+        custom_type_schema: null,
+        custom_type_name: null,
+        not_null: false,
+        is_identity: false,
+        is_identity_always: false,
+        is_generated: false,
+        collation: null,
+        default: null,
+        comment: null,
+      },
     ];
-
-    const indexableObject: { columns: ColumnProps[] } = { columns };
 
     const changeCols = new CreateIndex({
       index: indexWithCols,
-      indexableObject,
+      indexableObject: { columns },
     });
 
     expect(changeCols.serialize()).toBe(
-      "CREATE INDEX test_index_cols ON public.test_table (id COLLATE pg_catalog.C pg_catalog.int4_ops, updated_at COLLATE pg_catalog.C pg_catalog.timestamptz_ops DESC)",
+      "CREATE INDEX test_index_cols ON public.test_table (id COLLATE pg_catalog.C pg_catalog.int4_ops, updated_at COLLATE pg_catalog.C pg_catalog.timestamptz_ops DESC NULLS FIRST, priority COLLATE pg_catalog.C pg_catalog.int4_ops DESC NULLS LAST)",
     );
   });
 });

@@ -41,15 +41,50 @@ export class AlterIndexSetStorageParams extends AlterChange {
   }
 
   serialize(): string {
-    const storageParams = this.branch.storage_params
-      .map((param) => param)
-      .join(", ");
+    const parseOptions = (options: string[]) => {
+      const map = new Map<string, string>();
+      for (const opt of options) {
+        const eqIndex = opt.indexOf("=");
+        const key = opt.slice(0, eqIndex);
+        const value = opt.slice(eqIndex + 1);
+        map.set(key, value);
+      }
+      return map;
+    };
 
-    return [
+    const mainMap = parseOptions(this.main.storage_params);
+    const branchMap = parseOptions(this.branch.storage_params);
+
+    const keysToReset: string[] = [];
+    for (const key of mainMap.keys()) {
+      if (!branchMap.has(key)) {
+        keysToReset.push(key);
+      }
+    }
+
+    const paramsToSet: string[] = [];
+    for (const [key, newValue] of branchMap.entries()) {
+      const oldValue = mainMap.get(key);
+      const changed = oldValue !== newValue;
+      if (changed) {
+        paramsToSet.push(`${key}=${newValue}`);
+      }
+    }
+
+    const head = [
       "ALTER INDEX",
-      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.table_name)}.${quoteIdentifier(this.main.name)}`,
-      `SET (${storageParams})`,
+      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.name)}`,
     ].join(" ");
+
+    const statements: string[] = [];
+    if (keysToReset.length > 0) {
+      statements.push(`${head} RESET (${keysToReset.join(", ")})`);
+    }
+    if (paramsToSet.length > 0) {
+      statements.push(`${head} SET (${paramsToSet.join(", ")})`);
+    }
+
+    return statements.join(";\n");
   }
 }
 
@@ -67,14 +102,28 @@ export class AlterIndexSetStatistics extends AlterChange {
   }
 
   serialize(): string {
-    const statisticsTarget = this.branch.statistics_target[0]; // Assuming single value for now
-
-    return [
+    const statements: string[] = [];
+    const head = [
       "ALTER INDEX",
-      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.table_name)}.${quoteIdentifier(this.main.name)}`,
-      "SET STATISTICS",
-      statisticsTarget.toString(),
+      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.name)}`,
     ].join(" ");
+
+    const mainTargets = this.main.statistics_target;
+    const branchTargets = this.branch.statistics_target;
+    const length = Math.max(mainTargets.length, branchTargets.length);
+
+    for (let i = 0; i < length; i++) {
+      const oldVal = mainTargets[i];
+      const newVal = branchTargets[i];
+      if (oldVal !== newVal && newVal !== undefined) {
+        const colNumber = i + 1; // PostgreSQL column_number is 1-based
+        statements.push(
+          `${head} ALTER COLUMN ${colNumber} SET STATISTICS ${newVal.toString()}`,
+        );
+      }
+    }
+
+    return statements.join(";\n");
   }
 }
 
@@ -94,7 +143,7 @@ export class AlterIndexSetTablespace extends AlterChange {
   serialize(): string {
     return [
       "ALTER INDEX",
-      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.table_name)}.${quoteIdentifier(this.main.name)}`,
+      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.name)}`,
       "SET TABLESPACE",
       // biome-ignore lint/style/noNonNullAssertion: the tablespace is set in this case
       quoteIdentifier(this.branch.tablespace!),

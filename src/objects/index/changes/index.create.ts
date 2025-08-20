@@ -105,6 +105,9 @@ export class CreateIndex extends CreateChange {
           }
           if (isNullsFirst) {
             itemParts.push("NULLS FIRST");
+          } else if (isDesc) {
+            // For DESC, default is NULLS FIRST; if flag is not set, emit NULLS LAST
+            itemParts.push("NULLS LAST");
           }
           return itemParts.join(" ");
         });

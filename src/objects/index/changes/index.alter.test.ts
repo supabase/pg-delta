@@ -48,7 +48,52 @@ describe.concurrent("index", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER INDEX public.test_table.test_index SET (fillfactor=90)",
+        "ALTER INDEX public.test_index SET (fillfactor=90)",
+      );
+    });
+
+    test("reset and set storage params", () => {
+      const props: Omit<IndexProps, "storage_params"> = {
+        table_schema: "public",
+        table_name: "test_table",
+        name: "test_index",
+        statistics_target: [0],
+        index_type: "btree",
+        tablespace: null,
+        is_unique: false,
+        is_primary: false,
+        is_exclusion: false,
+        nulls_not_distinct: false,
+        immediate: true,
+        is_clustered: false,
+        is_replica_identity: false,
+        key_columns: [1],
+        column_collations: [],
+        operator_classes: [],
+        column_options: [],
+        index_expressions: null,
+        partial_predicate: null,
+        table_relkind: "r",
+      };
+      const main = new Index({
+        ...props,
+        storage_params: ["fillfactor=70", "fastupdate=on"],
+      });
+      const branch = new Index({
+        ...props,
+        storage_params: ["fillfactor=90"],
+      });
+
+      const change = new AlterIndexSetStorageParams({
+        main,
+        branch,
+      });
+
+      expect(change.serialize()).toBe(
+        [
+          "ALTER INDEX public.test_index RESET (fastupdate)",
+          "ALTER INDEX public.test_index SET (fillfactor=90)",
+        ].join(";\n"),
       );
     });
 
@@ -90,7 +135,7 @@ describe.concurrent("index", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER INDEX public.test_table.test_index SET STATISTICS 100",
+        "ALTER INDEX public.test_index ALTER COLUMN 1 SET STATISTICS 100",
       );
     });
 
@@ -132,7 +177,7 @@ describe.concurrent("index", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER INDEX public.test_table.test_index SET TABLESPACE fast_space",
+        "ALTER INDEX public.test_index SET TABLESPACE fast_space",
       );
     });
 
