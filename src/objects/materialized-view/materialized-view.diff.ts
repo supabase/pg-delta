@@ -3,6 +3,7 @@ import { diffObjects } from "../base.diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterMaterializedViewChangeOwner,
+  AlterMaterializedViewSetStorageParams,
   ReplaceMaterializedView,
 } from "./changes/materialized-view.alter.ts";
 import { CreateMaterializedView } from "./changes/materialized-view.create.ts";
@@ -55,7 +56,6 @@ export function diffMaterializedViews(
       "is_populated",
       "replica_identity",
       "is_partition",
-      "options",
       "partition_bound",
     ];
     const nonAlterablePropsChanged = hasNonAlterableChanges(
@@ -80,6 +80,19 @@ export function diffMaterializedViews(
       if (mainMaterializedView.owner !== branchMaterializedView.owner) {
         changes.push(
           new AlterMaterializedViewChangeOwner({
+            main: mainMaterializedView,
+            branch: branchMaterializedView,
+          }),
+        );
+      }
+
+      // STORAGE PARAMETERS (reloptions)
+      // Emit a combined SET/RESET change similar to indexes
+      if (
+        !deepEqual(mainMaterializedView.options, branchMaterializedView.options)
+      ) {
+        changes.push(
+          new AlterMaterializedViewSetStorageParams({
             main: mainMaterializedView,
             branch: branchMaterializedView,
           }),

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   AlterMaterializedViewChangeOwner,
+  AlterMaterializedViewSetStorageParams,
   ReplaceMaterializedView,
 } from "./changes/materialized-view.alter.ts";
 import { CreateMaterializedView } from "./changes/materialized-view.create.ts";
@@ -57,5 +58,23 @@ describe.concurrent("materialized-view.diff", () => {
       { [branch.stableId]: branch },
     );
     expect(changes[0]).toBeInstanceOf(ReplaceMaterializedView);
+  });
+
+  test("alter storage parameters: set and reset", () => {
+    const main = new MaterializedView({
+      ...base,
+      options: ["fillfactor=90", "autovacuum_enabled=false"],
+    });
+    const branch = new MaterializedView({
+      ...base,
+      options: ["fillfactor=70", "user_catalog_table=true"],
+    });
+    const changes = diffMaterializedViews(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(
+      changes.some((c) => c instanceof AlterMaterializedViewSetStorageParams),
+    ).toBe(true);
   });
 });

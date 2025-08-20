@@ -10,6 +10,10 @@ import type { MaterializedView } from "../materialized-view.model.ts";
  * ```sql
  * DROP MATERIALIZED VIEW [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
  * ```
+ *
+ * Notes for diff-based generation:
+ * - IF EXISTS is omitted for deterministic diffs; the object must exist in the source.
+ * - We do not emit CASCADE; dependency ordering ensures safe drops, and RESTRICT is default.
  */
 export class DropMaterializedView extends DropChange {
   public readonly materializedView: MaterializedView;

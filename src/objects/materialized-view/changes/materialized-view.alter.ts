@@ -29,8 +29,16 @@ import { DropMaterializedView } from "./materialized-view.drop.ts";
  *     RENAME TO new_name
  *     SET SCHEMA new_schema
  * ```
+ *
+ * Notes for diff-based generation:
+ * - We currently only emit OWNER TO when owner differs.
+ * - Name/schema changes are treated as identity changes; handled as drop/create by the diff engine.
+ * - Column attribute changes, CLUSTER are not modeled and thus not emitted.
+ * - Changes to definition, options, and other non-alterable properties trigger a replace (drop + create).
  */
-export type AlterMaterializedView = AlterMaterializedViewChangeOwner;
+export type AlterMaterializedView =
+  | AlterMaterializedViewChangeOwner
+  | AlterMaterializedViewSetStorageParams;
 
 /**
  * ALTER MATERIALIZED VIEW ... OWNER TO ...
@@ -52,6 +60,69 @@ export class AlterMaterializedViewChangeOwner extends AlterChange {
       "OWNER TO",
       quoteIdentifier(this.branch.owner),
     ].join(" ");
+  }
+}
+
+/**
+ * ALTER MATERIALIZED VIEW ... SET/RESET ( storage_parameter ... )
+ * Accepts main and branch, computes differences, and emits RESET then SET statements.
+ */
+export class AlterMaterializedViewSetStorageParams extends AlterChange {
+  public readonly main: MaterializedView;
+  public readonly branch: MaterializedView;
+
+  constructor(props: { main: MaterializedView; branch: MaterializedView }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    const parseOptions = (options: string[] | null | undefined) => {
+      const map = new Map<string, string>();
+      if (!options) return map;
+      for (const opt of options) {
+        const eqIndex = opt.indexOf("=");
+        const key = opt.slice(0, eqIndex).trim();
+        const value = opt.slice(eqIndex + 1).trim();
+        map.set(key, value);
+      }
+      return map;
+    };
+
+    const mainMap = parseOptions(this.main.options);
+    const branchMap = parseOptions(this.branch.options);
+
+    const keysToReset: string[] = [];
+    for (const key of mainMap.keys()) {
+      if (!branchMap.has(key)) {
+        keysToReset.push(key);
+      }
+    }
+
+    const paramsToSet: string[] = [];
+    for (const [key, newValue] of branchMap.entries()) {
+      const oldValue = mainMap.get(key);
+      const changed = oldValue !== newValue;
+      if (changed) {
+        paramsToSet.push(newValue === undefined ? key : `${key}=${newValue}`);
+      }
+    }
+
+    const head = [
+      "ALTER MATERIALIZED VIEW",
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+    ].join(" ");
+
+    const statements: string[] = [];
+    if (keysToReset.length > 0) {
+      statements.push(`${head} RESET (${keysToReset.join(", ")})`);
+    }
+    if (paramsToSet.length > 0) {
+      statements.push(`${head} SET (${paramsToSet.join(", ")})`);
+    }
+
+    return statements.join(";\n");
   }
 }
 

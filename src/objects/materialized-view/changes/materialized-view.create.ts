@@ -15,6 +15,13 @@ import type { MaterializedView } from "../materialized-view.model.ts";
  *     AS query
  *     [ WITH [ NO ] DATA ]
  * ```
+ *
+ * Notes for diff-based generation:
+ * - IF NOT EXISTS is omitted: diffs are deterministic and explicit.
+ * - (column_name, ...) list is derived from the SELECT query; we don't emit it.
+ * - TABLESPACE is not currently modeled/extracted and is not emitted.
+ * - WITH (options) is emitted only when non-empty.
+ * - WITH NO DATA is PostgreSQL's default and is omitted; WITH DATA is emitted only when requested.
  */
 export class CreateMaterializedView extends CreateChange {
   public readonly materializedView: MaterializedView;
@@ -40,18 +47,13 @@ export class CreateMaterializedView extends CreateChange {
       parts.push("WITH", `(${this.materializedView.options.join(", ")})`);
     }
 
-    // Add AS query
-    if (this.materializedView.definition) {
-      parts.push("AS", this.materializedView.definition);
-    } else {
-      parts.push("AS SELECT 1"); // Placeholder
-    }
+    // Add AS query (definition is required)
+    parts.push("AS", this.materializedView.definition);
 
-    // Add WITH DATA or WITH NO DATA
+    // Add population clause only when non-default
+    // Default in PostgreSQL is WITH NO DATA, so we omit it to keep output minimal
     if (this.materializedView.is_populated) {
       parts.push("WITH DATA");
-    } else {
-      parts.push("WITH NO DATA");
     }
 
     return parts.join(" ");

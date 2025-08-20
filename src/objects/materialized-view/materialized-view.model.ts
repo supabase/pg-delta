@@ -9,7 +9,7 @@ import type { ReplicaIdentity } from "../table/table.model.ts";
 export interface MaterializedViewProps {
   schema: string;
   name: string;
-  definition: string | null;
+  definition: string;
   row_security: boolean;
   force_row_security: boolean;
   has_indexes: boolean;
