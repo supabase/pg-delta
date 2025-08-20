@@ -144,11 +144,11 @@ with extension_oids as (
     and d.classid = 'pg_proc'::regclass
 )
 select
-  n.nspname as schema,
+  p.pronamespace::regnamespace as schema,
   p.proname as name,
   p.prokind as kind,
   rt.typname as return_type,
-  rn.nspname as return_type_schema,
+  rt.typnamespace::regnamespace as return_type_schema,
   l.lanname as language,
   p.prosecdef as security_definer,
   p.provolatile as volatility,
@@ -171,18 +171,15 @@ select
   pg_get_expr(p.proargdefaults, 0) as argument_defaults,
   p.prosrc as source_code,
   p.probin as binary_path,
-  pg_get_expr(p.prosqlbody, 0) as sql_body,
+  pg_get_function_sqlbody(p.oid) as sql_body,
   p.proconfig as config,
-  pg_get_userbyid(p.proowner) as owner
+  p.proowner::regrole as owner
 from
   pg_catalog.pg_proc p
-  inner join pg_catalog.pg_namespace n on n.oid = p.pronamespace
   inner join pg_catalog.pg_language l on l.oid = p.prolang
   left join pg_catalog.pg_type rt on rt.oid = p.prorettype
-  left join pg_catalog.pg_namespace rn on rn.oid = rt.typnamespace
   left outer join extension_oids e on p.oid = e.objid
-  where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
+  where not p.pronamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   and e.objid is null
   and l.lanname not in ('c', 'internal')
 order by
