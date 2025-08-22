@@ -41,5 +41,9 @@
     "testcontainers": "^11.5.1",
     "typescript": "^5.9.2",
     "vitest": "3.2.4"
+  },
+  "dependencies": {
+    "graph-data-structure": "^4.5.0",
+    "neverthrow": "^8.2.0"
   }
 }
