@@ -27,7 +27,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         description: "create composite type",
         expectedSqlTerms: [
           `CREATE SCHEMA test_schema AUTHORIZATION supabase_admin`,
-          `CREATE TYPE test_schema.address AS ("street" character varying(90), "city" character varying(90), "state" character varying(2))`,
+          `CREATE TYPE test_schema.address AS (street character varying(90), city character varying(90), state character varying(2))`,
         ],
       });
     });

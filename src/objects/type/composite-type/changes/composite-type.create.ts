@@ -38,7 +38,9 @@ export class CreateCompositeType extends CreateChange {
 
     parts.push(
       `(${this.compositeType.columns
-        .map((column) => `${column.name} ${column.data_type_str}`)
+        .map(
+          (column) => `${quoteIdentifier(column.name)} ${column.data_type_str}`,
+        )
         .join(", ")})`,
     );
 
