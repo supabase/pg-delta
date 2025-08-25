@@ -53,6 +53,10 @@ export class AlterProcedureChangeOwner extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
 
@@ -77,6 +81,10 @@ export class AlterProcedureSetSecurity extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -106,6 +114,10 @@ export class AlterProcedureSetConfig extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -167,6 +179,10 @@ export class AlterProcedureSetVolatility extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const volMap: Record<string, string> = {
@@ -196,6 +212,10 @@ export class AlterProcedureSetStrictness extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const strictness = this.branch.is_strict
@@ -223,6 +243,10 @@ export class AlterProcedureSetLeakproof extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const leak = this.branch.leakproof ? "LEAKPROOF" : "NOT LEAKPROOF";
@@ -246,6 +270,10 @@ export class AlterProcedureSetParallel extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -276,6 +304,10 @@ export class ReplaceProcedure extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

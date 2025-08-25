@@ -19,6 +19,10 @@ export class DropType extends DropChange {
     this.type = props.type;
   }
 
+  get stableId(): string {
+    return `${this.type.stableId}`;
+  }
+
   serialize(): string {
     return [
       "DROP TYPE",

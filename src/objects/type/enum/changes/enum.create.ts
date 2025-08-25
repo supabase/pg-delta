@@ -19,6 +19,10 @@ export class CreateEnum extends CreateChange {
     this.enum = props.enum;
   }
 
+  get stableId(): string {
+    return `${this.enum.stableId}`;
+  }
+
   serialize(): string {
     const parts: string[] = ["CREATE TYPE"];
 

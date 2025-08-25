@@ -19,6 +19,10 @@ export class DropLanguage extends DropChange {
     this.language = props.language;
   }
 
+  get stableId(): string {
+    return `${this.language.stableId}`;
+  }
+
   serialize(): string {
     const parts: string[] = ["DROP"];
 

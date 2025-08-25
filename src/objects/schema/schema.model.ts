@@ -47,7 +47,6 @@ export class Schema extends BasePgModel {
 export async function extractSchemas(sql: Sql): Promise<Schema[]> {
   const schemaRows = await sql<SchemaProps[]>`
     with extension_oids as (
-      with extension_oids as (
       select
         objid
       from

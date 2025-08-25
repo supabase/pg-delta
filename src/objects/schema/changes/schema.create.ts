@@ -21,6 +21,10 @@ export class CreateSchema extends CreateChange {
     this.schema = props.schema;
   }
 
+  get stableId(): string {
+    return `${this.schema.stableId}`;
+  }
+
   serialize(): string {
     const parts: string[] = ["CREATE SCHEMA"];
 

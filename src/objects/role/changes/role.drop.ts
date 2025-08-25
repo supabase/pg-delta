@@ -19,6 +19,10 @@ export class DropRole extends DropChange {
     this.role = props.role;
   }
 
+  get stableId(): string {
+    return `${this.role.stableId}`;
+  }
+
   serialize(): string {
     return ["DROP ROLE", quoteIdentifier(this.role.role_name)].join(" ");
   }

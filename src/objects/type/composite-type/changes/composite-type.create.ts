@@ -21,6 +21,10 @@ export class CreateCompositeType extends CreateChange {
     this.compositeType = props.compositeType;
   }
 
+  get stableId(): string {
+    return `${this.compositeType.stableId}`;
+  }
+
   serialize(): string {
     const parts: string[] = ["CREATE TYPE"];
 
@@ -34,7 +38,9 @@ export class CreateCompositeType extends CreateChange {
 
     parts.push(
       `(${this.compositeType.columns
-        .map((column) => `${column.name} ${column.data_type_str}`)
+        .map(
+          (column) => `${quoteIdentifier(column.name)} ${column.data_type_str}`,
+        )
         .join(", ")})`,
     );
 

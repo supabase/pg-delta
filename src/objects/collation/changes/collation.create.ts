@@ -33,6 +33,10 @@ export class CreateCollation extends CreateChange {
     this.collation = props.collation;
   }
 
+  get stableId(): string {
+    return `${this.collation.stableId}`;
+  }
+
   serialize(): string {
     const parts: string[] = ["CREATE COLLATION"];
 

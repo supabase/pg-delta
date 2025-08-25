@@ -14,6 +14,10 @@ export class DropView extends DropChange {
     this.view = props.view;
   }
 
+  get stableId(): string {
+    return `${this.view.stableId}`;
+  }
+
   serialize(): string {
     return [
       "DROP VIEW",

@@ -46,6 +46,10 @@ export class ReplaceRole extends ReplaceChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     const dropChange = new DropRole({ role: this.main });
     const createChange = new CreateRole({ role: this.branch });

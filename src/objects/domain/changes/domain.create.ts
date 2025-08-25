@@ -27,6 +27,10 @@ export class CreateDomain extends CreateChange {
     this.domain = props.domain;
   }
 
+  get stableId(): string {
+    return `${this.domain.stableId}`;
+  }
+
   serialize(): string {
     const parts: string[] = [];
 

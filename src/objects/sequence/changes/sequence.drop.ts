@@ -19,6 +19,10 @@ export class DropSequence extends DropChange {
     this.sequence = props.sequence;
   }
 
+  get stableId(): string {
+    return `${this.sequence.stableId}`;
+  }
+
   serialize(): string {
     return [
       "DROP SEQUENCE",

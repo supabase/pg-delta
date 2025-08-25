@@ -1,4 +1,5 @@
 import type { Sql } from "postgres";
+import { extractDepends, type PgDepend } from "./depend.ts";
 import type { BasePgModel } from "./objects/base.model.ts";
 import {
   type Collation,
@@ -59,6 +60,7 @@ interface CatalogProps {
   triggers: Record<string, Trigger>;
   types: Record<string, Type>;
   views: Record<string, View>;
+  depends: PgDepend[];
 }
 
 export class Catalog {
@@ -78,6 +80,7 @@ export class Catalog {
   public readonly triggers: CatalogProps["triggers"];
   public readonly types: CatalogProps["types"];
   public readonly views: CatalogProps["views"];
+  public readonly depends: CatalogProps["depends"];
 
   constructor(props: CatalogProps) {
     this.collations = props.collations;
@@ -96,6 +99,7 @@ export class Catalog {
     this.triggers = props.triggers;
     this.types = props.types;
     this.views = props.views;
+    this.depends = props.depends;
   }
 }
 
@@ -117,6 +121,7 @@ export async function extractCatalog(sql: Sql) {
     triggers,
     types,
     views,
+    depends,
   ] = await Promise.all([
     extractCollations(sql).then(listToRecord),
     extractCompositeTypes(sql).then(listToRecord),
@@ -134,6 +139,7 @@ export async function extractCatalog(sql: Sql) {
     extractTriggers(sql).then(listToRecord),
     extractTypes(sql).then(listToRecord),
     extractViews(sql).then(listToRecord),
+    extractDepends(sql),
   ]);
 
   return new Catalog({
@@ -153,9 +159,32 @@ export async function extractCatalog(sql: Sql) {
     triggers,
     types,
     views,
+    depends,
   });
 }
 
 function listToRecord<T extends BasePgModel>(list: T[]) {
   return Object.fromEntries(list.map((item) => [item.stableId, item]));
+}
+
+export function emptyCatalog() {
+  return new Catalog({
+    collations: {},
+    compositeTypes: {},
+    domains: {},
+    enums: {},
+    extensions: {},
+    procedures: {},
+    indexes: {},
+    materializedViews: {},
+    rlsPolicies: {},
+    roles: {},
+    schemas: {},
+    sequences: {},
+    tables: {},
+    triggers: {},
+    types: {},
+    views: {},
+    depends: [],
+  });
 }

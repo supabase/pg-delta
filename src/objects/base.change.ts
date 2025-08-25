@@ -1,6 +1,7 @@
 type ChangeKind = "create" | "drop" | "alter" | "replace";
 export abstract class Change {
   abstract kind: ChangeKind;
+  abstract get stableId(): string;
   abstract serialize(): string;
 }
 

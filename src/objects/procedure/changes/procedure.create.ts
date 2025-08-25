@@ -38,6 +38,10 @@ export class CreateProcedure extends CreateChange {
     this.procedure = props.procedure;
   }
 
+  get stableId(): string {
+    return `${this.procedure.stableId}`;
+  }
+
   serialize(): string {
     const parts: string[] = ["CREATE"];
 

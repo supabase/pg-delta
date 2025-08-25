@@ -35,6 +35,10 @@ export class AlterSequenceChangeOwner extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     return [
       "ALTER SEQUENCE",
@@ -57,6 +61,10 @@ export class ReplaceSequence extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

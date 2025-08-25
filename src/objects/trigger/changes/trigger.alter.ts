@@ -29,6 +29,10 @@ export class ReplaceTrigger extends ReplaceChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     const dropChange = new DropTrigger({ trigger: this.main });
     const createChange = new CreateTrigger({ trigger: this.branch });

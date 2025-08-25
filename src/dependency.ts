@@ -1,0 +1,458 @@
+import { CycleError, Graph, topologicalSort } from "graph-data-structure";
+import { Err, Ok, type Result } from "neverthrow";
+import { type Catalog, emptyCatalog } from "./catalog.model.js";
+import {
+  AlterChange,
+  type Change,
+  CreateChange,
+  DropChange,
+  ReplaceChange,
+} from "./objects/base.change.ts";
+import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
+import { CreateTable } from "./objects/table/changes/table.create.ts";
+import { UnexpectedError } from "./objects/utils.js";
+
+export type ConstraintType = "before";
+
+export interface Constraint {
+  changeAIndex: number;
+  type: ConstraintType;
+  changeBIndex: number;
+  reason?: string;
+}
+
+export interface ObjectDependency {
+  dependent: string;
+  referenced: string;
+  source?: "master" | "branch" | string;
+}
+
+export class DependencyModel {
+  private readonly dependencies = new Map<string, ObjectDependency>();
+  private readonly dependencyIndex = new Map<string, Set<string>>();
+  private readonly reverseIndex = new Map<string, Set<string>>();
+
+  private getDependencyId(dep: ObjectDependency): string {
+    return `${dep.dependent} -> ${dep.referenced} (${dep.source})`;
+  }
+
+  addDependency(dependent: string, referenced: string, source = ""): void {
+    const dep: ObjectDependency = {
+      dependent,
+      referenced,
+      source,
+    };
+
+    if (this.dependencies.has(this.getDependencyId(dep)) === false) {
+      this.dependencies.set(this.getDependencyId(dep), dep);
+      this.dependencyIndex.set(dependent, new Set());
+      this.reverseIndex.set(referenced, new Set());
+    }
+  }
+
+  hasDependency(
+    dependentStableId: string,
+    referencedStableId: string,
+    sourceFilter: string | null = null,
+  ): boolean {
+    const depStableId = this.getDependencyId({
+      dependent: dependentStableId,
+      referenced: referencedStableId,
+      source: sourceFilter === null ? undefined : sourceFilter,
+    });
+    if (this.dependencies.has(depStableId)) {
+      return true;
+    }
+    return false;
+  }
+}
+
+export class DependencyExtractor {
+  private readonly masterCatalog: Catalog;
+  private readonly branchCatalog: Catalog;
+
+  constructor(masterCatalog: Catalog, branchCatalog: Catalog) {
+    this.masterCatalog = masterCatalog;
+    this.branchCatalog = branchCatalog;
+  }
+
+  extractForChangeset(changes: Change[]): DependencyModel {
+    const relevant = this.findRelevantObjects(changes);
+    const model = new DependencyModel();
+    this.extractFromCatalog(model, this.masterCatalog, relevant, "master");
+    this.extractFromCatalog(model, this.branchCatalog, relevant, "branch");
+    return model;
+  }
+
+  private findRelevantObjects(
+    changes: Change[],
+    maxDepth: number = 2,
+  ): Set<string> {
+    const relevant = new Set<string>(
+      ...changes.map((change) => change.stableId),
+    );
+    // Add transitive dependencies up to max_depth
+    for (let i = 0; i < maxDepth; i++) {
+      const newObjects = new Set<string>();
+      for (const objId of relevant) {
+        // Add dependencies from both catalogs
+        newObjects.union(this.getDirectDependencies(objId, this.masterCatalog));
+        newObjects.union(this.getDirectDependencies(objId, this.branchCatalog));
+        // Add dependents from both catalogs
+        newObjects.union(this.getDirectDependents(objId, this.masterCatalog));
+        newObjects.union(this.getDirectDependents(objId, this.branchCatalog));
+      }
+      relevant.union(newObjects);
+    }
+    return relevant;
+  }
+
+  private getDirectDependencies(objId: string, catalog: Catalog) {
+    const dependencies = new Set<string>();
+    for (const depend of catalog.depends) {
+      if (
+        depend.dependent_stable_id === objId &&
+        !depend.referenced_stable_id.startsWith("unknown.")
+      ) {
+        dependencies.add(depend.referenced_stable_id);
+      }
+    }
+    return dependencies;
+  }
+
+  private getDirectDependents(objId: string, catalog: Catalog) {
+    const dependents = new Set<string>();
+    for (const depend of catalog.depends) {
+      if (
+        depend.referenced_stable_id === objId &&
+        !depend.dependent_stable_id.startsWith("unknown.")
+      ) {
+        dependents.add(depend.dependent_stable_id);
+      }
+    }
+    return dependents;
+  }
+
+  private extractFromCatalog(
+    model: DependencyModel,
+    catalog: Catalog,
+    relevantObjects: Set<string>,
+    source: string,
+  ): DependencyModel {
+    for (const depend of catalog.depends) {
+      if (
+        depend.dependent_stable_id in relevantObjects &&
+        depend.referenced_stable_id in relevantObjects &&
+        !depend.dependent_stable_id.startsWith("unknown.") &&
+        !depend.referenced_stable_id.startsWith("unknown.")
+      ) {
+        model.addDependency(
+          depend.dependent_stable_id,
+          depend.referenced_stable_id,
+          source,
+        );
+      }
+    }
+    return model;
+  }
+}
+
+export class OperationSemantics {
+  generateConstraints(changes: Change[], model: DependencyModel): Constraint[] {
+    const constraints: Constraint[] = [];
+
+    // Add dependency-based constraints
+    constraints.push(...this.generateDependencyConstraints(changes, model));
+
+    // Add same-object operation constraints
+    constraints.push(...this.generateSameObjectConstraints(changes));
+
+    return constraints;
+  }
+
+  private generateDependencyConstraints(
+    changes: Change[],
+    model: DependencyModel,
+  ): Constraint[] {
+    const constraints: Constraint[] = [];
+
+    for (let i = 0; i < changes.length; i++) {
+      for (let j = 0; j < changes.length; j++) {
+        if (i === j) continue;
+
+        // Determine which catalog state to use for dependency analysis
+        const constraint = this.analyzeDependencyConstraint(
+          i,
+          changes[i],
+          j,
+          changes[j],
+          model,
+        );
+        if (constraint) {
+          constraints.push(constraint);
+        }
+      }
+    }
+
+    return constraints;
+  }
+
+  private analyzeDependencyConstraint(
+    i: number,
+    changeA: Change,
+    j: number,
+    changeB: Change,
+    model: DependencyModel,
+  ): Constraint | null {
+    const stableIdA = changeA.stableId;
+    const stableIdB = changeB.stableId;
+
+    if (!stableIdA || !stableIdB) return null;
+
+    // Choose appropriate catalog state for each operation
+    const sourceA = changeA instanceof DropChange ? "master" : "branch";
+    const sourceB = changeB instanceof DropChange ? "master" : "branch";
+
+    // Check for dependencies in appropriate states
+    const aDependsOnB = model.hasDependency(stableIdA, stableIdB, sourceA);
+    const bDependsOnA = model.hasDependency(stableIdB, stableIdA, sourceB);
+
+    // Also check without source filter for cross-catalog dependencies
+    const aDependsOnBGeneral = model.hasDependency(stableIdA, stableIdB);
+    const bDependsOnAGeneral = model.hasDependency(stableIdB, stableIdA);
+
+    // Apply semantic rules
+    if (aDependsOnB || aDependsOnBGeneral) {
+      return this.dependencySemanticRule(
+        i,
+        changeA,
+        j,
+        changeB,
+        "a_depends_on_b",
+      );
+    } else if (bDependsOnA || bDependsOnAGeneral) {
+      return this.dependencySemanticRule(
+        j,
+        changeB,
+        i,
+        changeA,
+        "b_depends_on_a",
+      );
+    }
+
+    return null;
+  }
+
+  private dependencySemanticRule(
+    depIdx: number,
+    dependentChange: Change,
+    refIdx: number,
+    referencedChange: Change,
+    reason: string,
+  ): Constraint | null {
+    // TODO: Investigate and eliminate all special cases
+    // Special rule: For CREATE operations with sequences and tables
+    // PostgreSQL reports sequence ownership (sequence depends on table)
+    // But for creation, table depends on sequence (table needs sequence to exist first)
+    if (
+      dependentChange instanceof CreateChange &&
+      referencedChange instanceof CreateChange
+    ) {
+      // If sequence depends on table, invert for CREATE operations
+      if (
+        dependentChange instanceof CreateSequence &&
+        referencedChange instanceof CreateTable
+      ) {
+        return {
+          changeAIndex: depIdx, // CreateSequence should come first
+          type: "before",
+          changeBIndex: refIdx, // Before CreateTable
+          reason: `CREATE table before sequence that uses it (${reason})`,
+        };
+      }
+    }
+
+    // Rule: For DROP operations, drop dependents before dependencies
+    if (
+      dependentChange instanceof DropChange &&
+      referencedChange instanceof DropChange
+    ) {
+      return {
+        changeAIndex: depIdx,
+        type: "before",
+        changeBIndex: refIdx,
+        reason: `DROP dependent before dependency (${reason})`,
+      };
+    }
+
+    // Rule: For CREATE operations, create dependencies before dependents
+    if (
+      dependentChange instanceof CreateChange &&
+      referencedChange instanceof CreateChange
+    ) {
+      return {
+        changeAIndex: refIdx,
+        type: "before",
+        changeBIndex: depIdx,
+        reason: `CREATE dependency before dependent (${reason})`,
+      };
+    }
+
+    // Rule: For mixed CREATE/ALTER/REPLACE, create dependencies first
+    if (
+      (dependentChange instanceof CreateChange ||
+        dependentChange instanceof AlterChange ||
+        dependentChange instanceof ReplaceChange) &&
+      (referencedChange instanceof CreateChange ||
+        referencedChange instanceof AlterChange ||
+        referencedChange instanceof ReplaceChange)
+    ) {
+      return {
+        changeAIndex: refIdx,
+        type: "before",
+        changeBIndex: depIdx,
+        reason: `CREATE/ALTER/REPLACE dependency before dependent (${reason})`,
+      };
+    }
+
+    // Rule: DROP before CREATE/ALTER/REPLACE
+    if (
+      referencedChange instanceof DropChange &&
+      (dependentChange instanceof CreateChange ||
+        dependentChange instanceof AlterChange ||
+        dependentChange instanceof ReplaceChange)
+    ) {
+      return {
+        changeAIndex: refIdx,
+        type: "before",
+        changeBIndex: depIdx,
+        reason: `DROP before CREATE/ALTER/REPLACE (${reason})`,
+      };
+    }
+    return null;
+  }
+
+  private generateSameObjectConstraints(changes: Change[]): Constraint[] {
+    const constraints: Constraint[] = [];
+
+    // Group changes by object
+    const objectGroups = new Map<string, number[]>();
+    for (let i = 0; i < changes.length; i++) {
+      const stableId = changes[i].stableId;
+      if (stableId) {
+        if (!objectGroups.has(stableId)) {
+          objectGroups.set(stableId, []);
+        }
+        const group = objectGroups.get(stableId);
+        if (group) {
+          group.push(i);
+        }
+      }
+    }
+
+    // Add ordering constraints within each group
+    for (const indices of objectGroups.values()) {
+      if (indices.length > 1) {
+        // Sort by operation priority
+        const sortedIndices = indices.slice().sort((a, b) => {
+          return (
+            this.getOperationPriority(changes[a]) -
+            this.getOperationPriority(changes[b])
+          );
+        });
+
+        // Add sequential constraints
+        for (let k = 0; k < sortedIndices.length - 1; k++) {
+          constraints.push({
+            changeAIndex: sortedIndices[k],
+            type: "before",
+            changeBIndex: sortedIndices[k + 1],
+            reason: "Same object operation priority",
+          });
+        }
+      }
+    }
+
+    return constraints;
+  }
+
+  private getOperationPriority(change: Change): number {
+    if (change instanceof DropChange) return 0;
+    if (change instanceof CreateChange) return 1;
+    if (change instanceof AlterChange) return 2;
+    if (change instanceof ReplaceChange) return 3;
+    return 4;
+  }
+}
+
+export class ConstraintSolver {
+  solve(
+    changes: Change[],
+    constraints: Constraint[],
+  ): Result<Change[], CycleError | UnexpectedError> {
+    const graph = new Graph();
+    const changesById = new Map<string, Change>();
+    // Add all changes as nodes
+    for (let i = 0; i < changes.length; i++) {
+      changesById.set(changes[i].stableId, changes[i]);
+      graph.addNode(changes[i].stableId);
+    }
+    // Add constraint edges
+    for (const constraint of constraints) {
+      if (constraint.type === "before") {
+        graph.addEdge(
+          changes[constraint.changeAIndex].stableId,
+          changes[constraint.changeBIndex].stableId,
+        );
+      }
+    }
+    // Topological sort
+    try {
+      const orderedChangesIds = topologicalSort(graph);
+      return new Ok(
+        // biome-ignore lint/style/noNonNullAssertion: if the change is not in the graph, it means it was not added to the changesById map
+        orderedChangesIds.map((changeId) => changesById.get(changeId)!),
+      );
+    } catch (error) {
+      if (error instanceof CycleError) {
+        return new Err(error);
+      }
+      return new Err(new UnexpectedError("Unknown error", error));
+    }
+  }
+}
+
+export class DependencyResolver {
+  private readonly extractor: DependencyExtractor;
+  private readonly semantics: OperationSemantics;
+  private readonly solver: ConstraintSolver;
+
+  constructor(masterCatalog: Catalog, branchCatalog: Catalog) {
+    this.extractor = new DependencyExtractor(masterCatalog, branchCatalog);
+    this.semantics = new OperationSemantics();
+    this.solver = new ConstraintSolver();
+  }
+
+  resolveDependencies(
+    changes: Change[],
+  ): Result<Change[], CycleError | UnexpectedError> {
+    if (changes.length === 0) {
+      return new Ok(changes);
+    }
+    const model = this.extractor.extractForChangeset(changes);
+    const constraints = this.semantics.generateConstraints(changes, model);
+    return this.solver.solve(changes, constraints);
+  }
+}
+
+export function resolveDependencies(
+  changes: Change[],
+  masterCatalog: Catalog,
+  branchCatalog: Catalog | null,
+): Result<Change[], CycleError | UnexpectedError> {
+  if (branchCatalog === null) {
+    branchCatalog = emptyCatalog();
+  }
+  const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+  return resolver.resolveDependencies(changes);
+}

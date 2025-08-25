@@ -27,6 +27,10 @@ export class CreateIndex extends CreateChange {
     this.indexableObject = props.indexableObject;
   }
 
+  get stableId(): string {
+    return `${this.index.stableId}`;
+  }
+
   /**
    * Get column names from key_columns array using the indexable object's columns.
    */

@@ -52,6 +52,10 @@ export class CreateType extends CreateChange {
     this.type = props.type;
   }
 
+  get stableId(): string {
+    return `${this.type.stableId}`;
+  }
+
   serialize(): string {
     const parts: string[] = ["CREATE TYPE"];
 

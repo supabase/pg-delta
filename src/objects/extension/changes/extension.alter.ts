@@ -38,6 +38,10 @@ export class AlterExtensionUpdateVersion extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     return [
       "ALTER EXTENSION",
@@ -59,6 +63,10 @@ export class AlterExtensionSetSchema extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -84,6 +92,10 @@ export class AlterExtensionChangeOwner extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     return [
       "ALTER EXTENSION",
@@ -106,6 +118,10 @@ export class ReplaceExtension extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

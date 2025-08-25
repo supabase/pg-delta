@@ -86,6 +86,10 @@ export class CreateTrigger extends CreateChange {
     this.trigger = props.trigger;
   }
 
+  get stableId(): string {
+    return `${this.trigger.stableId}`;
+  }
+
   serialize(): string {
     const parts: string[] = ["CREATE TRIGGER"];
 

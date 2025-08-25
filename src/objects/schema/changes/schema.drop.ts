@@ -19,6 +19,10 @@ export class DropSchema extends DropChange {
     this.schema = props.schema;
   }
 
+  get stableId(): string {
+    return `${this.schema.stableId}`;
+  }
+
   serialize(): string {
     return ["DROP SCHEMA", quoteIdentifier(this.schema.schema)].join(" ");
   }

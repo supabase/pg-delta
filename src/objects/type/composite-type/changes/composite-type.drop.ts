@@ -19,6 +19,10 @@ export class DropCompositeType extends DropChange {
     this.compositeType = props.compositeType;
   }
 
+  get stableId(): string {
+    return `${this.compositeType.stableId}`;
+  }
+
   serialize(): string {
     return [
       "DROP TYPE",

@@ -35,6 +35,10 @@ export class AlterEnumChangeOwner extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     return [
       "ALTER TYPE",
@@ -67,6 +71,10 @@ export class AlterEnumAddValue extends AlterChange {
     this.position = props.position;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     const parts = [
       "ALTER TYPE",
@@ -97,6 +105,10 @@ export class ReplaceEnum extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

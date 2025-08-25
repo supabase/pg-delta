@@ -257,7 +257,7 @@ from
   left join pg_type ty on ty.oid = a.atttypid
   left join pg_namespace n on n.oid = ty.typnamespace
 group by
-  t.schema, t.name, t.persistence, t.row_security, t.force_row_security, t.has_indexes, t.has_rules, t.has_triggers, t.has_subclasses, t.is_populated, t.replica_identity, t.is_partition, t.options, t.partition_bound, t.owner, t.parent_schema, t.parent_name
+  t.oid, t.schema, t.name, t.persistence, t.row_security, t.force_row_security, t.has_indexes, t.has_rules, t.has_triggers, t.has_subclasses, t.is_populated, t.replica_identity, t.is_partition, t.options, t.partition_bound, t.owner, t.parent_schema, t.parent_name
 order by
   t.schema, t.name;
     `;

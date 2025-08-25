@@ -36,6 +36,10 @@ export class AlterViewChangeOwner extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     return [
       "ALTER VIEW",
@@ -58,6 +62,10 @@ export class ReplaceView extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

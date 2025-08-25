@@ -31,6 +31,10 @@ export class CreateMaterializedView extends CreateChange {
     this.materializedView = props.materializedView;
   }
 
+  get stableId(): string {
+    return `${this.materializedView.stableId}`;
+  }
+
   serialize(): string {
     const parts: string[] = ["CREATE MATERIALIZED VIEW"];
 

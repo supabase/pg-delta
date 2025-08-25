@@ -30,6 +30,10 @@ export class CreateTable extends CreateChange {
     this.table = props.table;
   }
 
+  get stableId(): string {
+    return `${this.table.stableId}`;
+  }
+
   serialize(): string {
     const parts: string[] = ["CREATE"];
 

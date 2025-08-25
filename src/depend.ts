@@ -1,13 +1,21 @@
 import type { Sql } from "postgres";
 
+export type PgDependType = "n" | "a" | "i";
+
 export interface PgDepend {
-  objid: number;
-  objsubid: number;
-  refobjid: number;
-  refobjsubid: number;
-  deptype: string;
-  classid_name: string;
-  refclassid_name: string;
+  dependent_stable_id: string;
+  referenced_stable_id: string;
+  /**
+   * Dependency type as defined in PostgreSQL's pg_depend.deptype.
+   *
+   * - "n" (normal): Ordinary dependency — if the referenced object is dropped, the dependent object is also dropped automatically.
+   *   Example: a table column depends on its table.
+   * - "a" (auto): Automatically created dependency — the dependent object was created as a result of creating the referenced object,
+   *   and should be dropped automatically when the referenced object is dropped, but not otherwise treated as a strong link.
+   * - "i" (internal): Internal dependency — the dependent object is a low-level part of the referenced object and cannot be dropped
+   *   without dropping the whole referenced object. Example: a table's toast table or an index that’s part of a unique constraint.
+   */
+  deptype: PgDependType;
 }
 
 /**
@@ -16,19 +24,8 @@ export interface PgDepend {
  * @param params - Object containing arrays of OIDs for filtering (user_oids, user_namespace_oids, etc.)
  * @returns Array of dependency objects with class names.
  */
-export async function extractDepends(
-  sql: Sql,
-  _params: {
-    user_oids: number[];
-    user_namespace_oids: number[];
-    user_constraint_oids: number[];
-    user_policy_oids: number[];
-    user_procedure_oids: number[];
-    user_trigger_oids: number[];
-    user_type_oids: number[];
-  },
-): Promise<PgDepend[]> {
-  return sql<PgDepend[]>`
+export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
+  const dependsRows = await sql<PgDepend[]>`
     select
   -- Dependent stable ID
   case
@@ -209,4 +206,5 @@ where
 order by
   dependent_stable_id, referenced_stable_id;
   `;
+  return dependsRows;
 }

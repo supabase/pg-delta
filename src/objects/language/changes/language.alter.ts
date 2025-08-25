@@ -33,6 +33,10 @@ export class AlterLanguageChangeOwner extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     const parts: string[] = ["ALTER"];
 
@@ -63,6 +67,10 @@ export class ReplaceLanguage extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

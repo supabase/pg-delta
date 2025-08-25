@@ -90,6 +90,10 @@ export class AlterTableChangeOwner extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     return [
       "ALTER TABLE",
@@ -111,6 +115,10 @@ export class AlterTableSetLogged extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -135,6 +143,10 @@ export class AlterTableSetUnlogged extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     return [
       "ALTER TABLE",
@@ -155,6 +167,10 @@ export class AlterTableEnableRowLevelSecurity extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -179,6 +195,10 @@ export class AlterTableDisableRowLevelSecurity extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     return [
       "ALTER TABLE",
@@ -199,6 +219,10 @@ export class AlterTableForceRowLevelSecurity extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -223,6 +247,10 @@ export class AlterTableNoForceRowLevelSecurity extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     return [
       "ALTER TABLE",
@@ -243,6 +271,10 @@ export class AlterTableSetStorageParams extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -268,6 +300,10 @@ export class AlterTableAddConstraint extends AlterChange {
     super();
     this.table = props.table;
     this.constraint = props.constraint;
+  }
+
+  get stableId(): string {
+    return `${this.table.stableId}`;
   }
 
   serialize(): string {
@@ -324,6 +360,10 @@ export class AlterTableDropConstraint extends AlterChange {
     this.constraint = props.constraint;
   }
 
+  get stableId(): string {
+    return `${this.table.stableId}`;
+  }
+
   serialize(): string {
     return [
       "ALTER TABLE",
@@ -347,6 +387,10 @@ export class AlterTableValidateConstraint extends AlterChange {
     this.constraint = props.constraint;
   }
 
+  get stableId(): string {
+    return `${this.table.stableId}`;
+  }
+
   serialize(): string {
     return [
       "ALTER TABLE",
@@ -368,6 +412,10 @@ export class AlterTableSetReplicaIdentity extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -400,6 +448,10 @@ export class AlterTableAddColumn extends AlterChange {
     super();
     this.table = props.table;
     this.column = props.column;
+  }
+
+  get stableId(): string {
+    return `${this.table.stableId}`;
   }
 
   serialize(): string {
@@ -436,6 +488,10 @@ export class AlterTableDropColumn extends AlterChange {
     this.column = props.column;
   }
 
+  get stableId(): string {
+    return `${this.table.stableId}`;
+  }
+
   serialize(): string {
     return [
       "ALTER TABLE",
@@ -457,6 +513,10 @@ export class AlterTableAlterColumnType extends AlterChange {
     super();
     this.table = props.table;
     this.column = props.column;
+  }
+
+  get stableId(): string {
+    return `${this.table.stableId}`;
   }
 
   serialize(): string {
@@ -488,6 +548,10 @@ export class AlterTableAlterColumnSetDefault extends AlterChange {
     this.column = props.column;
   }
 
+  get stableId(): string {
+    return `${this.table.stableId}`;
+  }
+
   serialize(): string {
     return [
       "ALTER TABLE",
@@ -511,6 +575,10 @@ export class AlterTableAlterColumnDropDefault extends AlterChange {
     super();
     this.table = props.table;
     this.column = props.column;
+  }
+
+  get stableId(): string {
+    return `${this.table.stableId}`;
   }
 
   serialize(): string {
@@ -537,6 +605,10 @@ export class AlterTableAlterColumnSetNotNull extends AlterChange {
     this.column = props.column;
   }
 
+  get stableId(): string {
+    return `${this.table.stableId}`;
+  }
+
   serialize(): string {
     return [
       "ALTER TABLE",
@@ -559,6 +631,10 @@ export class AlterTableAlterColumnDropNotNull extends AlterChange {
     super();
     this.table = props.table;
     this.column = props.column;
+  }
+
+  get stableId(): string {
+    return `${this.table.stableId}`;
   }
 
   serialize(): string {

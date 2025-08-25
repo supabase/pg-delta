@@ -21,6 +21,10 @@ export class DropProcedure extends DropChange {
     this.procedure = props.procedure;
   }
 
+  get stableId(): string {
+    return `${this.procedure.stableId}`;
+  }
+
   serialize(): string {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
 

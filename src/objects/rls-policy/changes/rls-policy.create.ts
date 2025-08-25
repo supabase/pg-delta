@@ -24,6 +24,10 @@ export class CreateRlsPolicy extends CreateChange {
     this.rlsPolicy = props.rlsPolicy;
   }
 
+  get stableId(): string {
+    return `${this.rlsPolicy.stableId}`;
+  }
+
   serialize(): string {
     const parts: string[] = ["CREATE POLICY"];
 

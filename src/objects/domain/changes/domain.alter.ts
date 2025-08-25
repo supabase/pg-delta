@@ -56,6 +56,10 @@ export class AlterDomainSetDefault extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} SET DEFAULT ${this.branch.default_value}`;
   }
@@ -72,6 +76,10 @@ export class AlterDomainDropDefault extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -92,6 +100,10 @@ export class AlterDomainSetNotNull extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} SET NOT NULL`;
   }
@@ -108,6 +120,10 @@ export class AlterDomainDropNotNull extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -128,6 +144,10 @@ export class AlterDomainChangeOwner extends AlterChange {
     this.branch = props.branch;
   }
 
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
   serialize(): string {
     return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} OWNER TO ${quoteIdentifier(this.branch.owner)}`;
   }
@@ -144,6 +164,10 @@ export class AlterDomainAddConstraint extends AlterChange {
     super();
     this.domain = props.domain;
     this.constraint = props.constraint;
+  }
+
+  get stableId(): string {
+    return `${this.domain.stableId}`;
   }
 
   serialize(): string {
@@ -177,6 +201,10 @@ export class AlterDomainDropConstraint extends AlterChange {
     this.constraint = props.constraint;
   }
 
+  get stableId(): string {
+    return `${this.domain.stableId}`;
+  }
+
   serialize(): string {
     const domainName = `${quoteIdentifier(this.domain.schema)}.${quoteIdentifier(this.domain.name)}`;
     return [
@@ -202,6 +230,10 @@ export class AlterDomainValidateConstraint extends AlterChange {
     super();
     this.domain = props.domain;
     this.constraint = props.constraint;
+  }
+
+  get stableId(): string {
+    return `${this.domain.stableId}`;
   }
 
   serialize(): string {

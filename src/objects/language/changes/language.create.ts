@@ -20,6 +20,10 @@ export class CreateLanguage extends CreateChange {
     this.language = props.language;
   }
 
+  get stableId(): string {
+    return `${this.language.stableId}`;
+  }
+
   serialize(): string {
     const parts: string[] = ["CREATE"];
 
