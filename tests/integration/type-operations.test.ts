@@ -25,7 +25,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
       });
     });
-    test.skip("create domain type with constraint", async ({ db }) => {
+    test("create domain type with constraint", async ({ db }) => {
       await roundtripFidelityTest({
         masterSession: db.a,
         branchSession: db.b,
@@ -100,7 +100,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
       });
     });
-    test.skip("replace domain type (modify constraint)", async ({ db }) => {
+    test("replace domain type (modify constraint)", async ({ db }) => {
       await roundtripFidelityTest({
         masterSession: db.a,
         branchSession: db.b,

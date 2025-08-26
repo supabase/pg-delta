@@ -149,7 +149,7 @@ describe.concurrent("enum", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP TYPE public.test_enum;\nCREATE TYPE public.test_enum AS ENUM (value1, value2, value3)",
+        "DROP TYPE public.test_enum;\nCREATE TYPE public.test_enum AS ENUM ('value1', 'value2', 'value3')",
       );
     });
   });

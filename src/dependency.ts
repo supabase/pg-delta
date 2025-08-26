@@ -89,9 +89,9 @@ export class DependencyExtractor {
     changes: Change[],
     maxDepth: number = 2,
   ): Set<string> {
-    const relevant = new Set<string>(
+    const relevant = new Set<string>([
       ...changes.map((change) => change.stableId),
-    );
+    ]);
     // Add transitive dependencies up to max_depth
     for (let i = 0; i < maxDepth; i++) {
       const newObjects = new Set<string>();
@@ -142,8 +142,8 @@ export class DependencyExtractor {
   ): DependencyModel {
     for (const depend of catalog.depends) {
       if (
-        depend.dependent_stable_id in relevantObjects &&
-        depend.referenced_stable_id in relevantObjects &&
+        relevantObjects.has(depend.dependent_stable_id) &&
+        relevantObjects.has(depend.referenced_stable_id) &&
         !depend.dependent_stable_id.startsWith("unknown.") &&
         !depend.referenced_stable_id.startsWith("unknown.")
       ) {
@@ -404,28 +404,37 @@ export class ConstraintSolver {
     constraints: Constraint[],
   ): Result<Change[], CycleError | UnexpectedError> {
     const graph = new Graph();
-    const changesById = new Map<string, Change>();
+    const nodeIdToChange = new Map<string, Change>();
+    const indexToNodeId = new Map<number, string>();
+    // Helper to build unique node id per change instance (not per object)
+    const getNodeId = (index: number, change: Change) =>
+      `${change.stableId}#${index}`;
     // Add all changes as nodes
     for (let i = 0; i < changes.length; i++) {
-      changesById.set(changes[i].stableId, changes[i]);
-      graph.addNode(changes[i].stableId);
+      const nodeId = getNodeId(i, changes[i]);
+      nodeIdToChange.set(nodeId, changes[i]);
+      indexToNodeId.set(i, nodeId);
+      graph.addNode(nodeId);
     }
     // Add constraint edges
     for (const constraint of constraints) {
       if (constraint.type === "before") {
-        graph.addEdge(
-          changes[constraint.changeAIndex].stableId,
-          changes[constraint.changeBIndex].stableId,
-        );
+        const fromId = indexToNodeId.get(constraint.changeAIndex);
+        const toId = indexToNodeId.get(constraint.changeBIndex);
+        if (fromId && toId) {
+          graph.addEdge(fromId, toId);
+        }
       }
     }
     // Topological sort
     try {
-      const orderedChangesIds = topologicalSort(graph);
-      return new Ok(
-        // biome-ignore lint/style/noNonNullAssertion: if the change is not in the graph, it means it was not added to the changesById map
-        orderedChangesIds.map((changeId) => changesById.get(changeId)!),
-      );
+      const orderedNodeIds = topologicalSort(graph);
+      const orderedChanges: Change[] = [];
+      for (const nodeId of orderedNodeIds) {
+        const change = nodeIdToChange.get(nodeId);
+        if (change) orderedChanges.push(change);
+      }
+      return new Ok(orderedChanges);
     } catch (error) {
       if (error instanceof CycleError) {
         if (DEBUG) {

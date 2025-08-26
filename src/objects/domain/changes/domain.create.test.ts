@@ -55,7 +55,7 @@ describe("domain", () => {
     const change = new CreateDomain({ domain });
 
     expect(change.serialize()).toBe(
-      "CREATE DOMAIN public.test_domain_all AS custom.text[][] COLLATE mycoll DEFAULT 'hello' NOT NULL",
+      `CREATE DOMAIN public.test_domain_all AS custom.text[][] COLLATE mycoll DEFAULT 'hello' NOT NULL CHECK (VALUE <> '')`,
     );
   });
 });

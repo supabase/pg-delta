@@ -33,14 +33,14 @@ export function diffDomains(
     const newDomain = branch[domainId];
     changes.push(new CreateDomain({ domain: newDomain }));
     // For unvalidated constraints, CREATE DOMAIN cannot specify NOT VALID.
-    // Add them after creation and validate to match branch state semantics
-    // (consistent with altered flow tests which add + validate).
+    // Add them after creation and validate to match branch state semantics.
+    // For already validated constraints, they are emitted inline in CREATE DOMAIN.
     if (newDomain.constraints && newDomain.constraints.length > 0) {
       for (const c of newDomain.constraints) {
-        changes.push(
-          new AlterDomainAddConstraint({ domain: newDomain, constraint: c }),
-        );
         if (c.validated === false) {
+          changes.push(
+            new AlterDomainAddConstraint({ domain: newDomain, constraint: c }),
+          );
           changes.push(
             new AlterDomainValidateConstraint({
               domain: newDomain,

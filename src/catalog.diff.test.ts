@@ -33,8 +33,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             kind: "create",
-            type: expect.objectContaining({
-              name: "_address",
+            compositeType: expect.objectContaining({
+              name: "address",
               schema: "test_schema",
               owner: "supabase_admin",
             }),

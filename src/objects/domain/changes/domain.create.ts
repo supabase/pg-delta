@@ -68,6 +68,15 @@ export class CreateDomain extends CreateChange {
       parts.push("NOT NULL");
     }
 
+    // Inline CHECK constraints that are already validated
+    if (this.domain.constraints && this.domain.constraints.length > 0) {
+      for (const c of this.domain.constraints) {
+        if (c.check_expression && c.validated !== false) {
+          parts.push(`CHECK (${c.check_expression})`);
+        }
+      }
+    }
+
     return parts.join(" ");
   }
 }
