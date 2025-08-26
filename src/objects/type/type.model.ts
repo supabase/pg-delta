@@ -162,7 +162,7 @@ from
   where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
   and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
   and e.objid is null
-  and t.typtype in ('b','d','p','r') -- Only domain and range types composites and enums are handled by dedicated modules
+  and t.typtype in ('b','c', 'd', 'e', 'p', 'r')
   -- Exclude internal auto-generated types (e.g custom type create an internal _customType type)
   and not exists (
     select 1 from pg_catalog.pg_depend d

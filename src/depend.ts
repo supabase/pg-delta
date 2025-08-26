@@ -26,7 +26,7 @@ export interface PgDepend {
  */
 export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
   const dependsRows = await sql<PgDepend[]>`
-    select
+    select distinct
   -- Dependent stable ID
   case
     -- Table

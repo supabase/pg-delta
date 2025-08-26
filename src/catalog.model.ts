@@ -137,7 +137,18 @@ export async function extractCatalog(sql: Sql) {
     extractSequences(sql).then(listToRecord),
     extractTables(sql).then(listToRecord),
     extractTriggers(sql).then(listToRecord),
-    extractTypes(sql).then(listToRecord),
+    extractTypes(sql).then((list) =>
+      // Exclude enums, composite-types and domains as they are handled by dedicated modules
+      // TODO: Directly exclude thems from the types extraction query itself ?
+      listToRecord(
+        list.filter(
+          (type) =>
+            type.type_type !== "c" &&
+            type.type_type !== "e" &&
+            type.type_type !== "d",
+        ),
+      ),
+    ),
     extractViews(sql).then(listToRecord),
     extractDepends(sql),
   ]);
