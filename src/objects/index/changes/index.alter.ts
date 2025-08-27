@@ -7,6 +7,7 @@ import type { TableLikeObject } from "../../base.model.ts";
 import type { Index } from "../index.model.ts";
 import { CreateIndex } from "./index.create.ts";
 import { DropIndex } from "./index.drop.ts";
+import { checkIsSerializable } from "./utils.ts";
 
 /**
  * Alter an index.
@@ -178,6 +179,7 @@ export class ReplaceIndex extends ReplaceChange {
     indexableObject?: TableLikeObject;
   }) {
     super();
+    checkIsSerializable(props.branch, props.indexableObject);
     this.main = props.main;
     this.branch = props.branch;
     this.indexableObject = props.indexableObject;

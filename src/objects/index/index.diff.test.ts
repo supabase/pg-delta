@@ -25,11 +25,11 @@ const base: IndexProps = {
   immediate: true,
   is_clustered: false,
   is_replica_identity: false,
-  key_columns: [1],
+  key_columns: [],
   column_collations: [],
   operator_classes: [],
   column_options: [],
-  index_expressions: null,
+  index_expressions: "expression",
   partial_predicate: null,
   table_relkind: "r",
 };
@@ -37,9 +37,9 @@ const base: IndexProps = {
 describe.concurrent("index.diff", () => {
   test("create and drop", () => {
     const idx = new Index(base);
-    const created = diffIndexes({}, { [idx.stableId]: idx });
+    const created = diffIndexes({}, { [idx.stableId]: idx }, {});
     expect(created[0]).toBeInstanceOf(CreateIndex);
-    const dropped = diffIndexes({ [idx.stableId]: idx }, {});
+    const dropped = diffIndexes({ [idx.stableId]: idx }, {}, {});
     expect(dropped[0]).toBeInstanceOf(DropIndex);
   });
 
@@ -54,6 +54,7 @@ describe.concurrent("index.diff", () => {
     const changes = diffIndexes(
       { [main.stableId]: main },
       { [branch.stableId]: branch },
+      {},
     );
     expect(changes.some((c) => c instanceof AlterIndexSetStorageParams)).toBe(
       true,
@@ -72,6 +73,58 @@ describe.concurrent("index.diff", () => {
     const changes = diffIndexes(
       { [main.stableId]: main },
       { [branch.stableId]: branch },
+      {},
+    );
+    expect(changes[0]).toBeInstanceOf(ReplaceIndex);
+  });
+
+  test("create index with key columns and no index_expressions should fail if no indexableObject is provided", () => {
+    const main = new Index(base);
+    const branch = new Index({
+      ...base,
+      key_columns: [1],
+      index_expressions: null,
+    });
+    expect(() =>
+      diffIndexes({ [main.stableId]: main }, { [branch.stableId]: branch }, {}),
+    ).toThrowError(
+      "Index requires an indexableObject with columns when key_columns are used",
+    );
+  });
+  test("create index with key columns and valid indexableObject should work", () => {
+    const main = new Index(base);
+    const branch = new Index({
+      ...base,
+      key_columns: [1],
+      index_expressions: null,
+    });
+    const changes = diffIndexes(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+      {
+        [branch.tableStableId]: {
+          columns: [
+            {
+              name: "a",
+              position: 1,
+              data_type: "int",
+              data_type_str: "integer",
+              is_custom_type: false,
+              custom_type_type: null,
+              custom_type_category: null,
+              custom_type_schema: null,
+              custom_type_name: null,
+              not_null: false,
+              is_identity: false,
+              is_identity_always: false,
+              is_generated: false,
+              collation: null,
+              default: null,
+              comment: null,
+            },
+          ],
+        },
+      },
     );
     expect(changes[0]).toBeInstanceOf(ReplaceIndex);
   });

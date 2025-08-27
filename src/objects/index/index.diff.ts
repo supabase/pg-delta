@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import type { TableLikeObject } from "../base.model.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterIndexSetStatistics,
@@ -21,13 +22,20 @@ import type { Index } from "./index.model.ts";
 export function diffIndexes(
   main: Record<string, Index>,
   branch: Record<string, Index>,
+  branchIndexableObjects: Record<string, TableLikeObject>,
 ): Change[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
   const changes: Change[] = [];
 
   for (const indexId of created) {
-    changes.push(new CreateIndex({ index: branch[indexId] }));
+    const index = branch[indexId];
+    changes.push(
+      new CreateIndex({
+        index,
+        indexableObject: branchIndexableObjects[index.tableStableId],
+      }),
+    );
   }
 
   for (const indexId of dropped) {
@@ -70,7 +78,13 @@ export function diffIndexes(
 
     if (nonAlterablePropsChanged) {
       // Replace the entire index (drop + create)
-      changes.push(new ReplaceIndex({ main: mainIndex, branch: branchIndex }));
+      changes.push(
+        new ReplaceIndex({
+          main: mainIndex,
+          branch: branchIndex,
+          indexableObject: branchIndexableObjects[branchIndex.tableStableId],
+        }),
+      );
     } else {
       // Only alterable properties changed - check each one
 

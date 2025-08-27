@@ -1,6 +1,7 @@
 import { CreateChange, quoteIdentifier } from "../../base.change.ts";
 import type { TableLikeObject } from "../../base.model.ts";
 import type { Index } from "../index.model.ts";
+import { checkIsSerializable } from "./utils.ts";
 
 /**
  * Create an index.
@@ -17,12 +18,14 @@ import type { Index } from "../index.model.ts";
  *     [ WHERE predicate ]
  * ```
  */
+
 export class CreateIndex extends CreateChange {
   public readonly index: Index;
   public readonly indexableObject?: TableLikeObject;
 
   constructor(props: { index: Index; indexableObject?: TableLikeObject }) {
     super();
+    checkIsSerializable(props.index, props.indexableObject);
     this.index = props.index;
     this.indexableObject = props.indexableObject;
   }
@@ -40,15 +43,10 @@ export class CreateIndex extends CreateChange {
       return [this.index.index_expressions];
     }
 
-    if (!this.indexableObject || this.indexableObject.columns.length === 0) {
-      throw new Error(
-        "CreateIndex requires an indexableObject with columns when key_columns are used",
-      );
-    }
-
     // Create a mapping from column position to column name
     const columnMap = new Map<number, string>();
-    for (const column of this.indexableObject.columns) {
+    // biome-ignore lint/style/noNonNullAssertion: checked in constructor
+    for (const column of this.indexableObject!.columns) {
       columnMap.set(column.position, column.name);
     }
 

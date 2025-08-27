@@ -94,6 +94,10 @@ export class Index extends BasePgModel {
     return `index:${this.table_schema}.${this.table_name}.${this.name}`;
   }
 
+  get tableStableId(): `table:${string}` {
+    return `table:${this.table_schema}.${this.table_name}`;
+  }
+
   get identityFields() {
     return {
       table_schema: this.table_schema,
