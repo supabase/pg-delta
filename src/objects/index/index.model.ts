@@ -1,5 +1,34 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+
+const TableRelkindSchema = z.enum(["r", "m"]);
+
+export type TableRelkind = z.infer<typeof TableRelkindSchema>;
+
+const indexPropsSchema = z.object({
+  table_schema: z.string(),
+  table_name: z.string(),
+  name: z.string(),
+  storage_params: z.array(z.string()),
+  statistics_target: z.array(z.number()),
+  index_type: z.string(),
+  tablespace: z.string().nullable(),
+  is_unique: z.boolean(),
+  is_primary: z.boolean(),
+  is_exclusion: z.boolean(),
+  nulls_not_distinct: z.boolean(),
+  immediate: z.boolean(),
+  is_clustered: z.boolean(),
+  is_replica_identity: z.boolean(),
+  key_columns: z.array(z.number()),
+  column_collations: z.array(z.string()),
+  operator_classes: z.array(z.string()),
+  column_options: z.array(z.number()),
+  index_expressions: z.string().nullable(),
+  partial_predicate: z.string().nullable(),
+  table_relkind: TableRelkindSchema, // 'r' for table, 'm' for materialized view
+});
 
 /**
  * All properties exposed by CREATE INDEX statement are included in diff output.
@@ -14,29 +43,7 @@ import { BasePgModel } from "../base.model.ts";
  *
  * Other properties require dropping and creating a new index.
  */
-export interface IndexProps {
-  table_schema: string;
-  table_name: string;
-  name: string;
-  storage_params: string[];
-  statistics_target: number[];
-  index_type: string;
-  tablespace: string | null;
-  is_unique: boolean;
-  is_primary: boolean;
-  is_exclusion: boolean;
-  nulls_not_distinct: boolean;
-  immediate: boolean;
-  is_clustered: boolean;
-  is_replica_identity: boolean;
-  key_columns: number[];
-  column_collations: string[];
-  operator_classes: string[];
-  column_options: number[];
-  index_expressions: string | null;
-  partial_predicate: string | null;
-  table_relkind: string; // 'r' for table, 'm' for materialized view
-}
+export type IndexProps = z.infer<typeof indexPropsSchema>;
 
 export class Index extends BasePgModel {
   public readonly table_schema: IndexProps["table_schema"];
@@ -133,7 +140,7 @@ export class Index extends BasePgModel {
 export async function extractIndexes(sql: Sql): Promise<Index[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
-    const indexRows = await sql<IndexProps[]>`
+    const indexRows = await sql`
 with extension_oids as (
   select
     objid
@@ -159,7 +166,14 @@ select
   i.indisclustered as is_clustered,
   i.indisreplident as is_replica_identity,
   i.indkey as key_columns,
-  i.indcollation::regcollation[] as column_collations,
+  coalesce(
+    array(
+      select format('%I', coalesce(collname, 'default'))
+      from unnest(i.indcollation::regcollation[]) coll
+      left join pg_collation c on c.oid = coll
+    ),
+    array[]::text[]
+  ) as column_collations,
   array(
     select coalesce(attstattarget, -1)
     from pg_catalog.pg_attribute a
@@ -186,6 +200,11 @@ from
 order by
   1, 2;
     `;
-    return indexRows.map((row) => new Index(row));
+
+    // Validate and parse each row using the Zod schema
+    const validatedRows = indexRows.map((row: unknown) =>
+      indexPropsSchema.parse(row),
+    );
+    return validatedRows.map((row: IndexProps) => new Index(row));
   });
 }

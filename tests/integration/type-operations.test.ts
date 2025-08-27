@@ -118,7 +118,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
   });
-  test("enum type with table dependency", async ({ db }) => {
+  test.only("enum type with table dependency", async ({ db }) => {
     await roundtripFidelityTest({
       masterSession: db.a,
       branchSession: db.b,

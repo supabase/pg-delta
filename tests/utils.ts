@@ -1,5 +1,6 @@
 import postgres from "postgres";
 import { test as baseTest } from "vitest";
+import { postgresConfig } from "../src/main.ts";
 import {
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   type PostgresVersion,
@@ -17,8 +18,8 @@ export function getTest(postgresVersion: PostgresVersion) {
         new SupabasePostgreSqlContainer(image).start(),
         new SupabasePostgreSqlContainer(image).start(),
       ]);
-      const a = postgres(containerA.getConnectionUri());
-      const b = postgres(containerB.getConnectionUri());
+      const a = postgres(containerA.getConnectionUri(), postgresConfig);
+      const b = postgres(containerB.getConnectionUri(), postgresConfig);
 
       await use({ a, b });
 

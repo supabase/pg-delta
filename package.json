@@ -44,6 +44,7 @@
   },
   "dependencies": {
     "graph-data-structure": "^4.5.0",
-    "neverthrow": "^8.2.0"
+    "neverthrow": "^8.2.0",
+    "zod": "^4.1.3"
   }
 }
