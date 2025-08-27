@@ -118,4 +118,54 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
   });
+  test("enum type with table dependency", async ({ db }) => {
+    await roundtripFidelityTest({
+      masterSession: db.a,
+      branchSession: db.b,
+      initialSetup: "CREATE SCHEMA test_schema;",
+      testSql: `
+      CREATE TYPE test_schema.user_status AS ENUM ('active', 'inactive', 'pending');
+
+      CREATE TABLE test_schema.users (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        status test_schema.user_status DEFAULT 'pending'
+      );
+    `,
+      description: "enum type with table dependency",
+      expectedSqlTerms: [
+        `CREATE TYPE test_schema.user_status AS ENUM ('active', 'inactive', 'pending')`,
+        `CREATE TABLE test_schema.users (id integer NOT NULL, name text NOT NULL, status test_schema.user_status DEFAULT 'pending'::test_schema.user_status)`,
+        // TODO: Add index on PRIMARY KEY
+      ],
+      expectedMasterDependencies: [],
+      expectedBranchDependencies: [
+        {
+          dependent_stable_id: "enum:test_schema.user_status",
+          referenced_stable_id: "schema:test_schema",
+          deptype: "n",
+        }, // Enum type depend on schema
+        {
+          dependent_stable_id: "table:test_schema.users",
+          referenced_stable_id: "schema:test_schema",
+          deptype: "n",
+        }, // Table depends on schema
+        {
+          dependent_stable_id: "table:test_schema.users",
+          referenced_stable_id: "enum:test_schema.user_status",
+          deptype: "n",
+        }, // Table depends on enum type
+        {
+          dependent_stable_id: "index:test_schema.users_pkey",
+          referenced_stable_id: "constraint:test_schema.users.users_pkey",
+          deptype: "i",
+        }, // Index depends on constraint
+        {
+          dependent_stable_id: "constraint:test_schema.users.users_pkey",
+          referenced_stable_id: "table:test_schema.users",
+          deptype: "a",
+        }, // Constraint depends on table
+      ],
+    });
+  });
 }

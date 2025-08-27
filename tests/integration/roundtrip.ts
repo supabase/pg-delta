@@ -112,9 +112,7 @@ export async function roundtripFidelityTest(
   const masterCatalogAfter = await extractCatalog(masterSession);
 
   // Verify semantic equality between master and branch catalogs
-  expect(catalogsSemanticalyEqual(branchCatalog, masterCatalogAfter)).toBe(
-    true,
-  );
+  catalogsSemanticalyEqual(branchCatalog, masterCatalogAfter);
 }
 
 /**
@@ -122,10 +120,7 @@ export async function roundtripFidelityTest(
  * This is a simplified version - in a real implementation you would
  * need more sophisticated equality checking.
  */
-function catalogsSemanticalyEqual(
-  catalog1: Catalog,
-  catalog2: Catalog,
-): boolean {
+function catalogsSemanticalyEqual(catalog1: Catalog, catalog2: Catalog) {
   // For now, we'll do a basic check by comparing the serialized forms
   // of all objects in the catalog. In a real implementation, this would
   // be more sophisticated.
@@ -160,19 +155,15 @@ function catalogsSemanticalyEqual(
   const keys1 = getObjectKeys(catalog1);
   const keys2 = getObjectKeys(catalog2);
 
+  // Check if both catalogs have the same set of keys
+  expect(keys2).toEqual(keys1);
+
   // Check if both catalogs have the same set of objects
-  if (keys1.size !== keys2.size) {
-    return false;
-  }
-
   for (const key of keys1) {
-    if (!keys2.has(key)) {
-      return false;
-    }
+    expect(catalog2[key as keyof Catalog]).toEqual(
+      catalog1[key as keyof Catalog],
+    );
   }
-
-  // Additional checks could be added here for object content equality
-  return true;
 }
 
 function getDependencyStableId(depend: PgDepend): string {
