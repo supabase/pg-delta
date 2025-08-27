@@ -80,6 +80,9 @@ export class DependencyExtractor {
 
   extractForChangeset(changes: Change[]): DependencyModel {
     const relevant = this.findRelevantObjects(changes);
+    if (DEBUG) {
+      console.log("relevant", relevant);
+    }
     const model = new DependencyModel();
     this.extractFromCatalog(model, this.masterCatalog, relevant, "master");
     this.extractFromCatalog(model, this.branchCatalog, relevant, "branch");
@@ -437,6 +440,10 @@ export class ConstraintSolver {
     // Topological sort
     try {
       const orderedNodeIds = topologicalSort(graph);
+      if (DEBUG) {
+        console.log("graph", graphToDot(graph));
+        console.log("constraints", constraints);
+      }
       return new Ok(
         // biome-ignore lint/style/noNonNullAssertion: node ids were built from the provided changes
         orderedNodeIds.map((nodeId) => nodeIdToChange.get(nodeId)!),

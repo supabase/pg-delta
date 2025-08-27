@@ -9,10 +9,12 @@ import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
 import type { PgDepend } from "../../src/depend.ts";
 import { resolveDependencies } from "../../src/dependency.ts";
 import type { Change } from "../../src/objects/base.change.ts";
+import { DEBUG } from "../constants.ts";
 
 export interface RoundtripTestOptions {
   masterSession: postgres.Sql;
   branchSession: postgres.Sql;
+  name?: string;
   initialSetup?: string;
   testSql?: string;
   description: string;
@@ -41,6 +43,7 @@ export async function roundtripFidelityTest(
   options: RoundtripTestOptions,
 ): Promise<void> {
   const {
+    name,
     masterSession,
     branchSession,
     initialSetup,
@@ -73,6 +76,11 @@ export async function roundtripFidelityTest(
       expectedMasterDependencies,
       expectedBranchDependencies,
     );
+  }
+
+  if (DEBUG) {
+    expect(masterCatalog).toMatchSnapshot(`${name}-masterCatalog`);
+    expect(branchCatalog).toMatchSnapshot(`${name}-branchCatalog`);
   }
 
   // Generate migration from master to branch
