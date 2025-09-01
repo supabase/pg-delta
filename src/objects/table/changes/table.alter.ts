@@ -306,6 +306,21 @@ export class AlterTableAddConstraint extends AlterChange {
     return `${this.table.stableId}`;
   }
 
+  private getColumnNames(): string[] {
+    const columnByPosition = new Map(
+      this.table.columns.map((c) => [c.position, c]),
+    );
+    return this.constraint.key_columns.map((position) => {
+      const column = columnByPosition.get(position);
+      if (!column) {
+        throw new Error(
+          `AlterTableAddConstraint could not resolve column position ${position} to a column name`,
+        );
+      }
+      return quoteIdentifier(column.name);
+    });
+  }
+
   serialize(): string {
     const parts: string[] = [
       "ALTER TABLE",
@@ -314,9 +329,12 @@ export class AlterTableAddConstraint extends AlterChange {
       quoteIdentifier(this.constraint.name),
     ];
     switch (this.constraint.constraint_type) {
-      case "p":
+      case "p": {
         parts.push("PRIMARY KEY");
+        // A primary key constraint is defined by the columns it references
+        parts.push(`(${this.getColumnNames().join(", ")})`);
         break;
+      }
       case "u":
         parts.push("UNIQUE");
         break;
@@ -340,8 +358,6 @@ export class AlterTableAddConstraint extends AlterChange {
           ? "INITIALLY DEFERRED"
           : "INITIALLY IMMEDIATE",
       );
-    } else {
-      parts.push("NOT DEFERRABLE");
     }
     return parts.join(" ");
   }

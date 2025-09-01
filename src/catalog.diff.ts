@@ -1,3 +1,4 @@
+import { DEBUG } from "../tests/constants.ts";
 import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./objects/base.change.ts";
 import { diffCollations } from "./objects/collation/collation.diff.ts";
@@ -41,6 +42,10 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(...diffTriggers(main.triggers, branch.triggers));
   changes.push(...diffTypes(main.types, branch.types));
   changes.push(...diffViews(main.views, branch.views));
+
+  if (DEBUG) {
+    console.log("changes catalog diff: ", changes);
+  }
 
   return changes;
 }

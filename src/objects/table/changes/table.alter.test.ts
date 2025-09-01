@@ -448,7 +448,26 @@ describe.concurrent("table", () => {
         owner: "o1",
         parent_schema: null,
         parent_name: null,
-        columns: [],
+        columns: [
+          {
+            name: "a",
+            position: 1,
+            data_type: "integer",
+            data_type_str: "integer",
+            is_custom_type: false,
+            custom_type_type: null,
+            custom_type_category: null,
+            custom_type_schema: null,
+            custom_type_name: null,
+            not_null: false,
+            is_identity: false,
+            is_identity_always: false,
+            is_generated: false,
+            collation: null,
+            default: null,
+            comment: null,
+          },
+        ],
       });
 
       const pkey = {
@@ -489,34 +508,26 @@ describe.concurrent("table", () => {
       expect(
         new AlterTableAddConstraint({ table: t, constraint: pkey }).serialize(),
       ).toBe(
-        "ALTER TABLE public.test_table ADD CONSTRAINT pk_t PRIMARY KEY NOT DEFERRABLE",
+        "ALTER TABLE public.test_table ADD CONSTRAINT pk_t PRIMARY KEY (a)",
       );
       expect(
         new AlterTableAddConstraint({ table: t, constraint: uniq }).serialize(),
-      ).toBe(
-        "ALTER TABLE public.test_table ADD CONSTRAINT uq_t UNIQUE NOT DEFERRABLE",
-      );
+      ).toBe("ALTER TABLE public.test_table ADD CONSTRAINT uq_t UNIQUE");
       expect(
         new AlterTableAddConstraint({ table: t, constraint: fkey }).serialize(),
-      ).toBe(
-        "ALTER TABLE public.test_table ADD CONSTRAINT fk_t FOREIGN KEY NOT DEFERRABLE",
-      );
+      ).toBe("ALTER TABLE public.test_table ADD CONSTRAINT fk_t FOREIGN KEY");
       expect(
         new AlterTableAddConstraint({
           table: t,
           constraint: check,
         }).serialize(),
-      ).toBe(
-        "ALTER TABLE public.test_table ADD CONSTRAINT ck_t CHECK (a > 0) NOT DEFERRABLE",
-      );
+      ).toBe("ALTER TABLE public.test_table ADD CONSTRAINT ck_t CHECK (a > 0)");
       expect(
         new AlterTableAddConstraint({
           table: t,
           constraint: exclude,
         }).serialize(),
-      ).toBe(
-        "ALTER TABLE public.test_table ADD CONSTRAINT ex_t EXCLUDE NOT DEFERRABLE",
-      );
+      ).toBe("ALTER TABLE public.test_table ADD CONSTRAINT ex_t EXCLUDE");
 
       // deferrable + initially immediate/deferred
       expect(
@@ -530,7 +541,7 @@ describe.concurrent("table", () => {
           },
         }).serialize(),
       ).toBe(
-        "ALTER TABLE public.test_table ADD CONSTRAINT pk_d PRIMARY KEY DEFERRABLE INITIALLY IMMEDIATE",
+        "ALTER TABLE public.test_table ADD CONSTRAINT pk_d PRIMARY KEY (a) DEFERRABLE INITIALLY IMMEDIATE",
       );
       expect(
         new AlterTableAddConstraint({
@@ -543,7 +554,7 @@ describe.concurrent("table", () => {
           },
         }).serialize(),
       ).toBe(
-        "ALTER TABLE public.test_table ADD CONSTRAINT pk_dd PRIMARY KEY DEFERRABLE INITIALLY DEFERRED",
+        "ALTER TABLE public.test_table ADD CONSTRAINT pk_dd PRIMARY KEY (a) DEFERRABLE INITIALLY DEFERRED",
       );
 
       // drop + validate

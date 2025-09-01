@@ -118,7 +118,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
   });
-  test.only("enum type with table dependency", async ({ db }) => {
+  test("enum type with table dependency", async ({ db }) => {
     await roundtripFidelityTest({
       name: "enum-table-dependency",
       masterSession: db.a,
@@ -137,7 +137,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expectedSqlTerms: [
         `CREATE TYPE test_schema.user_status AS ENUM ('active', 'inactive', 'pending')`,
         `CREATE TABLE test_schema.users (id integer NOT NULL, name text NOT NULL, status test_schema.user_status DEFAULT 'pending'::test_schema.user_status)`,
-        `CREATE UNIQUE INDEX users_pkey ON test_schema.users (id COLLATE \"default\" pg_catalog.int4_ops)`,
+        `ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)`,
       ],
       expectedMasterDependencies: [],
       expectedBranchDependencies: [

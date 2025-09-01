@@ -43,7 +43,6 @@ export async function roundtripFidelityTest(
   options: RoundtripTestOptions,
 ): Promise<void> {
   const {
-    name,
     masterSession,
     branchSession,
     initialSetup,
@@ -78,11 +77,6 @@ export async function roundtripFidelityTest(
     );
   }
 
-  if (DEBUG) {
-    expect(masterCatalog).toMatchSnapshot(`${name}-masterCatalog`);
-    expect(branchCatalog).toMatchSnapshot(`${name}-branchCatalog`);
-  }
-
   // Generate migration from master to branch
   const changes = diffCatalogs(masterCatalog, branchCatalog);
 
@@ -111,6 +105,9 @@ export async function roundtripFidelityTest(
   const diffScript =
     sqlStatements.join(";\n") + (sqlStatements.length > 0 ? ";" : "");
 
+  if (DEBUG) {
+    console.log("diffScript: ", diffScript);
+  }
   // Apply migration to master database
   if (diffScript.trim()) {
     await masterSession.unsafe(diffScript);
