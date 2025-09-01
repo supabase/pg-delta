@@ -93,7 +93,7 @@ export class CreateIndex extends CreateChange {
           const itemParts: string[] = [col];
           const collation = this.index.column_collations[i];
           if (collation) {
-            itemParts.push(`COLLATE ${collation}`);
+            itemParts.push(`COLLATE ${quoteIdentifier(collation)}`);
           }
           const opclass = this.index.operator_classes[i];
           if (opclass) {

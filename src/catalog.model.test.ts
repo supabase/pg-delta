@@ -2,12 +2,13 @@ import { describe, expect } from "vitest";
 import { POSTGRES_VERSIONS } from "../tests/constants.ts";
 import { getTest } from "../tests/utils.ts";
 import { extractCatalog } from "./catalog.model.ts";
+import { stringifyWithBigInt } from "./objects/utils.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   const test = getTest(pgVersion);
   test("extract empty catalog", async ({ db }) => {
     const catalog = await extractCatalog(db.a);
-    expect(JSON.stringify(catalog, null, 2)).toMatchSnapshot(
+    expect(stringifyWithBigInt(catalog)).toMatchSnapshot(
       `catalog-empty-pg${pgVersion}`,
     );
   });

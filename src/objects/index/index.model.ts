@@ -171,7 +171,7 @@ select
   i.indkey as key_columns,
   coalesce(
     array(
-      select format('%I', coalesce(collname, 'default'))
+      select distinct coalesce(collname, 'default')
       from unnest(i.indcollation::regcollation[]) coll
       left join pg_collation c on c.oid = coll
     ),

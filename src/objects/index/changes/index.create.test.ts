@@ -76,7 +76,7 @@ describe("index", () => {
       is_clustered: false,
       is_replica_identity: false,
       key_columns: [1],
-      column_collations: ["pg_catalog.C"],
+      column_collations: ["pg_catalog"],
       operator_classes: ["pg_catalog.text_ops"],
       column_options: [1 | 2],
       index_expressions: "lower(col1)",

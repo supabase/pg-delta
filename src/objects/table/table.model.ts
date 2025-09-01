@@ -31,6 +31,7 @@ const ForeignKeyMatchTypeSchema = z.enum([
   "f", // FULL
   "p", // PARTIAL
   "s", // SIMPLE
+  "u", // UNSPECIFIED (default)
 ]);
 
 export type RelationPersistence = z.infer<typeof RelationPersistenceSchema>;
@@ -237,9 +238,9 @@ select
           'foreign_key_columns', c.confkey,
           'foreign_key_table', ftc.relname,
           'foreign_key_schema', ftn.nspname,
-          'on_update', c.confupdtype,
-          'on_delete', c.confdeltype,
-          'match_type', c.confmatchtype,
+          'on_update', case when c.contype = 'f' then c.confupdtype else null end,
+          'on_delete', case when c.contype = 'f' then c.confdeltype else null end,
+          'match_type', case when c.contype = 'f' then c.confmatchtype else null end,
           'check_expression', pg_get_expr(c.conbin, c.conrelid),
           'owner', t.owner
         )

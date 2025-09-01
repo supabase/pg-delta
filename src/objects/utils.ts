@@ -14,9 +14,11 @@ export class UnexpectedError extends Error {
  * them to strings. This ensures stable serialization for deep equality checks
  * without throwing on BigInt instances.
  */
-export function stringifyWithBigInt(value: unknown): string {
-  return JSON.stringify(value, (_key, v) =>
-    typeof v === "bigint" ? v.toString() : v,
+export function stringifyWithBigInt(value: unknown, space: number = 2): string {
+  return JSON.stringify(
+    value,
+    (_key, v) => (typeof v === "bigint" ? v.toString() : v),
+    space,
   );
 }
 
