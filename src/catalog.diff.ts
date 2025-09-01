@@ -26,8 +26,6 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(...diffDomains(main.domains, branch.domains));
   changes.push(...diffEnums(main.enums, branch.enums));
   changes.push(...diffExtensions(main.extensions, branch.extensions));
-  // TODO: Fix indexes CREATE with columns from table to work
-  // Error: CreateIndex requires an indexableObject with columns when key_columns are used
   changes.push(
     ...diffIndexes(main.indexes, branch.indexes, branch.indexableObjects),
   );
