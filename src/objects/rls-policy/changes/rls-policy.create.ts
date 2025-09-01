@@ -55,13 +55,20 @@ export class CreateRlsPolicy extends CreateChange {
       d: "FOR DELETE",
       "*": "FOR ALL",
     };
-    if (this.rlsPolicy.command) {
-      parts.push(commandMap[this.rlsPolicy.command] || "FOR ALL");
+    // Default is FOR ALL; only print when not default
+    if (this.rlsPolicy.command && this.rlsPolicy.command !== "*") {
+      parts.push(commandMap[this.rlsPolicy.command]);
     }
 
     // Add TO roles
+    // Default is TO PUBLIC; avoid printing explicit PUBLIC in CREATE
     if (this.rlsPolicy.roles && this.rlsPolicy.roles.length > 0) {
-      parts.push("TO", this.rlsPolicy.roles.map(quoteIdentifier).join(", "));
+      const onlyPublic =
+        this.rlsPolicy.roles.length === 1 &&
+        this.rlsPolicy.roles[0].toLowerCase() === "public";
+      if (!onlyPublic) {
+        parts.push("TO", this.rlsPolicy.roles.map(quoteIdentifier).join(", "));
+      }
     }
 
     // Add USING expression

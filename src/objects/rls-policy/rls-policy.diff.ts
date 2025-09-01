@@ -2,7 +2,9 @@ import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
-  AlterRlsPolicyChangeOwner,
+  AlterRlsPolicySetRoles,
+  AlterRlsPolicySetUsingExpression,
+  AlterRlsPolicySetWithCheckExpression,
   ReplaceRlsPolicy,
 } from "./changes/rls-policy.alter.ts";
 import { CreateRlsPolicy } from "./changes/rls-policy.create.ts";
@@ -38,18 +40,16 @@ export function diffRlsPolicies(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the RLS policy
+    // These attributes require drop+create (Postgres has no ALTER for them)
     const NON_ALTERABLE_FIELDS: Array<keyof RlsPolicy> = [
       "command",
       "permissive",
-      "roles",
-      "using_expression",
-      "with_check_expression",
     ];
     const nonAlterablePropsChanged = hasNonAlterableChanges(
       mainRlsPolicy,
       branchRlsPolicy,
       NON_ALTERABLE_FIELDS,
-      { roles: deepEqual },
+      {},
     );
 
     if (nonAlterablePropsChanged) {
@@ -60,19 +60,41 @@ export function diffRlsPolicies(
     } else {
       // Only alterable properties changed - check each one
 
-      // OWNER
-      if (mainRlsPolicy.owner !== branchRlsPolicy.owner) {
+      // ROLES (TO ...)
+      const rolesEqual = deepEqual(mainRlsPolicy.roles, branchRlsPolicy.roles);
+      if (!rolesEqual) {
         changes.push(
-          new AlterRlsPolicyChangeOwner({
+          new AlterRlsPolicySetRoles({
             main: mainRlsPolicy,
             branch: branchRlsPolicy,
           }),
         );
       }
 
-      // Note: RLS policy renaming would also use ALTER POLICY ... RENAME TO ...
-      // But since our RlsPolicy model uses 'name' as the identity field,
-      // a name change would be handled as drop + create by diffObjects()
+      // USING expression
+      if (mainRlsPolicy.using_expression !== branchRlsPolicy.using_expression) {
+        changes.push(
+          new AlterRlsPolicySetUsingExpression({
+            main: mainRlsPolicy,
+            branch: branchRlsPolicy,
+          }),
+        );
+      }
+
+      // WITH CHECK expression
+      if (
+        mainRlsPolicy.with_check_expression !==
+        branchRlsPolicy.with_check_expression
+      ) {
+        changes.push(
+          new AlterRlsPolicySetWithCheckExpression({
+            main: mainRlsPolicy,
+            branch: branchRlsPolicy,
+          }),
+        );
+      }
+
+      // Note: RLS policy renaming would require drop+create due to identity fields
     }
   }
 
