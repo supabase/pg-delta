@@ -73,7 +73,7 @@ export async function extractExtensions(sql: Sql): Promise<Extension[]> {
   const extensionRows = await sql`
 select
   extname as name,
-  extnamespace::regnamespace as schema,
+  regexp_replace(extnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
   extrelocatable as relocatable,
   extversion as version,
   extowner::regrole as owner

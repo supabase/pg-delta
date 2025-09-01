@@ -204,6 +204,43 @@ function validateDependencies(
     }, new Set<string>()),
   );
 
+  if (DEBUG) {
+    console.log(
+      "masterDependencies: ",
+      Array.from(masterDependencies).filter(
+        (dep) =>
+          !dep.includes("pg_") &&
+          !dep.includes("information_schema") &&
+          !dep.includes("pg_toast") &&
+          !dep.includes("storage") &&
+          !dep.includes("auth") &&
+          !dep.includes("secrets") &&
+          !dep.includes("vault") &&
+          !dep.includes("extensions") &&
+          !dep.includes("realtime") &&
+          !dep.includes("graphql") &&
+          !dep.includes("defaultAcl"),
+      ),
+    );
+    console.log(
+      "branchDependencies: ",
+      Array.from(branchDependencies).filter(
+        (dep) =>
+          !dep.includes("pg_") &&
+          !dep.includes("information_schema") &&
+          !dep.includes("pg_toast") &&
+          !dep.includes("storage") &&
+          !dep.includes("auth") &&
+          !dep.includes("secrets") &&
+          !dep.includes("vault") &&
+          !dep.includes("extensions") &&
+          !dep.includes("realtime") &&
+          !dep.includes("graphql") &&
+          !dep.includes("defaultAcl"),
+      ),
+    );
+  }
+
   // Extract dependencies from master catalog
   const expectedMasterSet = new Set(
     expectedMasterDependencies.map(getDependencyStableId),

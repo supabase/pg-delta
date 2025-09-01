@@ -29,11 +29,6 @@ const FunctionArgumentModeSchema = z.enum([
   "t", // TABLE parameter
 ]);
 
-type FunctionKind = z.infer<typeof FunctionKindSchema>;
-type FunctionVolatility = z.infer<typeof FunctionVolatilitySchema>;
-type FunctionParallelSafety = z.infer<typeof FunctionParallelSafetySchema>;
-type FunctionArgumentMode = z.infer<typeof FunctionArgumentModeSchema>;
-
 const procedurePropsSchema = z.object({
   schema: z.string(),
   name: z.string(),
@@ -174,11 +169,11 @@ with extension_oids as (
     and d.classid = 'pg_proc'::regclass
 )
 select
-  p.pronamespace::regnamespace as schema,
+  regexp_replace(p.pronamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
   p.proname as name,
   p.prokind as kind,
   rt.typname as return_type,
-  rt.typnamespace::regnamespace as return_type_schema,
+  regexp_replace(rt.typnamespace::regnamespace::text, '^"(.*)"$', '\\1') as return_type_schema,
   l.lanname as language,
   p.prosecdef as security_definer,
   p.provolatile as volatility,

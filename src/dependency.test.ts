@@ -294,7 +294,7 @@ describe("DependencyResolver", () => {
           deptype: "n",
         },
         {
-          dependent_stable_id: "materialized_view:test.user_summary",
+          dependent_stable_id: "materializedView:test.user_summary",
           referenced_stable_id: "view:test.user_view",
           deptype: "n",
         },
@@ -312,7 +312,7 @@ describe("DependencyResolver", () => {
           deptype: "n",
         },
         {
-          dependent_stable_id: "materialized_view:test.user_summary",
+          dependent_stable_id: "materializedView:test.user_summary",
           referenced_stable_id: "view:test.user_view",
           deptype: "n",
         },
@@ -322,7 +322,7 @@ describe("DependencyResolver", () => {
 
       // Create changes in reverse dependency order
       const changes = [
-        new DummyCreate("materialized_view:test.user_summary"),
+        new DummyCreate("materializedView:test.user_summary"),
         new DummyCreate("view:test.user_view"),
         new DummyCreate("table:test.users"),
         new DummyCreate("schema:test"),
@@ -338,7 +338,7 @@ describe("DependencyResolver", () => {
       const tableIndex = stableIds.indexOf("table:test.users");
       const viewIndex = stableIds.indexOf("view:test.user_view");
       const matViewIndex = stableIds.indexOf(
-        "materialized_view:test.user_summary",
+        "materializedView:test.user_summary",
       );
 
       // Verify proper ordering based on dependencies
@@ -855,7 +855,7 @@ describe("DependencyResolver", () => {
     test("replace operations with dependency constraints", () => {
       const masterCatalog = createCatalogWithDependencies([
         {
-          dependent_stable_id: "materialized_view:test.summary",
+          dependent_stable_id: "materializedView:test.summary",
           referenced_stable_id: "view:test.base_view",
           deptype: "n",
         },
@@ -863,7 +863,7 @@ describe("DependencyResolver", () => {
 
       const branchCatalog = createCatalogWithDependencies([
         {
-          dependent_stable_id: "materialized_view:test.summary",
+          dependent_stable_id: "materializedView:test.summary",
           referenced_stable_id: "view:test.base_view",
           deptype: "n",
         },
@@ -872,7 +872,7 @@ describe("DependencyResolver", () => {
       const resolver = new DependencyResolver(masterCatalog, branchCatalog);
 
       const changes = [
-        new DummyReplace("materialized_view:test.summary"),
+        new DummyReplace("materializedView:test.summary"),
         new DummyReplace("view:test.base_view"),
       ];
 
@@ -882,7 +882,7 @@ describe("DependencyResolver", () => {
       const stableIds = result.map((change) => change.stableId);
 
       const viewIndex = stableIds.indexOf("view:test.base_view");
-      const matViewIndex = stableIds.indexOf("materialized_view:test.summary");
+      const matViewIndex = stableIds.indexOf("materializedView:test.summary");
 
       // Base view REPLACE should come before dependent materialized view REPLACE
       expect(viewIndex).toBeLessThan(matViewIndex);
@@ -1008,7 +1008,7 @@ describe("DependencyResolver", () => {
         },
         // Chain dependencies
         {
-          dependent_stable_id: "materialized_view:test.summary",
+          dependent_stable_id: "materializedView:test.summary",
           referenced_stable_id: "view:test.view1",
           deptype: "n",
         },
@@ -1031,7 +1031,7 @@ describe("DependencyResolver", () => {
           deptype: "n",
         },
         {
-          dependent_stable_id: "materialized_view:test.summary",
+          dependent_stable_id: "materializedView:test.summary",
           referenced_stable_id: "view:test.view1",
           deptype: "n",
         },
@@ -1040,7 +1040,7 @@ describe("DependencyResolver", () => {
       const resolver = new DependencyResolver(masterCatalog, branchCatalog);
 
       const changes = [
-        new DummyCreate("materialized_view:test.summary"),
+        new DummyCreate("materializedView:test.summary"),
         new DummyCreate("view:test.view3"),
         new DummyCreate("view:test.view2"),
         new DummyCreate("view:test.view1"),
@@ -1056,7 +1056,7 @@ describe("DependencyResolver", () => {
       const view1Index = stableIds.indexOf("view:test.view1");
       const view2Index = stableIds.indexOf("view:test.view2");
       const view3Index = stableIds.indexOf("view:test.view3");
-      const matViewIndex = stableIds.indexOf("materialized_view:test.summary");
+      const matViewIndex = stableIds.indexOf("materializedView:test.summary");
 
       // Base table must come before all views
       expect(baseIndex).toBeLessThan(view1Index);
@@ -1215,7 +1215,7 @@ describe("DependencyResolver", () => {
           deptype: "n",
         },
         {
-          dependent_stable_id: "materialized_view:test.old_matview",
+          dependent_stable_id: "materializedView:test.old_matview",
           referenced_stable_id: "view:test.old_view",
           deptype: "n",
         },
@@ -1228,7 +1228,7 @@ describe("DependencyResolver", () => {
           deptype: "n",
         },
         {
-          dependent_stable_id: "materialized_view:test.new_matview",
+          dependent_stable_id: "materializedView:test.new_matview",
           referenced_stable_id: "view:test.new_view",
           deptype: "n",
         },
@@ -1238,8 +1238,8 @@ describe("DependencyResolver", () => {
 
       const changes = [
         new DummyCreate("view:test.new_view"),
-        new DummyCreate("materialized_view:test.new_matview"),
-        new DummyDrop("materialized_view:test.old_matview"),
+        new DummyCreate("materializedView:test.new_matview"),
+        new DummyDrop("materializedView:test.old_matview"),
         new DummyDrop("view:test.old_view"),
         new DummyAlter("table:test.base"),
         new DummyReplace("table:test.replacement"),

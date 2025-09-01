@@ -117,7 +117,7 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 )
 select
-  c.relnamespace::regnamespace as schema,
+  regexp_replace(c.relnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
   c.relname as name,
   pg_get_viewdef(c.oid) as definition,
   c.relrowsecurity as row_security,

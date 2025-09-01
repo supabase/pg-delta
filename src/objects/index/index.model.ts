@@ -154,7 +154,7 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 )
 select
-  tc.relnamespace::regnamespace as table_schema,
+  regexp_replace(tc.relnamespace::regnamespace::text, '^"(.*)"$', '\\1') as table_schema,
   tc.relname as table_name,
   tc.relkind as table_relkind,
   c.relname as name,
@@ -183,7 +183,7 @@ select
     where a.attrelid = i.indexrelid
   ) as statistics_target,
   array(
-    select format('%I.%I', opcnamespace::regnamespace, opcname)
+    select format('%I.%I', regexp_replace(opcnamespace::regnamespace::text, '^"(.*)"$', '\\1'), opcname)
     from unnest(i.indclass) op
     left join pg_opclass oc on oc.oid = op
   ) as operator_classes,
