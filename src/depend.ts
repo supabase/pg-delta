@@ -30,20 +30,25 @@ export interface PgDepend {
  * @param sql - The SQL client.
  * @returns Array of dependency objects for view dependencies.
  */
-export async function extractViewDepends(sql: Sql): Promise<PgDepend[]> {
-  const viewDependsRows = await sql<PgDepend[]>`
-    select distinct
-      -- dependent stable id (view)
-      'view:' || v_ns.nspname || '.' || v.relname as dependent_stable_id,
+export async function extractViewAndMaterializedViewsDepends(
+  sql: Sql,
+): Promise<PgDepend[]> {
+  const dependsRows = await sql<PgDepend[]>`
+    select * from (
+      select distinct
+      case
+        when v.relkind = 'v' then 'view:' || v_ns.nspname || '.' || v.relname 
+        when v.relkind = 'm' then 'materializedView:' || v_ns.nspname || '.' || v.relname
+        else 'unknown:' || v.relname || ':' ||  v.relkind::text
+      end as dependent_stable_id,
       
-      -- referenced stable id (table/view that the view depends on)
+      -- referenced stable id (table/view that the view/materialized view depends on)
       case
         when ref_obj.relkind = 'r' then 'table:' || ref_ns.nspname || '.' || ref_obj.relname
         when ref_obj.relkind = 'v' then 'view:' || ref_ns.nspname || '.' || ref_obj.relname
         when ref_obj.relkind = 'm' then 'materializedview:' || ref_ns.nspname || '.' || ref_obj.relname
         else 'unknown:' || ref_obj.relname
       end as referenced_stable_id,
-      
       d.deptype
     from pg_catalog.pg_depend d
     join pg_catalog.pg_class c1 on d.classid = c1.oid
@@ -58,11 +63,13 @@ export async function extractViewDepends(sql: Sql): Promise<PgDepend[]> {
       and d.deptype = 'n'            -- normal dependencies only
       and c1.relnamespace = (select oid from pg_namespace where nspname = 'pg_catalog')
       and c2.relnamespace = (select oid from pg_namespace where nspname = 'pg_catalog')
-      and v.relkind = 'v'            -- only for views (not materialized views)
     order by dependent_stable_id, referenced_stable_id
+  ) as view_depends_rows
+  -- remove duplicates
+  where dependent_stable_id != referenced_stable_id
   `;
 
-  return viewDependsRows;
+  return dependsRows;
 }
 
 /**
@@ -73,6 +80,7 @@ export async function extractViewDepends(sql: Sql): Promise<PgDepend[]> {
  */
 export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
   const dependsRows = await sql<PgDepend[]>`
+select * from (
   select distinct
   -- Dependent stable ID
   case
@@ -135,6 +143,9 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     -- Composite type
     when dep_class.relname = 'pg_type' and dep_type.oid is not null and dep_type.typtype = 'c'
       then 'compositeType:' || dep_type_ns.nspname || '.' || dep_type.typname
+    -- When a composite type is created sub-elements references are stored in pg_class (columsn of the composite type)
+    when dep_class.relname = 'pg_class' and dep_obj.oid is not null and dep_obj.relkind = 'c'
+      then 'compositeType:' || dep_ns.nspname || '.' || dep_obj.relname
     -- Base type
     when dep_class.relname = 'pg_type' and dep_type.oid is not null and dep_type.typtype = 'b'
       then 'type:' || dep_type_ns.nspname || '.' || dep_type.typname
@@ -246,6 +257,9 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
       then 'multirange:' || ref_type_ns.nspname || '.' || ref_type.typname
     when ref_class.relname = 'pg_type' and ref_type.oid is not null and ref_type.typtype = 'c'
       then 'compositeType:' || ref_type_ns.nspname || '.' || ref_type.typname
+    -- When a composite type is created sub-elements references are stored in pg_class (columsn of the composite type)
+    when ref_class.relname = 'pg_class' and ref_obj.oid is not null and ref_obj.relkind = 'c'
+      then 'compositeType:' || ref_ns.nspname || '.' || ref_obj.relname
     when ref_class.relname = 'pg_type' and ref_type.oid is not null and ref_type.typtype = 'b'
       then 'type:' || ref_type_ns.nspname || '.' || ref_type.typname
     when ref_class.relname = 'pg_type' and ref_type.oid is not null
@@ -426,11 +440,15 @@ from
 where
   d.deptype in ('n', 'a', 'i')
 order by
-  dependent_stable_id, referenced_stable_id;
+  dependent_stable_id, referenced_stable_id
+) as depends_rows
+-- In some corner case (composite type) we can have the same stable ids in the case where an internal object depends on it's parent type
+-- eg: compositeType contains internal columns but we don't distinct them from the parent type itself in our stable ids
+where dependent_stable_id != referenced_stable_id
   `;
 
   // Also extract view dependencies from pg_rewrite
-  const viewDepends = await extractViewDepends(sql);
+  const viewDepends = await extractViewAndMaterializedViewsDepends(sql);
 
   // Combine both dependency sources and remove duplicates
   const allDepends = new Set([...dependsRows, ...viewDepends]);

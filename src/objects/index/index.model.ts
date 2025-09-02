@@ -30,6 +30,7 @@ const indexPropsSchema = z.object({
   column_options: z.array(z.number()),
   index_expressions: z.string().nullable(),
   partial_predicate: z.string().nullable(),
+  is_constraint: z.boolean(),
   table_relkind: TableRelkindSchema, // 'r' for table, 'm' for materialized view
 });
 
@@ -70,6 +71,7 @@ export class Index extends BasePgModel {
   public readonly index_expressions: IndexProps["index_expressions"];
   public readonly partial_predicate: IndexProps["partial_predicate"];
   public readonly table_relkind: IndexProps["table_relkind"];
+  public readonly is_constraint: IndexProps["is_constraint"];
 
   constructor(props: IndexProps) {
     super();
@@ -98,6 +100,7 @@ export class Index extends BasePgModel {
     this.index_expressions = props.index_expressions;
     this.partial_predicate = props.partial_predicate;
     this.table_relkind = props.table_relkind;
+    this.is_constraint = props.is_constraint;
   }
 
   get stableId(): `index:${string}` {
@@ -136,6 +139,7 @@ export class Index extends BasePgModel {
       index_expressions: this.index_expressions,
       partial_predicate: this.partial_predicate,
       table_relkind: this.table_relkind,
+      is_constraint: this.is_constraint,
     };
   }
 }
@@ -169,6 +173,14 @@ select
   i.indisclustered as is_clustered,
   i.indisreplident as is_replica_identity,
   i.indkey as key_columns,
+    -- Check if this index was created by a constraint
+  case
+    when exists (
+      select 1 from pg_constraint c
+      where c.conindid = i.indexrelid
+    ) then true
+  else false
+  end as is_constraint,
   coalesce(
     array(
       select distinct coalesce(collname, 'default')

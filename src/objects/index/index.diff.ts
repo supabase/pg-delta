@@ -43,6 +43,12 @@ export function diffIndexes(
   }
 
   for (const indexId of dropped) {
+    const index = main[indexId];
+    // if the index is a constraint it'll be handled by an ALTER TABLE
+    // or if the entire table the index refers to has been dropped it'll be handled by a DROP TABLE
+    if (index.is_constraint || !branchIndexableObjects[index.tableStableId]) {
+      continue;
+    }
     changes.push(new DropIndex({ index: main[indexId] }));
   }
 

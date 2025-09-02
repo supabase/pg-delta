@@ -91,6 +91,7 @@ export class DependencyExtractor {
 
   private findRelevantObjects(
     changes: Change[],
+    // TODO: ask Oli about why we want to dig deeper than level 0 in the dependencies
     maxDepth: number = 2,
   ): Set<string> {
     const relevant = new Set<string>(changes.map((change) => change.stableId));
