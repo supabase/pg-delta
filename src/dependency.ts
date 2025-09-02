@@ -91,6 +91,7 @@ export class DependencyExtractor {
 
   private findRelevantObjects(
     changes: Change[],
+    // TODO: ask Oli about why we want to dig deeper than level 0 in the dependencies
     maxDepth: number = 2,
   ): Set<string> {
     const relevant = new Set<string>(changes.map((change) => change.stableId));
@@ -449,8 +450,6 @@ export class ConstraintSolver {
         orderedNodeIds.map((nodeId) => nodeIdToChange.get(nodeId)!),
       );
     } catch (error) {
-      // TODO: Ask Oli if this is even possible since each node in the graph has a index
-      // from list as node id
       if (error instanceof CycleError) {
         if (DEBUG) {
           console.log("graph", graphToDot(graph));

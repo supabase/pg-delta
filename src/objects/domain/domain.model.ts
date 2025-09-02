@@ -117,10 +117,10 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
           and d.classid = 'pg_type'::regclass
       )
       select
-        t.typnamespace::regnamespace as schema,
+        regexp_replace(t.typnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
         t.typname as name,
         bt.typname as base_type,
-        bt.typnamespace::regnamespace as base_type_schema,
+        regexp_replace(bt.typnamespace::regnamespace::text, '^"(.*)"$', '\\1') as base_type_schema,
         format_type(t.typbasetype, t.typtypmod) as base_type_str,
         t.typnotnull as not_null,
         t.typtypmod as type_modifier,

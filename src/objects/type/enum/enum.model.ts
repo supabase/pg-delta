@@ -7,8 +7,6 @@ const enumLabelSchema = z.object({
   label: z.string(),
 });
 
-type EnumLabel = z.infer<typeof enumLabelSchema>;
-
 /**
  * All properties exposed by CREATE TYPE AS ENUM statement are included in diff output.
  * https://www.postgresql.org/docs/current/sql-createtype.html
@@ -81,7 +79,8 @@ with extension_oids as (
     and d.classid = 'pg_type'::regclass
 )
 select
-  t.typnamespace::regnamespace as schema,
+  -- 
+  regexp_replace(t.typnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
   t.typname as name,
   e.enumsortorder as sort_order,
   e.enumlabel as label,

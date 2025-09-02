@@ -32,6 +32,7 @@ const base: IndexProps = {
   index_expressions: "expression",
   partial_predicate: null,
   table_relkind: "r",
+  is_constraint: false,
 };
 
 describe.concurrent("index.diff", () => {
@@ -39,7 +40,15 @@ describe.concurrent("index.diff", () => {
     const idx = new Index(base);
     const created = diffIndexes({}, { [idx.stableId]: idx }, {});
     expect(created[0]).toBeInstanceOf(CreateIndex);
-    const dropped = diffIndexes({ [idx.stableId]: idx }, {}, {});
+    const dropped = diffIndexes(
+      { [idx.stableId]: idx },
+      {},
+      {
+        [idx.tableStableId]: {
+          columns: [],
+        },
+      },
+    );
     expect(dropped[0]).toBeInstanceOf(DropIndex);
   });
 

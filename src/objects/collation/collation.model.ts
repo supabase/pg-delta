@@ -114,7 +114,7 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
           and d.classid = 'pg_collation'::regclass
       )
       select
-        c.collnamespace::regnamespace as schema,
+        regexp_replace(c.collnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
         c.collname as name,
         c.collprovider as provider,
         c.collisdeterministic as is_deterministic,
@@ -148,7 +148,7 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
           and d.classid = 'pg_collation'::regclass
       )
       select
-        c.collnamespace::regnamespace as schema,
+        regexp_replace(c.collnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
         c.collname as name,
         c.collprovider as provider,
         c.collisdeterministic as is_deterministic,
@@ -182,7 +182,7 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
           and d.classid = 'pg_collation'::regclass
       )
       select
-        c.collnamespace::regnamespace as schema,
+        regexp_replace(c.collnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
         c.collname as name,
         c.collprovider as provider,
         c.collisdeterministic as is_deterministic,

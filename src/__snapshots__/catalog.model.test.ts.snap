@@ -11879,45 +11879,83 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     }
   },
   "procedures": {
-    "procedure:pgbouncer.get_auth": {
-      "schema": "pgbouncer",
-      "name": "get_auth",
+    "procedure:auth.email": {
+      "schema": "auth",
+      "name": "email",
       "kind": "f",
-      "return_type": "record",
+      "return_type": "text",
       "return_type_schema": "pg_catalog",
-      "language": "plpgsql",
-      "security_definer": true,
-      "volatility": "v",
+      "language": "sql",
+      "security_definer": false,
+      "volatility": "s",
       "parallel_safety": "u",
       "is_strict": false,
       "leakproof": false,
-      "returns_set": true,
-      "argument_count": 1,
+      "returns_set": false,
+      "argument_count": 0,
       "argument_default_count": 0,
-      "argument_names": [
-        "p_usename",
-        "username",
-        "password"
-      ],
-      "argument_types": [
-        "text"
-      ],
-      "all_argument_types": [
-        "text",
-        "text",
-        "text"
-      ],
-      "argument_modes": [
-        "i",
-        "t",
-        "t"
-      ],
+      "argument_names": null,
+      "argument_types": [],
+      "all_argument_types": [],
+      "argument_modes": null,
       "argument_defaults": null,
-      "source_code": "\\nbegin\\n    raise debug 'PgBouncer auth request: %', p_usename;\\n\\n    return query\\n    select \\n        rolname::text, \\n        case when rolvaliduntil < now() \\n            then null \\n            else rolpassword::text \\n        end \\n    from pg_authid \\n    where rolname=$1 and rolcanlogin;\\nend;\\n",
+      "source_code": "\\n  select nullif(current_setting('request.jwt.claim.email', true), '')::text;\\n",
       "binary_path": null,
       "sql_body": null,
       "config": null,
-      "owner": "supabase_admin"
+      "owner": "supabase_auth_admin"
+    },
+    "procedure:auth.role": {
+      "schema": "auth",
+      "name": "role",
+      "kind": "f",
+      "return_type": "text",
+      "return_type_schema": "pg_catalog",
+      "language": "sql",
+      "security_definer": false,
+      "volatility": "s",
+      "parallel_safety": "u",
+      "is_strict": false,
+      "leakproof": false,
+      "returns_set": false,
+      "argument_count": 0,
+      "argument_default_count": 0,
+      "argument_names": null,
+      "argument_types": [],
+      "all_argument_types": [],
+      "argument_modes": null,
+      "argument_defaults": null,
+      "source_code": "\\n  select nullif(current_setting('request.jwt.claim.role', true), '')::text;\\n",
+      "binary_path": null,
+      "sql_body": null,
+      "config": null,
+      "owner": "supabase_auth_admin"
+    },
+    "procedure:auth.uid": {
+      "schema": "auth",
+      "name": "uid",
+      "kind": "f",
+      "return_type": "uuid",
+      "return_type_schema": "pg_catalog",
+      "language": "sql",
+      "security_definer": false,
+      "volatility": "s",
+      "parallel_safety": "u",
+      "is_strict": false,
+      "leakproof": false,
+      "returns_set": false,
+      "argument_count": 0,
+      "argument_default_count": 0,
+      "argument_names": null,
+      "argument_types": [],
+      "all_argument_types": [],
+      "argument_modes": null,
+      "argument_defaults": null,
+      "source_code": "\\n  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;\\n",
+      "binary_path": null,
+      "sql_body": null,
+      "config": null,
+      "owner": "supabase_auth_admin"
     },
     "procedure:extensions.grant_pg_cron_access": {
       "schema": "extensions",
@@ -12075,83 +12113,45 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "config": null,
       "owner": "supabase_admin"
     },
-    "procedure:auth.email": {
-      "schema": "auth",
-      "name": "email",
+    "procedure:pgbouncer.get_auth": {
+      "schema": "pgbouncer",
+      "name": "get_auth",
       "kind": "f",
-      "return_type": "text",
+      "return_type": "record",
       "return_type_schema": "pg_catalog",
-      "language": "sql",
-      "security_definer": false,
-      "volatility": "s",
+      "language": "plpgsql",
+      "security_definer": true,
+      "volatility": "v",
       "parallel_safety": "u",
       "is_strict": false,
       "leakproof": false,
-      "returns_set": false,
-      "argument_count": 0,
+      "returns_set": true,
+      "argument_count": 1,
       "argument_default_count": 0,
-      "argument_names": null,
-      "argument_types": [],
-      "all_argument_types": [],
-      "argument_modes": null,
+      "argument_names": [
+        "p_usename",
+        "username",
+        "password"
+      ],
+      "argument_types": [
+        "text"
+      ],
+      "all_argument_types": [
+        "text",
+        "text",
+        "text"
+      ],
+      "argument_modes": [
+        "i",
+        "t",
+        "t"
+      ],
       "argument_defaults": null,
-      "source_code": "\\n  select nullif(current_setting('request.jwt.claim.email', true), '')::text;\\n",
+      "source_code": "\\nbegin\\n    raise debug 'PgBouncer auth request: %', p_usename;\\n\\n    return query\\n    select \\n        rolname::text, \\n        case when rolvaliduntil < now() \\n            then null \\n            else rolpassword::text \\n        end \\n    from pg_authid \\n    where rolname=$1 and rolcanlogin;\\nend;\\n",
       "binary_path": null,
       "sql_body": null,
       "config": null,
-      "owner": "supabase_auth_admin"
-    },
-    "procedure:auth.role": {
-      "schema": "auth",
-      "name": "role",
-      "kind": "f",
-      "return_type": "text",
-      "return_type_schema": "pg_catalog",
-      "language": "sql",
-      "security_definer": false,
-      "volatility": "s",
-      "parallel_safety": "u",
-      "is_strict": false,
-      "leakproof": false,
-      "returns_set": false,
-      "argument_count": 0,
-      "argument_default_count": 0,
-      "argument_names": null,
-      "argument_types": [],
-      "all_argument_types": [],
-      "argument_modes": null,
-      "argument_defaults": null,
-      "source_code": "\\n  select nullif(current_setting('request.jwt.claim.role', true), '')::text;\\n",
-      "binary_path": null,
-      "sql_body": null,
-      "config": null,
-      "owner": "supabase_auth_admin"
-    },
-    "procedure:auth.uid": {
-      "schema": "auth",
-      "name": "uid",
-      "kind": "f",
-      "return_type": "uuid",
-      "return_type_schema": "pg_catalog",
-      "language": "sql",
-      "security_definer": false,
-      "volatility": "s",
-      "parallel_safety": "u",
-      "is_strict": false,
-      "leakproof": false,
-      "returns_set": false,
-      "argument_count": 0,
-      "argument_default_count": 0,
-      "argument_names": null,
-      "argument_types": [],
-      "all_argument_types": [],
-      "argument_modes": null,
-      "argument_defaults": null,
-      "source_code": "\\n  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;\\n",
-      "binary_path": null,
-      "sql_body": null,
-      "config": null,
-      "owner": "supabase_auth_admin"
+      "owner": "supabase_admin"
     },
     "procedure:storage.extension": {
       "schema": "storage",
@@ -12344,7 +12344,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": true
     },
     "index:auth.audit_log_entries.audit_logs_instance_id_idx": {
       "table_schema": "auth",
@@ -12377,7 +12378,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": false
     },
     "index:auth.instances.instances_pkey": {
       "table_schema": "auth",
@@ -12410,7 +12412,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": true
     },
     "index:auth.refresh_tokens.refresh_tokens_pkey": {
       "table_schema": "auth",
@@ -12443,7 +12446,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": true
     },
     "index:auth.refresh_tokens.refresh_tokens_token_idx": {
       "table_schema": "auth",
@@ -12476,7 +12480,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": false
     },
     "index:auth.refresh_tokens.refresh_tokens_instance_id_user_id_idx": {
       "table_schema": "auth",
@@ -12513,7 +12518,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": false
     },
     "index:auth.refresh_tokens.refresh_tokens_instance_id_idx": {
       "table_schema": "auth",
@@ -12546,7 +12552,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": false
     },
     "index:auth.schema_migrations.schema_migrations_pkey": {
       "table_schema": "auth",
@@ -12579,7 +12586,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": true
     },
     "index:auth.users.users_pkey": {
       "table_schema": "auth",
@@ -12612,7 +12620,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": true
     },
     "index:auth.users.users_email_key": {
       "table_schema": "auth",
@@ -12645,7 +12654,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": true
     },
     "index:auth.users.users_instance_id_email_idx": {
       "table_schema": "auth",
@@ -12682,7 +12692,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": false
     },
     "index:auth.users.users_instance_id_idx": {
       "table_schema": "auth",
@@ -12715,7 +12726,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": false
     },
     "index:storage.buckets.buckets_pkey": {
       "table_schema": "storage",
@@ -12748,7 +12760,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": true
     },
     "index:storage.buckets.bname": {
       "table_schema": "storage",
@@ -12781,7 +12794,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": false
     },
     "index:storage.migrations.migrations_name_key": {
       "table_schema": "storage",
@@ -12814,7 +12828,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": true
     },
     "index:storage.migrations.migrations_pkey": {
       "table_schema": "storage",
@@ -12847,7 +12862,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": true
     },
     "index:storage.objects.name_prefix_search": {
       "table_schema": "storage",
@@ -12880,7 +12896,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": false
     },
     "index:storage.objects.objects_pkey": {
       "table_schema": "storage",
@@ -12913,7 +12930,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": true
     },
     "index:storage.objects.bucketid_objname": {
       "table_schema": "storage",
@@ -12950,7 +12968,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": false
     },
     "index:vault.secrets.secrets_pkey": {
       "table_schema": "vault",
@@ -12983,7 +13002,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": null,
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": true
     },
     "index:vault.secrets.secrets_name_idx": {
       "table_schema": "vault",
@@ -13016,7 +13036,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       ],
       "index_expressions": null,
       "partial_predicate": "(name IS NOT NULL)",
-      "table_relkind": "r"
+      "table_relkind": "r",
+      "is_constraint": false
     }
   },
   "materializedViews": {},
@@ -20779,11 +20800,6 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     {
       "dependent_stable_id": "view:information_schema.views",
       "referenced_stable_id": "schema:information_schema",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "view:pg_catalog.pg_settings",
-      "referenced_stable_id": "view:pg_catalog.pg_settings",
       "deptype": "n"
     },
     {
