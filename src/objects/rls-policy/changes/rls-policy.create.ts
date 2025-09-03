@@ -39,7 +39,7 @@ export class CreateRlsPolicy extends CreateChange {
     // Add ON table
     parts.push(
       "ON",
-      `${quoteIdentifier(this.rlsPolicy.table_schema)}.${quoteIdentifier(this.rlsPolicy.table_name)}`,
+      `${quoteIdentifier(this.rlsPolicy.schema)}.${quoteIdentifier(this.rlsPolicy.table_name)}`,
     );
 
     // Add AS RESTRICTIVE only if false (default is PERMISSIVE)

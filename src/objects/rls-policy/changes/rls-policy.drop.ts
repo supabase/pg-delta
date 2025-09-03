@@ -28,7 +28,7 @@ export class DropRlsPolicy extends DropChange {
       "DROP POLICY",
       `${quoteIdentifier(this.rlsPolicy.schema)}.${quoteIdentifier(this.rlsPolicy.name)}`,
       "ON",
-      `${quoteIdentifier(this.rlsPolicy.table_schema)}.${quoteIdentifier(this.rlsPolicy.table_name)}`,
+      `${quoteIdentifier(this.rlsPolicy.schema)}.${quoteIdentifier(this.rlsPolicy.table_name)}`,
     ].join(" ");
   }
 }

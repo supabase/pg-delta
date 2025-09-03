@@ -55,7 +55,7 @@ export class AlterRlsPolicySetRoles extends AlterChange {
       "ALTER POLICY",
       `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "ON",
-      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.table_name)}`,
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.table_name)}`,
       "TO",
       rolesSql,
     ].join(" ");
@@ -85,7 +85,7 @@ export class AlterRlsPolicySetUsingExpression extends AlterChange {
       "ALTER POLICY",
       `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "ON",
-      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.table_name)}`,
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.table_name)}`,
       "USING",
       `(${expr})`,
     ].join(" ");
@@ -115,7 +115,7 @@ export class AlterRlsPolicySetWithCheckExpression extends AlterChange {
       "ALTER POLICY",
       `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "ON",
-      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.table_name)}`,
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.table_name)}`,
       "WITH CHECK",
       `(${expr})`,
     ].join(" ");

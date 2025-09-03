@@ -15,7 +15,6 @@ type RlsPolicyCommand = z.infer<typeof RlsPolicyCommandSchema>;
 const rlsPolicyPropsSchema = z.object({
   schema: z.string(),
   name: z.string(),
-  table_schema: z.string(),
   table_name: z.string(),
   command: RlsPolicyCommandSchema,
   permissive: z.boolean(),
@@ -30,7 +29,6 @@ export type RlsPolicyProps = z.infer<typeof rlsPolicyPropsSchema>;
 export class RlsPolicy extends BasePgModel {
   public readonly schema: RlsPolicyProps["schema"];
   public readonly name: RlsPolicyProps["name"];
-  public readonly table_schema: RlsPolicyProps["table_schema"];
   public readonly table_name: RlsPolicyProps["table_name"];
   public readonly command: RlsPolicyProps["command"];
   public readonly permissive: RlsPolicyProps["permissive"];
@@ -45,7 +43,6 @@ export class RlsPolicy extends BasePgModel {
     // Identity fields
     this.schema = props.schema;
     this.name = props.name;
-    this.table_schema = props.table_schema;
     this.table_name = props.table_name;
 
     // Data fields
@@ -97,7 +94,6 @@ with extension_oids as (
 select
   tc.relnamespace::regnamespace as schema,
   p.polname as name,
-  tc.relnamespace::regnamespace as table_schema,
   tc.relname as table_name,
   p.polcmd as command,
   p.polpermissive as permissive,

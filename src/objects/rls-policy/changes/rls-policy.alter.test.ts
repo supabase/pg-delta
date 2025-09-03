@@ -13,7 +13,6 @@ describe.concurrent("rls-policy", () => {
       const props: Omit<RlsPolicyProps, "roles"> = {
         schema: "public",
         name: "test_policy",
-        table_schema: "public",
         table_name: "test_table",
         command: "r",
         permissive: true,
@@ -44,7 +43,6 @@ describe.concurrent("rls-policy", () => {
       const props: Omit<RlsPolicyProps, "roles"> = {
         schema: "public",
         name: "test_policy",
-        table_schema: "public",
         table_name: "test_table",
         command: "r",
         permissive: true,
@@ -75,7 +73,6 @@ describe.concurrent("rls-policy", () => {
       const props: Omit<RlsPolicyProps, "permissive"> = {
         schema: "public",
         name: "test_policy",
-        table_schema: "public",
         table_name: "test_table",
         command: "r",
         roles: ["public"],
@@ -106,7 +103,6 @@ describe.concurrent("rls-policy", () => {
       const props: Omit<RlsPolicyProps, "using_expression"> = {
         schema: "public",
         name: "test_policy",
-        table_schema: "public",
         table_name: "test_table",
         command: "r",
         permissive: true,
@@ -137,7 +133,6 @@ describe.concurrent("rls-policy", () => {
       const props: Omit<RlsPolicyProps, "using_expression"> = {
         schema: "public",
         name: "test_policy",
-        table_schema: "public",
         table_name: "test_table",
         command: "r",
         permissive: true,
@@ -168,7 +163,6 @@ describe.concurrent("rls-policy", () => {
       const props: Omit<RlsPolicyProps, "with_check_expression"> = {
         schema: "public",
         name: "test_policy",
-        table_schema: "public",
         table_name: "test_table",
         command: "r",
         permissive: true,
@@ -199,7 +193,6 @@ describe.concurrent("rls-policy", () => {
       const props: Omit<RlsPolicyProps, "with_check_expression"> = {
         schema: "public",
         name: "test_policy",
-        table_schema: "public",
         table_name: "test_table",
         command: "r",
         permissive: true,

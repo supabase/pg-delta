@@ -13,7 +13,6 @@ import { RlsPolicy, type RlsPolicyProps } from "./rls-policy.model.ts";
 const base: RlsPolicyProps = {
   schema: "public",
   name: "p1",
-  table_schema: "public",
   table_name: "t",
   command: "r",
   permissive: true,

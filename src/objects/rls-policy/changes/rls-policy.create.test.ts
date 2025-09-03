@@ -7,7 +7,6 @@ describe("rls-policy", () => {
     const rlsPolicy = new RlsPolicy({
       schema: "public",
       name: "test_policy_min",
-      table_schema: "public",
       table_name: "test_table",
       command: "*",
       permissive: true,
@@ -30,7 +29,6 @@ describe("rls-policy", () => {
     const rlsPolicy = new RlsPolicy({
       schema: "public",
       name: "test_policy",
-      table_schema: "public",
       table_name: "test_table",
       command: "r",
       permissive: true,
@@ -53,7 +51,6 @@ describe("rls-policy", () => {
     const rlsPolicy = new RlsPolicy({
       schema: "public",
       name: "test_policy_all",
-      table_schema: "public",
       table_name: "test_table",
       command: "w",
       permissive: false,

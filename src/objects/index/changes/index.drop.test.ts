@@ -14,6 +14,7 @@ describe("index", () => {
       tablespace: null,
       is_unique: false,
       is_primary: false,
+      is_constraint: false,
       is_exclusion: false,
       nulls_not_distinct: false,
       immediate: true,
