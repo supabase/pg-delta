@@ -5,11 +5,11 @@ import {
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   type PostgresVersion,
 } from "./constants.ts";
-import { containerPool } from "./container-pool.js";
+import { containerManager } from "./container-manager.js";
 import { SupabasePostgreSqlContainer } from "./supabase-postgres.js";
 
 /**
- * Default test utility using Alpine PostgreSQL containers from a pool.
+ * Default test utility using Alpine PostgreSQL containers with single container per version.
  * Uses CREATE/DROP DATABASE for isolation instead of creating new containers.
  * Fast and suitable for most tests.
  */
@@ -20,7 +20,7 @@ export function getTest(postgresVersion: PostgresVersion) {
     // biome-ignore lint/correctness/noEmptyPattern: The first argument inside a fixture must use object destructuring pattern
     db: async ({}, use) => {
       const { a, b, cleanup } =
-        await containerPool.getDatabasePair(postgresVersion);
+        await containerManager.getDatabasePair(postgresVersion);
 
       await use({ a, b });
 
@@ -41,7 +41,7 @@ export function getTestIsolated(postgresVersion: PostgresVersion) {
     // biome-ignore lint/correctness/noEmptyPattern: The first argument inside a fixture must use object destructuring pattern
     db: async ({}, use) => {
       const { a, b, cleanup } =
-        await containerPool.getIsolatedContainers(postgresVersion);
+        await containerManager.getIsolatedContainers(postgresVersion);
 
       await use({ a, b });
 

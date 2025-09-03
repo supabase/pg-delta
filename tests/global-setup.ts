@@ -4,7 +4,7 @@ import {
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   POSTGRES_VERSIONS,
 } from "./constants.ts";
-import { containerPool } from "./container-pool.js";
+import { containerManager } from "./container-manager.js";
 
 export async function setup() {
   const containerRuntimeClient = await getContainerRuntimeClient();
@@ -27,10 +27,10 @@ export async function setup() {
     ),
   ]);
 
-  // Container pool will be initialized lazily when first needed
+  // Container manager will be initialized lazily when first needed
 }
 
 export async function teardown() {
-  // Cleanup the container pool
-  await containerPool.cleanup();
+  // Cleanup the container manager
+  await containerManager.cleanup();
 }
