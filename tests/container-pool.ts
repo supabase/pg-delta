@@ -16,9 +16,6 @@ class ContainerPool {
   private dbCounter = 0;
   private initialized = false;
   private initializationPromise: Promise<void> | null = null;
-  private templateDatabases: Map<string, string> = new Map(); // container_id -> template_db_name
-  private connectionPool: Map<string, postgres.Sql> = new Map(); // container_id -> postgres connection
-
 
   /**
    * Initialize the pool with containers for each PostgreSQL version
@@ -37,133 +34,31 @@ class ContainerPool {
     this.initialized = true;
   }
 
-    private async _doInitialize(
+  private async _doInitialize(
     versions: PostgresVersion[],
     poolSize: number,
   ): Promise<void> {
-    // Process all versions in parallel for maximum speed
-    await Promise.all(
-      versions.map(async (version) => {
-        const containers: StartedPostgresAlpineContainer[] = [];
-        const image = `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[version]}`;
+    for (const version of versions) {
+      const containers: StartedPostgresAlpineContainer[] = [];
+      const image = `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[version]}`;
 
-        try {
-          // Create containers in parallel for each version
-          const containerPromises = Array.from({ length: poolSize }, () =>
-            new PostgresAlpineContainer(image).start(),
-          );
+      try {
+        // Create containers in parallel for each version
+        const containerPromises = Array.from({ length: poolSize }, () =>
+          new PostgresAlpineContainer(image).start(),
+        );
 
-          const startedContainers = await Promise.all(containerPromises);
-          containers.push(...startedContainers);
+        const startedContainers = await Promise.all(containerPromises);
+        containers.push(...startedContainers);
 
-          // Create connection pools for faster database operations
-          await this.createConnectionPool(containers);
-
-          this.pools.set(version, containers);
-        } catch (error) {
-          console.error(
-            `Failed to start containers for PostgreSQL ${version}:`,
-            error,
-          );
-          throw error;
-        }
-      })
-    );
-  }
-
-  /**
-   * Create template databases for faster database creation
-   */
-  private async createTemplateDatabases(
-    containers: StartedPostgresAlpineContainer[],
-  ): Promise<void> {
-    await Promise.all(
-      containers.map(async (container) => {
-        const templateName = `template_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        try {
-          await container.createDatabase(templateName);
-          // Mark as template
-          await container.execCommandsSQL([
-            `ALTER DATABASE "${templateName}" WITH is_template = TRUE`,
-          ]);
-          this.templateDatabases.set(container.getId(), templateName);
-        } catch (error) {
-          console.error("Failed to create template database:", error);
-          // Continue without template - will fall back to regular creation
-        }
-      }),
-    );
-  }
-
-  /**
-   * Create connection pool for admin operations
-   */
-  private async createConnectionPool(
-    containers: StartedPostgresAlpineContainer[],
-  ): Promise<void> {
-    await Promise.all(
-      containers.map(async (container) => {
-        try {
-          const adminConnection = postgres(
-            container.getConnectionUriForDatabase("postgres"),
-            { 
-              ...postgresConfig,
-              max: 1, // Single connection per container for admin operations
-              idle_timeout: 60, // Keep alive for reuse
-            },
-          );
-          this.connectionPool.set(container.getId(), adminConnection);
-        } catch (error) {
-          console.error("Failed to create admin connection:", error);
-        }
-      }),
-    );
-  }
-
-  /**
-   * Create database from template if available, otherwise create normally
-   */
-  private async createDatabaseFromTemplate(
-    container: StartedPostgresAlpineContainer,
-    dbName: string,
-  ): Promise<void> {
-    const templateName = this.templateDatabases.get(container.getId());
-    const adminConnection = this.connectionPool.get(container.getId());
-    
-    if (adminConnection) {
-      // Use pooled connection for faster database creation
-      if (templateName) {
-        await adminConnection.unsafe(`CREATE DATABASE "${dbName}" WITH TEMPLATE "${templateName}" OWNER "${container.getUsername()}"`);
-      } else {
-        await adminConnection.unsafe(`CREATE DATABASE "${dbName}" OWNER "${container.getUsername()}"`);
+        this.pools.set(version, containers);
+      } catch (error) {
+        console.error(
+          `Failed to start containers for PostgreSQL ${version}:`,
+          error,
+        );
+        throw error;
       }
-    } else {
-      // Fall back to container exec method
-      if (templateName) {
-        await container.execCommandsSQL([
-          `CREATE DATABASE "${dbName}" WITH TEMPLATE "${templateName}" OWNER "${container.getUsername()}"`,
-        ]);
-      } else {
-        await container.createDatabase(dbName);
-      }
-    }
-  }
-
-  /**
-   * Fast database drop using pooled connections
-   */
-  private async dropDatabaseFast(
-    container: StartedPostgresAlpineContainer,
-    dbName: string,
-  ): Promise<void> {
-    const adminConnection = this.connectionPool.get(container.getId());
-    
-    if (adminConnection) {
-      // Use pooled connection for faster database drop
-      await adminConnection.unsafe(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
-    } else {
-      // Fall back to container exec method
-      await container.dropDatabase(dbName);
     }
   }
 
@@ -194,27 +89,18 @@ class ContainerPool {
       );
     }
 
-    // Select containers with least active databases for better load distribution
-    const sortedContainers = containers
-      .map((container) => ({
-        container,
-        activeDbs: Array.from(this.activeDatabases).filter((name) =>
-          name.includes(container.getId())
-        ).length,
-      }))
-      .sort((a, b) => a.activeDbs - b.activeDbs);
+    // Get two containers (we'll use different databases on the same containers for better performance)
+    const containerA = containers[0];
+    const containerB = containers[1];
 
-    const containerA = sortedContainers[0].container;
-    const containerB = sortedContainers[1].container;
+    // Generate unique database names
+    const dbNameA = `test_db_${this.dbCounter++}_${Date.now()}_a`;
+    const dbNameB = `test_db_${this.dbCounter++}_${Date.now()}_b`;
 
-    // Generate unique database names with container IDs for better tracking
-    const dbNameA = `test_db_${this.dbCounter++}_${containerA.getId().slice(-8)}_a`;
-    const dbNameB = `test_db_${this.dbCounter++}_${containerB.getId().slice(-8)}_b`;
-
-    // Create the databases using templates if available
+    // Create the databases
     await Promise.all([
-      this.createDatabaseFromTemplate(containerA, dbNameA),
-      this.createDatabaseFromTemplate(containerB, dbNameB),
+      containerA.createDatabase(dbNameA),
+      containerB.createDatabase(dbNameB),
     ]);
 
     // Create SQL connections
@@ -236,10 +122,10 @@ class ContainerPool {
         // Close connections
         await Promise.all([sqlA.end(), sqlB.end()]);
 
-        // Drop databases using pooled connections for speed
+        // Drop databases
         await Promise.all([
-          this.dropDatabaseFast(containerA, dbNameA),
-          this.dropDatabaseFast(containerB, dbNameB),
+          containerA.dropDatabase(dbNameA),
+          containerB.dropDatabase(dbNameB),
         ]);
 
         // Remove from active tracking
@@ -287,20 +173,10 @@ class ContainerPool {
    * Cleanup all pools
    */
   async cleanup(): Promise<void> {
-    // Close all pooled connections first
-    const connectionPromises = Array.from(this.connectionPool.values()).map(
-      (connection) => connection.end().catch(() => {}) // Ignore errors during cleanup
-    );
-    await Promise.all(connectionPromises);
-    this.connectionPool.clear();
-
-    // Stop all containers
     const allContainers = Array.from(this.pools.values()).flat();
     await Promise.all(allContainers.map((container) => container.stop()));
-    
     this.pools.clear();
     this.activeDatabases.clear();
-    this.templateDatabases.clear();
   }
 
   /**

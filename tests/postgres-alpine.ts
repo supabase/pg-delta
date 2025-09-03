@@ -88,10 +88,6 @@ export class StartedPostgresAlpineContainer extends AbstractStartedContainer {
     return this.password;
   }
 
-  public getId(): string {
-    return this.startedTestContainer.getId();
-  }
-
   /**
    * @returns A connection URI in the form of `postgres[ql]://[username[:password]@][host[:port],]/database`
    */
@@ -199,7 +195,7 @@ export class StartedPostgresAlpineContainer extends AbstractStartedContainer {
    * @param commands Array of SQL commands to execute in sequence
    * @throws Error if any command fails to execute with details of the failure
    */
-  public async execCommandsSQL(commands: string[]): Promise<void> {
+  private async execCommandsSQL(commands: string[]): Promise<void> {
     for (const command of commands) {
       try {
         const result = await this.exec([
