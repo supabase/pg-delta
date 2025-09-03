@@ -13,8 +13,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`trigger operations (pg${pgVersion})`, () => {
     test("simple trigger creation", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
@@ -123,8 +123,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("multi-event trigger", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.audit_log (
@@ -305,8 +305,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("conditional trigger with WHEN clause", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.products (
@@ -421,8 +421,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("trigger dropping", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.test_table (
@@ -526,8 +526,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("trigger replacement (modification)", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
@@ -697,8 +697,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("trigger after function dependency", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema",
         testSql: `
           CREATE TABLE test_schema.events (
@@ -779,8 +779,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("trigger semantic equality", async ({ db }) => {
       // Setup: Create a trigger in both databases
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema",
         testSql: `
           CREATE TABLE test_schema.test_table (
@@ -803,8 +803,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("trigger with dependencies roundtrip", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema",
         testSql: `
           -- Create base table

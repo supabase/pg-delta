@@ -14,8 +14,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.skip(`RLS operations (pg${pgVersion})`, () => {
     test("enable RLS on table", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA app;
           CREATE TABLE app.users (
@@ -88,8 +88,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("disable RLS on table", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA app;
           CREATE TABLE app.users (

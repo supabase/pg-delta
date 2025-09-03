@@ -13,8 +13,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`view operations (pg${pgVersion})`, () => {
     test("simple view creation", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
           CREATE TABLE test_schema.users (
@@ -60,8 +60,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("nested view dependencies - 3 levels deep", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
           CREATE TABLE test_schema.users (
@@ -205,8 +205,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("view replacement with dependency changes", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
 
@@ -299,8 +299,8 @@ CREATE OR REPLACE VIEW test_schema.user_summary AS  SELECT u.id,
 
     test("complex view dependencies with multiple joins", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA analytics;",
         testSql: `
           CREATE TABLE analytics.customers (

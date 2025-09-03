@@ -14,8 +14,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.skip(`index operations (pg${pgVersion})`, () => {
     test("create btree index", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
@@ -55,8 +55,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("create unique index", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.products (
@@ -96,8 +96,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("create partial index", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.orders (
@@ -139,8 +139,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("create functional index", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.customers (
@@ -180,8 +180,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("create multicolumn index", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.sales (
@@ -223,8 +223,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop index", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.items (

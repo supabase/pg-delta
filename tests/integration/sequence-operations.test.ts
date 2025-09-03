@@ -13,14 +13,12 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`sequence operations (pg${pgVersion})`, () => {
     test("create basic sequence", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: "CREATE SEQUENCE test_schema.test_seq;",
         description: "create basic sequence",
-        expectedSqlTerms: [
-          `CREATE SEQUENCE test_schema.test_seq`,
-        ],
+        expectedSqlTerms: [`CREATE SEQUENCE test_schema.test_seq`],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
@@ -34,8 +32,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("create sequence with options", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
           CREATE SEQUENCE test_schema.custom_seq
@@ -64,17 +62,15 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop sequence", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE SEQUENCE test_schema.test_seq;
         `,
         testSql: "DROP SEQUENCE test_schema.test_seq;",
         description: "drop sequence",
-        expectedSqlTerms: [
-          `DROP SEQUENCE test_schema.test_seq`,
-        ],
+        expectedSqlTerms: [`DROP SEQUENCE test_schema.test_seq`],
         expectedMasterDependencies: [
           {
             dependent_stable_id: "sequence:test_schema.test_seq",
@@ -87,10 +83,12 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     // TODO: Fix sequence-table dependency cycle detection
-    test.skip("create table with serial column (sequence dependency)", async ({ db }) => {
+    test.skip("create table with serial column (sequence dependency)", async ({
+      db,
+    }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
           CREATE TABLE test_schema.users (
@@ -138,8 +136,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("alter sequence properties", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE SEQUENCE test_schema.test_seq INCREMENT BY 1 CACHE 1;

@@ -14,8 +14,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.skip(`function operations (pg${pgVersion})`, () => {
     test("simple function creation", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
           CREATE FUNCTION test_schema.add_numbers(a integer, b integer)
@@ -42,8 +42,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("plpgsql function with security definer", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
           CREATE FUNCTION test_schema.get_user_count()
@@ -77,8 +77,8 @@ END;$$`,
 
     test("function replacement", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE FUNCTION test_schema.version_function()
@@ -117,8 +117,8 @@ END;$$`,
 
     test("function overloading", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
           -- Function with one parameter
@@ -159,8 +159,8 @@ END;$$`,
 
     test("drop function", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE FUNCTION test_schema.temp_function()

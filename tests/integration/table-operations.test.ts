@@ -13,8 +13,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`table operations (pg${pgVersion})`, () => {
     test("simple table with columns", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
           CREATE TABLE test_schema.users (
@@ -40,8 +40,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("table with constraints", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
           CREATE TABLE test_schema.constrained_table (
@@ -68,8 +68,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("multiple tables", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
           CREATE TABLE test_schema.users (
@@ -106,8 +106,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("table with various types", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
           CREATE TABLE test_schema.type_test (
@@ -138,8 +138,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("table in public schema", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: null,
         testSql: `
           CREATE TABLE public.simple_table (
@@ -164,8 +164,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("empty table", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
           CREATE TABLE test_schema.empty_table ();
@@ -185,8 +185,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("tables in multiple schemas", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA schema_a;
           CREATE SCHEMA schema_b;

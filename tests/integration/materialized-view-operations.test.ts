@@ -13,8 +13,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`materialized view operations (pg${pgVersion})`, () => {
     test("create new materialized view", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
@@ -88,8 +88,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop existing materialized view", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
@@ -108,9 +108,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP MATERIALIZED VIEW test_schema.active_users;
         `,
         description: "drop existing materialized view",
-        expectedSqlTerms: [
-          `DROP MATERIALIZED VIEW test_schema.active_users`,
-        ],
+        expectedSqlTerms: [`DROP MATERIALIZED VIEW test_schema.active_users`],
         expectedMasterDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
@@ -160,8 +158,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("replace materialized view definition", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
@@ -255,8 +253,8 @@ CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
 
     test("materialized view with aggregations", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA analytics;
           CREATE TABLE analytics.sales (
@@ -335,8 +333,8 @@ CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
 
     test("materialized view with joins", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA ecommerce;
           CREATE TABLE ecommerce.customers (
@@ -379,13 +377,15 @@ CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
             deptype: "n",
           },
           {
-            dependent_stable_id: "constraint:ecommerce.customers.customers_pkey",
+            dependent_stable_id:
+              "constraint:ecommerce.customers.customers_pkey",
             referenced_stable_id: "table:ecommerce.customers",
             deptype: "a",
           },
           {
             dependent_stable_id: "index:ecommerce.customers_pkey",
-            referenced_stable_id: "constraint:ecommerce.customers.customers_pkey",
+            referenced_stable_id:
+              "constraint:ecommerce.customers.customers_pkey",
             deptype: "i",
           },
           {
@@ -411,13 +411,15 @@ CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
             deptype: "n",
           },
           {
-            dependent_stable_id: "constraint:ecommerce.customers.customers_pkey",
+            dependent_stable_id:
+              "constraint:ecommerce.customers.customers_pkey",
             referenced_stable_id: "table:ecommerce.customers",
             deptype: "a",
           },
           {
             dependent_stable_id: "index:ecommerce.customers_pkey",
-            referenced_stable_id: "constraint:ecommerce.customers.customers_pkey",
+            referenced_stable_id:
+              "constraint:ecommerce.customers.customers_pkey",
             deptype: "i",
           },
           {

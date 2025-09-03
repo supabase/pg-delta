@@ -14,8 +14,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.skip(`constraint operations (pg${pgVersion})`, () => {
     test("add primary key constraint", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
@@ -59,8 +59,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("add unique constraint", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
@@ -105,8 +105,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("add check constraint", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.products (
@@ -146,8 +146,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop primary key constraint", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.a,
-        branchSession: db.b,
+        masterSession: db.main,
+        branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
