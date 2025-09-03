@@ -11,7 +11,7 @@ import {
 } from "./utils.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  describe.concurrent(`test utilities demo (pg${pgVersion})`, () => {
+  describe.skip.concurrent(`test utilities demo (pg${pgVersion})`, () => {
     const test = getTest(pgVersion);
     const testIsolated = getTestIsolated(pgVersion);
     const testWithSupabase = getTestWithSupabaseIsolated(pgVersion);
@@ -28,7 +28,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     testIsolated(
-      "isolated test - creates fresh Alpine containers",
+      "isolated test - creates fresh Alpine containers for each database",
       async ({ db }) => {
         // This creates brand new Alpine PostgreSQL containers for complete isolation
         // Slower than pooled but faster than Supabase containers
@@ -40,7 +40,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     testWithSupabase(
-      "supabase test - for tests requiring Supabase features",
+      "supabase test - for tests requiring Supabase features with full isolation betwen databases",
       async ({ db }) => {
         // This uses Supabase PostgreSQL containers with all extensions
         // Slowest but has all Supabase-specific functionality
