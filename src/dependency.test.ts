@@ -85,6 +85,7 @@ describe("DependencyResolver", () => {
       types: {},
       views: {},
       depends: dependencies,
+      indexableObjects: {},
     });
   }
 
@@ -1712,6 +1713,7 @@ describe("DependencyResolver", () => {
             deptype: "n",
           },
         ],
+        indexableObjects: {},
       });
 
       const resolver = new DependencyResolver(minimalCatalog, minimalCatalog);
