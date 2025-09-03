@@ -106,7 +106,7 @@ export class CreateTrigger extends CreateChange {
     // Add ON table
     parts.push(
       "ON",
-      `${quoteIdentifier(this.trigger.table_schema)}.${quoteIdentifier(this.trigger.table_name)}`,
+      `${quoteIdentifier(this.trigger.schema)}.${quoteIdentifier(this.trigger.table_name)}`,
     );
 
     // Add deferrable options (only if deferrable, since NOT DEFERRABLE is default)

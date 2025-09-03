@@ -6,7 +6,7 @@ import { CreateIndex } from "./index.create.ts";
 describe("index", () => {
   test("create minimal", () => {
     const index = new Index({
-      table_schema: "public",
+      schema: "public",
       table_name: "test_table",
       name: "test_index",
       storage_params: [],
@@ -62,7 +62,7 @@ describe("index", () => {
     // Full-options index using an expression, non-btree method, partial predicate,
     // storage params and tablespace
     const indexWithExpr = new Index({
-      table_schema: "public",
+      schema: "public",
       table_name: "test_table",
       name: "test_index_expr",
       storage_params: ["fillfactor=90", "deduplicate_items=off"],
@@ -94,7 +94,7 @@ describe("index", () => {
 
     // Also cover column name resolution via indexableObject (mapping)
     const indexWithCols = new Index({
-      table_schema: "public",
+      schema: "public",
       table_name: "test_table",
       name: "test_index_cols",
       storage_params: [],

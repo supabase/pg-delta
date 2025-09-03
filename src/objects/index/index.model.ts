@@ -10,7 +10,7 @@ const TableRelkindSchema = z.enum([
 export type TableRelkind = z.infer<typeof TableRelkindSchema>;
 
 const indexPropsSchema = z.object({
-  table_schema: z.string(),
+  schema: z.string(),
   table_name: z.string(),
   name: z.string(),
   storage_params: z.array(z.string()),
@@ -50,7 +50,7 @@ const indexPropsSchema = z.object({
 export type IndexProps = z.infer<typeof indexPropsSchema>;
 
 export class Index extends BasePgModel {
-  public readonly table_schema: IndexProps["table_schema"];
+  public readonly schema: IndexProps["schema"];
   public readonly table_name: IndexProps["table_name"];
   public readonly name: IndexProps["name"];
   public readonly storage_params: IndexProps["storage_params"];
@@ -77,7 +77,7 @@ export class Index extends BasePgModel {
     super();
 
     // Identity fields
-    this.table_schema = props.table_schema;
+    this.schema = props.schema;
     this.table_name = props.table_name;
     this.name = props.name;
 
@@ -104,16 +104,16 @@ export class Index extends BasePgModel {
   }
 
   get stableId(): `index:${string}` {
-    return `index:${this.table_schema}.${this.table_name}.${this.name}`;
+    return `index:${this.schema}.${this.table_name}.${this.name}`;
   }
 
   get tableStableId(): `table:${string}` {
-    return `table:${this.table_schema}.${this.table_name}`;
+    return `table:${this.schema}.${this.table_name}`;
   }
 
   get identityFields() {
     return {
-      table_schema: this.table_schema,
+      schema: this.schema,
       table_name: this.table_name,
       name: this.name,
     };
@@ -158,7 +158,7 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 )
 select
-  regexp_replace(tc.relnamespace::regnamespace::text, '^"(.*)"$', '\\1') as table_schema,
+  regexp_replace(tc.relnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
   tc.relname as table_name,
   tc.relkind as table_relkind,
   c.relname as name,

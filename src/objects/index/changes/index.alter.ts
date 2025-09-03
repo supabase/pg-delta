@@ -78,7 +78,7 @@ export class AlterIndexSetStorageParams extends AlterChange {
 
     const head = [
       "ALTER INDEX",
-      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.name)}`,
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
     ].join(" ");
 
     const statements: string[] = [];
@@ -114,7 +114,7 @@ export class AlterIndexSetStatistics extends AlterChange {
     const statements: string[] = [];
     const head = [
       "ALTER INDEX",
-      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.name)}`,
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
     ].join(" ");
 
     const mainTargets = this.main.statistics_target;
@@ -156,7 +156,7 @@ export class AlterIndexSetTablespace extends AlterChange {
   serialize(): string {
     return [
       "ALTER INDEX",
-      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.name)}`,
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "SET TABLESPACE",
       // biome-ignore lint/style/noNonNullAssertion: the tablespace is set in this case
       quoteIdentifier(this.branch.tablespace!),

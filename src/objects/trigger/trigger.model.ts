@@ -14,7 +14,6 @@ type TriggerEnabled = z.infer<typeof TriggerEnabledSchema>;
 const triggerPropsSchema = z.object({
   schema: z.string(),
   name: z.string(),
-  table_schema: z.string(),
   table_name: z.string(),
   function_schema: z.string(),
   function_name: z.string(),
@@ -37,7 +36,6 @@ export type TriggerProps = z.infer<typeof triggerPropsSchema>;
 export class Trigger extends BasePgModel {
   public readonly schema: TriggerProps["schema"];
   public readonly name: TriggerProps["name"];
-  public readonly table_schema: TriggerProps["table_schema"];
   public readonly table_name: TriggerProps["table_name"];
   public readonly function_schema: TriggerProps["function_schema"];
   public readonly function_name: TriggerProps["function_name"];
@@ -60,7 +58,6 @@ export class Trigger extends BasePgModel {
     // Identity fields
     this.schema = props.schema;
     this.name = props.name;
-    this.table_schema = props.table_schema;
     this.table_name = props.table_name;
 
     // Data fields
@@ -88,7 +85,6 @@ export class Trigger extends BasePgModel {
     return {
       schema: this.schema,
       name: this.name,
-      table_schema: this.table_schema,
       table_name: this.table_name,
     };
   }
@@ -129,7 +125,6 @@ with extension_oids as (
 select
   tc.relnamespace::regnamespace as schema,
   t.tgname as name,
-  tc.relnamespace::regnamespace as table_schema,
   tc.relname as table_name,
   fc.pronamespace::regnamespace as function_schema,
   fc.proname as function_name,

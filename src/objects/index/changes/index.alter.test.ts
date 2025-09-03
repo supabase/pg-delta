@@ -12,7 +12,7 @@ describe.concurrent("index", () => {
   describe("alter", () => {
     test("set storage params", () => {
       const props: Omit<IndexProps, "storage_params"> = {
-        table_schema: "public",
+        schema: "public",
         table_name: "test_table",
         name: "test_index",
         statistics_target: [0],
@@ -55,7 +55,7 @@ describe.concurrent("index", () => {
 
     test("reset and set storage params", () => {
       const props: Omit<IndexProps, "storage_params"> = {
-        table_schema: "public",
+        schema: "public",
         table_name: "test_table",
         name: "test_index",
         statistics_target: [0],
@@ -101,7 +101,7 @@ describe.concurrent("index", () => {
 
     test("set statistics", () => {
       const props: Omit<IndexProps, "statistics_target"> = {
-        table_schema: "public",
+        schema: "public",
         table_name: "test_table",
         name: "test_index",
         storage_params: [],
@@ -144,7 +144,7 @@ describe.concurrent("index", () => {
 
     test("set tablespace", () => {
       const props: Omit<IndexProps, "tablespace"> = {
-        table_schema: "public",
+        schema: "public",
         table_name: "test_table",
         name: "test_index",
         storage_params: [],
@@ -187,7 +187,7 @@ describe.concurrent("index", () => {
 
     test("replace index", () => {
       const props: Omit<IndexProps, "index_type"> = {
-        table_schema: "public",
+        schema: "public",
         table_name: "test_table",
         name: "test_index",
         storage_params: [],

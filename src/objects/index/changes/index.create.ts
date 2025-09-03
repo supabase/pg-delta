@@ -81,7 +81,7 @@ export class CreateIndex extends CreateChange {
     // Add ON table/materialized view
     parts.push(
       "ON",
-      `${quoteIdentifier(this.index.table_schema)}.${quoteIdentifier(this.index.table_name)}`,
+      `${quoteIdentifier(this.index.schema)}.${quoteIdentifier(this.index.table_name)}`,
     );
 
     // Add columns (with per-column options)

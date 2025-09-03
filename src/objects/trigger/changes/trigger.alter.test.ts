@@ -8,7 +8,6 @@ describe.concurrent("trigger", () => {
       const props: Omit<TriggerProps, "enabled"> = {
         schema: "public",
         name: "test_trigger",
-        table_schema: "public",
         table_name: "test_table",
         function_schema: "public",
         function_name: "test_function",

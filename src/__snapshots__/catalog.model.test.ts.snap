@@ -486,7 +486,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
   },
   "indexes": {
     "index:auth.audit_log_entries.audit_logs_instance_id_idx": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "audit_log_entries",
       "name": "audit_logs_instance_id_idx",
       "storage_params": [],
@@ -519,7 +519,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:auth.audit_log_entries.audit_log_entries_pkey": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "audit_log_entries",
       "name": "audit_log_entries_pkey",
       "storage_params": [],
@@ -552,7 +552,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:auth.instances.instances_pkey": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "instances",
       "name": "instances_pkey",
       "storage_params": [],
@@ -585,7 +585,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:auth.refresh_tokens.refresh_tokens_instance_id_idx": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "refresh_tokens",
       "name": "refresh_tokens_instance_id_idx",
       "storage_params": [],
@@ -618,7 +618,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:auth.refresh_tokens.refresh_tokens_instance_id_user_id_idx": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "refresh_tokens",
       "name": "refresh_tokens_instance_id_user_id_idx",
       "storage_params": [],
@@ -655,7 +655,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:auth.refresh_tokens.refresh_tokens_token_idx": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "refresh_tokens",
       "name": "refresh_tokens_token_idx",
       "storage_params": [],
@@ -688,7 +688,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:auth.refresh_tokens.refresh_tokens_pkey": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "refresh_tokens",
       "name": "refresh_tokens_pkey",
       "storage_params": [],
@@ -721,7 +721,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:auth.schema_migrations.schema_migrations_pkey": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "schema_migrations",
       "name": "schema_migrations_pkey",
       "storage_params": [],
@@ -754,7 +754,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:auth.users.users_pkey": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "users",
       "name": "users_pkey",
       "storage_params": [],
@@ -787,7 +787,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:auth.users.users_email_key": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "users",
       "name": "users_email_key",
       "storage_params": [],
@@ -820,7 +820,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:auth.users.users_instance_id_email_idx": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "users",
       "name": "users_instance_id_email_idx",
       "storage_params": [],
@@ -857,7 +857,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:auth.users.users_instance_id_idx": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "users",
       "name": "users_instance_id_idx",
       "storage_params": [],
@@ -890,7 +890,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:storage.buckets.buckets_pkey": {
-      "table_schema": "storage",
+      "schema": "storage",
       "table_name": "buckets",
       "name": "buckets_pkey",
       "storage_params": [],
@@ -923,7 +923,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:storage.buckets.bname": {
-      "table_schema": "storage",
+      "schema": "storage",
       "table_name": "buckets",
       "name": "bname",
       "storage_params": [],
@@ -956,7 +956,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:storage.migrations.migrations_name_key": {
-      "table_schema": "storage",
+      "schema": "storage",
       "table_name": "migrations",
       "name": "migrations_name_key",
       "storage_params": [],
@@ -989,7 +989,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:storage.migrations.migrations_pkey": {
-      "table_schema": "storage",
+      "schema": "storage",
       "table_name": "migrations",
       "name": "migrations_pkey",
       "storage_params": [],
@@ -1022,7 +1022,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:storage.objects.objects_pkey": {
-      "table_schema": "storage",
+      "schema": "storage",
       "table_name": "objects",
       "name": "objects_pkey",
       "storage_params": [],
@@ -1055,7 +1055,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:storage.objects.bucketid_objname": {
-      "table_schema": "storage",
+      "schema": "storage",
       "table_name": "objects",
       "name": "bucketid_objname",
       "storage_params": [],
@@ -1092,7 +1092,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:storage.objects.name_prefix_search": {
-      "table_schema": "storage",
+      "schema": "storage",
       "table_name": "objects",
       "name": "name_prefix_search",
       "storage_params": [],
@@ -1125,7 +1125,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:vault.secrets.secrets_pkey": {
-      "table_schema": "vault",
+      "schema": "vault",
       "table_name": "secrets",
       "name": "secrets_pkey",
       "storage_params": [],
@@ -1158,7 +1158,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "table_relkind": "r"
     },
     "index:vault.secrets.secrets_name_idx": {
-      "table_schema": "vault",
+      "schema": "vault",
       "table_name": "secrets",
       "name": "secrets_name_idx",
       "storage_params": [],
@@ -12314,7 +12314,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   },
   "indexes": {
     "index:auth.audit_log_entries.audit_log_entries_pkey": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "audit_log_entries",
       "name": "audit_log_entries_pkey",
       "storage_params": [],
@@ -12348,7 +12348,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": true
     },
     "index:auth.audit_log_entries.audit_logs_instance_id_idx": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "audit_log_entries",
       "name": "audit_logs_instance_id_idx",
       "storage_params": [],
@@ -12382,7 +12382,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": false
     },
     "index:auth.instances.instances_pkey": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "instances",
       "name": "instances_pkey",
       "storage_params": [],
@@ -12416,7 +12416,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": true
     },
     "index:auth.refresh_tokens.refresh_tokens_pkey": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "refresh_tokens",
       "name": "refresh_tokens_pkey",
       "storage_params": [],
@@ -12450,7 +12450,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": true
     },
     "index:auth.refresh_tokens.refresh_tokens_token_idx": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "refresh_tokens",
       "name": "refresh_tokens_token_idx",
       "storage_params": [],
@@ -12484,7 +12484,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": false
     },
     "index:auth.refresh_tokens.refresh_tokens_instance_id_user_id_idx": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "refresh_tokens",
       "name": "refresh_tokens_instance_id_user_id_idx",
       "storage_params": [],
@@ -12522,7 +12522,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": false
     },
     "index:auth.refresh_tokens.refresh_tokens_instance_id_idx": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "refresh_tokens",
       "name": "refresh_tokens_instance_id_idx",
       "storage_params": [],
@@ -12556,7 +12556,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": false
     },
     "index:auth.schema_migrations.schema_migrations_pkey": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "schema_migrations",
       "name": "schema_migrations_pkey",
       "storage_params": [],
@@ -12590,7 +12590,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": true
     },
     "index:auth.users.users_pkey": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "users",
       "name": "users_pkey",
       "storage_params": [],
@@ -12624,7 +12624,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": true
     },
     "index:auth.users.users_email_key": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "users",
       "name": "users_email_key",
       "storage_params": [],
@@ -12658,7 +12658,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": true
     },
     "index:auth.users.users_instance_id_email_idx": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "users",
       "name": "users_instance_id_email_idx",
       "storage_params": [],
@@ -12696,7 +12696,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": false
     },
     "index:auth.users.users_instance_id_idx": {
-      "table_schema": "auth",
+      "schema": "auth",
       "table_name": "users",
       "name": "users_instance_id_idx",
       "storage_params": [],
@@ -12730,7 +12730,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": false
     },
     "index:storage.buckets.buckets_pkey": {
-      "table_schema": "storage",
+      "schema": "storage",
       "table_name": "buckets",
       "name": "buckets_pkey",
       "storage_params": [],
@@ -12764,7 +12764,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": true
     },
     "index:storage.buckets.bname": {
-      "table_schema": "storage",
+      "schema": "storage",
       "table_name": "buckets",
       "name": "bname",
       "storage_params": [],
@@ -12798,7 +12798,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": false
     },
     "index:storage.migrations.migrations_name_key": {
-      "table_schema": "storage",
+      "schema": "storage",
       "table_name": "migrations",
       "name": "migrations_name_key",
       "storage_params": [],
@@ -12832,7 +12832,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": true
     },
     "index:storage.migrations.migrations_pkey": {
-      "table_schema": "storage",
+      "schema": "storage",
       "table_name": "migrations",
       "name": "migrations_pkey",
       "storage_params": [],
@@ -12866,7 +12866,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": true
     },
     "index:storage.objects.name_prefix_search": {
-      "table_schema": "storage",
+      "schema": "storage",
       "table_name": "objects",
       "name": "name_prefix_search",
       "storage_params": [],
@@ -12900,7 +12900,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": false
     },
     "index:storage.objects.objects_pkey": {
-      "table_schema": "storage",
+      "schema": "storage",
       "table_name": "objects",
       "name": "objects_pkey",
       "storage_params": [],
@@ -12934,7 +12934,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": true
     },
     "index:storage.objects.bucketid_objname": {
-      "table_schema": "storage",
+      "schema": "storage",
       "table_name": "objects",
       "name": "bucketid_objname",
       "storage_params": [],
@@ -12972,7 +12972,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": false
     },
     "index:vault.secrets.secrets_pkey": {
-      "table_schema": "vault",
+      "schema": "vault",
       "table_name": "secrets",
       "name": "secrets_pkey",
       "storage_params": [],
@@ -13006,7 +13006,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "is_constraint": true
     },
     "index:vault.secrets.secrets_name_idx": {
-      "table_schema": "vault",
+      "schema": "vault",
       "table_name": "secrets",
       "name": "secrets_name_idx",
       "storage_params": [],

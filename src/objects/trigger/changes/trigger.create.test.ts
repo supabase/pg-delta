@@ -7,7 +7,6 @@ describe("trigger", () => {
     const trigger = new Trigger({
       schema: "public",
       name: "test_trigger",
-      table_schema: "public",
       table_name: "test_table",
       function_schema: "public",
       function_name: "test_function",

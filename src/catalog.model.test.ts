@@ -257,7 +257,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(Object.keys(catalog.indexes).length).toBeGreaterThan(0);
       const index = catalog.indexes["index:test_schema.users.users_name_idx"]!;
       expect(index.name).toBe("users_name_idx");
-      expect(index.table_schema).toBe("test_schema");
+      expect(index.schema).toBe("test_schema");
       expect(index.table_name).toBe("users");
 
       // Test triggers

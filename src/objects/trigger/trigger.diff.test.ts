@@ -16,7 +16,6 @@ const base: Omit<
 > = {
   schema: "public",
   name: "trg",
-  table_schema: "public",
   table_name: "t",
   function_schema: "public",
   trigger_type: 1,
