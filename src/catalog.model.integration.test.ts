@@ -1,13 +1,15 @@
 import { describe, expect } from "vitest";
 import { POSTGRES_VERSIONS } from "../tests/constants.ts";
-import { getTest } from "../tests/utils.ts";
+import { getTest, getTestWithSupabaseIsolated } from "../tests/utils.ts";
 import { extractCatalog } from "./catalog.model.ts";
 import { stringifyWithBigInt } from "./objects/utils.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   const test = getTest(pgVersion);
+  const testWithSupabase = getTestWithSupabaseIsolated(pgVersion);
+
   test("extract empty catalog", async ({ db }) => {
-    const catalog = await extractCatalog(db.a);
+    const catalog = await extractCatalog(db.main);
     expect(stringifyWithBigInt(catalog)).toMatchSnapshot(
       `catalog-empty-pg${pgVersion}`,
     );
@@ -16,7 +18,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`catalog extraction (pg${pgVersion})`, () => {
     test("extract schemas and basic tables", async ({ db }) => {
       // Create schemas and tables
-      await db.a.unsafe(`
+      await db.main.unsafe(`
         CREATE SCHEMA test_schema;
         CREATE SCHEMA schema_a;
         CREATE SCHEMA schema_b;
@@ -29,7 +31,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         CREATE TABLE schema_b.table_b (id int);
       `);
 
-      const catalog = await extractCatalog(db.a);
+      const catalog = await extractCatalog(db.main);
 
       // Check schemas
       expect(catalog.schemas["schema:public"]).toBeDefined();
@@ -76,7 +78,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("extract table structure and constraints", async ({ db }) => {
       // Create tables with various types, constraints, and ordering
-      await db.a.unsafe(`
+      await db.main.unsafe(`
         CREATE SCHEMA test_schema;
         CREATE TABLE test_schema.type_test (
           col_int integer,
@@ -101,7 +103,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         );
       `);
 
-      const catalog = await extractCatalog(db.a);
+      const catalog = await extractCatalog(db.main);
 
       // Test type resolution
       const typeTable = catalog.tables["table:test_schema.type_test"]!;
@@ -149,9 +151,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(orderedTable.columns[2].position).toBe(3);
     });
 
-    test("extract type system and dependencies", async ({ db }) => {
+    testWithSupabase("extract type system and dependencies", async ({ db }) => {
       // Create types and check dependencies
-      await db.a.unsafe(`
+      await db.main.unsafe(`
         CREATE SCHEMA test_schema;
         CREATE TYPE test_schema.address AS (
           street varchar,
@@ -165,7 +167,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         );
       `);
 
-      const catalog = await extractCatalog(db.a);
+      const catalog = await extractCatalog(db.main);
 
       // Test composite types
       expect(Object.keys(catalog.compositeTypes)).toHaveLength(1);
@@ -196,14 +198,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("extract view system", async ({ db }) => {
       // Create views and materialized views
-      await db.a.unsafe(`
+      await db.main.unsafe(`
         CREATE SCHEMA test_schema;
         CREATE TABLE test_schema.users (id int, name text);
         CREATE VIEW test_schema.users_view AS SELECT id, name FROM test_schema.users;
         CREATE MATERIALIZED VIEW test_schema.users_mv AS SELECT id, name FROM test_schema.users;
       `);
 
-      const catalog = await extractCatalog(db.a);
+      const catalog = await extractCatalog(db.main);
 
       // Test regular views
       expect(Object.keys(catalog.views)).toHaveLength(1);
@@ -222,7 +224,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("extract database objects", async ({ db }) => {
       // Create sequences, indexes, triggers, and procedures
-      await db.a.unsafe(`
+      await db.main.unsafe(`
         CREATE SCHEMA test_schema;
         CREATE TABLE test_schema.users (id int, name text);
         CREATE SEQUENCE test_schema.test_seq START 1 INCREMENT 1;
@@ -245,7 +247,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         $$;
       `);
 
-      const catalog = await extractCatalog(db.a);
+      const catalog = await extractCatalog(db.main);
 
       // Test sequences
       expect(Object.keys(catalog.sequences).length).toBeGreaterThan(0);
@@ -277,7 +279,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("extract advanced features", async ({ db }) => {
       // Create domains, extensions, collations, and RLS policies
-      await db.a.unsafe(`
+      await db.main.unsafe(`
         CREATE SCHEMA test_schema;
         CREATE DOMAIN test_schema.email_address AS varchar(255) CHECK (value LIKE '%@%');
         CREATE COLLATION test_schema.test_collation (locale = 'en_US.utf8');
@@ -287,7 +289,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR SELECT USING (true);
       `);
 
-      const catalog = await extractCatalog(db.a);
+      const catalog = await extractCatalog(db.main);
 
       // Test domains
       expect(Object.keys(catalog.domains)).toHaveLength(1);
@@ -312,11 +314,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(policy.table_name).toBe("users");
     });
 
-    test("extract system objects and filtering", async ({ db }) => {
+    testWithSupabase("extract system objects and filtering", async ({ db }) => {
       // Test system schema filtering and role extraction
-      await db.a.unsafe("CREATE TABLE public.test_table (id int)");
+      await db.main.unsafe("CREATE TABLE public.test_table (id int)");
 
-      const catalog = await extractCatalog(db.a);
+      const catalog = await extractCatalog(db.main);
 
       // Test system schema filtering
       const schemaNames = Object.keys(catalog.schemas).map(
