@@ -479,5 +479,192 @@ UNION ALL
         ],
       });
     });
+
+    // View cycle detection tests right now this error isn't properly handled so it produce invalid sql
+    // TODO: make those tests pass
+    test.fails(
+      "obvious view cycles are detected and reported",
+      async ({ db }) => {
+        // Test case: A -> B -> A cycle
+        await roundtripFidelityTest({
+          masterSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
+            CREATE TABLE test_schema.base_table (
+              id integer,
+              name text
+            );
+
+            -- This should create a cycle: view_a -> view_b -> view_a
+            CREATE VIEW test_schema.view_a AS
+            SELECT id, name
+            FROM test_schema.base_table
+            WHERE id IN (SELECT id FROM test_schema.view_b WHERE name IS NOT NULL);
+
+            CREATE VIEW test_schema.view_b AS
+            SELECT id, name
+            FROM test_schema.base_table
+            WHERE id IN (SELECT id FROM test_schema.view_a WHERE name IS NOT NULL);
+          `,
+          description: "obvious view cycles are detected and reported",
+          expectedSqlTerms: [], // Should fail before generating SQL
+          expectedMasterDependencies: [],
+          expectedBranchDependencies: [],
+        });
+      },
+    );
+
+    test.fails("complex multi-level cycles are identified", async ({ db }) => {
+      // Test case: A -> B -> C -> D -> A (4-level cycle)
+      await roundtripFidelityTest({
+        masterSession: db.main,
+        branchSession: db.branch,
+        initialSetup: "CREATE SCHEMA test_schema;",
+        testSql: `
+            CREATE TABLE test_schema.base_table (
+              id integer,
+              name text,
+              value integer
+            );
+
+            -- Create a 4-level cycle: A -> B -> C -> D -> A
+            CREATE VIEW test_schema.view_a AS
+            SELECT id, name, value
+            FROM test_schema.base_table
+            WHERE value > (SELECT AVG(value) FROM test_schema.view_d);
+
+            CREATE VIEW test_schema.view_b AS
+            SELECT id, name, value
+            FROM test_schema.base_table
+            WHERE id IN (SELECT id FROM test_schema.view_a WHERE value > 10);
+
+            CREATE VIEW test_schema.view_c AS
+            SELECT id, name, value
+            FROM test_schema.base_table
+            WHERE id IN (SELECT id FROM test_schema.view_b WHERE value > 20);
+
+            CREATE VIEW test_schema.view_d AS
+            SELECT id, name, value
+            FROM test_schema.base_table
+            WHERE id IN (SELECT id FROM test_schema.view_c WHERE value > 30);
+          `,
+        description: "complex multi-level cycles are identified",
+        expectedSqlTerms: [], // Should fail before generating SQL
+        expectedMasterDependencies: [],
+        expectedBranchDependencies: [],
+      });
+    });
+
+    test("valid recursive patterns are not flagged as cycles", async ({
+      db,
+    }) => {
+      // Test case: Valid recursive CTE pattern that should NOT be flagged as a cycle
+      await roundtripFidelityTest({
+        masterSession: db.main,
+        branchSession: db.branch,
+        initialSetup: "CREATE SCHEMA test_schema;",
+        testSql: `
+            CREATE TABLE test_schema.employees (
+              id integer,
+              name text,
+              manager_id integer
+            );
+
+            -- This is a valid recursive pattern using CTE, not a cycle
+            CREATE VIEW test_schema.employee_hierarchy AS
+            WITH RECURSIVE hierarchy AS (
+              SELECT id, name, manager_id, 0 as level
+              FROM test_schema.employees
+              WHERE manager_id IS NULL
+              
+              UNION ALL
+              
+              SELECT e.id, e.name, e.manager_id, h.level + 1
+              FROM test_schema.employees e
+              JOIN hierarchy h ON e.manager_id = h.id
+            )
+            SELECT * FROM hierarchy;
+          `,
+        description: "valid recursive patterns are not flagged as cycles",
+        expectedSqlTerms: [
+          "CREATE TABLE test_schema.employees (id integer, name text, manager_id integer)",
+          `CREATE OR REPLACE VIEW test_schema.employee_hierarchy AS  WITH RECURSIVE hierarchy AS (
+         SELECT employees.id,
+            employees.name,
+            employees.manager_id,
+            0 AS level
+           FROM test_schema.employees
+          WHERE (employees.manager_id IS NULL)
+        UNION ALL
+         SELECT e.id,
+            e.name,
+            e.manager_id,
+            (h.level + 1)
+           FROM (test_schema.employees e
+             JOIN hierarchy h ON ((e.manager_id = h.id)))
+        )
+ SELECT id,
+    name,
+    manager_id,
+    level
+   FROM hierarchy;`,
+        ],
+        expectedMasterDependencies: [],
+        expectedBranchDependencies: [
+          {
+            dependent_stable_id: "table:test_schema.employees",
+            referenced_stable_id: "schema:test_schema",
+            deptype: "n",
+          },
+          {
+            dependent_stable_id: "view:test_schema.employee_hierarchy",
+            referenced_stable_id: "schema:test_schema",
+            deptype: "n",
+          },
+          {
+            dependent_stable_id: "view:test_schema.employee_hierarchy",
+            referenced_stable_id: "table:test_schema.employees",
+            deptype: "n",
+          },
+        ],
+      });
+    });
+
+    test.fails(
+      "proper error messages guide users on resolving cycles",
+      async ({ db }) => {
+        // Test case: Ensure error messages are helpful for cycle resolution
+        await roundtripFidelityTest({
+          masterSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
+            CREATE TABLE test_schema.data (
+              id integer,
+              value text
+            );
+
+            -- Create a simple cycle for error message testing
+            CREATE VIEW test_schema.view_x AS
+            SELECT id, value
+            FROM test_schema.data
+            WHERE id IN (SELECT id FROM test_schema.view_y);
+
+            CREATE VIEW test_schema.view_y AS
+            SELECT id, value
+            FROM test_schema.data
+            WHERE id IN (SELECT id FROM test_schema.view_x);
+          `,
+          description: "proper error messages guide users on resolving cycles",
+          expectedSqlTerms: [], // Should fail before generating SQL
+          expectedMasterDependencies: [],
+          expectedBranchDependencies: [],
+        });
+      },
+    );
   });
 }
+
+// CASCADE operations are intentionally not supported as dependency resolution
+// handles proper ordering of DROP operations automatically
