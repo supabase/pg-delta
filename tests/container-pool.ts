@@ -205,4 +205,5 @@ declare global {
 
 export const containerPool =
   globalThis.__containerPool ||
+  // biome-ignore lint/suspicious/noAssignInExpressions: this is a singleton
   (globalThis.__containerPool = new ContainerPool());
