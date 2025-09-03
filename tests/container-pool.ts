@@ -9,6 +9,10 @@ import {
   type StartedPostgresAlpineContainer,
 } from "./postgres-alpine.ts";
 
+const POSTGRES_POOL_SIZE = process.env.POSTGRES_POOL_SIZE
+  ? Number(process.env.POSTGRES_POOL_SIZE)
+  : 2;
+
 class ContainerPool {
   private pools: Map<PostgresVersion, StartedPostgresAlpineContainer[]> =
     new Map();
@@ -20,7 +24,10 @@ class ContainerPool {
   /**
    * Initialize the pool with containers for each PostgreSQL version
    */
-  async initialize(versions: PostgresVersion[], poolSize = 3): Promise<void> {
+  async initialize(
+    versions: PostgresVersion[],
+    poolSize = POSTGRES_POOL_SIZE,
+  ): Promise<void> {
     if (this.initialized) {
       return;
     }
@@ -38,11 +45,23 @@ class ContainerPool {
     versions: PostgresVersion[],
     poolSize: number,
   ): Promise<void> {
+    if (process.env.DEBUG) {
+      console.log(
+        `[ContainerPool] Initializing shared pool with ${poolSize} containers per version for versions: ${versions.join(", ")}`,
+      );
+    }
+
     for (const version of versions) {
       const containers: StartedPostgresAlpineContainer[] = [];
       const image = `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[version]}`;
 
       try {
+        if (process.env.DEBUG) {
+          console.log(
+            `[ContainerPool] Starting ${poolSize} containers for PostgreSQL ${version}...`,
+          );
+        }
+
         // Create containers in parallel for each version
         const containerPromises = Array.from({ length: poolSize }, () =>
           new PostgresAlpineContainer(image).start(),
@@ -52,6 +71,12 @@ class ContainerPool {
         containers.push(...startedContainers);
 
         this.pools.set(version, containers);
+
+        if (process.env.DEBUG) {
+          console.log(
+            `[ContainerPool] Successfully started ${containers.length} containers for PostgreSQL ${version}`,
+          );
+        }
       } catch (error) {
         console.error(
           `Failed to start containers for PostgreSQL ${version}:`,
@@ -60,6 +85,12 @@ class ContainerPool {
         throw error;
       }
     }
+
+    if (process.env.DEBUG) {
+      console.log(
+        `[ContainerPool] Pool initialization complete. Total containers: ${Array.from(this.pools.values()).flat().length}`,
+      );
+    }
   }
 
   /**
@@ -67,7 +98,7 @@ class ContainerPool {
    */
   private async ensureInitialized(versions: PostgresVersion[]): Promise<void> {
     if (!this.initialized) {
-      await this.initialize(versions, 3);
+      await this.initialize(versions, POSTGRES_POOL_SIZE);
     }
   }
 

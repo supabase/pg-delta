@@ -6,5 +6,12 @@ export default defineConfig({
     testTimeout: 60_000,
     slowTestThreshold: 10_000,
     retry: 1,
+    // Use single worker to share container pool across all tests
+    pool: "forks",
+    poolOptions: {
+      forks: {
+        singleFork: true, // This ensures all tests run in the same worker process
+      },
+    },
   },
 });
