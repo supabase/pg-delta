@@ -52,6 +52,7 @@ export class AlterCompositeTypeChangeOwner extends AlterChange {
 /**
  * Replace a composite type by dropping and recreating it.
  * This is used when properties that cannot be altered via ALTER TYPE change.
+ * Note: Attribute list changes are modeled as drop+create via diff.
  */
 export class ReplaceCompositeType extends ReplaceChange {
   public readonly main: CompositeType;
