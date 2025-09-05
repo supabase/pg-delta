@@ -1,8 +1,4 @@
-import {
-  CreateChange,
-  quoteIdentifier,
-  quoteLiteral,
-} from "../../base.change.ts";
+import { CreateChange, quoteLiteral } from "../../base.change.ts";
 import type { Collation } from "../collation.model.ts";
 
 /**
@@ -40,10 +36,8 @@ export class CreateCollation extends CreateChange {
   serialize(): string {
     const parts: string[] = ["CREATE COLLATION"];
 
-    // Add schema and name
-    parts.push(
-      `${quoteIdentifier(this.collation.schema)}.${quoteIdentifier(this.collation.name)}`,
-    );
+    // Add schema and name (already quoted in model extraction)
+    parts.push(`${this.collation.schema}.${this.collation.name}`);
 
     // Add properties
     const properties: string[] = [];

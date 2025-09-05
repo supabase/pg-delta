@@ -110,7 +110,7 @@ describe("index", () => {
       is_clustered: false,
       is_replica_identity: false,
       key_columns: [1, 2, 3],
-      column_collations: ["pg_catalog.C", "pg_catalog.C", "pg_catalog.C"],
+      column_collations: ['pg_catalog."C"', 'pg_catalog."C"', 'pg_catalog."C"'],
       operator_classes: [
         "pg_catalog.int4_ops",
         "pg_catalog.timestamptz_ops",
@@ -185,7 +185,7 @@ describe("index", () => {
     });
 
     expect(changeCols.serialize()).toBe(
-      `CREATE INDEX test_index_cols ON public.test_table (id COLLATE "pg_catalog.C" pg_catalog.int4_ops, updated_at COLLATE "pg_catalog.C" pg_catalog.timestamptz_ops DESC NULLS FIRST, priority COLLATE "pg_catalog.C" pg_catalog.int4_ops DESC NULLS LAST)`,
+      `CREATE INDEX test_index_cols ON public.test_table (id COLLATE pg_catalog."C" pg_catalog.int4_ops, updated_at COLLATE pg_catalog."C" pg_catalog.timestamptz_ops DESC NULLS FIRST, priority COLLATE pg_catalog."C" pg_catalog.int4_ops DESC NULLS LAST)`,
     );
   });
 });

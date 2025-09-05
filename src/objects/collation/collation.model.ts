@@ -114,8 +114,8 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
           and d.classid = 'pg_collation'::regclass
       )
       select
-        regexp_replace(c.collnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
-        c.collname as name,
+        c.collnamespace::regnamespace::text as schema,
+        quote_ident(c.collname) as name,
         c.collprovider as provider,
         c.collisdeterministic as is_deterministic,
         c.collencoding as encoding,
@@ -124,7 +124,7 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
         c.colllocale as locale,
         c.collicurules as icu_rules,
         c.collversion as version,
-        c.collowner::regrole as owner
+        c.collowner::regrole::text as owner
       from
         pg_catalog.pg_collation c
         left outer join extension_oids e on c.oid = e.objid
@@ -148,8 +148,8 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
           and d.classid = 'pg_collation'::regclass
       )
       select
-        regexp_replace(c.collnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
-        c.collname as name,
+        c.collnamespace::regnamespace::text as schema,
+        quote_ident(c.collname) as name,
         c.collprovider as provider,
         c.collisdeterministic as is_deterministic,
         c.collencoding as encoding,
@@ -158,7 +158,7 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
         colliculocale as locale,
         c.collicurules as icu_rules,
         c.collversion as version,
-        c.collowner::regrole as owner
+        c.collowner::regrole::text as owner
       from
         pg_catalog.pg_collation c
         left outer join extension_oids e on c.oid = e.objid
@@ -182,8 +182,8 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
           and d.classid = 'pg_collation'::regclass
       )
       select
-        regexp_replace(c.collnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
-        c.collname as name,
+        c.collnamespace::regnamespace::text as schema,
+        quote_ident(c.collname) as name,
         c.collprovider as provider,
         c.collisdeterministic as is_deterministic,
         c.collencoding as encoding,
@@ -192,7 +192,7 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
         colliculocale as locale,
         null as icu_rules,
         c.collversion as version,
-        c.collowner::regrole as owner
+        c.collowner::regrole::text as owner
       from
         pg_catalog.pg_collation c
         left outer join extension_oids e on c.oid = e.objid

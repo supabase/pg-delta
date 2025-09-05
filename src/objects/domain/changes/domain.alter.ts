@@ -1,4 +1,4 @@
-import { AlterChange, DropChange, quoteIdentifier } from "../../base.change.ts";
+import { AlterChange, DropChange } from "../../base.change.ts";
 import type { Domain, DomainConstraintProps } from "../domain.model.ts";
 
 /**
@@ -61,7 +61,7 @@ export class AlterDomainSetDefault extends AlterChange {
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} SET DEFAULT ${this.branch.default_value}`;
+    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} SET DEFAULT ${this.branch.default_value}`;
   }
 }
 
@@ -83,7 +83,7 @@ export class AlterDomainDropDefault extends AlterChange {
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} DROP DEFAULT`;
+    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} DROP DEFAULT`;
   }
 }
 
@@ -105,7 +105,7 @@ export class AlterDomainSetNotNull extends AlterChange {
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} SET NOT NULL`;
+    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} SET NOT NULL`;
   }
 }
 
@@ -127,7 +127,7 @@ export class AlterDomainDropNotNull extends AlterChange {
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} DROP NOT NULL`;
+    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} DROP NOT NULL`;
   }
 }
 
@@ -149,7 +149,7 @@ export class AlterDomainChangeOwner extends AlterChange {
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} OWNER TO ${quoteIdentifier(this.branch.owner)}`;
+    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} OWNER TO ${this.branch.owner}`;
   }
 }
 
@@ -171,12 +171,12 @@ export class AlterDomainAddConstraint extends AlterChange {
   }
 
   serialize(): string {
-    const domainName = `${quoteIdentifier(this.domain.schema)}.${quoteIdentifier(this.domain.name)}`;
+    const domainName = `${this.domain.schema}.${this.domain.name}`;
     const parts: string[] = [
       "ALTER DOMAIN",
       domainName,
       "ADD CONSTRAINT",
-      quoteIdentifier(this.constraint.name),
+      this.constraint.name,
     ];
     if (this.constraint.check_expression) {
       parts.push(`CHECK (${this.constraint.check_expression})`);
@@ -206,12 +206,12 @@ export class AlterDomainDropConstraint extends DropChange {
   }
 
   serialize(): string {
-    const domainName = `${quoteIdentifier(this.domain.schema)}.${quoteIdentifier(this.domain.name)}`;
+    const domainName = `${this.domain.schema}.${this.domain.name}`;
     return [
       "ALTER DOMAIN",
       domainName,
       "DROP CONSTRAINT",
-      quoteIdentifier(this.constraint.name),
+      this.constraint.name,
     ].join(" ");
   }
 }
@@ -237,12 +237,12 @@ export class AlterDomainValidateConstraint extends AlterChange {
   }
 
   serialize(): string {
-    const domainName = `${quoteIdentifier(this.domain.schema)}.${quoteIdentifier(this.domain.name)}`;
+    const domainName = `${this.domain.schema}.${this.domain.name}`;
     return [
       "ALTER DOMAIN",
       domainName,
       "VALIDATE CONSTRAINT",
-      quoteIdentifier(this.constraint.name),
+      this.constraint.name,
     ].join(" ");
   }
 }

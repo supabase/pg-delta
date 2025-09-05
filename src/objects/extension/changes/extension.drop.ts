@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import { DropChange } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
 
 /**
@@ -24,6 +24,6 @@ export class DropExtension extends DropChange {
   }
 
   serialize(): string {
-    return ["DROP EXTENSION", quoteIdentifier(this.extension.name)].join(" ");
+    return ["DROP EXTENSION", this.extension.name].join(" ");
   }
 }
