@@ -1,8 +1,4 @@
-import {
-  CreateChange,
-  quoteIdentifier,
-  quoteLiteral,
-} from "../../base.change.ts";
+import { CreateChange, quoteLiteral } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
 
 /**
