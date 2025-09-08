@@ -56,7 +56,7 @@ import type { Table, TableConstraintProps } from "../table.model.ts";
  *     DETACH PARTITION partition_name [ CONCURRENTLY | FINALIZE ]
  * ```
  */
-export type AlterTable =
+type AlterTable =
   | AlterTableChangeOwner
   | AlterTableSetLogged
   | AlterTableSetUnlogged

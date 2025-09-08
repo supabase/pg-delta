@@ -19,7 +19,7 @@ import { checkIsSerializable } from "./utils.ts";
  * ALTER INDEX [ CONCURRENTLY ] [ IF EXISTS ] name ALTER [ COLUMN ] column_number SET STATISTICS integer
  * ```
  */
-export type AlterIndex =
+type AlterIndex =
   | AlterIndexSetStorageParams
   | AlterIndexSetStatistics
   | AlterIndexSetTablespace;

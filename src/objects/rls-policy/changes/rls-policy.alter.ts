@@ -16,7 +16,7 @@ import { DropRlsPolicy } from "./rls-policy.drop.ts";
  *     [ WITH CHECK ( with_check_expression ) ]
  * ```
  */
-export type AlterRlsPolicy =
+type AlterRlsPolicy =
   | AlterRlsPolicySetRoles
   | AlterRlsPolicySetUsingExpression
   | AlterRlsPolicySetWithCheckExpression;

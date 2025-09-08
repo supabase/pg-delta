@@ -14,7 +14,7 @@ import { DropTrigger } from "./trigger.drop.ts";
  * ALTER TRIGGER name ON table_name RENAME TO new_name
  * ```
  */
-export type AlterTrigger = never; // No alterable properties for triggers
+type AlterTrigger = never; // No alterable properties for triggers
 
 /**
  * Replace a trigger by dropping and recreating it.

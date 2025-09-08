@@ -6,7 +6,7 @@ import {
   type TableLikeObject,
 } from "../base.model.ts";
 
-export const RelationPersistenceSchema = z.enum([
+const RelationPersistenceSchema = z.enum([
   "p", // permanent
   "u", // unlogged
   "t", // temporary
@@ -34,8 +34,8 @@ const ForeignKeyMatchTypeSchema = z.enum([
   "u", // UNSPECIFIED (default)
 ]);
 
-export type RelationPersistence = z.infer<typeof RelationPersistenceSchema>;
-export type ReplicaIdentity = z.infer<typeof ReplicaIdentitySchema>;
+type RelationPersistence = z.infer<typeof RelationPersistenceSchema>;
+type ReplicaIdentity = z.infer<typeof ReplicaIdentitySchema>;
 
 const tableConstraintPropsSchema = z.object({
   name: z.string(),

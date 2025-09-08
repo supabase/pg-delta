@@ -16,7 +16,7 @@ import { DropExtension } from "./extension.drop.ts";
  * ALTER EXTENSION name DROP member_object
  * ```
  */
-export type AlterExtension =
+type AlterExtension =
   | AlterExtensionUpdateVersion
   | AlterExtensionSetSchema
   | AlterExtensionChangeOwner;

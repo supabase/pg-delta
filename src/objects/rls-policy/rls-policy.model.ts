@@ -10,7 +10,7 @@ const RlsPolicyCommandSchema = z.enum([
   "*", // ALL commands
 ]);
 
-export type RlsPolicyCommand = z.infer<typeof RlsPolicyCommandSchema>;
+type RlsPolicyCommand = z.infer<typeof RlsPolicyCommandSchema>;
 
 const rlsPolicyPropsSchema = z.object({
   schema: z.string(),

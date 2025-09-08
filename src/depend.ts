@@ -6,7 +6,7 @@ import type { Sql } from "postgres";
  * a: auto
  * i: internal
  */
-export type PgDependType = "n" | "a" | "i";
+type PgDependType = "n" | "a" | "i";
 
 export interface PgDepend {
   dependent_stable_id: string;
@@ -30,7 +30,7 @@ export interface PgDepend {
  * @param sql - The SQL client.
  * @returns Array of dependency objects for view dependencies.
  */
-export async function extractViewAndMaterializedViewsDepends(
+async function extractViewAndMaterializedViewsDepends(
   sql: Sql,
 ): Promise<PgDepend[]> {
   const dependsRows = await sql<PgDepend[]>`

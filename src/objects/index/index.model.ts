@@ -7,7 +7,7 @@ const TableRelkindSchema = z.enum([
   "m", // materialized view
 ]);
 
-export type TableRelkind = z.infer<typeof TableRelkindSchema>;
+type TableRelkind = z.infer<typeof TableRelkindSchema>;
 
 const indexPropsSchema = z.object({
   schema: z.string(),

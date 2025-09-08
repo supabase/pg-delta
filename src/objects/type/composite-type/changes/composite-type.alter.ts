@@ -19,7 +19,7 @@ import { DropCompositeType } from "./composite-type.drop.ts";
  * ALTER TYPE name ALTER ATTRIBUTE attribute_name [ SET DATA ] TYPE data_type [ COLLATE collation ] [ CASCADE | RESTRICT ]
  * ```
  */
-export type AlterCompositeType =
+type AlterCompositeType =
   | AlterCompositeTypeChangeOwner
   | AlterCompositeTypeAddAttribute
   | AlterCompositeTypeDropAttribute

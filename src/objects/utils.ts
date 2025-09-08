@@ -1,4 +1,4 @@
-export type Comparator<T> = (a: T, b: T) => boolean;
+type Comparator<T> = (a: T, b: T) => boolean;
 
 type Indexable<T> = { [P in keyof T]: unknown };
 

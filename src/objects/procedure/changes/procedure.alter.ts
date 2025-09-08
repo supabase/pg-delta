@@ -27,7 +27,7 @@ import { DropProcedure } from "./procedure.drop.ts";
  *     RESET ALL
  * ```
  */
-export type AlterProcedure =
+type AlterProcedure =
   | AlterProcedureChangeOwner
   | AlterProcedureSetSecurity
   | AlterProcedureSetConfig

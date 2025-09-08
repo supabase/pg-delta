@@ -15,7 +15,7 @@ import { DropCollation } from "./collation.drop.ts";
  * ALTER COLLATION name RENAME TO new_name
  * ```
  */
-export type AlterCollation =
+type AlterCollation =
   | AlterCollationChangeOwner
   | AlterCollationRefreshVersion;
 

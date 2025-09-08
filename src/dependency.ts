@@ -13,9 +13,9 @@ import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { UnexpectedError } from "./objects/utils.js";
 
-export type ConstraintType = "before";
+type ConstraintType = "before";
 
-export interface Constraint {
+interface Constraint {
   constraintStableId: string;
   changeAIndex: number;
   type: ConstraintType;
@@ -23,7 +23,7 @@ export interface Constraint {
   reason?: string;
 }
 
-export interface ObjectDependency {
+interface ObjectDependency {
   dependent: string;
   referenced: string;
   source?: "master" | "branch" | string;

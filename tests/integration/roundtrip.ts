@@ -11,7 +11,7 @@ import { resolveDependencies } from "../../src/dependency.ts";
 import type { Change } from "../../src/objects/base.change.ts";
 import { DEBUG } from "../constants.ts";
 
-export interface RoundtripTestOptions {
+interface RoundtripTestOptions {
   masterSession: postgres.Sql;
   branchSession: postgres.Sql;
   name?: string;
