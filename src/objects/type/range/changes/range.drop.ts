@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../../base.change.ts";
+import { DropChange } from "../../../base.change.ts";
 import type { Range } from "../range.model.ts";
 
 /**
@@ -24,9 +24,6 @@ export class DropRange extends DropChange {
   }
 
   serialize(): string {
-    return [
-      "DROP TYPE",
-      `${quoteIdentifier(this.range.schema)}.${quoteIdentifier(this.range.name)}`,
-    ].join(" ");
+    return ["DROP TYPE", `${this.range.schema}.${this.range.name}`].join(" ");
   }
 }

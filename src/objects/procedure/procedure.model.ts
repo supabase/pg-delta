@@ -169,11 +169,11 @@ with extension_oids as (
     and d.classid = 'pg_proc'::regclass
 )
 select
-  regexp_replace(p.pronamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
-  p.proname as name,
+  p.pronamespace::regnamespace::text as schema,
+  quote_ident(p.proname) as name,
   p.prokind as kind,
   rt.typname as return_type,
-  regexp_replace(rt.typnamespace::regnamespace::text, '^"(.*)"$', '\\1') as return_type_schema,
+  rt.typnamespace::regnamespace::text as return_type_schema,
   l.lanname as language,
   p.prosecdef as security_definer,
   p.provolatile as volatility,
@@ -183,7 +183,10 @@ select
   p.proretset as returns_set,
   p.pronargs as argument_count,
   p.pronargdefaults as argument_default_count,
-  p.proargnames as argument_names,
+  -- quote argument names server-side for safe serialization
+  case when p.proargnames is null then null
+       else array(select quote_ident(n) from unnest(p.proargnames) as n)
+  end as argument_names,
   array(
     select format_type(oid, null)
     from unnest(p.proargtypes) as oid
@@ -198,7 +201,7 @@ select
   p.probin as binary_path,
   pg_get_function_sqlbody(p.oid) as sql_body,
   p.proconfig as config,
-  p.proowner::regrole as owner
+  p.proowner::regrole::text as owner
 from
   pg_catalog.pg_proc p
   inner join pg_catalog.pg_language l on l.oid = p.prolang

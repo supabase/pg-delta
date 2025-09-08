@@ -357,7 +357,7 @@ describe("trigger", () => {
 
     const columns: ColumnProps[] = [
       {
-        name: "User", // requires quoting due to uppercase
+        name: '"User"', // requires quoting due to uppercase
         position: 1,
         data_type: "text",
         data_type_str: "text",
@@ -375,7 +375,7 @@ describe("trigger", () => {
         comment: null,
       },
       {
-        name: "select", // reserved keyword; requires quoting
+        name: '"select"', // reserved keyword; requires quoting
         position: 2,
         data_type: "text",
         data_type_str: "text",

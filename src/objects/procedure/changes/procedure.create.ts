@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { formatFunctionArguments } from "../utils.ts";
 
@@ -55,9 +55,7 @@ export class CreateProcedure extends CreateChange {
       this.procedure.argument_types,
       this.procedure.argument_modes,
     );
-    parts.push(
-      `${quoteIdentifier(this.procedure.schema)}.${quoteIdentifier(this.procedure.name)}(${args})`,
-    );
+    parts.push(`${this.procedure.schema}.${this.procedure.name}(${args})`);
 
     // Add RETURNS clause for functions (omit for procedures)
     if (this.procedure.kind !== "p") {

@@ -79,12 +79,11 @@ with extension_oids as (
     and d.classid = 'pg_type'::regclass
 )
 select
-  -- 
-  regexp_replace(t.typnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
-  t.typname as name,
+  t.typnamespace::regnamespace::text as schema,
+  quote_ident(t.typname) as name,
   e.enumsortorder as sort_order,
   e.enumlabel as label,
-  t.typowner::regrole as owner
+  t.typowner::regrole::text as owner
 from
   pg_catalog.pg_enum e
   inner join pg_catalog.pg_type t on t.oid = e.enumtypid

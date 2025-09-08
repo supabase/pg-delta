@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import { DropChange } from "../../base.change.ts";
 import type { Language } from "../language.model.ts";
 
 /**
@@ -27,7 +27,7 @@ export class DropLanguage extends DropChange {
     const parts: string[] = ["DROP"];
 
     // Do not print optional keywords (e.g., PROCEDURAL). Keep the statement minimal.
-    parts.push("LANGUAGE", quoteIdentifier(this.language.name));
+    parts.push("LANGUAGE", this.language.name);
 
     return parts.join(" ");
   }

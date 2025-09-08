@@ -70,7 +70,7 @@ describe.concurrent("table.create", () => {
           is_identity: false,
           is_identity_always: false,
           is_generated: false,
-          collation: "en_US",
+          collation: '"en_US"',
           default: null,
           comment: null,
         },

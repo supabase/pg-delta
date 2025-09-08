@@ -1,5 +1,3 @@
-import { quoteIdentifier } from "../base.change.ts";
-
 /**
  * Format function arguments for CREATE/DROP FUNCTION statements.
  *
@@ -31,12 +29,12 @@ export function formatFunctionArguments(
 
   return types
     .map((type, i) => {
-      const name = names[i] ?? "";
+      const name = names[i] ?? ""; // already quoted in model, if present
       const mode = modes[i] ? modeMap[modes[i]] : "";
 
       const parts: string[] = [];
       if (mode) parts.push(mode);
-      if (name) parts.push(quoteIdentifier(name));
+      if (name) parts.push(name);
       parts.push(type);
 
       return parts.join(" ");

@@ -173,8 +173,8 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 ), tables as (
   select
-    c.relnamespace::regnamespace as schema,
-    c.relname as name,
+    c.relnamespace::regnamespace::text as schema,
+    quote_ident(c.relname) as name,
     c.relpersistence as persistence,
     c.relrowsecurity as row_security,
     c.relforcerowsecurity as force_row_security,
@@ -187,7 +187,7 @@ with extension_oids as (
     c.relispartition as is_partition,
     c.reloptions as options,
     pg_get_expr(c.relpartbound, c.oid) as partition_bound,
-    c.relowner::regrole as owner,
+    c.relowner::regrole::text as owner,
     c_parent.relnamespace::regnamespace as parent_schema,
     c_parent.relname as parent_name,
     c.oid as oid
@@ -253,7 +253,7 @@ select
   coalesce(json_agg(
     case when a.attname is not null then
       json_build_object(
-        'name', a.attname,
+        'name', quote_ident(a.attname),
         'position', a.attnum,
         'data_type', a.atttypid::regtype::text,
         'data_type_str', format_type(a.atttypid, a.atttypmod),

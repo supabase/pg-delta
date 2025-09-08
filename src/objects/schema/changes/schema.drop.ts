@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import { DropChange } from "../../base.change.ts";
 import type { Schema } from "../schema.model.ts";
 
 /**
@@ -24,6 +24,6 @@ export class DropSchema extends DropChange {
   }
 
   serialize(): string {
-    return ["DROP SCHEMA", quoteIdentifier(this.schema.schema)].join(" ");
+    return ["DROP SCHEMA", this.schema.schema].join(" ");
   }
 }

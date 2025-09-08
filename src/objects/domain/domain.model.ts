@@ -117,23 +117,23 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
           and d.classid = 'pg_type'::regclass
       )
       select
-        regexp_replace(t.typnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
-        t.typname as name,
+        t.typnamespace::regnamespace::text as schema,
+        quote_ident(t.typname) as name,
         bt.typname as base_type,
-        regexp_replace(bt.typnamespace::regnamespace::text, '^"(.*)"$', '\\1') as base_type_schema,
+        bt.typnamespace::regnamespace::text as base_type_schema,
         format_type(t.typbasetype, t.typtypmod) as base_type_str,
         t.typnotnull as not_null,
         t.typtypmod as type_modifier,
         t.typndims as array_dimensions,
-        case when t.typcollation <> bt.typcollation then c.collname else null end as collation,
+        case when t.typcollation <> bt.typcollation then quote_ident(c.collname) else null end as collation,
         pg_get_expr(t.typdefaultbin, 0) as default_bin,
         t.typdefault as default_value,
-        t.typowner::regrole as owner,
+        t.typowner::regrole::text as owner,
         coalesce(
           (
             select json_agg(
               json_build_object(
-                'name', con.conname,
+                'name', quote_ident(con.conname),
                 'validated', con.convalidated,
                 'is_local', con.conislocal,
                 'no_inherit', con.connoinherit,

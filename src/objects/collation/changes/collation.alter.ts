@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { Collation } from "../collation.model.ts";
 import { CreateCollation } from "./collation.create.ts";
 import { DropCollation } from "./collation.drop.ts";
@@ -43,9 +39,9 @@ export class AlterCollationChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER COLLATION",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "OWNER TO",
-      quoteIdentifier(this.branch.owner),
+      this.branch.owner,
     ].join(" ");
   }
 }
@@ -70,7 +66,7 @@ export class AlterCollationRefreshVersion extends AlterChange {
   serialize(): string {
     return [
       "ALTER COLLATION",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "REFRESH VERSION",
     ].join(" ");
   }

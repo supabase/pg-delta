@@ -123,11 +123,11 @@ with extension_oids as (
     and d.classid = 'pg_trigger'::regclass
 )
 select
-  tc.relnamespace::regnamespace as schema,
-  t.tgname as name,
-  tc.relname as table_name,
-  fc.pronamespace::regnamespace as function_schema,
-  fc.proname as function_name,
+  tc.relnamespace::regnamespace::text as schema,
+  quote_ident(t.tgname) as name,
+  quote_ident(tc.relname) as table_name,
+  fc.pronamespace::regnamespace::text as function_schema,
+  quote_ident(fc.proname) as function_name,
   t.tgtype as trigger_type,
   t.tgenabled as enabled,
   t.tgisinternal as is_internal,
@@ -139,7 +139,7 @@ select
   pg_get_expr(t.tgqual, t.tgrelid) as when_condition,
   t.tgoldtable as old_table,
   t.tgnewtable as new_table,
-  tc.relowner::regrole as owner
+  tc.relowner::regrole::text as owner
 from
   pg_catalog.pg_trigger t
   inner join pg_catalog.pg_class tc on tc.oid = t.tgrelid

@@ -1,8 +1,4 @@
-import {
-  CreateChange,
-  quoteIdentifier,
-  quoteLiteral,
-} from "../../../base.change.ts";
+import { CreateChange, quoteLiteral } from "../../../base.change.ts";
 import type { Enum } from "../enum.model.ts";
 
 /**
@@ -31,9 +27,7 @@ export class CreateEnum extends CreateChange {
     const parts: string[] = ["CREATE TYPE"];
 
     // Add schema and name
-    parts.push(
-      `${quoteIdentifier(this.enum.schema)}.${quoteIdentifier(this.enum.name)}`,
-    );
+    parts.push(`${this.enum.schema}.${this.enum.name}`);
 
     // Add AS ENUM
     parts.push("AS ENUM");

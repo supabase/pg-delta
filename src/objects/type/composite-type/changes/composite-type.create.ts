@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../../base.change.ts";
+import { CreateChange } from "../../../base.change.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 
 /**
@@ -28,9 +28,7 @@ export class CreateCompositeType extends CreateChange {
     const parts: string[] = ["CREATE TYPE"];
 
     // Add schema and name
-    parts.push(
-      `${quoteIdentifier(this.compositeType.schema)}.${quoteIdentifier(this.compositeType.name)}`,
-    );
+    parts.push(`${this.compositeType.schema}.${this.compositeType.name}`);
 
     // Add AS keyword
     parts.push("AS");
@@ -40,11 +38,11 @@ export class CreateCompositeType extends CreateChange {
         .map((column) => {
           const tokens: string[] = [];
           // attribute name and data type
-          tokens.push(quoteIdentifier(column.name));
+          tokens.push(column.name);
           tokens.push(column.data_type_str);
           // Collation (only when non-default, already filtered by extractor)
           if (column.collation) {
-            tokens.push("COLLATE", quoteIdentifier(column.collation));
+            tokens.push("COLLATE", column.collation);
           }
           return tokens.join(" ");
         })

@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import { DropChange } from "../../base.change.ts";
 import type { Table } from "../table.model.ts";
 
 /**
@@ -24,9 +24,6 @@ export class DropTable extends DropChange {
   }
 
   serialize(): string {
-    return [
-      "DROP TABLE",
-      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
-    ].join(" ");
+    return ["DROP TABLE", `${this.table.schema}.${this.table.name}`].join(" ");
   }
 }

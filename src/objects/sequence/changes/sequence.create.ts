@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange } from "../../base.change.ts";
 import type { Sequence } from "../sequence.model.ts";
 
 /**
@@ -30,9 +30,7 @@ export class CreateSequence extends CreateChange {
     const parts: string[] = ["CREATE SEQUENCE"];
 
     // Add schema and name
-    parts.push(
-      `${quoteIdentifier(this.sequence.schema)}.${quoteIdentifier(this.sequence.name)}`,
-    );
+    parts.push(`${this.sequence.schema}.${this.sequence.name}`);
 
     // Add data type if not default
     if (this.sequence.data_type && this.sequence.data_type !== "bigint") {

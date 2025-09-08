@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import { DropChange } from "../../base.change.ts";
 import type { Domain } from "../domain.model.ts";
 
 /**
@@ -24,6 +24,6 @@ export class DropDomain extends DropChange {
   }
 
   serialize(): string {
-    return `DROP DOMAIN ${quoteIdentifier(this.domain.schema)}.${quoteIdentifier(this.domain.name)}`;
+    return `DROP DOMAIN ${this.domain.schema}.${this.domain.name}`;
   }
 }

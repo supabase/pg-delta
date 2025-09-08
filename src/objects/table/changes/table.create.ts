@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange } from "../../base.change.ts";
 import type { Table } from "../table.model.ts";
 
 /**
@@ -47,9 +47,7 @@ export class CreateTable extends CreateChange {
     parts.push("TABLE");
 
     // Add schema and name
-    parts.push(
-      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
-    );
+    parts.push(`${this.table.schema}.${this.table.name}`);
 
     // Add columns definition
     if (this.table.columns.length === 0) {
@@ -59,14 +57,14 @@ export class CreateTable extends CreateChange {
         const tokens: string[] = [];
 
         // Column name
-        tokens.push(quoteIdentifier(col.name));
+        tokens.push(col.name);
 
         // Data type (use formatted type string from the catalog)
         tokens.push(col.data_type_str);
 
         // Collation
         if (col.collation) {
-          tokens.push("COLLATE", quoteIdentifier(col.collation));
+          tokens.push("COLLATE", col.collation);
         }
 
         // Identity / generated / default
@@ -98,7 +96,7 @@ export class CreateTable extends CreateChange {
     if (this.table.parent_schema && this.table.parent_name) {
       parts.push(
         "INHERITS",
-        `(${quoteIdentifier(this.table.parent_schema)}.${quoteIdentifier(this.table.parent_name)})`,
+        `(${this.table.parent_schema}.${this.table.parent_name})`,
       );
     }
 

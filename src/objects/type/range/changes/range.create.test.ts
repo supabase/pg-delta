@@ -31,7 +31,7 @@ describe("range", () => {
       owner: "owner1",
       subtype_schema: "pg_catalog",
       subtype_str: "date",
-      collation: "en_US",
+      collation: '"en_US"',
       canonical_function_schema: "public",
       canonical_function_name: "canon_fn",
       subtype_diff_schema: "public",

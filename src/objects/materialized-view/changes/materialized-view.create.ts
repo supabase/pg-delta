@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange } from "../../base.change.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 
 /**
@@ -39,9 +39,7 @@ export class CreateMaterializedView extends CreateChange {
     const parts: string[] = ["CREATE MATERIALIZED VIEW"];
 
     // Add schema and name
-    parts.push(
-      `${quoteIdentifier(this.materializedView.schema)}.${quoteIdentifier(this.materializedView.name)}`,
-    );
+    parts.push(`${this.materializedView.schema}.${this.materializedView.name}`);
 
     // Add storage parameters if specified
     if (

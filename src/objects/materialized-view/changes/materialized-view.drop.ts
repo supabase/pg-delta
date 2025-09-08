@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import { DropChange } from "../../base.change.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 
 /**
@@ -30,7 +30,7 @@ export class DropMaterializedView extends DropChange {
   serialize(): string {
     return [
       "DROP MATERIALIZED VIEW",
-      `${quoteIdentifier(this.materializedView.schema)}.${quoteIdentifier(this.materializedView.name)}`,
+      `${this.materializedView.schema}.${this.materializedView.name}`,
     ].join(" ");
   }
 }

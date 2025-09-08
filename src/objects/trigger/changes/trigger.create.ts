@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange } from "../../base.change.ts";
 import type { TableLikeObject } from "../../base.model.ts";
 import type { Trigger } from "../trigger.model.ts";
 
@@ -120,7 +120,7 @@ export class CreateTrigger extends CreateChange {
           `CreateTrigger could not resolve column position ${pos} to a column name`,
         );
       }
-      names.push(quoteIdentifier(name));
+      names.push(name);
     }
     return names;
   }
@@ -136,7 +136,7 @@ export class CreateTrigger extends CreateChange {
     parts.push("TRIGGER");
 
     // Add trigger name
-    parts.push(quoteIdentifier(this.trigger.name));
+    parts.push(this.trigger.name);
 
     // Add timing (decoded from trigger_type)
     const timing = decodeTriggerTiming(this.trigger.trigger_type);
@@ -165,10 +165,7 @@ export class CreateTrigger extends CreateChange {
     parts.push(eventsSql);
 
     // Add ON table
-    parts.push(
-      "ON",
-      `${quoteIdentifier(this.trigger.schema)}.${quoteIdentifier(this.trigger.table_name)}`,
-    );
+    parts.push("ON", `${this.trigger.schema}.${this.trigger.table_name}`);
 
     // Add deferrable options for constraint triggers.
     // Defaults are NOT DEFERRABLE and INITIALLY IMMEDIATE, so omit them.
@@ -189,17 +186,11 @@ export class CreateTrigger extends CreateChange {
     ) {
       const referencing: string[] = ["REFERENCING"];
       if (this.trigger.old_table) {
-        referencing.push(
-          "OLD TABLE AS",
-          quoteIdentifier(this.trigger.old_table),
-        );
+        referencing.push("OLD TABLE AS", this.trigger.old_table);
       }
       if (this.trigger.new_table) {
         // Separate with space; previous pushes ensure spacing
-        referencing.push(
-          "NEW TABLE AS",
-          quoteIdentifier(this.trigger.new_table),
-        );
+        referencing.push("NEW TABLE AS", this.trigger.new_table);
       }
       parts.push(referencing.join(" "));
     }
@@ -222,8 +213,8 @@ export class CreateTrigger extends CreateChange {
     // Add EXECUTE FUNCTION with arguments (no space before parentheses)
     const functionCall =
       this.trigger.arguments && this.trigger.arguments.length > 0
-        ? `${quoteIdentifier(this.trigger.function_schema)}.${quoteIdentifier(this.trigger.function_name)}(${this.trigger.arguments.join(", ")})`
-        : `${quoteIdentifier(this.trigger.function_schema)}.${quoteIdentifier(this.trigger.function_name)}()`;
+        ? `${this.trigger.function_schema}.${this.trigger.function_name}(${this.trigger.arguments.join(", ")})`
+        : `${this.trigger.function_schema}.${this.trigger.function_name}()`;
 
     parts.push("EXECUTE FUNCTION", functionCall);
 

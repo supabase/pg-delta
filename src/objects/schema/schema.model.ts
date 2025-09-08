@@ -59,8 +59,8 @@ export async function extractSchemas(sql: Sql): Promise<Schema[]> {
         and d.classid = 'pg_namespace'::regclass
     )
     select
-      nspname as schema,
-      nspowner::regrole as owner
+      quote_ident(nspname) as schema,
+      nspowner::regrole::text as owner
     from
       pg_catalog.pg_namespace
       left outer join extension_oids e on e.objid = oid

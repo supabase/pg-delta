@@ -107,8 +107,8 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 ), views as (
   select
-    c.relnamespace::regnamespace as schema,
-    c.relname as name,
+    c.relnamespace::regnamespace::text as schema,
+    quote_ident(c.relname) as name,
     rtrim(pg_get_viewdef(c.oid), ';') as definition,
     c.relrowsecurity as row_security,
     c.relforcerowsecurity as force_row_security,
@@ -121,7 +121,7 @@ with extension_oids as (
     c.relispartition as is_partition,
     c.reloptions as options,
     pg_get_expr(c.relpartbound, c.oid) as partition_bound,
-    c.relowner::regrole as owner,
+    c.relowner::regrole::text as owner,
     c.oid as oid
   from
     pg_catalog.pg_class c

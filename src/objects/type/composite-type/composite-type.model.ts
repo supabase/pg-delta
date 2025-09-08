@@ -114,8 +114,8 @@ export async function extractCompositeTypes(
           and d.classid = 'pg_class'::regclass
       ), composite_types as (
         select
-          c.relnamespace::regnamespace as schema,
-          c.relname as name,
+          c.relnamespace::regnamespace::text as schema,
+          quote_ident(c.relname) as name,
           c.relrowsecurity as row_security,
           c.relforcerowsecurity as force_row_security,
           c.relhasindex as has_indexes,
@@ -127,7 +127,7 @@ export async function extractCompositeTypes(
           c.relispartition as is_partition,
           c.reloptions as options,
           pg_get_expr(c.relpartbound, c.oid) as partition_bound,
-          c.relowner::regrole as owner,
+          c.relowner::regrole::text as owner,
           c.oid as oid
         from
           pg_catalog.pg_class c
@@ -154,7 +154,7 @@ export async function extractCompositeTypes(
         coalesce(json_agg(
           case when a.attname is not null then
             json_build_object(
-              'name', a.attname,
+              'name', quote_ident(a.attname),
               'position', a.attnum,
               'data_type', a.atttypid::regtype::text,
               'data_type_str', format_type(a.atttypid, a.atttypmod),

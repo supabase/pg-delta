@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import { DropChange } from "../../base.change.ts";
 import type { Trigger } from "../trigger.model.ts";
 
 /**
@@ -26,9 +26,9 @@ export class DropTrigger extends DropChange {
   serialize(): string {
     return [
       "DROP TRIGGER",
-      quoteIdentifier(this.trigger.name),
+      this.trigger.name,
       "ON",
-      `${quoteIdentifier(this.trigger.schema)}.${quoteIdentifier(this.trigger.table_name)}`,
+      `${this.trigger.schema}.${this.trigger.table_name}`,
     ].join(" ");
   }
 }

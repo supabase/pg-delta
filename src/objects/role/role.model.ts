@@ -75,7 +75,7 @@ export class Role extends BasePgModel {
 export async function extractRoles(sql: Sql): Promise<Role[]> {
   const roleRows = await sql`
 select
-  rolname as role_name,
+  quote_ident(rolname) as role_name,
   rolsuper as is_superuser,
   rolinherit as can_inherit,
   rolcreaterole as can_create_roles,

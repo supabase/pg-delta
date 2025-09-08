@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import { DropChange } from "../../base.change.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 
 /**
@@ -26,9 +26,9 @@ export class DropRlsPolicy extends DropChange {
   serialize(): string {
     return [
       "DROP POLICY",
-      `${quoteIdentifier(this.rlsPolicy.schema)}.${quoteIdentifier(this.rlsPolicy.name)}`,
+      `${this.rlsPolicy.schema}.${this.rlsPolicy.name}`,
       "ON",
-      `${quoteIdentifier(this.rlsPolicy.schema)}.${quoteIdentifier(this.rlsPolicy.table_name)}`,
+      `${this.rlsPolicy.schema}.${this.rlsPolicy.table_name}`,
     ].join(" ");
   }
 }

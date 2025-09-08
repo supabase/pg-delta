@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import { DropChange } from "../../base.change.ts";
 import type { View } from "../view.model.ts";
 
 /**
@@ -19,9 +19,6 @@ export class DropView extends DropChange {
   }
 
   serialize(): string {
-    return [
-      "DROP VIEW",
-      `${quoteIdentifier(this.view.schema)}.${quoteIdentifier(this.view.name)}`,
-    ].join(" ");
+    return ["DROP VIEW", `${this.view.schema}.${this.view.name}`].join(" ");
   }
 }

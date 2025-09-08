@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange } from "../../base.change.ts";
 import type { Domain } from "../domain.model.ts";
 
 /**
@@ -35,7 +35,7 @@ export class CreateDomain extends CreateChange {
     const parts: string[] = [];
 
     // Schema-qualified name
-    const domainName = `${quoteIdentifier(this.domain.schema)}.${quoteIdentifier(this.domain.name)}`;
+    const domainName = `${this.domain.schema}.${this.domain.name}`;
 
     // Base type (use formatted string for type+typmod and add schema if needed)
     let baseType = this.domain.base_type_str as string;
@@ -43,7 +43,7 @@ export class CreateDomain extends CreateChange {
       this.domain.base_type_schema &&
       this.domain.base_type_schema !== "pg_catalog"
     ) {
-      baseType = `${quoteIdentifier(this.domain.base_type_schema)}.${baseType}`;
+      baseType = `${this.domain.base_type_schema}.${baseType}`;
     }
 
     // Array dimensions
@@ -55,7 +55,7 @@ export class CreateDomain extends CreateChange {
 
     // Collation
     if (this.domain.collation) {
-      parts.push(`COLLATE ${quoteIdentifier(this.domain.collation)}`);
+      parts.push(`COLLATE ${this.domain.collation}`);
     }
 
     // Default value

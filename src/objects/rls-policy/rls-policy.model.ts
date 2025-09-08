@@ -92,19 +92,17 @@ with extension_oids as (
     and d.classid = 'pg_policy'::regclass
 )
 select
-  tc.relnamespace::regnamespace as schema,
-  p.polname as name,
-  tc.relname as table_name,
+  tc.relnamespace::regnamespace::text as schema,
+  quote_ident(p.polname) as name,
+  quote_ident(tc.relname) as table_name,
   p.polcmd as command,
   p.polpermissive as permissive,
   array(
-    select r.rolname
-    from pg_roles r
-    where r.oid = any(p.polroles)
+    select unnest(p.polroles)::regrole::text
   ) as roles,
   pg_get_expr(p.polqual, p.polrelid) as using_expression,
   pg_get_expr(p.polwithcheck, p.polrelid) as with_check_expression,
-  tc.relowner::regrole as owner
+  tc.relowner::regrole::text as owner
 from
   pg_catalog.pg_policy p
   inner join pg_catalog.pg_class tc on tc.oid = p.polrelid

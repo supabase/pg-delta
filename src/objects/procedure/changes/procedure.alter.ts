@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { CreateProcedure } from "./procedure.create.ts";
 import { DropProcedure } from "./procedure.drop.ts";
@@ -63,9 +59,9 @@ export class AlterProcedureChangeOwner extends AlterChange {
     return [
       "ALTER",
       objectType,
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "OWNER TO",
-      quoteIdentifier(this.branch.owner),
+      this.branch.owner,
     ].join(" ");
   }
 }
@@ -96,7 +92,7 @@ export class AlterProcedureSetSecurity extends AlterChange {
     return [
       "ALTER",
       objectType,
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       security,
     ].join(" ");
   }
@@ -139,7 +135,7 @@ export class AlterProcedureSetConfig extends AlterChange {
     const head = [
       "ALTER",
       this.main.kind === "p" ? "PROCEDURE" : "FUNCTION",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
     ].join(" ");
 
     const statements: string[] = [];
@@ -193,7 +189,7 @@ export class AlterProcedureSetVolatility extends AlterChange {
     return [
       "ALTER",
       objectType,
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       volMap[this.branch.volatility],
     ].join(" ");
   }
@@ -224,7 +220,7 @@ export class AlterProcedureSetStrictness extends AlterChange {
     return [
       "ALTER",
       objectType,
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       strictness,
     ].join(" ");
   }
@@ -253,7 +249,7 @@ export class AlterProcedureSetLeakproof extends AlterChange {
     return [
       "ALTER",
       objectType,
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       leak,
     ].join(" ");
   }
@@ -286,7 +282,7 @@ export class AlterProcedureSetParallel extends AlterChange {
     return [
       "ALTER",
       objectType,
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       parallelMap[this.branch.parallel_safety],
     ].join(" ");
   }

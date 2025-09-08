@@ -119,16 +119,16 @@ with extension_oids as (
 )
 select
   -- range type identity
-  t.typnamespace::regnamespace as schema,
-  t.typname as name,
-  t.typowner::regrole as owner,
+  t.typnamespace::regnamespace::text as schema,
+  quote_ident(t.typname) as name,
+  t.typowner::regrole::text as owner,
 
   -- subtype info
-  subt.typnamespace::regnamespace as subtype_schema,
+  subt.typnamespace::regnamespace::text as subtype_schema,
   format_type(r.rngsubtype, 0) as subtype_str,
 
   -- include collation only if not default
-  case when r.rngcollation is not null and r.rngcollation <> 0 and r.rngcollation <> subt.typcollation then c.collname else null end as collation,
+  case when r.rngcollation is not null and r.rngcollation <> 0 and r.rngcollation <> subt.typcollation then quote_ident(c.collname) else null end as collation,
 
   -- include canonical/subtype_diff when set
   case when r.rngcanonical <> 0 then pn_subcanon.nspname::regnamespace::text else null end as canonical_function_schema,

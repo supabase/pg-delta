@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 import { CreateRlsPolicy } from "./rls-policy.create.ts";
 import { DropRlsPolicy } from "./rls-policy.drop.ts";
@@ -47,15 +43,13 @@ export class AlterRlsPolicySetRoles extends AlterChange {
     const toPublic =
       targetRoles.length === 0 ||
       (targetRoles.length === 1 && targetRoles[0].toLowerCase() === "public");
-    const rolesSql = toPublic
-      ? "PUBLIC"
-      : targetRoles.map(quoteIdentifier).join(", ");
+    const rolesSql = toPublic ? "PUBLIC" : targetRoles.join(", ");
 
     return [
       "ALTER POLICY",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "ON",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.table_name)}`,
+      `${this.main.schema}.${this.main.table_name}`,
       "TO",
       rolesSql,
     ].join(" ");
@@ -83,9 +77,9 @@ export class AlterRlsPolicySetUsingExpression extends AlterChange {
     const expr = this.branch.using_expression ?? "true";
     return [
       "ALTER POLICY",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "ON",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.table_name)}`,
+      `${this.main.schema}.${this.main.table_name}`,
       "USING",
       `(${expr})`,
     ].join(" ");
@@ -113,9 +107,9 @@ export class AlterRlsPolicySetWithCheckExpression extends AlterChange {
     const expr = this.branch.with_check_expression ?? "true";
     return [
       "ALTER POLICY",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "ON",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.table_name)}`,
+      `${this.main.schema}.${this.main.table_name}`,
       "WITH CHECK",
       `(${expr})`,
     ].join(" ");

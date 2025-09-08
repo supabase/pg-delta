@@ -158,13 +158,13 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 )
 select
-  regexp_replace(tc.relnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
-  tc.relname as table_name,
+  tc.relnamespace::regnamespace::text as schema,
+  quote_ident(tc.relname) as table_name,
   tc.relkind as table_relkind,
-  c.relname as name,
+  quote_ident(c.relname) as name,
   coalesce(c.reloptions, array[]::text[]) as storage_params,
   am.amname as index_type,
-  ts.spcname as tablespace,
+  quote_ident(ts.spcname) as tablespace,
   i.indisunique as is_unique,
   i.indisprimary as is_primary,
   i.indisexclusion as is_exclusion,
@@ -183,7 +183,11 @@ select
   end as is_constraint,
   coalesce(
     array(
-      select distinct coalesce(collname, 'default')
+      select distinct
+        case
+          when coll is null then 'default'
+          else c.collnamespace::regnamespace::text || '.' || c.collname
+        end
       from unnest(i.indcollation::regcollation[]) coll
       left join pg_collation c on c.oid = coll
     ),
@@ -195,7 +199,7 @@ select
     where a.attrelid = i.indexrelid
   ) as statistics_target,
   array(
-    select format('%I.%I', regexp_replace(opcnamespace::regnamespace::text, '^"(.*)"$', '\\1'), opcname)
+    select opcnamespace::regnamespace::text || '.' || quote_ident(opcname)
     from unnest(i.indclass) op
     left join pg_opclass oc on oc.oid = op
   ) as operator_classes,

@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { CreateMaterializedView } from "./materialized-view.create.ts";
 import { DropMaterializedView } from "./materialized-view.drop.ts";
@@ -60,9 +56,9 @@ export class AlterMaterializedViewChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER MATERIALIZED VIEW",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "OWNER TO",
-      quoteIdentifier(this.branch.owner),
+      this.branch.owner,
     ].join(" ");
   }
 }
@@ -119,7 +115,7 @@ export class AlterMaterializedViewSetStorageParams extends AlterChange {
 
     const head = [
       "ALTER MATERIALIZED VIEW",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
     ].join(" ");
 
     const statements: string[] = [];

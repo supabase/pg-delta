@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { View } from "../view.model.ts";
 import { CreateView } from "./view.create.ts";
 import { DropView } from "./view.drop.ts";
@@ -49,9 +45,9 @@ export class AlterViewChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER VIEW",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "OWNER TO",
-      quoteIdentifier(this.branch.owner),
+      this.branch.owner,
     ].join(" ");
   }
 }
@@ -103,7 +99,7 @@ export class AlterViewSetOptions extends AlterChange {
     const opts = (this.branch.options ?? []).join(", ");
     return [
       "ALTER VIEW",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "SET",
       `(${opts})`,
     ].join(" ");
@@ -130,7 +126,7 @@ export class AlterViewResetOptions extends AlterChange {
   serialize(): string {
     return [
       "ALTER VIEW",
-      `${quoteIdentifier(this.view.schema)}.${quoteIdentifier(this.view.name)}`,
+      `${this.view.schema}.${this.view.name}`,
       "RESET",
       `(${this.params.join(", ")})`,
     ].join(" ");

@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../../base.change.ts";
+import { AlterChange, ReplaceChange } from "../../../base.change.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 import { CreateCompositeType } from "./composite-type.create.ts";
 import { DropCompositeType } from "./composite-type.drop.ts";
@@ -49,9 +45,9 @@ export class AlterCompositeTypeChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER TYPE",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "OWNER TO",
-      quoteIdentifier(this.branch.owner),
+      this.branch.owner,
     ].join(" ");
   }
 }
@@ -79,13 +75,13 @@ export class AlterCompositeTypeAddAttribute extends AlterChange {
   serialize(): string {
     const parts = [
       "ALTER TYPE",
-      `${quoteIdentifier(this.compositeType.schema)}.${quoteIdentifier(this.compositeType.name)}`,
+      `${this.compositeType.schema}.${this.compositeType.name}`,
       "ADD ATTRIBUTE",
-      quoteIdentifier(this.attribute.name),
+      this.attribute.name,
       this.attribute.data_type_str,
     ];
     if (this.attribute.collation) {
-      parts.push("COLLATE", quoteIdentifier(this.attribute.collation));
+      parts.push("COLLATE", this.attribute.collation);
     }
     return parts.join(" ");
   }
@@ -114,9 +110,9 @@ export class AlterCompositeTypeDropAttribute extends AlterChange {
   serialize(): string {
     return [
       "ALTER TYPE",
-      `${quoteIdentifier(this.compositeType.schema)}.${quoteIdentifier(this.compositeType.name)}`,
+      `${this.compositeType.schema}.${this.compositeType.name}`,
       "DROP ATTRIBUTE",
-      quoteIdentifier(this.attribute.name),
+      this.attribute.name,
     ].join(" ");
   }
 }
@@ -144,14 +140,14 @@ export class AlterCompositeTypeAlterAttributeType extends AlterChange {
   serialize(): string {
     const parts = [
       "ALTER TYPE",
-      `${quoteIdentifier(this.compositeType.schema)}.${quoteIdentifier(this.compositeType.name)}`,
+      `${this.compositeType.schema}.${this.compositeType.name}`,
       "ALTER ATTRIBUTE",
-      quoteIdentifier(this.attribute.name),
+      this.attribute.name,
       "TYPE",
       this.attribute.data_type_str,
     ];
     if (this.attribute.collation) {
-      parts.push("COLLATE", quoteIdentifier(this.attribute.collation));
+      parts.push("COLLATE", this.attribute.collation);
     }
     return parts.join(" ");
   }

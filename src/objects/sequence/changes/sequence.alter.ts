@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { CreateSequence } from "./sequence.create.ts";
 import { DropSequence } from "./sequence.drop.ts";
@@ -42,9 +38,9 @@ export class AlterSequenceChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER SEQUENCE",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "OWNER TO",
-      quoteIdentifier(this.branch.owner),
+      this.branch.owner,
     ].join(" ");
   }
 }
@@ -76,7 +72,7 @@ export class AlterSequenceSetOptions extends AlterChange {
   serialize(): string {
     const parts: string[] = [
       "ALTER SEQUENCE",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
     ];
     const options: string[] = [];
 
