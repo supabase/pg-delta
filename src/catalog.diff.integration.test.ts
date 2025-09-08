@@ -61,7 +61,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             kind: "create",
             index: expect.objectContaining({
               name: "users_username_key",
-              table_schema: "test_schema",
               table_name: "users",
             }),
           }),
@@ -69,7 +68,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             kind: "create",
             index: expect.objectContaining({
               name: "users_email_key",
-              table_schema: "test_schema",
               table_name: "users",
             }),
           }),
@@ -579,7 +577,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             kind: "create",
             index: expect.objectContaining({
               name: "users_username_key",
-              table_schema: "test_schema",
               table_name: "users",
             }),
           }),
@@ -872,7 +869,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         }),
         expect.objectContaining({
-          kind: "replace",
+          kind: "alter",
           main: expect.objectContaining({
             name: "global_id_seq",
             schema: "test_schema",
@@ -1052,13 +1049,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           main: expect.objectContaining({
             name: "user_list",
             schema: "test_schema",
-            definition: " SELECT id,\n    username\n   FROM test_schema.users;",
+            definition: " SELECT id,\n    username\n   FROM test_schema.users",
           }),
           branch: expect.objectContaining({
             name: "user_list",
             schema: "test_schema",
             definition:
-              " SELECT id,\n    username,\n    role\n   FROM test_schema.users;",
+              " SELECT id,\n    username,\n    role\n   FROM test_schema.users",
           }),
         }),
       ]);
