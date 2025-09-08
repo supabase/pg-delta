@@ -55,13 +55,13 @@ export async function roundtripFidelityTest(
 
   // Set up initial schema in BOTH databases
   if (initialSetup) {
-    await masterSession.unsafe(initialSetup);
-    await branchSession.unsafe(initialSetup);
+    await expect(masterSession.unsafe(initialSetup)).resolves.not.toThrow();
+    await expect(branchSession.unsafe(initialSetup)).resolves.not.toThrow();
   }
 
   // Execute the test SQL in the BRANCH database only
   if (testSql) {
-    await branchSession.unsafe(testSql);
+    await expect(branchSession.unsafe(testSql)).resolves.not.toThrow();
   }
 
   // Extract catalogs from both databases
