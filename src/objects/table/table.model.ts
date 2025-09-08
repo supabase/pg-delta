@@ -233,7 +233,7 @@ select
           'key_columns', c.conkey,
           'foreign_key_columns', c.confkey,
           'foreign_key_table', ftc.relname,
-          'foreign_key_schema', ftn.nspname,
+          'foreign_key_schema', ftc.relnamespace::regnamespace::text,
           'on_update', case when c.contype = 'f' then c.confupdtype else null end,
           'on_delete', case when c.contype = 'f' then c.confdeltype else null end,
           'match_type', case when c.contype = 'f' then c.confmatchtype else null end,
