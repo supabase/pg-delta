@@ -367,7 +367,7 @@ END;$$`,
           LANGUAGE sql
           IMMUTABLE
           AS $$
-            SELECT email ~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
+            SELECT email ~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$'
           $$;
 
           CREATE TABLE test_schema.users (
