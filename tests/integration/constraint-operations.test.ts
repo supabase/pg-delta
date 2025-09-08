@@ -539,7 +539,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "constraint with special characters in names",
         expectedSqlTerms: [
-          'ALTER TABLE "my-schema"."my-table" ADD CONSTRAINT my-table_check$constraint CHECK (("my-field" IS NOT NULL))',
+          'ALTER TABLE "my-schema"."my-table" ADD CONSTRAINT "my-table_check$constraint" CHECK (("my-field" IS NOT NULL))',
         ],
         expectedMasterDependencies: [
           {

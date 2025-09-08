@@ -223,7 +223,7 @@ select
     (
       select json_agg(
         json_build_object(
-          'name', c.conname,
+          'name', quote_ident(c.conname),
           'constraint_type', c.contype,
           'deferrable', c.condeferrable,
           'initially_deferred', c.condeferred,

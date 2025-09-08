@@ -46,7 +46,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(...diffViews(main.views, branch.views));
 
   if (DEBUG) {
-    console.log("changes catalog diff: ", changes);
+    console.log("changes catalog diff: ", JSON.stringify(changes, null, 2));
   }
 
   return changes;
