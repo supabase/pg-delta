@@ -2,8 +2,8 @@ import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
-  AlterSequenceChangeOwner,
   AlterSequenceSetOptions,
+  AlterSequenceSetOwnedBy,
   ReplaceSequence,
 } from "./changes/sequence.alter.ts";
 import { CreateSequence } from "./changes/sequence.create.ts";
@@ -26,7 +26,18 @@ export function diffSequences(
   const changes: Change[] = [];
 
   for (const sequenceId of created) {
-    changes.push(new CreateSequence({ sequence: branch[sequenceId] }));
+    const createdSeq = branch[sequenceId];
+    changes.push(new CreateSequence({ sequence: createdSeq }));
+    // If the created sequence is OWNED BY a column, emit an ALTER to set it
+    if (
+      createdSeq.owned_by_schema !== null &&
+      createdSeq.owned_by_table !== null &&
+      createdSeq.owned_by_column !== null
+    ) {
+      changes.push(
+        new AlterSequenceSetOwnedBy({ main: createdSeq, branch: createdSeq }),
+      );
+    }
   }
 
   for (const sequenceId of dropped) {
@@ -54,6 +65,31 @@ export function diffSequences(
       changes.push(
         new ReplaceSequence({ main: mainSequence, branch: branchSequence }),
       );
+      // Re-apply OWNED BY if present on branch
+      if (
+        branchSequence.owned_by_schema !== null &&
+        branchSequence.owned_by_table !== null &&
+        branchSequence.owned_by_column !== null
+      ) {
+        changes.push(
+          new AlterSequenceSetOwnedBy({
+            main: branchSequence,
+            branch: branchSequence,
+          }),
+        );
+      } else if (
+        mainSequence.owned_by_schema !== null ||
+        mainSequence.owned_by_table !== null ||
+        mainSequence.owned_by_column !== null
+      ) {
+        // If main had ownership but branch removed it, emit OWNED BY NONE
+        changes.push(
+          new AlterSequenceSetOwnedBy({
+            main: mainSequence,
+            branch: branchSequence,
+          }),
+        );
+      }
     } else {
       // Only alterable properties changed - emit ALTER for options/owner
       const optionsChanged =
@@ -72,9 +108,14 @@ export function diffSequences(
         changes.push(alterOptions);
       }
 
-      if (mainSequence.owner !== branchSequence.owner) {
+      const ownedByChanged =
+        mainSequence.owned_by_schema !== branchSequence.owned_by_schema ||
+        mainSequence.owned_by_table !== branchSequence.owned_by_table ||
+        mainSequence.owned_by_column !== branchSequence.owned_by_column;
+
+      if (ownedByChanged) {
         changes.push(
-          new AlterSequenceChangeOwner({
+          new AlterSequenceSetOwnedBy({
             main: mainSequence,
             branch: branchSequence,
           }),

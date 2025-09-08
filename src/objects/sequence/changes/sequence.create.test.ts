@@ -15,7 +15,9 @@ describe("sequence", () => {
       cycle_option: false,
       cache_size: 1,
       persistence: "p",
-      owner: "test",
+      owned_by_schema: null,
+      owned_by_table: null,
+      owned_by_column: null,
     });
 
     const change = new CreateSequence({ sequence });
@@ -34,7 +36,9 @@ describe("sequence", () => {
       cycle_option: false,
       cache_size: 1,
       persistence: "p",
-      owner: "test",
+      owned_by_schema: null,
+      owned_by_table: null,
+      owned_by_column: null,
     });
 
     const change = new CreateSequence({
@@ -58,7 +62,9 @@ describe("sequence", () => {
       cycle_option: true,
       cache_size: 3,
       persistence: "p",
-      owner: "test",
+      owned_by_schema: null,
+      owned_by_table: null,
+      owned_by_column: null,
     });
 
     const change = new CreateSequence({ sequence });

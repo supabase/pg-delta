@@ -15,7 +15,9 @@ describe("sequence", () => {
       cycle_option: false,
       cache_size: 1,
       persistence: "p",
-      owner: "test",
+      owned_by_schema: null,
+      owned_by_table: null,
+      owned_by_column: null,
     });
 
     const change = new DropSequence({

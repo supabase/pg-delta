@@ -16,12 +16,12 @@ import { DropSequence } from "./sequence.drop.ts";
  *     [ CACHE cache ] [ [ NO ] CYCLE ] [ OWNED BY { table_name.column_name | NONE } ]
  * ```
  */
-export type AlterSequence = AlterSequenceChangeOwner | AlterSequenceSetOptions;
+export type AlterSequence = AlterSequenceSetOptions | AlterSequenceSetOwnedBy;
 
 /**
- * ALTER SEQUENCE ... OWNER TO ...
+ * ALTER SEQUENCE ... OWNED BY ... | OWNED BY NONE
  */
-export class AlterSequenceChangeOwner extends AlterChange {
+export class AlterSequenceSetOwnedBy extends AlterChange {
   public readonly main: Sequence;
   public readonly branch: Sequence;
 
@@ -36,12 +36,19 @@ export class AlterSequenceChangeOwner extends AlterChange {
   }
 
   serialize(): string {
-    return [
-      "ALTER SEQUENCE",
-      `${this.main.schema}.${this.main.name}`,
-      "OWNER TO",
-      this.branch.owner,
-    ].join(" ");
+    const head = ["ALTER SEQUENCE", `${this.main.schema}.${this.main.name}`];
+    const hasOwnedBy =
+      this.branch.owned_by_schema !== null &&
+      this.branch.owned_by_table !== null &&
+      this.branch.owned_by_column !== null;
+    if (hasOwnedBy) {
+      return [
+        ...head,
+        "OWNED BY",
+        `${this.branch.owned_by_schema}.${this.branch.owned_by_table}.${this.branch.owned_by_column}`,
+      ].join(" ");
+    }
+    return [...head, "OWNED BY NONE"].join(" ");
   }
 }
 
