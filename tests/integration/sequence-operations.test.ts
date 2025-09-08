@@ -100,8 +100,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           `CREATE SEQUENCE test_schema.users_id_seq AS integer`,
           `CREATE TABLE test_schema.users (id integer DEFAULT nextval('test_schema.users_id_seq'::regclass) NOT NULL, name text)`,
           `ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)`,
-          // TODO: understand if this should be declared ?
-          // `ALTER SEQUENCE test_schema.users_id_seq OWNED BY test_schema.users.id`,
+          `ALTER SEQUENCE test_schema.users_id_seq OWNED BY test_schema.users.id`,
         ],
         expectedMasterDependencies: [],
         // Serial column creates multiple dependencies:
