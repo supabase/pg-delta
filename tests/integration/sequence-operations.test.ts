@@ -148,8 +148,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "alter sequence properties",
         expectedSqlTerms: [
-          `DROP SEQUENCE test_schema.test_seq;
-CREATE SEQUENCE test_schema.test_seq INCREMENT BY 5 CACHE 10`,
+          `ALTER SEQUENCE test_schema.test_seq INCREMENT BY 5 CACHE 10`,
         ],
         expectedMasterDependencies: [
           {

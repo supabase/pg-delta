@@ -359,8 +359,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)",
           "CREATE TABLE test_schema.orders (id integer NOT NULL, user_id integer, amount numeric)",
           "ALTER TABLE test_schema.orders ADD CONSTRAINT orders_pkey PRIMARY KEY (id)",
-          "CREATE OR REPLACE VIEW test_schema.user_orders AS  SELECT u.id,\n    u.name,\n    sum(o.amount) AS total\n   FROM (test_schema.users u\n     LEFT JOIN test_schema.orders o ON ((u.id = o.user_id)))\n  GROUP BY u.id, u.name;",
-          "CREATE OR REPLACE VIEW test_schema.top_users AS  SELECT id,\n    name,\n    total\n   FROM test_schema.user_orders\n  WHERE (total > (1000)::numeric);",
+          "CREATE VIEW test_schema.user_orders AS  SELECT u.id,\n    u.name,\n    sum(o.amount) AS total\n   FROM (test_schema.users u\n     LEFT JOIN test_schema.orders o ON ((u.id = o.user_id)))\n  GROUP BY u.id, u.name",
+          "CREATE VIEW test_schema.top_users AS  SELECT id,\n    name,\n    total\n   FROM test_schema.user_orders\n  WHERE (total > (1000)::numeric)",
         ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
@@ -533,7 +533,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         description: "mixed create and replace operations",
         expectedSqlTerms: [
           "ALTER TABLE test_schema.data ADD COLUMN status text",
-          "DROP VIEW test_schema.summary;\nCREATE OR REPLACE VIEW test_schema.summary AS  SELECT count(*) AS cnt,\n    count(\n        CASE\n            WHEN (status = 'active'::text) THEN 1\n            ELSE NULL::integer\n        END) AS active_cnt\n   FROM test_schema.data;",
+          "DROP VIEW test_schema.summary;\nCREATE VIEW test_schema.summary AS  SELECT count(*) AS cnt,\n    count(\n        CASE\n            WHEN (status = 'active'::text) THEN 1\n            ELSE NULL::integer\n        END) AS active_cnt\n   FROM test_schema.data",
         ],
         expectedMasterDependencies: [
           {
