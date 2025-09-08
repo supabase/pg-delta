@@ -265,7 +265,7 @@ export class OperationSemantics {
     // Special rule: For sequence-table dependencies
     // PostgreSQL reports sequence ownership (sequence depends on table)
     // But for creation, table depends on sequence (table needs sequence to exist first)
-    // If sequedepends on table, invert for all operations
+    // If sequence depends on table, invert for all operations
     // Sequence should be created before table, and table should be dropped before sequence
     if (
       (dependentChange instanceof CreateSequence ||
