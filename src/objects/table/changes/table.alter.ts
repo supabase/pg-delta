@@ -1,81 +1,6 @@
 import { AlterChange, quoteIdentifier } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import type { Table, TableConstraintProps } from "../table.model.ts";
-// No drop+create paths; destructive operations are out of scope
-
-/**
- * Alter a table.
- *
- * @see https://www.postgresql.org/docs/17/sql-altertable.html
- *
- * Synopsis
- * ```sql
- * ALTER TABLE [ IF EXISTS ] [ ONLY ] name [ * ]
- *     action [, ... ]
- * where action is one of:
- *     ADD [ COLUMN ] [ IF NOT EXISTS ] column_name data_type [ COLLATE collation ] [ column_constraint [ ... ] ]
- *     DROP [ COLUMN ] [ IF EXISTS ] column_name [ RESTRICT | CASCADE ]
- *     ALTER [ COLUMN ] column_name [ SET DATA ] TYPE data_type [ COLLATE collation ] [ USING expression ]
- *     ALTER [ COLUMN ] column_name SET DEFAULT expression
- *     ALTER [ COLUMN ] column_name DROP DEFAULT
- *     ALTER [ COLUMN ] column_name { SET | DROP } NOT NULL
- *     ALTER [ COLUMN ] column_name SET STATISTICS integer
- *     ALTER [ COLUMN ] column_name SET ( attribute_option = value [, ... ] )
- *     ALTER [ COLUMN ] column_name RESET ( attribute_option [, ... ] )
- *     ALTER [ COLUMN ] column_name SET STORAGE { PLAIN | EXTERNAL | EXTENDED | MAIN }
- *     ALTER [ COLUMN ] column_name SET COMPRESSION compression_method
- *     ADD table_constraint [ NOT VALID ]
- *     ADD table_constraint_using_index
- *     ALTER CONSTRAINT constraint_name [ DEFERRABLE | NOT DEFERRABLE ] [ INITIALLY DEFERRED | INITIALLY IMMEDIATE ]
- *     VALIDATE CONSTRAINT constraint_name
- *     DROP CONSTRAINT [ IF EXISTS ]  constraint_name [ RESTRICT | CASCADE ]
- *     DISABLE TRIGGER [ trigger_name | ALL | USER ]
- *     ENABLE TRIGGER [ trigger_name | ALL | USER ]
- *     ENABLE REPLICA TRIGGER trigger_name
- *     ENABLE ALWAYS TRIGGER trigger_name
- *     DISABLE RULE rewrite_rule_name
- *     ENABLE RULE rewrite_rule_name
- *     ENABLE REPLICA RULE rewrite_rule_name
- *     ENABLE ALWAYS RULE rewrite_rule_name
- *     CLUSTER ON index_name
- *     SET WITHOUT CLUSTER
- *     SET WITH OIDS
- *     SET WITHOUT OIDS
- *     SET ( storage_parameter [= value] [, ... ] )
- *     RESET ( storage_parameter [, ... ] )
- *     INHERIT parent_table
- *     NO INHERIT parent_table
- *     OF type_name
- *     NOT OF
- *     OWNER TO { new_owner | CURRENT_ROLE | CURRENT_USER | SESSION_USER }
- *     SET TABLESPACE new_tablespace
- *     SET { LOGGED | UNLOGGED }
- *     SET ACCESS METHOD new_access_method
- *     REFRESH MATERIALIZED VIEW [ CONCURRENTLY ] [ WITH [ NO ] DATA ]
- *     ATTACH PARTITION partition_name { FOR VALUES partition_bound_spec | DEFAULT }
- *     DETACH PARTITION partition_name [ CONCURRENTLY | FINALIZE ]
- * ```
- */
-export type AlterTable =
-  | AlterTableChangeOwner
-  | AlterTableSetLogged
-  | AlterTableSetUnlogged
-  | AlterTableEnableRowLevelSecurity
-  | AlterTableDisableRowLevelSecurity
-  | AlterTableForceRowLevelSecurity
-  | AlterTableNoForceRowLevelSecurity
-  | AlterTableSetStorageParams
-  | AlterTableAddConstraint
-  | AlterTableDropConstraint
-  | AlterTableValidateConstraint
-  | AlterTableSetReplicaIdentity
-  | AlterTableAddColumn
-  | AlterTableDropColumn
-  | AlterTableAlterColumnType
-  | AlterTableAlterColumnSetDefault
-  | AlterTableAlterColumnDropDefault
-  | AlterTableAlterColumnSetNotNull
-  | AlterTableAlterColumnDropNotNull;
 
 /**
  * ALTER TABLE ... OWNER TO ...
@@ -294,12 +219,25 @@ export class AlterTableSetStorageParams extends AlterChange {
  */
 export class AlterTableAddConstraint extends AlterChange {
   public readonly table: Table;
+  public readonly foreignKeyTable?: Table;
   public readonly constraint: TableConstraintProps;
 
-  constructor(props: { table: Table; constraint: TableConstraintProps }) {
+  constructor(props: {
+    table: Table;
+    constraint: TableConstraintProps;
+    foreignKeyTable?: Table;
+  }) {
     super();
+
+    if (props.constraint.constraint_type === "f" && !props.foreignKeyTable) {
+      throw new Error(
+        "foreignKeyTable is required for FOREIGN KEY constraints",
+      );
+    }
+
     this.table = props.table;
     this.constraint = props.constraint;
+    this.foreignKeyTable = props.foreignKeyTable;
   }
 
   get stableId(): string {
@@ -320,6 +258,16 @@ export class AlterTableAddConstraint extends AlterChange {
       return quoteIdentifier(column.name);
     });
   }
+  private getForeignKeyColumnNames(): string[] {
+    const columnByPosition = new Map(
+      this.foreignKeyTable!.columns.map((c) => [c.position, c]),
+    );
+    return this.constraint.foreign_key_columns!.map((position) => {
+      // biome-ignore lint/style/noNonNullAssertion: it is guaranteed by our query
+      const column = columnByPosition.get(position)!;
+      return column.name;
+    });
+  }
 
   serialize(): string {
     const parts: string[] = [
@@ -337,9 +285,15 @@ export class AlterTableAddConstraint extends AlterChange {
       }
       case "u":
         parts.push("UNIQUE");
+        parts.push(`(${this.getColumnNames().join(", ")})`);
         break;
       case "f":
         parts.push("FOREIGN KEY");
+        parts.push(`(${this.getColumnNames().join(", ")})`);
+        parts.push(
+          `REFERENCES ${this.constraint.foreign_key_schema}.${this.constraint.foreign_key_table}`,
+        );
+        parts.push(`(${this.getForeignKeyColumnNames().join(", ")})`);
         break;
       case "c":
         parts.push("CHECK");
@@ -358,6 +312,40 @@ export class AlterTableAddConstraint extends AlterChange {
           ? "INITIALLY DEFERRED"
           : "INITIALLY IMMEDIATE",
       );
+    }
+    if (this.constraint.constraint_type === "f") {
+      switch (this.constraint.on_update) {
+        case "r":
+          parts.push("ON UPDATE RESTRICT");
+          break;
+        case "c":
+          parts.push("ON UPDATE CASCADE");
+          break;
+        case "n":
+          parts.push("ON UPDATE SET NULL");
+          break;
+        case "d":
+          parts.push("ON UPDATE SET DEFAULT");
+          break;
+        default:
+          break;
+      }
+      switch (this.constraint.on_delete) {
+        case "r":
+          parts.push("ON DELETE RESTRICT");
+          break;
+        case "c":
+          parts.push("ON DELETE CASCADE");
+          break;
+        case "n":
+          parts.push("ON DELETE SET NULL");
+          break;
+        case "d":
+          parts.push("ON DELETE SET DEFAULT");
+          break;
+        default:
+          break;
+      }
     }
     return parts.join(" ");
   }

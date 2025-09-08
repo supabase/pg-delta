@@ -469,7 +469,6 @@ describe.concurrent("table", () => {
           },
         ],
       });
-
       const pkey = {
         name: "pk_t",
         constraint_type: "p" as const,
@@ -504,7 +503,45 @@ describe.concurrent("table", () => {
         check_expression: "a > 0",
       };
       const exclude = { ...pkey, name: "ex_t", constraint_type: "x" as const };
-
+      const otherTable = new Table({
+        schema: "public",
+        name: "other",
+        persistence: "p",
+        row_security: false,
+        force_row_security: false,
+        has_indexes: false,
+        has_rules: false,
+        has_triggers: false,
+        has_subclasses: false,
+        is_populated: false,
+        replica_identity: "d",
+        is_partition: false,
+        options: null,
+        partition_bound: null,
+        owner: "o1",
+        parent_schema: null,
+        parent_name: null,
+        columns: [
+          {
+            name: "a",
+            position: 1,
+            data_type: "integer",
+            data_type_str: "integer",
+            is_custom_type: false,
+            custom_type_type: null,
+            custom_type_category: null,
+            custom_type_schema: null,
+            custom_type_name: null,
+            not_null: false,
+            is_identity: false,
+            is_identity_always: false,
+            is_generated: false,
+            collation: null,
+            default: null,
+            comment: null,
+          },
+        ],
+      });
       expect(
         new AlterTableAddConstraint({ table: t, constraint: pkey }).serialize(),
       ).toBe(
@@ -512,10 +549,16 @@ describe.concurrent("table", () => {
       );
       expect(
         new AlterTableAddConstraint({ table: t, constraint: uniq }).serialize(),
-      ).toBe("ALTER TABLE public.test_table ADD CONSTRAINT uq_t UNIQUE");
+      ).toBe("ALTER TABLE public.test_table ADD CONSTRAINT uq_t UNIQUE (a)");
       expect(
-        new AlterTableAddConstraint({ table: t, constraint: fkey }).serialize(),
-      ).toBe("ALTER TABLE public.test_table ADD CONSTRAINT fk_t FOREIGN KEY");
+        new AlterTableAddConstraint({
+          table: t,
+          constraint: fkey,
+          foreignKeyTable: otherTable,
+        }).serialize(),
+      ).toBe(
+        "ALTER TABLE public.test_table ADD CONSTRAINT fk_t FOREIGN KEY (a) REFERENCES public.other (a)",
+      );
       expect(
         new AlterTableAddConstraint({
           table: t,
