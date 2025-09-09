@@ -1,7 +1,6 @@
 import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { CreateProcedure } from "./procedure.create.ts";
-// import { DropProcedure } from "./procedure.drop.ts";
 
 /**
  * Alter a procedure.
@@ -27,14 +26,14 @@ import { CreateProcedure } from "./procedure.create.ts";
  *     RESET ALL
  * ```
  */
-// type AlterProcedure =
-//   | AlterProcedureChangeOwner
-//   | AlterProcedureSetSecurity
-//   | AlterProcedureSetConfig
-//   | AlterProcedureSetVolatility
-//   | AlterProcedureSetStrictness
-//   | AlterProcedureSetLeakproof
-//   | AlterProcedureSetParallel;
+type AlterProcedure =
+  | AlterProcedureChangeOwner
+  | AlterProcedureSetSecurity
+  | AlterProcedureSetConfig
+  | AlterProcedureSetVolatility
+  | AlterProcedureSetStrictness
+  | AlterProcedureSetLeakproof
+  | AlterProcedureSetParallel;
 
 /**
  * ALTER FUNCTION/PROCEDURE ... OWNER TO ...

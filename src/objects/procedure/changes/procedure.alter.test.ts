@@ -37,6 +37,7 @@ describe.concurrent("procedure", () => {
         source_code: "BEGIN RETURN; END;",
         binary_path: null,
         sql_body: null,
+        definition: null,
         config: null,
       };
       const main = new Procedure({
@@ -82,6 +83,7 @@ describe.concurrent("procedure", () => {
         source_code: null,
         binary_path: null,
         sql_body: "SELECT 1",
+        definition: null,
         config: null,
       };
       const main = new Procedure({
@@ -126,6 +128,7 @@ describe.concurrent("procedure", () => {
         source_code: "BEGIN RETURN; END;",
         binary_path: null,
         sql_body: null,
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -171,6 +174,7 @@ describe.concurrent("procedure", () => {
         source_code: null,
         binary_path: null,
         sql_body: "SELECT 1",
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -206,6 +210,7 @@ describe.concurrent("procedure", () => {
         source_code: null,
         binary_path: null,
         sql_body: "SELECT 1",
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -242,6 +247,7 @@ describe.concurrent("procedure", () => {
         source_code: null,
         binary_path: null,
         sql_body: "SELECT 1",
+        definition: null,
         owner: "test",
       };
       const main = new Procedure({ ...base, config: ["search_path=public"] });
@@ -284,6 +290,7 @@ describe.concurrent("procedure", () => {
         source_code: null,
         binary_path: null,
         sql_body: "SELECT 1",
+        definition: null,
         owner: "test",
       };
       const main = new Procedure({ ...base, config: null });
@@ -318,6 +325,7 @@ describe.concurrent("procedure", () => {
         source_code: null,
         binary_path: null,
         sql_body: "SELECT 1",
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -352,6 +360,7 @@ describe.concurrent("procedure", () => {
         source_code: null,
         binary_path: null,
         sql_body: "SELECT 1",
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -386,6 +395,7 @@ describe.concurrent("procedure", () => {
         source_code: null,
         binary_path: null,
         sql_body: "SELECT 1",
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -420,6 +430,7 @@ describe.concurrent("procedure", () => {
         source_code: null,
         binary_path: null,
         sql_body: "SELECT 1",
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -454,6 +465,7 @@ describe.concurrent("procedure", () => {
         source_code: null,
         binary_path: null,
         sql_body: "SELECT 1",
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -488,6 +500,7 @@ describe.concurrent("procedure", () => {
         source_code: null,
         binary_path: null,
         sql_body: "SELECT 1",
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -523,6 +536,7 @@ describe.concurrent("procedure", () => {
         source_code: "BEGIN RETURN; END;",
         binary_path: null,
         sql_body: null,
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -557,6 +571,7 @@ describe.concurrent("procedure", () => {
         source_code: "BEGIN RETURN; END;",
         binary_path: null,
         sql_body: null,
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -592,6 +607,7 @@ describe.concurrent("procedure", () => {
         source_code: "BEGIN RETURN; END;",
         binary_path: null,
         sql_body: null,
+        definition: null,
         owner: "test",
       };
       const main = new Procedure({ ...base, config: ["search_path=public"] });
@@ -633,6 +649,7 @@ describe.concurrent("procedure", () => {
         source_code: "BEGIN RETURN; END;",
         binary_path: null,
         sql_body: null,
+        definition: null,
         owner: "test",
       };
       const main = new Procedure({
@@ -673,6 +690,7 @@ describe.concurrent("procedure", () => {
         source_code: "BEGIN RETURN; END;",
         binary_path: null,
         sql_body: null,
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -707,6 +725,7 @@ describe.concurrent("procedure", () => {
         source_code: "BEGIN RETURN; END;",
         binary_path: null,
         sql_body: null,
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -741,6 +760,7 @@ describe.concurrent("procedure", () => {
         source_code: "BEGIN RETURN; END;",
         binary_path: null,
         sql_body: null,
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -775,6 +795,7 @@ describe.concurrent("procedure", () => {
         source_code: "BEGIN RETURN; END;",
         binary_path: null,
         sql_body: null,
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -809,6 +830,7 @@ describe.concurrent("procedure", () => {
         source_code: "BEGIN RETURN; END;",
         binary_path: null,
         sql_body: null,
+        definition: null,
         config: null,
         owner: "test",
       };
@@ -843,6 +865,7 @@ describe.concurrent("procedure", () => {
         source_code: "BEGIN RETURN; END;",
         binary_path: null,
         sql_body: null,
+        definition: null,
         config: null,
         owner: "test",
       };

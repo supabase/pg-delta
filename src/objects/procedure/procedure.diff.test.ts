@@ -37,6 +37,7 @@ const base: ProcedureProps = {
   source_code: null,
   binary_path: null,
   sql_body: null,
+  definition: null,
   config: null,
   owner: "o1",
 };

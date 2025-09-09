@@ -25,6 +25,7 @@ describe("procedure", () => {
       argument_modes: null,
       argument_defaults: null,
       source_code: "BEGIN RETURN; END;",
+      definition: null,
       binary_path: null,
       sql_body: null,
       config: null,
@@ -62,6 +63,7 @@ describe("procedure", () => {
       source_code: null,
       binary_path: null,
       sql_body: "SELECT 1",
+      definition: null,
       config: null,
       owner: "test",
     });
