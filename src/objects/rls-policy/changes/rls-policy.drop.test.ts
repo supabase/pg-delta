@@ -21,7 +21,7 @@ describe("rls-policy", () => {
     });
 
     expect(change.serialize()).toBe(
-      "DROP POLICY public.test_policy ON public.test_table",
+      "DROP POLICY test_policy ON public.test_table",
     );
   });
 });

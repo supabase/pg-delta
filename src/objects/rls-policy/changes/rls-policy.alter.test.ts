@@ -95,7 +95,7 @@ describe.concurrent("rls-policy", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP POLICY public.test_policy ON public.test_table;\nCREATE POLICY public.test_policy ON public.test_table AS RESTRICTIVE FOR SELECT USING (user_id = current_user_id())",
+        "DROP POLICY test_policy ON public.test_table;\nCREATE POLICY test_policy ON public.test_table AS RESTRICTIVE FOR SELECT USING (user_id = current_user_id())",
       );
     });
 

@@ -21,7 +21,7 @@ describe("rls-policy", () => {
     });
 
     expect(change.serialize()).toBe(
-      "CREATE POLICY public.test_policy_min ON public.test_table",
+      "CREATE POLICY test_policy_min ON public.test_table",
     );
   });
 
@@ -43,7 +43,7 @@ describe("rls-policy", () => {
     });
 
     expect(change.serialize()).toBe(
-      "CREATE POLICY public.test_policy ON public.test_table FOR SELECT USING (user_id = current_user_id())",
+      "CREATE POLICY test_policy ON public.test_table FOR SELECT USING (user_id = current_user_id())",
     );
   });
 
@@ -65,7 +65,7 @@ describe("rls-policy", () => {
     });
 
     expect(change.serialize()).toBe(
-      "CREATE POLICY public.test_policy_all ON public.test_table AS RESTRICTIVE FOR UPDATE TO role1, role2 USING (expr1) WITH CHECK (expr2)",
+      "CREATE POLICY test_policy_all ON public.test_table AS RESTRICTIVE FOR UPDATE TO role1, role2 USING (expr1) WITH CHECK (expr2)",
     );
   });
 });

@@ -26,7 +26,7 @@ export class DropRlsPolicy extends DropChange {
   serialize(): string {
     return [
       "DROP POLICY",
-      `${this.rlsPolicy.schema}.${this.rlsPolicy.name}`,
+      this.rlsPolicy.name,
       "ON",
       `${this.rlsPolicy.schema}.${this.rlsPolicy.table_name}`,
     ].join(" ");

@@ -31,8 +31,8 @@ export class CreateRlsPolicy extends CreateChange {
   serialize(): string {
     const parts: string[] = ["CREATE POLICY"];
 
-    // Add policy name with schema
-    parts.push(`${this.rlsPolicy.schema}.${this.rlsPolicy.name}`);
+    // Add policy name
+    parts.push(this.rlsPolicy.name);
 
     // Add ON table
     parts.push("ON", `${this.rlsPolicy.schema}.${this.rlsPolicy.table_name}`);

@@ -10,7 +10,6 @@ const RlsPolicyCommandSchema = z.enum([
   "*", // ALL commands
 ]);
 
-type RlsPolicyCommand = z.infer<typeof RlsPolicyCommandSchema>;
 
 const rlsPolicyPropsSchema = z.object({
   schema: z.string(),
@@ -97,9 +96,15 @@ select
   quote_ident(tc.relname) as table_name,
   p.polcmd as command,
   p.polpermissive as permissive,
-  array(
-    select unnest(p.polroles)::regrole::text
-  ) as roles,
+  case
+    when p.polroles = '{0}' then array['public']::text[]
+    else array(
+      select quote_ident(rolname)
+      from pg_catalog.pg_roles
+      where oid = any(p.polroles)
+      order by rolname
+    )
+  end as roles,
   pg_get_expr(p.polqual, p.polrelid) as using_expression,
   pg_get_expr(p.polwithcheck, p.polrelid) as with_check_expression,
   tc.relowner::regrole::text as owner

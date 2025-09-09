@@ -162,7 +162,7 @@ select * from (
     
     -- Policy
     when dep_class.relname = 'pg_policy' and dep_policy.oid is not null and dep_policy_table.oid is not null
-      then 'policy:' || dep_policy_table_ns.nspname || '.' || dep_policy_table.relname || '.' || dep_policy.polname
+      then 'rlsPolicy:' || dep_policy_table_ns.nspname || '.' || dep_policy_table.relname || '.' || dep_policy.polname
     
     -- Function/Procedure
     when dep_class.relname = 'pg_proc' and dep_proc.oid is not null
@@ -272,7 +272,7 @@ select * from (
       then 'constraint:' || ref_con_table_ns.nspname || '.' || ref_con_table.relname || '.' || ref_con.conname
     -- Policy
     when ref_class.relname = 'pg_policy' and ref_policy.oid is not null and ref_policy_table.oid is not null
-      then 'policy:' || ref_policy_table_ns.nspname || '.' || ref_policy_table.relname || '.' || ref_policy.polname
+      then 'rlsPolicy:' || ref_policy_table_ns.nspname || '.' || ref_policy_table.relname || '.' || ref_policy.polname
     -- Function/Procedure
     when ref_class.relname = 'pg_proc' and ref_proc.oid is not null
       then 'function:' || ref_proc_ns.nspname || '.' || ref_proc.proname
