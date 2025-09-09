@@ -7,8 +7,6 @@ const TableRelkindSchema = z.enum([
   "m", // materialized view
 ]);
 
-type TableRelkind = z.infer<typeof TableRelkindSchema>;
-
 const indexPropsSchema = z.object({
   schema: z.string(),
   table_name: z.string(),
@@ -148,76 +146,130 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
     const indexRows = await sql`
-with extension_oids as (
-  select
-    objid
-  from
-    pg_depend d
-  where
-    d.refclassid = 'pg_extension'::regclass
-    and d.classid = 'pg_class'::regclass
-)
-select
-  tc.relnamespace::regnamespace::text as schema,
-  quote_ident(tc.relname) as table_name,
-  tc.relkind as table_relkind,
-  quote_ident(c.relname) as name,
-  coalesce(c.reloptions, array[]::text[]) as storage_params,
-  am.amname as index_type,
-  quote_ident(ts.spcname) as tablespace,
-  i.indisunique as is_unique,
-  i.indisprimary as is_primary,
-  i.indisexclusion as is_exclusion,
-  i.indnullsnotdistinct as nulls_not_distinct,
-  i.indimmediate as immediate,
-  i.indisclustered as is_clustered,
-  i.indisreplident as is_replica_identity,
-  i.indkey as key_columns,
-    -- Check if this index was created by a constraint
-  case
-    when exists (
-      select 1 from pg_constraint c
-      where c.conindid = i.indexrelid
-    ) then true
-  else false
-  end as is_constraint,
-  coalesce(
-    array(
-      select distinct
-        case
-          when coll is null then 'default'
-          else c.collnamespace::regnamespace::text || '.' || c.collname
-        end
-      from unnest(i.indcollation::regcollation[]) coll
-      left join pg_collation c on c.oid = coll
+    with extension_oids as (
+      select objid
+      from pg_depend d
+      where d.refclassid = 'pg_extension'::regclass
+        and d.classid   = 'pg_class'::regclass
     ),
-    array[]::text[]
-  ) as column_collations,
-  array(
-    select coalesce(attstattarget, -1)
-    from pg_catalog.pg_attribute a
-    where a.attrelid = i.indexrelid
-  ) as statistics_target,
-  array(
-    select opcnamespace::regnamespace::text || '.' || quote_ident(opcname)
-    from unnest(i.indclass) op
-    left join pg_opclass oc on oc.oid = op
-  ) as operator_classes,
-  i.indoption as column_options,
-  pg_get_expr(i.indexprs, i.indrelid) as index_expressions,
-  pg_get_expr(i.indpred, i.indrelid) as partial_predicate
-from
-  pg_catalog.pg_index i
-  inner join pg_catalog.pg_class tc on tc.oid = i.indrelid
-  inner join pg_catalog.pg_class c on c.oid = i.indexrelid
-  inner join pg_catalog.pg_am am on am.oid = c.relam
-  left join pg_catalog.pg_tablespace ts on ts.oid = c.reltablespace
-  left outer join extension_oids e on c.oid = e.objid
-  where not c.relnamespace::regnamespace::text like any(array['pg\_%', 'information\_schema'])
-  and i.indislive is true
-  and e.objid is null
-order by
-  1, 2;
+    -- align every per-column array by ordinality (1..indnatts)
+    -- this is used to ensure that key_columns, column_collations, operator_classes, and column_options are aligned
+    idx_cols as (
+      select
+        i.indexrelid,
+        i.indrelid,
+        k.ord,
+        k.attnum,
+        -- collation: only for key cols; 0 for none/default
+        case when k.ord <= i.indnkeyatts then coalesce(coll.oid, 0) else 0 end as coll_oid,
+        -- opclass: one per column
+        coalesce(cls.oid, 0) as cls_oid,
+        -- options: only for key cols; 0 for include cols
+        case when k.ord <= i.indnkeyatts then coalesce(opt.val, 0) else 0 end::int2 as indopt
+      from pg_index i
+      join lateral unnest(i.indkey)      with ordinality as k(attnum, ord) on true
+      left join lateral unnest(i.indcollation) with ordinality as coll(oid, ordc) on ordc = k.ord
+      left join lateral unnest(i.indclass)     with ordinality as cls(oid, ordo) on ordo = k.ord
+      left join lateral unnest(i.indoption)    with ordinality as opt(val, ordi) on ordi = k.ord
+    )
+    select
+      n.nspname                        as schema,
+      quote_ident(tc.relname)          as table_name,
+      tc.relkind                       as table_relkind,
+      quote_ident(c.relname)           as name,
+      coalesce(c.reloptions, array[]::text[]) as storage_params,
+      am.amname                        as index_type,
+      quote_ident(ts.spcname)          as tablespace,
+      i.indisunique                    as is_unique,
+      i.indisprimary                   as is_primary,
+      i.indisexclusion                 as is_exclusion,
+      i.indnullsnotdistinct            as nulls_not_distinct,
+      i.indimmediate                   as immediate,
+      i.indisclustered                 as is_clustered,
+      i.indisreplident                 as is_replica_identity,
+      i.indkey                         as key_columns,
+
+      exists (select 1 from pg_constraint pc where pc.conindid = i.indexrelid) as is_constraint,
+
+      -- per-column arrays from one pass over idx_cols
+      coalesce(agg.column_collations, array[]::text[]) as column_collations,
+      coalesce(agg.operator_classes, array[]::text[])  as operator_classes,
+      coalesce(agg.column_options,   array[]::int2[])  as column_options,
+
+      -- always an array (possibly empty), ordered by index attnum
+      coalesce(st.statistics_target, array[]::int4[])  as statistics_target,
+
+      pg_get_expr(i.indexprs, i.indrelid) as index_expressions,
+      pg_get_expr(i.indpred,  i.indrelid) as partial_predicate
+
+    from pg_index i
+    join pg_class c  on c.oid  = i.indexrelid
+    join pg_class tc on tc.oid = i.indrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    join pg_am am    on am.oid = c.relam
+    left join pg_tablespace ts on ts.oid = c.reltablespace
+    left join extension_oids e  on c.oid = e.objid
+
+    -- single lateral aggregate keeps order by ic2.ord
+    left join lateral (
+      select
+        array_agg(
+          case
+            when ic2.coll_oid = 0 then null
+            when col.collname = 'default'
+            and col.collnamespace = 'pg_catalog'::regnamespace then null
+            else ns_coll.nspname || '.' || col.collname
+          end
+          order by ic2.ord
+        ) as column_collations,
+
+        -- 'default' when the AM's default opclass applies to the column's base type
+        array_agg(
+          case
+            when oc.oid is null then 'default'
+            when ic2.attnum = 0 then oc.opcnamespace::regnamespace::text || '.' || quote_ident(oc.opcname) -- expression key: no column type
+            -- in the case where the opclass is the default for the column's base type
+            when oc.opcdefault and (
+                  (case when t.typtype = 'd' then t.typbasetype else a.atttypid end) = oc.opcintype
+                  or exists (
+                    select 1
+                    from pg_catalog.pg_cast pc
+                    where pc.castsource = (case when t.typtype = 'd' then t.typbasetype else a.atttypid end)
+                      and pc.casttarget = oc.opcintype
+                      and pc.castcontext = 'i'  -- implicit
+                  )
+                )
+              then 'default'
+            else oc.opcnamespace::regnamespace::text || '.' || quote_ident(oc.opcname)
+          end
+          order by ic2.ord
+        ) as operator_classes,
+
+        array_agg(coalesce(ic2.indopt, 0)::int2 order by ic2.ord) as column_options
+
+      from idx_cols ic2
+      left join pg_collation  col     on col.oid = ic2.coll_oid
+      left join pg_namespace  ns_coll on ns_coll.oid = col.collnamespace
+      left join pg_opclass    oc      on oc.oid = ic2.cls_oid
+      -- base type for the underlying column (domain -> base); NULL for expressions
+      left join pg_attribute  a       on a.attrelid = ic2.indrelid and a.attnum = ic2.attnum
+      left join pg_type       t       on t.oid = a.atttypid
+      where ic2.indexrelid = i.indexrelid
+    ) as agg on true
+
+    left join lateral (
+      select array_agg(coalesce(a2.attstattarget, -1) order by a2.attnum) as statistics_target
+      from pg_attribute a2
+      where a2.attrelid = i.indexrelid
+        and a2.attnum > 0
+    ) as st on true
+
+    where n.nspname not like 'pg\_%'
+      and n.nspname <> 'information_schema'
+      and i.indislive is true
+      and e.objid is null
+
+    order by 1, 2;
     `;
 
     // Validate and parse each row using the Zod schema

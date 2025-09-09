@@ -89,11 +89,11 @@ export class CreateIndex extends CreateChange {
       : columnNames.map((col, i) => {
           const itemParts: string[] = [col];
           const collation = this.index.column_collations[i];
-          if (collation) {
+          if (collation && collation !== "default" && collation !== "NULL") {
             itemParts.push(`COLLATE ${collation}`);
           }
           const opclass = this.index.operator_classes[i];
-          if (opclass) {
+          if (opclass && opclass !== "default" && opclass !== "NULL") {
             itemParts.push(opclass);
           }
           const optionBits = this.index.column_options[i] ?? 0;

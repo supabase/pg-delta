@@ -31,7 +31,7 @@ export function diffIndexes(
   for (const indexId of created) {
     const index = branch[indexId];
     // Skip primary and unique indexes - they are automatically created by AlterTableAddConstraint
-    if (!index.is_primary && !index.is_unique) {
+    if (!index.is_constraint) {
       changes.push(
         new CreateIndex({
           index,
