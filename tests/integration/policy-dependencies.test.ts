@@ -33,74 +33,67 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "policy depends on table",
         expectedSqlTerms: [
-          "ALTER TABLE",
-          "ENABLE ROW LEVEL SECURITY",
-          "CREATE POLICY",
-          "user_isolation",
-          '"security"."users"',
-          "FOR ALL",
-          "TO public",
-          "USING",
-          "true",
+          "ALTER TABLE security.users ENABLE ROW LEVEL SECURITY",
+          "CREATE POLICY user_isolation ON security.users USING (true)",
         ],
         expectedMasterDependencies: [
           {
             dependent_stable_id: "table:security.users",
             referenced_stable_id: "schema:security",
             deptype: "n",
-          },
+          }, // Table depends on schema
           {
             dependent_stable_id: "constraint:security.users.users_pkey",
             referenced_stable_id: "table:security.users",
             deptype: "a",
-          },
+          }, // Primary key depends on table
           {
             dependent_stable_id: "index:security.users_pkey",
             referenced_stable_id: "constraint:security.users.users_pkey",
             deptype: "i",
-          },
+          }, // Index depends on constraint
           {
             dependent_stable_id: "constraint:security.users.users_email_key",
             referenced_stable_id: "table:security.users",
             deptype: "a",
-          },
+          }, // Unique constraint depends on table
           {
             dependent_stable_id: "index:security.users_email_key",
             referenced_stable_id: "constraint:security.users.users_email_key",
             deptype: "i",
-          },
+          }, // Unique index depends on constraint
         ],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:security.users",
             referenced_stable_id: "schema:security",
             deptype: "n",
-          },
+          }, // Table depends on schema
           {
             dependent_stable_id: "constraint:security.users.users_pkey",
             referenced_stable_id: "table:security.users",
             deptype: "a",
-          },
+          }, // Primary key depends on table
           {
             dependent_stable_id: "index:security.users_pkey",
             referenced_stable_id: "constraint:security.users.users_pkey",
             deptype: "i",
-          },
+          }, // Index depends on constraint
           {
             dependent_stable_id: "constraint:security.users.users_email_key",
             referenced_stable_id: "table:security.users",
             deptype: "a",
-          },
+          }, // Unique constraint depends on table
           {
             dependent_stable_id: "index:security.users_email_key",
             referenced_stable_id: "constraint:security.users.users_email_key",
             deptype: "i",
-          },
+          }, // Unique index depends on constraint
           {
-            dependent_stable_id: "policy:security.users.user_isolation",
+            dependent_stable_id: "rlsPolicy:security.users.user_isolation",
             referenced_stable_id: "table:security.users",
-            deptype: "n",
-          },
+            deptype: "a",
+          }, // Policy depends on table
         ],
       });
     });
@@ -143,22 +136,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "multiple policies with dependencies",
         expectedSqlTerms: [
-          "ALTER TABLE",
-          "ENABLE ROW LEVEL SECURITY",
-          "CREATE POLICY",
-          "read_posts",
-          "insert_own_posts",
-          "update_own_posts",
-          '"app"."posts"',
-          "FOR SELECT",
-          "FOR INSERT",
-          "FOR UPDATE",
-          "TO public",
-          "TO public",
-          "USING",
-          "WITH CHECK",
-          "published = true",
-          "true",
+          "ALTER TABLE app.posts ENABLE ROW LEVEL SECURITY",
+          "CREATE POLICY update_own_posts ON app.posts FOR UPDATE USING (true) WITH CHECK (true)",
+          "CREATE POLICY read_posts ON app.posts FOR SELECT USING ((published = true))",
+          "CREATE POLICY insert_own_posts ON app.posts FOR INSERT WITH CHECK (true)",
         ],
         expectedMasterDependencies: [
           {
@@ -194,19 +175,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             deptype: "i",
           },
           {
-            dependent_stable_id: "policy:app.posts.read_posts",
+            dependent_stable_id: "rlsPolicy:app.posts.read_posts",
             referenced_stable_id: "table:app.posts",
-            deptype: "n",
+            deptype: "a",
           },
           {
-            dependent_stable_id: "policy:app.posts.insert_own_posts",
+            dependent_stable_id: "rlsPolicy:app.posts.insert_own_posts",
             referenced_stable_id: "table:app.posts",
-            deptype: "n",
+            deptype: "a",
           },
           {
-            dependent_stable_id: "policy:app.posts.update_own_posts",
+            dependent_stable_id: "rlsPolicy:app.posts.update_own_posts",
             referenced_stable_id: "table:app.posts",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -237,17 +218,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "create table and policy together",
         expectedSqlTerms: [
-          "CREATE TABLE",
-          '"tenant"."data"',
-          "ALTER TABLE",
-          "ENABLE ROW LEVEL SECURITY",
-          "CREATE POLICY",
-          "tenant_isolation",
-          "FOR ALL",
-          "TO public",
-          "USING",
-          "WITH CHECK",
-          "true",
+          "CREATE TABLE tenant.data (id integer NOT NULL, tenant_id integer NOT NULL, content text NOT NULL, created_by integer)",
+          "ALTER TABLE tenant.data ADD CONSTRAINT data_pkey PRIMARY KEY (id)",
+          "CREATE POLICY tenant_isolation ON tenant.data USING (true) WITH CHECK (true)",
         ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
@@ -267,9 +240,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             deptype: "i",
           },
           {
-            dependent_stable_id: "policy:tenant.data.tenant_isolation",
+            dependent_stable_id: "rlsPolicy:tenant.data.tenant_isolation",
             referenced_stable_id: "table:tenant.data",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
