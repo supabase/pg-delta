@@ -85,7 +85,9 @@ export class Sequence extends BasePgModel {
 }
 
 export async function extractSequences(sql: Sql): Promise<Sequence[]> {
-  const sequenceRows = await sql`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const sequenceRows = await sql`
 with extension_oids as (
   select
     objid
@@ -123,9 +125,10 @@ from
 order by
   1, 2;
   `;
-  // Validate and parse each row using the Zod schema
-  const validatedRows = sequenceRows.map((row: unknown) =>
-    sequencePropsSchema.parse(row),
-  );
-  return validatedRows.map((row: SequenceProps) => new Sequence(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = sequenceRows.map((row: unknown) =>
+      sequencePropsSchema.parse(row),
+    );
+    return validatedRows.map((row: SequenceProps) => new Sequence(row));
+  });
 }

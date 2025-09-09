@@ -70,7 +70,9 @@ export class Extension extends BasePgModel {
 }
 
 export async function extractExtensions(sql: Sql): Promise<Extension[]> {
-  const extensionRows = await sql`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const extensionRows = await sql`
 select
   quote_ident(extname) as name,
   extnamespace::regnamespace::text as schema,
@@ -82,9 +84,10 @@ from
 order by
   1;
   `;
-  // Validate and parse each row using the Zod schema
-  const validatedRows = extensionRows.map((row: unknown) =>
-    extensionPropsSchema.parse(row),
-  );
-  return validatedRows.map((row: ExtensionProps) => new Extension(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = extensionRows.map((row: unknown) =>
+      extensionPropsSchema.parse(row),
+    );
+    return validatedRows.map((row: ExtensionProps) => new Extension(row));
+  });
 }

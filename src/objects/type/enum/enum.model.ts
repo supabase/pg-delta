@@ -68,7 +68,9 @@ export class Enum extends BasePgModel {
 }
 
 export async function extractEnums(sql: Sql): Promise<Enum[]> {
-  const enumRows = await sql`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const enumRows = await sql`
 with extension_oids as (
   select
     objid
@@ -93,30 +95,31 @@ from
 order by
   1, 2, 3;
   `;
-  const grouped: Record<
-    string,
-    {
-      schema: string;
-      name: string;
-      owner: string;
-      labels: { sort_order: number; label: string }[];
+    const grouped: Record<
+      string,
+      {
+        schema: string;
+        name: string;
+        owner: string;
+        labels: { sort_order: number; label: string }[];
+      }
+    > = {};
+    for (const e of enumRows) {
+      const key = `${e.schema}.${e.name}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          schema: e.schema,
+          name: e.name,
+          owner: e.owner,
+          labels: [],
+        };
+      }
+      grouped[key].labels.push({ sort_order: e.sort_order, label: e.label });
     }
-  > = {};
-  for (const e of enumRows) {
-    const key = `${e.schema}.${e.name}`;
-    if (!grouped[key]) {
-      grouped[key] = {
-        schema: e.schema,
-        name: e.name,
-        owner: e.owner,
-        labels: [],
-      };
-    }
-    grouped[key].labels.push({ sort_order: e.sort_order, label: e.label });
-  }
-  // Validate and parse each enum using the Zod schema
-  const validatedEnums = Object.values(grouped).map((e) =>
-    enumPropsSchema.parse(e),
-  );
-  return validatedEnums.map((e: EnumProps) => new Enum(e));
+    // Validate and parse each enum using the Zod schema
+    const validatedEnums = Object.values(grouped).map((e) =>
+      enumPropsSchema.parse(e),
+    );
+    return validatedEnums.map((e: EnumProps) => new Enum(e));
+  });
 }

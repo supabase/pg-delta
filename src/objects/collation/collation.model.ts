@@ -98,12 +98,14 @@ export class Collation extends BasePgModel {
 }
 
 export async function extractCollations(sql: Sql): Promise<Collation[]> {
-  const version = await extractVersion(sql);
-  const isPostgres17OrGreater = version >= 170000;
-  const isPostgres16OrGreater = version >= 160000;
-  let collations: Collation[];
-  if (isPostgres17OrGreater) {
-    collations = await sql`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const version = await extractVersion(sql);
+    const isPostgres17OrGreater = version >= 170000;
+    const isPostgres16OrGreater = version >= 160000;
+    let collations: Collation[];
+    if (isPostgres17OrGreater) {
+      collations = await sql`
       with extension_oids as (
         select
           objid
@@ -135,9 +137,9 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
       order by
         1, 2;
   `;
-  } else if (isPostgres16OrGreater) {
-    // On postgres 16 there colllocale column was named colliculocale
-    collations = await sql`
+    } else if (isPostgres16OrGreater) {
+      // On postgres 16 there colllocale column was named colliculocale
+      collations = await sql`
       with extension_oids as (
         select
           objid
@@ -169,9 +171,9 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
       order by
         1, 2;
     `;
-  } else {
-    // On postgres 15 icu_rules does not exist
-    collations = await sql`
+    } else {
+      // On postgres 15 icu_rules does not exist
+      collations = await sql`
       with extension_oids as (
         select
           objid
@@ -203,11 +205,12 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
       order by
         1, 2;
     `;
-  }
+    }
 
-  // Validate and parse each row using the Zod schema
-  const validatedRows = collations.map((row: unknown) =>
-    collationPropsSchema.parse(row),
-  );
-  return validatedRows.map((row: CollationProps) => new Collation(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = collations.map((row: unknown) =>
+      collationPropsSchema.parse(row),
+    );
+    return validatedRows.map((row: CollationProps) => new Collation(row));
+  });
 }
