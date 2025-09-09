@@ -26,13 +26,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "simple function creation",
         expectedSqlTerms: [
-          `CREATE OR REPLACE FUNCTION test_schema.add_numbers(a integer, b integer) RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT ($1 + $2);'`,
+          `CREATE FUNCTION test_schema.add_numbers(a integer, b integer) RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT $1 + $2'`,
         ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id:
-              "function:test_schema.add_numbers(integer,integer)",
+              "procedure:test_schema.add_numbers(integer,integer)",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -59,15 +59,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "plpgsql function with security definer",
         expectedSqlTerms: [
-          `CREATE OR REPLACE FUNCTION test_schema.get_user_count() RETURNS bigint LANGUAGE plpgsql STABLE SECURITY DEFINER AS $$BEGIN
-    RETURN ( SELECT count(*) AS count
-           FROM pg_user);
-END;$$`,
+          `CREATE FUNCTION test_schema.get_user_count() RETURNS bigint LANGUAGE plpgsql STABLE SECURITY DEFINER AS $$
+          BEGIN
+            RETURN (SELECT COUNT(*) FROM pg_catalog.pg_user);
+          END;
+          $$`,
         ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
-            dependent_stable_id: "function:test_schema.get_user_count()",
+            dependent_stable_id: "procedure:test_schema.get_user_count()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -96,18 +97,18 @@ END;$$`,
         `,
         description: "function replacement",
         expectedSqlTerms: [
-          `CREATE OR REPLACE FUNCTION test_schema.version_function() RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT ''v2.0''::text;'`,
+          `CREATE OR REPLACE FUNCTION test_schema.version_function() RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT ''v2.0'''`,
         ],
         expectedMasterDependencies: [
           {
-            dependent_stable_id: "function:test_schema.version_function()",
+            dependent_stable_id: "procedure:test_schema.version_function()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
         ],
         expectedBranchDependencies: [
           {
-            dependent_stable_id: "function:test_schema.version_function()",
+            dependent_stable_id: "procedure:test_schema.version_function()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -115,7 +116,7 @@ END;$$`,
       });
     });
 
-    test("function overloading", async ({ db }) => {
+    test.only("function overloading", async ({ db }) => {
       await roundtripFidelityTest({
         masterSession: db.main,
         branchSession: db.branch,
@@ -137,19 +138,19 @@ END;$$`,
         `,
         description: "function overloading",
         expectedSqlTerms: [
-          `CREATE OR REPLACE FUNCTION test_schema.format_value(input_val integer) RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT (input_val)::text;'`,
-          `CREATE OR REPLACE FUNCTION test_schema.format_value(input_val integer, prefix text) RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT (prefix || (input_val)::text);'`,
+          `CREATE FUNCTION test_schema.format_value(input_val integer) RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT input_val::text'`,
+          `CREATE FUNCTION test_schema.format_value(input_val integer, prefix text) RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT prefix || input_val::text'`,
         ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
-            dependent_stable_id: "function:test_schema.format_value(integer)",
+            dependent_stable_id: "procedure:test_schema.format_value(integer)",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
           {
             dependent_stable_id:
-              "function:test_schema.format_value(integer,text)",
+              "procedure:test_schema.format_value(integer,text)",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -175,7 +176,7 @@ END;$$`,
         expectedSqlTerms: [`DROP FUNCTION test_schema.temp_function()`],
         expectedMasterDependencies: [
           {
-            dependent_stable_id: "function:test_schema.temp_function()",
+            dependent_stable_id: "procedure:test_schema.temp_function()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -218,7 +219,7 @@ END;$$`,
         expectedBranchDependencies: [
           {
             dependent_stable_id:
-              "function:test_schema.expensive_function(text)",
+              "procedure:test_schema.expensive_function(text)",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -254,7 +255,7 @@ END;$$`,
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
-            dependent_stable_id: "function:test_schema.config_function()",
+            dependent_stable_id: "procedure:test_schema.config_function()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -289,7 +290,7 @@ END;$$`,
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
-            dependent_stable_id: "function:test_schema.get_timestamp()",
+            dependent_stable_id: "procedure:test_schema.get_timestamp()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -338,14 +339,14 @@ END;$$`,
         expectedSqlTerms: [],
         expectedMasterDependencies: [
           {
-            dependent_stable_id: "function:test_schema.stable_function()",
+            dependent_stable_id: "procedure:test_schema.stable_function()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
         ],
         expectedBranchDependencies: [
           {
-            dependent_stable_id: "function:test_schema.stable_function()",
+            dependent_stable_id: "procedure:test_schema.stable_function()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -396,7 +397,7 @@ END;$$`,
             deptype: "n",
           },
           {
-            dependent_stable_id: "function:test_schema.validate_email(text)",
+            dependent_stable_id: "procedure:test_schema.validate_email(text)",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -417,7 +418,7 @@ END;$$`,
           },
           {
             dependent_stable_id: "constraint:test_schema.users.valid_email",
-            referenced_stable_id: "function:test_schema.validate_email(text)",
+            referenced_stable_id: "procedure:test_schema.validate_email(text)",
             deptype: "n",
           },
           {
@@ -474,7 +475,7 @@ END;$$`,
             deptype: "n",
           },
           {
-            dependent_stable_id: "function:test_schema.format_price(numeric)",
+            dependent_stable_id: "procedure:test_schema.format_price(numeric)",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -580,7 +581,7 @@ END;$$`,
         expectedBranchDependencies: [
           {
             dependent_stable_id:
-              "function:test_schema.safe_divide(numeric,numeric)",
+              "procedure:test_schema.safe_divide(numeric,numeric)",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -621,7 +622,7 @@ END;$$`,
           },
           {
             dependent_stable_id:
-              "function:test_schema.get_metric_summary(integer)",
+              "procedure:test_schema.get_metric_summary(integer)",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },

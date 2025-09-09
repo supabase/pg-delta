@@ -164,9 +164,17 @@ select * from (
     when dep_class.relname = 'pg_policy' and dep_policy.oid is not null and dep_policy_table.oid is not null
       then 'policy:' || dep_policy_table_ns.nspname || '.' || dep_policy_table.relname || '.' || dep_policy.polname
     
-    -- Function/Procedure
+    -- Function/Procedure (include identity argument types for overload distinction)
     when dep_class.relname = 'pg_proc' and dep_proc.oid is not null
-      then 'function:' || dep_proc_ns.nspname || '.' || dep_proc.proname
+      then 'procedure:' || dep_proc_ns.nspname || '.' || dep_proc.proname || '('
+        || coalesce(
+          (
+            select string_agg(format_type(oid, null), ',' order by ord)
+            from unnest(dep_proc.proargtypes) with ordinality as t(oid, ord)
+          ),
+          ''
+        )
+        || ')'
     
     -- Trigger
     when dep_class.relname = 'pg_trigger' and dep_trigger.oid is not null and dep_trigger_table.oid is not null
@@ -273,9 +281,17 @@ select * from (
     -- Policy
     when ref_class.relname = 'pg_policy' and ref_policy.oid is not null and ref_policy_table.oid is not null
       then 'policy:' || ref_policy_table_ns.nspname || '.' || ref_policy_table.relname || '.' || ref_policy.polname
-    -- Function/Procedure
+    -- Function/Procedure (include identity argument types for overload distinction)
     when ref_class.relname = 'pg_proc' and ref_proc.oid is not null
-      then 'function:' || ref_proc_ns.nspname || '.' || ref_proc.proname
+      then 'procedure:' || ref_proc_ns.nspname || '.' || ref_proc.proname || '('
+        || coalesce(
+          (
+            select string_agg(format_type(oid, null), ',' order by ord)
+            from unnest(ref_proc.proargtypes) with ordinality as t(oid, ord)
+          ),
+          ''
+        )
+        || ')'
     -- Trigger
     when ref_class.relname = 'pg_trigger' and ref_trigger.oid is not null and ref_trigger_table.oid is not null
       then 'trigger:' || ref_trigger_table_ns.nspname || '.' || ref_trigger_table.relname || '.' || ref_trigger.tgname

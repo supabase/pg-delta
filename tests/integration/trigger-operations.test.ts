@@ -44,7 +44,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
         expectedMasterDependencies: [
           {
-            dependent_stable_id: "function:test_schema.update_timestamp()",
+            dependent_stable_id: "procedure:test_schema.update_timestamp()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -76,7 +76,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
         expectedBranchDependencies: [
           {
-            dependent_stable_id: "function:test_schema.update_timestamp()",
+            dependent_stable_id: "procedure:test_schema.update_timestamp()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -108,7 +108,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id:
               "trigger:test_schema.users.update_timestamp_trigger",
-            referenced_stable_id: "function:test_schema.update_timestamp()",
+            referenced_stable_id: "procedure:test_schema.update_timestamp()",
             deptype: "n",
           },
           {
@@ -168,7 +168,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
         expectedMasterDependencies: [
           {
-            dependent_stable_id: "function:test_schema.audit_changes()",
+            dependent_stable_id: "procedure:test_schema.audit_changes()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -229,7 +229,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
         expectedBranchDependencies: [
           {
-            dependent_stable_id: "function:test_schema.audit_changes()",
+            dependent_stable_id: "procedure:test_schema.audit_changes()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -290,7 +290,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id:
               "trigger:test_schema.sensitive_data.audit_trigger",
-            referenced_stable_id: "function:test_schema.audit_changes()",
+            referenced_stable_id: "procedure:test_schema.audit_changes()",
             deptype: "n",
           },
           {
@@ -338,7 +338,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
         expectedMasterDependencies: [
           {
-            dependent_stable_id: "function:test_schema.log_price_changes()",
+            dependent_stable_id: "procedure:test_schema.log_price_changes()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -372,7 +372,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
         expectedBranchDependencies: [
           {
-            dependent_stable_id: "function:test_schema.log_price_changes()",
+            dependent_stable_id: "procedure:test_schema.log_price_changes()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -406,7 +406,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id:
               "trigger:test_schema.products.price_change_trigger",
-            referenced_stable_id: "function:test_schema.log_price_changes()",
+            referenced_stable_id: "procedure:test_schema.log_price_changes()",
             deptype: "n",
           },
           {
@@ -445,7 +445,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
         expectedMasterDependencies: [
           {
-            dependent_stable_id: "function:test_schema.test_trigger_func()",
+            dependent_stable_id: "procedure:test_schema.test_trigger_func()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -478,7 +478,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           },
           {
             dependent_stable_id: "trigger:test_schema.test_table.old_trigger",
-            referenced_stable_id: "function:test_schema.test_trigger_func()",
+            referenced_stable_id: "procedure:test_schema.test_trigger_func()",
             deptype: "n",
           },
           {
@@ -489,7 +489,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
         expectedBranchDependencies: [
           {
-            dependent_stable_id: "function:test_schema.test_trigger_func()",
+            dependent_stable_id: "procedure:test_schema.test_trigger_func()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -584,7 +584,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
         expectedMasterDependencies: [
           {
-            dependent_stable_id: "function:test_schema.validate_email()",
+            dependent_stable_id: "procedure:test_schema.validate_email()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -627,7 +627,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id:
               "trigger:test_schema.users.email_validation_trigger",
-            referenced_stable_id: "function:test_schema.validate_email()",
+            referenced_stable_id: "procedure:test_schema.validate_email()",
             deptype: "n",
           },
           {
@@ -639,7 +639,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
         expectedBranchDependencies: [
           {
-            dependent_stable_id: "function:test_schema.validate_email()",
+            dependent_stable_id: "procedure:test_schema.validate_email()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -682,7 +682,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id:
               "trigger:test_schema.users.email_validation_trigger",
-            referenced_stable_id: "function:test_schema.validate_email()",
+            referenced_stable_id: "procedure:test_schema.validate_email()",
             deptype: "n",
           },
           {
@@ -741,7 +741,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             deptype: "n",
           },
           {
-            dependent_stable_id: "function:test_schema.notify_event()",
+            dependent_stable_id: "procedure:test_schema.notify_event()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -763,7 +763,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id:
               "trigger:test_schema.events.event_notification_trigger",
-            referenced_stable_id: "function:test_schema.notify_event()",
+            referenced_stable_id: "procedure:test_schema.notify_event()",
             deptype: "n",
           },
           {
@@ -895,13 +895,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             deptype: "n",
           },
           {
-            dependent_stable_id: "function:test_schema.audit_order_status()",
+            dependent_stable_id: "procedure:test_schema.audit_order_status()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
           {
             dependent_stable_id:
-              "function:test_schema.update_order_timestamp()",
+              "procedure:test_schema.update_order_timestamp()",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           },
@@ -940,7 +940,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id:
               "trigger:test_schema.orders.order_status_audit_trigger",
-            referenced_stable_id: "function:test_schema.audit_order_status()",
+            referenced_stable_id: "procedure:test_schema.audit_order_status()",
             deptype: "n",
           },
           {
@@ -953,7 +953,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             dependent_stable_id:
               "trigger:test_schema.orders.order_timestamp_trigger",
             referenced_stable_id:
-              "function:test_schema.update_order_timestamp()",
+              "procedure:test_schema.update_order_timestamp()",
             deptype: "n",
           },
           {

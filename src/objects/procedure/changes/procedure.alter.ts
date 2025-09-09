@@ -1,7 +1,7 @@
 import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { CreateProcedure } from "./procedure.create.ts";
-import { DropProcedure } from "./procedure.drop.ts";
+// import { DropProcedure } from "./procedure.drop.ts";
 
 /**
  * Alter a procedure.
@@ -27,14 +27,14 @@ import { DropProcedure } from "./procedure.drop.ts";
  *     RESET ALL
  * ```
  */
-type AlterProcedure =
-  | AlterProcedureChangeOwner
-  | AlterProcedureSetSecurity
-  | AlterProcedureSetConfig
-  | AlterProcedureSetVolatility
-  | AlterProcedureSetStrictness
-  | AlterProcedureSetLeakproof
-  | AlterProcedureSetParallel;
+// type AlterProcedure =
+//   | AlterProcedureChangeOwner
+//   | AlterProcedureSetSecurity
+//   | AlterProcedureSetConfig
+//   | AlterProcedureSetVolatility
+//   | AlterProcedureSetStrictness
+//   | AlterProcedureSetLeakproof
+//   | AlterProcedureSetParallel;
 
 /**
  * ALTER FUNCTION/PROCEDURE ... OWNER TO ...
@@ -307,9 +307,10 @@ export class ReplaceProcedure extends ReplaceChange {
   }
 
   serialize(): string {
-    const dropChange = new DropProcedure({ procedure: this.main });
-    const createChange = new CreateProcedure({ procedure: this.branch });
-
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
+    const createChange = new CreateProcedure({
+      procedure: this.branch,
+      orReplace: true,
+    });
+    return createChange.serialize();
   }
 }

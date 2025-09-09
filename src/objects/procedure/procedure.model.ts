@@ -52,6 +52,7 @@ const procedurePropsSchema = z.object({
   source_code: z.string().nullable(),
   binary_path: z.string().nullable(),
   sql_body: z.string().nullable(),
+  definition: z.string().nullable(),
   config: z.array(z.string()).nullable(),
   owner: z.string(),
 });
@@ -81,6 +82,7 @@ export class Procedure extends BasePgModel {
   public readonly source_code: ProcedureProps["source_code"];
   public readonly binary_path: ProcedureProps["binary_path"];
   public readonly sql_body: ProcedureProps["sql_body"];
+  public readonly definition: ProcedureProps["definition"];
   public readonly config: ProcedureProps["config"];
   public readonly owner: ProcedureProps["owner"];
 
@@ -112,12 +114,14 @@ export class Procedure extends BasePgModel {
     this.source_code = props.source_code;
     this.binary_path = props.binary_path;
     this.sql_body = props.sql_body;
+    this.definition = props.definition;
     this.config = props.config;
     this.owner = props.owner;
   }
 
   get stableId(): `procedure:${string}` {
-    return `procedure:${this.schema}.${this.name}`;
+    const args = this.argument_types?.join(",") ?? "";
+    return `procedure:${this.schema}.${this.name}(${args})`;
   }
 
   get identityFields() {
@@ -149,6 +153,7 @@ export class Procedure extends BasePgModel {
       source_code: this.source_code,
       binary_path: this.binary_path,
       sql_body: this.sql_body,
+      definition: this.definition,
       config: this.config,
       owner: this.owner,
     };
@@ -172,7 +177,7 @@ select
   p.pronamespace::regnamespace::text as schema,
   quote_ident(p.proname) as name,
   p.prokind as kind,
-  rt.typname as return_type,
+  format_type(p.prorettype, null) as return_type,
   rt.typnamespace::regnamespace::text as return_type_schema,
   l.lanname as language,
   p.prosecdef as security_definer,
@@ -200,6 +205,7 @@ select
   p.prosrc as source_code,
   p.probin as binary_path,
   pg_get_function_sqlbody(p.oid) as sql_body,
+  pg_get_functiondef(p.oid) as definition,
   p.proconfig as config,
   p.proowner::regrole::text as owner
 from

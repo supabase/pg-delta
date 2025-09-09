@@ -9,6 +9,7 @@ import {
   DropChange,
   ReplaceChange,
 } from "./objects/base.change.ts";
+import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import {
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
@@ -361,6 +362,67 @@ export class OperationSemantics {
         changeBIndex: depIdx,
         reason: `DROP before CREATE/ALTER/REPLACE (${reason})`,
       };
+    }
+
+    // Rule: Sort function overloads by parameter types
+    if (
+      dependentChange instanceof CreateProcedure &&
+      referencedChange instanceof CreateProcedure
+    ) {
+      // Given that the functions have the same name, we need to sort them by parameter types
+      const a = dependentChange.procedure;
+      const b = referencedChange.procedure;
+      if (a.schema === b.schema && a.name === b.name) {
+        const aCount = a.argument_count ?? a.argument_types?.length ?? 0;
+        const bCount = b.argument_count ?? b.argument_types?.length ?? 0;
+        if (aCount !== bCount) {
+          // The overload with fewer arguments should come first
+          if (aCount < bCount) {
+            return {
+              constraintStableId: `${dependentChange.stableId} overload before ${referencedChange.stableId}`,
+              changeAIndex: depIdx,
+              type: "before",
+              changeBIndex: refIdx,
+              reason:
+                "Function overloads ordered by argument count (fewer args first)",
+            };
+          } else {
+            return {
+              constraintStableId: `${referencedChange.stableId} overload before ${dependentChange.stableId}`,
+              changeAIndex: refIdx,
+              type: "before",
+              changeBIndex: depIdx,
+              reason:
+                "Function overloads ordered by argument count (fewer args first)",
+            };
+          }
+        } else {
+          // Same number of args -> sort alphabetically by argument type list
+          const aSig = a.argument_types?.join(",") ?? "";
+          const bSig = b.argument_types?.join(",") ?? "";
+          if (aSig !== bSig) {
+            if (aSig.localeCompare(bSig) < 0) {
+              return {
+                constraintStableId: `${dependentChange.stableId} alphabetical before ${referencedChange.stableId}`,
+                changeAIndex: depIdx,
+                type: "before",
+                changeBIndex: refIdx,
+                reason:
+                  "Function overloads ordered alphabetically when arg count equal",
+              };
+            } else {
+              return {
+                constraintStableId: `${referencedChange.stableId} alphabetical before ${dependentChange.stableId}`,
+                changeAIndex: refIdx,
+                type: "before",
+                changeBIndex: depIdx,
+                reason:
+                  "Function overloads ordered alphabetically when arg count equal",
+              };
+            }
+          }
+        }
+      }
     }
     return null;
   }
