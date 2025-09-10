@@ -60,7 +60,9 @@ jobs:
   test:
     if: github.event.pull_request.draft == false
     name: Tests
-    runs-on: larger-runner-4cpu
+    runs-on:
+      group: "Default Larger Runners"
+      labels: larger-runner-4cpu
     steps:
       - name: Checkout
         uses: actions/checkout@v4
