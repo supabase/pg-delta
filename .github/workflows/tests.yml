@@ -60,7 +60,7 @@ jobs:
   test:
     if: github.event.pull_request.draft == false
     name: Tests
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: larger-runner-4cpu
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,7 +71,8 @@ jobs:
       - name: Run tests
         run: pnpm coverage
 
-      - uses: coverallsapp/github-action@v2
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: coverage/lcov.info
+      # TODO: Uncomment this when we have the repository made public
+      # - uses: coverallsapp/github-action@v2
+      #   with:
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
+      #     path-to-lcov: coverage/lcov.info
