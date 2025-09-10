@@ -69,7 +69,7 @@ export class Language extends BasePgModel {
   }
 }
 
-async function extractLanguages(sql: Sql): Promise<Language[]> {
+async function _extractLanguages(sql: Sql): Promise<Language[]> {
   const languageRows = await sql<LanguageProps[]>`
     with extension_oids as (
       select

@@ -1,6 +1,7 @@
 import { AlterChange } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import type { Table, TableConstraintProps } from "../table.model.ts";
+
 // No drop+create paths; destructive operations are out of scope
 
 /**
@@ -359,9 +360,9 @@ export class AlterTableAddConstraint extends AlterChange {
   }
   private getForeignKeyColumnNames(): string[] {
     const columnByPosition = new Map(
-      this.foreignKeyTable!.columns.map((c) => [c.position, c]),
+      this.foreignKeyTable?.columns.map((c) => [c.position, c]),
     );
-    return this.constraint.foreign_key_columns!.map((position) => {
+    return this.constraint.foreign_key_columns?.map((position) => {
       // biome-ignore lint/style/noNonNullAssertion: it is guaranteed by our query
       const column = columnByPosition.get(position)!;
       return column.name;
