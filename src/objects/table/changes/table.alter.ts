@@ -56,7 +56,7 @@ import type { Table, TableConstraintProps } from "../table.model.ts";
  *     DETACH PARTITION partition_name [ CONCURRENTLY | FINALIZE ]
  * ```
  */
-type AlterTable =
+export type AlterTable =
   | AlterTableChangeOwner
   | AlterTableSetLogged
   | AlterTableSetUnlogged
@@ -344,6 +344,13 @@ export class AlterTableAddConstraint extends AlterChange {
   }
 
   get stableId(): string {
+    // If the constraint is a foreign key constraint, use the foreign key table as the stable id
+    // so the dependency resolution can ensure the foreign key table is created before the constraint is added
+    // TODO: the stableId should be the constraint name, not the foreign key table and the resolution should be based on both
+    // the table.stableId AND the constraint name
+    if (this.foreignKeyTable) {
+      return `${this.foreignKeyTable.stableId}`;
+    }
     return `${this.table.stableId}`;
   }
 
