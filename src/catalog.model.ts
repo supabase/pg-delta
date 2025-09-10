@@ -1,7 +1,6 @@
 import type { Sql } from "postgres";
 import { extractDepends, type PgDepend } from "./depend.ts";
 import type { BasePgModel, TableLikeObject } from "./objects/base.model.ts";
-import { extractVersion } from "./version.ts";
 import {
   type Collation,
   extractCollations,
@@ -43,6 +42,7 @@ import {
 import { type Enum, extractEnums } from "./objects/type/enum/enum.model.ts";
 import { extractRanges, type Range } from "./objects/type/range/range.model.ts";
 import { extractViews, type View } from "./objects/view/view.model.ts";
+import { extractVersion } from "./version.ts";
 
 interface CatalogProps {
   collations: Record<string, Collation>;

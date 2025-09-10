@@ -1081,16 +1081,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           main: expect.objectContaining({
             name: "user_list",
             schema: "test_schema",
-            definition: pgVersion === 15
-              ? " SELECT users.id,\n    users.username\n   FROM test_schema.users"
-              : " SELECT id,\n    username\n   FROM test_schema.users",
+            definition:
+              pgVersion === 15
+                ? " SELECT users.id,\n    users.username\n   FROM test_schema.users"
+                : " SELECT id,\n    username\n   FROM test_schema.users",
           }),
           branch: expect.objectContaining({
             name: "user_list",
             schema: "test_schema",
-            definition: pgVersion === 15
-              ? " SELECT users.id,\n    users.username,\n    users.role\n   FROM test_schema.users"
-              : " SELECT id,\n    username,\n    role\n   FROM test_schema.users",
+            definition:
+              pgVersion === 15
+                ? " SELECT users.id,\n    users.username,\n    users.role\n   FROM test_schema.users"
+                : " SELECT id,\n    username,\n    role\n   FROM test_schema.users",
           }),
         }),
       ]);
