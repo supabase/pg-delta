@@ -33,15 +33,6 @@ import type { Domain, DomainConstraintProps } from "../domain.model.ts";
  *     { NOT NULL | CHECK (expression) }
  * ```
  */
-type AlterDomain =
-  | AlterDomainSetDefault
-  | AlterDomainDropDefault
-  | AlterDomainSetNotNull
-  | AlterDomainDropNotNull
-  | AlterDomainChangeOwner
-  | AlterDomainAddConstraint
-  | AlterDomainDropConstraint
-  | AlterDomainValidateConstraint;
 
 /**
  * ALTER DOMAIN ... SET DEFAULT ...

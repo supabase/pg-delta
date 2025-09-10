@@ -34,9 +34,6 @@ const ForeignKeyMatchTypeSchema = z.enum([
   "u", // UNSPECIFIED (default)
 ]);
 
-type RelationPersistence = z.infer<typeof RelationPersistenceSchema>;
-type ReplicaIdentity = z.infer<typeof ReplicaIdentitySchema>;
-
 const tableConstraintPropsSchema = z.object({
   name: z.string(),
   constraint_type: z.enum([

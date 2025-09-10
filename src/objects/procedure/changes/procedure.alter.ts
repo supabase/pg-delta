@@ -27,14 +27,6 @@ import { CreateProcedure } from "./procedure.create.ts";
  *     RESET ALL
  * ```
  */
-type AlterProcedure =
-  | AlterProcedureChangeOwner
-  | AlterProcedureSetSecurity
-  | AlterProcedureSetConfig
-  | AlterProcedureSetVolatility
-  | AlterProcedureSetStrictness
-  | AlterProcedureSetLeakproof
-  | AlterProcedureSetParallel;
 
 /**
  * ALTER FUNCTION/PROCEDURE ... OWNER TO ...

@@ -20,7 +20,6 @@ import { DropEnum } from "./enum.drop.ts";
  * ALTER TYPE name RENAME VALUE existing_enum_value TO new_enum_value
  * ```
  */
-type AlterEnum = AlterEnumChangeOwner | AlterEnumAddValue;
 
 /**
  * ALTER TYPE ... OWNER TO ...
