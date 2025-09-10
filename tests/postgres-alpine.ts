@@ -23,7 +23,7 @@ export class PostgresAlpineContainer extends GenericContainer {
     );
     this.withStartupTimeout(120_000);
     this.withTmpFs({
-      "/var/lib/postgresql/data": "rw,noexec,nosuid,size=655360k",
+      "/var/lib/postgresql/data": "rw,noexec,nosuid,size=256m",
     });
   }
 
