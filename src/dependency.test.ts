@@ -86,6 +86,7 @@ describe("DependencyResolver", () => {
       views: {},
       depends: dependencies,
       indexableObjects: {},
+      version: 150014, // Default to PostgreSQL 15
     });
   }
 
@@ -1718,6 +1719,7 @@ describe("DependencyResolver", () => {
           },
         ],
         indexableObjects: {},
+        version: 150014, // Default to PostgreSQL 15
       });
 
       const resolver = new DependencyResolver(minimalCatalog, minimalCatalog);

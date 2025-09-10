@@ -220,5 +220,6 @@ export function emptyCatalog() {
     views: {},
     depends: [],
     indexableObjects: {},
+    version: 150014, // Default to PostgreSQL 15
   });
 }
