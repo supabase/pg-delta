@@ -61,7 +61,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.users_id_seq",
             referenced_stable_id: "table:test_schema.users",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id: "constraint:test_schema.users.users_pkey",
@@ -93,7 +93,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.users_id_seq",
             referenced_stable_id: "table:test_schema.users",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id: "constraint:test_schema.users.users_pkey",
@@ -115,7 +115,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             dependent_stable_id:
               "trigger:test_schema.users.update_timestamp_trigger",
             referenced_stable_id: "table:test_schema.users",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -164,7 +164,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "multi-event trigger",
         expectedSqlTerms: [
-          `CREATE TRIGGER audit_trigger AFTER INSERT OR DELETE OR UPDATE ON test_schema.sensitive_data FOR EACH ROW EXECUTE FUNCTION test_schema.audit_changes()`,
+          "CREATE TRIGGER audit_trigger AFTER INSERT OR UPDATE OR DELETE ON test_schema.sensitive_data FOR EACH ROW EXECUTE FUNCTION test_schema.audit_changes()",
         ],
         expectedMasterDependencies: [
           {
@@ -190,7 +190,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.audit_log_id_seq",
             referenced_stable_id: "table:test_schema.audit_log",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id: "sequence:test_schema.sensitive_data_id_seq",
@@ -200,7 +200,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.sensitive_data_id_seq",
             referenced_stable_id: "table:test_schema.sensitive_data",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id: "index:test_schema.audit_log_pkey",
@@ -251,7 +251,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.audit_log_id_seq",
             referenced_stable_id: "table:test_schema.audit_log",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id: "sequence:test_schema.sensitive_data_id_seq",
@@ -261,7 +261,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.sensitive_data_id_seq",
             referenced_stable_id: "table:test_schema.sensitive_data",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id: "index:test_schema.audit_log_pkey",
@@ -297,7 +297,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             dependent_stable_id:
               "trigger:test_schema.sensitive_data.audit_trigger",
             referenced_stable_id: "table:test_schema.sensitive_data",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -334,7 +334,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "conditional trigger with WHEN clause",
         expectedSqlTerms: [
-          `CREATE TRIGGER price_change_trigger AFTER UPDATE ON test_schema.products FOR EACH ROW WHEN ((old.price IS DISTINCT FROM new.price)) EXECUTE FUNCTION test_schema.log_price_changes()`,
+          "CREATE TRIGGER price_change_trigger AFTER UPDATE ON test_schema.products FOR EACH ROW WHEN (old.price IS DISTINCT FROM new.price) EXECUTE FUNCTION test_schema.log_price_changes()",
         ],
         expectedMasterDependencies: [
           {
@@ -355,7 +355,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.products_id_seq",
             referenced_stable_id: "table:test_schema.products",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id:
@@ -389,7 +389,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.products_id_seq",
             referenced_stable_id: "table:test_schema.products",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id:
@@ -462,7 +462,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.test_table_id_seq",
             referenced_stable_id: "table:test_schema.test_table",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id:
@@ -484,7 +484,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "trigger:test_schema.test_table.old_trigger",
             referenced_stable_id: "table:test_schema.test_table",
-            deptype: "n",
+            deptype: "a",
           },
         ],
         expectedBranchDependencies: [
@@ -506,7 +506,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.test_table_id_seq",
             referenced_stable_id: "table:test_schema.test_table",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id:
@@ -578,9 +578,21 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "trigger replacement (modification)",
         expectedSqlTerms: [
-          `CREATE OR REPLACE FUNCTION test_schema.validate_email() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF ((NEW.email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$')) THEN RAISE EXCEPTION 'Invalid email format: %', NEW.email; END IF; IF ((length(NEW.email) > 255)) THEN RAISE EXCEPTION 'Email too long'; END IF; RETURN NEW; END; $$`,
-          `DROP TRIGGER email_validation_trigger ON test_schema.users`,
-          `CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.users FOR EACH ROW EXECUTE FUNCTION test_schema.validate_email()`,
+          `CREATE OR REPLACE FUNCTION test_schema.validate_email() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            -- Updated validation logic
+            IF NEW.email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$' THEN
+              RAISE EXCEPTION 'Invalid email format: %', NEW.email;
+            END IF;
+            -- Additional validation
+            IF length(NEW.email) > 255 THEN
+              RAISE EXCEPTION 'Email too long';
+            END IF;
+            RETURN NEW;
+          END;
+          $$`,
+          `DROP TRIGGER email_validation_trigger ON test_schema.users;
+CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.users FOR EACH ROW EXECUTE FUNCTION test_schema.validate_email()`,
         ],
         expectedMasterDependencies: [
           {
@@ -601,7 +613,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.users_id_seq",
             referenced_stable_id: "table:test_schema.users",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id: "index:test_schema.users_pkey",
@@ -634,7 +646,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             dependent_stable_id:
               "trigger:test_schema.users.email_validation_trigger",
             referenced_stable_id: "table:test_schema.users",
-            deptype: "n",
+            deptype: "a",
           },
         ],
         expectedBranchDependencies: [
@@ -656,7 +668,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.users_id_seq",
             referenced_stable_id: "table:test_schema.users",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id: "index:test_schema.users_pkey",
@@ -689,7 +701,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             dependent_stable_id:
               "trigger:test_schema.users.email_validation_trigger",
             referenced_stable_id: "table:test_schema.users",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -724,8 +736,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "trigger after function dependency",
         expectedSqlTerms: [
-          `CREATE TABLE test_schema.events (id serial PRIMARY KEY, event_type text, occurred_at timestamp DEFAULT now())`,
-          `CREATE OR REPLACE FUNCTION test_schema.notify_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_notify('event_occurred', NEW.event_type); RETURN NEW; END; $$`,
+          "CREATE SEQUENCE test_schema.events_id_seq AS integer",
+          "CREATE TABLE test_schema.events (id integer DEFAULT nextval('test_schema.events_id_seq'::regclass) NOT NULL, event_type text, occurred_at timestamp without time zone DEFAULT now())",
+          "ALTER SEQUENCE test_schema.events_id_seq OWNED BY test_schema.events.id",
+          "ALTER TABLE test_schema.events ADD CONSTRAINT events_pkey PRIMARY KEY (id)",
+          `CREATE FUNCTION test_schema.notify_event() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            PERFORM pg_notify('event_occurred', NEW.event_type);
+            RETURN NEW;
+          END;
+          $$`,
           `CREATE TRIGGER event_notification_trigger AFTER INSERT ON test_schema.events FOR EACH ROW EXECUTE FUNCTION test_schema.notify_event()`,
         ],
         expectedMasterDependencies: [],
@@ -738,7 +758,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.events_id_seq",
             referenced_stable_id: "table:test_schema.events",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id: "procedure:test_schema.notify_event()",
@@ -770,7 +790,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             dependent_stable_id:
               "trigger:test_schema.events.event_notification_trigger",
             referenced_stable_id: "table:test_schema.events",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -781,21 +801,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       await roundtripFidelityTest({
         masterSession: db.main,
         branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema",
-        testSql: `
-          CREATE TABLE test_schema.test_table (
-            id serial PRIMARY KEY,
-            value text
-          );
-          CREATE FUNCTION test_schema.test_func()
-          RETURNS trigger
-          LANGUAGE plpgsql
-          AS 'BEGIN RETURN NEW; END;';
-          CREATE TRIGGER test_trigger
-          BEFORE INSERT ON test_schema.test_table
-          FOR EACH ROW
-          EXECUTE FUNCTION test_schema.test_func();
-        `,
+        initialSetup: `CREATE SCHEMA test_schema
+        CREATE TABLE test_schema.test_table (
+          id serial PRIMARY KEY,
+          value text
+        );
+        CREATE FUNCTION test_schema.test_func()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS 'BEGIN RETURN NEW; END;';
+        CREATE TRIGGER test_trigger
+        BEFORE INSERT ON test_schema.test_table
+        FOR EACH ROW
+        EXECUTE FUNCTION test_schema.test_func();`,
         description: "trigger semantic equality",
         expectedSqlTerms: [],
       });
@@ -865,12 +883,31 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "Complex trigger scenario with multiple dependencies",
         expectedSqlTerms: [
-          `CREATE TABLE test_schema.orders (id serial PRIMARY KEY, customer_id integer NOT NULL, total_amount numeric(10,2), status text DEFAULT 'pending', created_at timestamp DEFAULT now(), updated_at timestamp DEFAULT now())`,
-          `CREATE TABLE test_schema.order_audit (id serial PRIMARY KEY, order_id integer, old_status text, new_status text, changed_at timestamp DEFAULT now())`,
-          `CREATE OR REPLACE FUNCTION test_schema.audit_order_status() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF ((OLD.status IS DISTINCT FROM NEW.status)) THEN INSERT INTO test_schema.order_audit (order_id, old_status, new_status) VALUES (NEW.id, OLD.status, NEW.status); END IF; RETURN NEW; END; $$`,
-          `CREATE OR REPLACE FUNCTION test_schema.update_order_timestamp() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.updated_at = now(); RETURN NEW; END; $$`,
-          `CREATE TRIGGER order_status_audit_trigger AFTER UPDATE ON test_schema.orders FOR EACH ROW WHEN ((old.status IS DISTINCT FROM new.status)) EXECUTE FUNCTION test_schema.audit_order_status()`,
-          `CREATE TRIGGER order_timestamp_trigger BEFORE UPDATE ON test_schema.orders FOR EACH ROW EXECUTE FUNCTION test_schema.update_order_timestamp()`,
+          "CREATE SEQUENCE test_schema.orders_id_seq AS integer",
+          "CREATE TABLE test_schema.orders (id integer DEFAULT nextval('test_schema.orders_id_seq'::regclass) NOT NULL, customer_id integer NOT NULL, total_amount numeric(10,2), status text DEFAULT 'pending'::text, created_at timestamp without time zone DEFAULT now(), updated_at timestamp without time zone DEFAULT now())",
+          "ALTER SEQUENCE test_schema.orders_id_seq OWNED BY test_schema.orders.id",
+          "ALTER TABLE test_schema.orders ADD CONSTRAINT orders_pkey PRIMARY KEY (id)",
+          "CREATE SEQUENCE test_schema.order_audit_id_seq AS integer",
+          "CREATE TABLE test_schema.order_audit (id integer DEFAULT nextval('test_schema.order_audit_id_seq'::regclass) NOT NULL, order_id integer, old_status text, new_status text, changed_at timestamp without time zone DEFAULT now())",
+          "ALTER SEQUENCE test_schema.order_audit_id_seq OWNED BY test_schema.order_audit.id",
+          "ALTER TABLE test_schema.order_audit ADD CONSTRAINT order_audit_pkey PRIMARY KEY (id)",
+          `CREATE FUNCTION test_schema.update_order_timestamp() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            NEW.updated_at = now();
+            RETURN NEW;
+          END;
+          $$`,
+          "CREATE TRIGGER order_timestamp_trigger BEFORE UPDATE ON test_schema.orders FOR EACH ROW EXECUTE FUNCTION test_schema.update_order_timestamp()",
+          `CREATE FUNCTION test_schema.audit_order_status() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            IF OLD.status IS DISTINCT FROM NEW.status THEN
+              INSERT INTO test_schema.order_audit (order_id, old_status, new_status)
+              VALUES (NEW.id, OLD.status, NEW.status);
+            END IF;
+            RETURN NEW;
+          END;
+          $$`,
+          "CREATE TRIGGER order_status_audit_trigger AFTER UPDATE ON test_schema.orders FOR EACH ROW WHEN (old.status IS DISTINCT FROM new.status) EXECUTE FUNCTION test_schema.audit_order_status()",
         ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
@@ -882,7 +919,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.orders_id_seq",
             referenced_stable_id: "table:test_schema.orders",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id: "sequence:test_schema.order_audit_id_seq",
@@ -892,7 +929,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:test_schema.order_audit_id_seq",
             referenced_stable_id: "table:test_schema.order_audit",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id: "procedure:test_schema.audit_order_status()",
@@ -947,7 +984,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             dependent_stable_id:
               "trigger:test_schema.orders.order_status_audit_trigger",
             referenced_stable_id: "table:test_schema.orders",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id:
@@ -960,7 +997,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             dependent_stable_id:
               "trigger:test_schema.orders.order_timestamp_trigger",
             referenced_stable_id: "table:test_schema.orders",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });

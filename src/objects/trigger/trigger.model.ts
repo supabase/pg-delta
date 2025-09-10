@@ -9,8 +9,6 @@ const TriggerEnabledSchema = z.enum([
   "A", // ALWAYS - trigger fires regardless of replication mode
 ]);
 
-type TriggerEnabled = z.infer<typeof TriggerEnabledSchema>;
-
 const triggerPropsSchema = z.object({
   schema: z.string(),
   name: z.string(),
@@ -136,7 +134,24 @@ select
   t.tgnargs as argument_count,
   t.tgattr as column_numbers,
   case when t.tgnargs > 0 then array_fill(''::text, array[t.tgnargs]) else array[]::text[] end as arguments,
-  pg_get_expr(t.tgqual, t.tgrelid) as when_condition,
+  case when t.tgnargs > 0
+       then array_fill(''::text, array[t.tgnargs]) else array[]::text[] end as arguments,
+  (
+    -- Extract text between ' WHEN (' and ') EXECUTE'
+    -- Returns NULL if no WHEN clause is present
+    case
+      when strpos(pg_get_triggerdef(t.oid, true), ' WHEN (') > 0
+        and strpos(pg_get_triggerdef(t.oid, true), ') EXECUTE') >
+            strpos(pg_get_triggerdef(t.oid, true), ' WHEN (') + 7
+      then substr(
+              pg_get_triggerdef(t.oid, true),
+              strpos(pg_get_triggerdef(t.oid, true), ' WHEN (') + 7,
+              strpos(pg_get_triggerdef(t.oid, true), ') EXECUTE')
+                - (strpos(pg_get_triggerdef(t.oid, true), ' WHEN (') + 7)
+            )
+      else null
+    end
+  ) as when_condition,
   t.tgoldtable as old_table,
   t.tgnewtable as new_table,
   tc.relowner::regrole::text as owner
