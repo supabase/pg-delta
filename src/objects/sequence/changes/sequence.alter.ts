@@ -16,7 +16,6 @@ import { DropSequence } from "./sequence.drop.ts";
  *     [ CACHE cache ] [ [ NO ] CYCLE ] [ OWNED BY { table_name.column_name | NONE } ]
  * ```
  */
-export type AlterSequence = AlterSequenceSetOptions | AlterSequenceSetOwnedBy;
 
 /**
  * ALTER SEQUENCE ... OWNED BY ... | OWNED BY NONE

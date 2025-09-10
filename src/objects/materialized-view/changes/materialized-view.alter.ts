@@ -32,9 +32,6 @@ import { DropMaterializedView } from "./materialized-view.drop.ts";
  * - Column attribute changes, CLUSTER are not modeled and thus not emitted.
  * - Changes to definition, options, and other non-alterable properties trigger a replace (drop + create).
  */
-type AlterMaterializedView =
-  | AlterMaterializedViewChangeOwner
-  | AlterMaterializedViewSetStorageParams;
 
 /**
  * ALTER MATERIALIZED VIEW ... OWNER TO ...

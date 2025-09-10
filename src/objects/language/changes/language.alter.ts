@@ -14,7 +14,6 @@ import { DropLanguage } from "./language.drop.ts";
  * ALTER [ PROCEDURAL ] LANGUAGE name RENAME TO new_name
  * ```
  */
-type AlterLanguage = AlterLanguageChangeOwner;
 
 /**
  * ALTER LANGUAGE ... OWNER TO ...

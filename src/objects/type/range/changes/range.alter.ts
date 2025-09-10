@@ -15,7 +15,6 @@ import { DropRange } from "./range.drop.ts";
  * ALTER TYPE name SET SCHEMA new_schema
  * ```
  */
-type AlterRange = AlterRangeChangeOwner;
 
 /**
  * ALTER TYPE ... OWNER TO ...

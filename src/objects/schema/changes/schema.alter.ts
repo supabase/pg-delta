@@ -14,7 +14,6 @@ import { DropSchema } from "./schema.drop.ts";
  * ALTER SCHEMA name OWNER TO { new_owner | CURRENT_ROLE | CURRENT_USER | SESSION_USER }
  * ```
  */
-type AlterSchema = AlterSchemaChangeOwner;
 
 /**
  * ALTER SCHEMA ... OWNER TO ...

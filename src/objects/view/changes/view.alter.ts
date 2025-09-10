@@ -20,10 +20,6 @@ import { DropView } from "./view.drop.ts";
  * ALTER VIEW [ IF EXISTS ] name RESET ( view_option_name [, ... ] )
  * ```
  */
-type AlterView =
-  | AlterViewChangeOwner
-  | AlterViewSetOptions
-  | AlterViewResetOptions;
 
 /**
  * ALTER VIEW ... OWNER TO ...

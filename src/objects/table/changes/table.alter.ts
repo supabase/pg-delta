@@ -57,27 +57,6 @@ import type { Table, TableConstraintProps } from "../table.model.ts";
  *     DETACH PARTITION partition_name [ CONCURRENTLY | FINALIZE ]
  * ```
  */
-export type AlterTable =
-  | AlterTableChangeOwner
-  | AlterTableSetLogged
-  | AlterTableSetUnlogged
-  | AlterTableEnableRowLevelSecurity
-  | AlterTableDisableRowLevelSecurity
-  | AlterTableForceRowLevelSecurity
-  | AlterTableNoForceRowLevelSecurity
-  | AlterTableSetStorageParams
-  | AlterTableResetStorageParams
-  | AlterTableAddConstraint
-  | AlterTableDropConstraint
-  | AlterTableValidateConstraint
-  | AlterTableSetReplicaIdentity
-  | AlterTableAddColumn
-  | AlterTableDropColumn
-  | AlterTableAlterColumnType
-  | AlterTableAlterColumnSetDefault
-  | AlterTableAlterColumnDropDefault
-  | AlterTableAlterColumnSetNotNull
-  | AlterTableAlterColumnDropNotNull;
 
 /**
  * ALTER TABLE ... OWNER TO ...

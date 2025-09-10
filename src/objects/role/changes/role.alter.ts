@@ -30,7 +30,6 @@ import { DropRole } from "./role.drop.ts";
  *     | SYSID uid
  * ```
  */
-type AlterRole = AlterRoleSetOptions;
 
 /**
  * ALTER ROLE ... WITH option [...]
