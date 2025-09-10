@@ -30,6 +30,8 @@ describe("procedure", () => {
       sql_body: null,
       config: null,
       owner: "test",
+      execution_cost: 0,
+      result_rows: 0,
     });
 
     const change = new DropProcedure({
@@ -66,6 +68,8 @@ describe("procedure", () => {
       definition: null,
       config: null,
       owner: "test",
+      execution_cost: 0,
+      result_rows: 0,
     });
 
     const change = new DropProcedure({ procedure: fn });

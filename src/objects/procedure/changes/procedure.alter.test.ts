@@ -39,6 +39,8 @@ describe.concurrent("procedure", () => {
         sql_body: null,
         definition: null,
         config: null,
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({
         ...props,
@@ -85,6 +87,8 @@ describe.concurrent("procedure", () => {
         sql_body: "SELECT 1",
         definition: null,
         config: null,
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({
         ...props,
@@ -131,6 +135,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({
         ...props,
@@ -147,7 +153,7 @@ describe.concurrent("procedure", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP PROCEDURE public.test_procedure();\nCREATE PROCEDURE public.test_procedure() LANGUAGE plpgsql SECURITY DEFINER AS $$BEGIN RETURN; END;$$",
+        "CREATE OR REPLACE PROCEDURE public.test_procedure() LANGUAGE plpgsql SECURITY DEFINER AS $$BEGIN RETURN; END;$$",
       );
     });
 
@@ -177,6 +183,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...props, security_definer: false });
       const branch = new Procedure({ ...props, security_definer: true });
@@ -213,6 +221,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...props, security_definer: true });
       const branch = new Procedure({ ...props, security_definer: false });
@@ -249,6 +259,8 @@ describe.concurrent("procedure", () => {
         sql_body: "SELECT 1",
         definition: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, config: ["search_path=public"] });
       const branch = new Procedure({
@@ -260,8 +272,8 @@ describe.concurrent("procedure", () => {
       expect(change.serialize()).toBe(
         [
           "ALTER FUNCTION public.test_function RESET search_path",
-          "ALTER FUNCTION public.test_function SET search_path=pg_temp",
-          "ALTER FUNCTION public.test_function SET work_mem=64MB",
+          "ALTER FUNCTION public.test_function SET search_path TO pg_temp",
+          "ALTER FUNCTION public.test_function SET work_mem TO '64MB'",
         ].join(";\n"),
       );
     });
@@ -292,13 +304,15 @@ describe.concurrent("procedure", () => {
         sql_body: "SELECT 1",
         definition: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, config: null });
       const branch = new Procedure({ ...base, config: ["search_path=public"] });
 
       const change = new AlterProcedureSetConfig({ main, branch });
       expect(change.serialize()).toBe(
-        "ALTER FUNCTION public.test_function SET search_path=public",
+        "ALTER FUNCTION public.test_function SET search_path TO public",
       );
     });
 
@@ -328,6 +342,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, volatility: "v" });
       const branch = new Procedure({ ...base, volatility: "i" });
@@ -363,6 +379,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, is_strict: false });
       const branch = new Procedure({ ...base, is_strict: true });
@@ -398,6 +416,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, is_strict: true });
       const branch = new Procedure({ ...base, is_strict: false });
@@ -433,6 +453,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, leakproof: false });
       const branch = new Procedure({ ...base, leakproof: true });
@@ -468,6 +490,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, leakproof: true });
       const branch = new Procedure({ ...base, leakproof: false });
@@ -503,6 +527,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, parallel_safety: "u" });
       const branch = new Procedure({ ...base, parallel_safety: "r" });
@@ -539,6 +565,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, security_definer: false });
       const branch = new Procedure({ ...base, security_definer: true });
@@ -574,6 +602,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, security_definer: true });
       const branch = new Procedure({ ...base, security_definer: false });
@@ -609,6 +639,8 @@ describe.concurrent("procedure", () => {
         sql_body: null,
         definition: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, config: ["search_path=public"] });
       const branch = new Procedure({
@@ -619,8 +651,8 @@ describe.concurrent("procedure", () => {
       expect(change.serialize()).toBe(
         [
           "ALTER PROCEDURE public.test_procedure RESET search_path",
-          "ALTER PROCEDURE public.test_procedure SET search_path=pg_temp",
-          "ALTER PROCEDURE public.test_procedure SET work_mem=64MB",
+          "ALTER PROCEDURE public.test_procedure SET search_path TO pg_temp",
+          "ALTER PROCEDURE public.test_procedure SET work_mem TO '64MB'",
         ].join(";\n"),
       );
     });
@@ -651,6 +683,8 @@ describe.concurrent("procedure", () => {
         sql_body: null,
         definition: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({
         ...base,
@@ -693,6 +727,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, volatility: "v" });
       const branch = new Procedure({ ...base, volatility: "s" });
@@ -728,6 +764,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, is_strict: false });
       const branch = new Procedure({ ...base, is_strict: true });
@@ -763,6 +801,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, is_strict: true });
       const branch = new Procedure({ ...base, is_strict: false });
@@ -798,6 +838,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, leakproof: false });
       const branch = new Procedure({ ...base, leakproof: true });
@@ -833,6 +875,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, leakproof: true });
       const branch = new Procedure({ ...base, leakproof: false });
@@ -868,6 +912,8 @@ describe.concurrent("procedure", () => {
         definition: null,
         config: null,
         owner: "test",
+        execution_cost: 0,
+        result_rows: 0,
       };
       const main = new Procedure({ ...base, parallel_safety: "u" });
       const branch = new Procedure({ ...base, parallel_safety: "s" });
