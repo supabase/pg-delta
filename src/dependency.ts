@@ -252,7 +252,9 @@ export class OperationSemantics {
       );
     }
 
-    // No dependency found, but we could sort them by operation priority
+    // No dependency but we might want to order the operations for styling purposes
+    // But they should never impact the correctness of the script, only the order in which
+    // changes get processed (eg: for functions with override, start with the one with less arguments to the one with the most number of arguments)
     return this.semanticRuleNoDependency(i, changeA, j, changeB);
   }
 
