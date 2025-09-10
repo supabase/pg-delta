@@ -31,7 +31,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         description: "simple view creation",
         expectedSqlTerms: [
           `CREATE TABLE test_schema.users (id integer, name text, email text)`,
-          `CREATE VIEW test_schema.active_users AS  SELECT id,
+          `CREATE VIEW test_schema.active_users AS SELECT id,
     name,
     email
    FROM test_schema.users
@@ -107,20 +107,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         description: "nested view dependencies - 3 levels deep",
         expectedSqlTerms: [
           `CREATE TABLE test_schema.users (id integer, name text, email text, created_at timestamp without time zone DEFAULT now())`,
-          `CREATE VIEW test_schema.recent_users AS  SELECT id,
+          `CREATE VIEW test_schema.recent_users AS SELECT id,
     name,
     email,
     created_at
    FROM test_schema.users
   WHERE (created_at > (now() - '30 days'::interval))`,
           `CREATE TABLE test_schema.orders (id integer, user_id integer, amount numeric(10,2), created_at timestamp without time zone DEFAULT now())`,
-          `CREATE VIEW test_schema.high_value_orders AS  SELECT id,
+          `CREATE VIEW test_schema.high_value_orders AS SELECT id,
     user_id,
     amount,
     created_at
    FROM test_schema.orders
   WHERE (amount > (100)::numeric)`,
-          `CREATE VIEW test_schema.recent_big_spenders AS  SELECT u.id,
+          `CREATE VIEW test_schema.recent_big_spenders AS SELECT u.id,
     u.name,
     u.email,
     count(o.id) AS order_count,
@@ -128,7 +128,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
    FROM (test_schema.recent_users u
      JOIN test_schema.high_value_orders o ON ((u.id = o.user_id)))
   GROUP BY u.id, u.name, u.email`,
-          `CREATE VIEW test_schema.top_customers AS  SELECT id,
+          `CREATE VIEW test_schema.top_customers AS SELECT id,
     name,
     email,
     total_spent
@@ -237,7 +237,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           // TODO: check with Julien if the DROP + CREATE is expected here
           `DROP VIEW test_schema.user_summary;
-CREATE VIEW test_schema.user_summary AS  SELECT u.id,
+CREATE VIEW test_schema.user_summary AS SELECT u.id,
     u.name,
     u.status,
     p.bio,
@@ -373,7 +373,7 @@ CREATE VIEW test_schema.user_summary AS  SELECT u.id,
         expectedSqlTerms: [
           `CREATE TABLE analytics.sales (id integer, customer_id integer, product_id integer, quantity integer, sale_date date)`,
           `CREATE TABLE analytics.products (id integer, name text, category text, price numeric(10,2))`,
-          `CREATE VIEW analytics.product_performance AS  SELECT p.id,
+          `CREATE VIEW analytics.product_performance AS SELECT p.id,
     p.name,
     p.category,
     p.price,
@@ -383,7 +383,7 @@ CREATE VIEW test_schema.user_summary AS  SELECT u.id,
      LEFT JOIN analytics.sales s ON ((p.id = s.product_id)))
   GROUP BY p.id, p.name, p.category, p.price`,
           `CREATE TABLE analytics.customers (id integer, name text, region text, tier text)`,
-          `CREATE VIEW analytics.customer_stats AS  SELECT c.id,
+          `CREATE VIEW analytics.customer_stats AS SELECT c.id,
     c.name,
     c.region,
     c.tier,
@@ -393,7 +393,7 @@ CREATE VIEW test_schema.user_summary AS  SELECT u.id,
      LEFT JOIN analytics.sales s ON ((c.id = s.customer_id)))
      LEFT JOIN analytics.products p ON ((s.product_id = p.id)))
   GROUP BY c.id, c.name, c.region, c.tier`,
-          `CREATE VIEW analytics.business_summary AS  SELECT 'customers'::text AS metric_type,
+          `CREATE VIEW analytics.business_summary AS SELECT 'customers'::text AS metric_type,
     count(*) AS count,
     avg(customer_stats.total_revenue) AS avg_value
    FROM analytics.customer_stats
@@ -513,7 +513,7 @@ UNION ALL
         description: "valid recursive patterns are not flagged as cycles",
         expectedSqlTerms: [
           "CREATE TABLE test_schema.employees (id integer, name text, manager_id integer)",
-          `CREATE VIEW test_schema.employee_hierarchy AS  WITH RECURSIVE hierarchy AS (
+          `CREATE VIEW test_schema.employee_hierarchy AS WITH RECURSIVE hierarchy AS (
          SELECT employees.id,
             employees.name,
             employees.manager_id,
