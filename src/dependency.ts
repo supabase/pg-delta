@@ -22,12 +22,31 @@ import { UnexpectedError } from "./objects/utils.js";
 
 type ConstraintType = "before";
 
-interface Constraint {
-  constraintStableId: string;
-  changeAIndex: number;
-  type: ConstraintType;
-  changeBIndex: number;
-  reason?: string;
+class Constraint {
+  public readonly changeAIndex: number;
+  public readonly changeBIndex: number;
+  public readonly type: ConstraintType = "before";
+  public readonly category: string;
+  public readonly reason: string;
+  private readonly _stableId: string;
+
+  constructor(props: {
+    changeAIndex: number;
+    changeBIndex: number;
+    category: string;
+    reason: string;
+    stableId: string;
+  }) {
+    this.changeAIndex = props.changeAIndex;
+    this.changeBIndex = props.changeBIndex;
+    this.category = props.category;
+    this.reason = props.reason;
+    this._stableId = props.stableId;
+  }
+
+  get stableId(): string {
+    return this._stableId;
+  }
 }
 
 interface ObjectDependency {
@@ -289,21 +308,21 @@ export class OperationSemantics {
         dependentChange instanceof AlterSequenceSetOwnedBy &&
         referencedChange instanceof CreateTable
       ) {
-        return {
-          constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+        return new Constraint({
           changeAIndex: refIdx, // Sequence owner should come after the table is created
-          type: "before",
           changeBIndex: depIdx,
-          reason: `Sequence owner after the table is created (${reason})`,
-        };
+          category: "dependency:normalized:sequence_owner_after_table",
+          reason: "Table must exist before setting sequence owner.",
+          stableId: `${referencedChange.stableId} -> ${dependentChange.stableId}`,
+        });
       }
-      return {
-        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+      return new Constraint({
         changeAIndex: depIdx, // Sequence should come first
-        type: "before",
         changeBIndex: refIdx, // Before Table
-        reason: `Sequence before table that uses it (${reason})`,
-      };
+        category: "dependency:normalized:sequence_before_table",
+        reason: "Sequence must be created before the table that uses it.",
+        stableId: `${dependentChange.stableId} -> ${referencedChange.stableId}`,
+      });
     }
 
     // Rule: For DROP operations, drop dependents before dependencies
@@ -311,13 +330,13 @@ export class OperationSemantics {
       dependentChange instanceof DropChange &&
       referencedChange instanceof DropChange
     ) {
-      return {
-        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+      return new Constraint({
         changeAIndex: depIdx,
-        type: "before",
         changeBIndex: refIdx,
-        reason: `DROP dependent before dependency (${reason})`,
-      };
+        category: "dependency:normalized:drop_dependent_before_dependency",
+        reason: "Drop dependent before its dependency.",
+        stableId: `${dependentChange.stableId} -> ${referencedChange.stableId}`,
+      });
     }
 
     // Rule: For CREATE operations, create dependencies before dependents
@@ -325,13 +344,16 @@ export class OperationSemantics {
       dependentChange instanceof CreateChange &&
       referencedChange instanceof CreateChange
     ) {
-      return {
-        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+      return new Constraint({
         changeAIndex: refIdx,
-        type: "before",
         changeBIndex: depIdx,
-        reason: `CREATE dependency before dependent (${reason})`,
-      };
+        category:
+          reason === "a_depends_on_b"
+            ? "dependency:catalog:a_on_b"
+            : "dependency:catalog:b_on_a",
+        reason: "Create dependency before dependent (catalog dependency).",
+        stableId: `${referencedChange.stableId} -> ${dependentChange.stableId}`,
+      });
     }
 
     // Rule: For mixed CREATE/ALTER/REPLACE, create dependencies first
@@ -343,13 +365,13 @@ export class OperationSemantics {
         referencedChange instanceof AlterChange ||
         referencedChange instanceof ReplaceChange)
     ) {
-      return {
-        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+      return new Constraint({
         changeAIndex: refIdx,
-        type: "before",
         changeBIndex: depIdx,
-        reason: `CREATE/ALTER/REPLACE dependency before dependent (${reason})`,
-      };
+        category: "dependency:normalized:mutation_dependency_first",
+        reason: "Create/Alter/Replace dependencies before dependents.",
+        stableId: `${referencedChange.stableId} -> ${dependentChange.stableId}`,
+      });
     }
 
     // Rule: DROP before CREATE/ALTER/REPLACE
@@ -359,13 +381,13 @@ export class OperationSemantics {
         dependentChange instanceof AlterChange ||
         dependentChange instanceof ReplaceChange)
     ) {
-      return {
-        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+      return new Constraint({
         changeAIndex: refIdx,
-        type: "before",
         changeBIndex: depIdx,
-        reason: `DROP before CREATE/ALTER/REPLACE (${reason})`,
-      };
+        category: "dependency:normalized:drop_before_mutation",
+        reason: "Drop before create/alter/replace.",
+        stableId: `${referencedChange.stableId} -> ${dependentChange.stableId}`,
+      });
     }
 
     return null;
@@ -398,23 +420,21 @@ export class OperationSemantics {
         if (argumentCountA !== argumentCountB) {
           // The overload with fewer arguments should come first
           if (argumentCountA < argumentCountB) {
-            return {
-              constraintStableId: `${changeA.stableId} overload before ${changeB.stableId}`,
+            return new Constraint({
               changeAIndex: idxA,
-              type: "before",
               changeBIndex: idxB,
-              reason:
-                "Function overloads ordered by argument count (fewer args first)",
-            };
+              category: "style:overload_argcount_first",
+              reason: "Order overloads by fewer arguments first.",
+              stableId: `${changeA.stableId} -> ${changeB.stableId}`,
+            });
           }
-          return {
-            constraintStableId: `${changeB.stableId} overload before ${changeA.stableId}`,
+          return new Constraint({
             changeAIndex: idxB,
-            type: "before",
             changeBIndex: idxA,
-            reason:
-              "Function overloads ordered by argument count (fewer args first)",
-          };
+            category: "style:overload_argcount_first",
+            reason: "Order overloads by fewer arguments first.",
+            stableId: `${changeB.stableId} -> ${changeA.stableId}`,
+          });
         }
 
         // Same number of args -> sort alphabetically by argument type list
@@ -422,24 +442,22 @@ export class OperationSemantics {
         const bSig = procedureB.argument_types?.join(",") ?? "";
         if (aSig !== bSig) {
           if (aSig.localeCompare(bSig) < 0) {
-            return {
-              constraintStableId: `${changeA.stableId} alphabetical before ${changeB.stableId}`,
+            return new Constraint({
               changeAIndex: idxA,
-              type: "before",
               changeBIndex: idxB,
-              reason:
-                "Function overloads ordered alphabetically when arg count equal",
-            };
+              category: "style:overload_alpha_argtypes",
+              reason: "Order overloads alphabetically by argument types.",
+              stableId: `${changeA.stableId} -> ${changeB.stableId}`,
+            });
           }
 
-          return {
-            constraintStableId: `${changeB.stableId} alphabetical before ${changeA.stableId}`,
+          return new Constraint({
             changeAIndex: idxB,
-            type: "before",
             changeBIndex: idxA,
-            reason:
-              "Function overloads ordered alphabetically when arg count equal",
-          };
+            category: "style:overload_alpha_argtypes",
+            reason: "Order overloads alphabetically by argument types.",
+            stableId: `${changeB.stableId} -> ${changeA.stableId}`,
+          });
         }
       }
     }
@@ -478,13 +496,15 @@ export class OperationSemantics {
 
         // Add sequential constraints
         for (let k = 0; k < sortedIndices.length - 1; k++) {
-          constraints.push({
-            constraintStableId: `${changes[sortedIndices[k]].stableId} -> ${changes[sortedIndices[k + 1]].stableId}`,
-            changeAIndex: sortedIndices[k],
-            type: "before",
-            changeBIndex: sortedIndices[k + 1],
-            reason: "Same object operation priority",
-          });
+          constraints.push(
+            new Constraint({
+              changeAIndex: sortedIndices[k],
+              changeBIndex: sortedIndices[k + 1],
+              category: "dependency:normalized:same_object_priority",
+              reason: "Create before alter for the same object.",
+              stableId: `${changes[sortedIndices[k]].stableId} -> ${changes[sortedIndices[k + 1]].stableId}`,
+            }),
+          );
         }
       }
     }
@@ -509,7 +529,7 @@ function graphToDot(graph: Graph<string, Constraint>): string {
       const constraint = graph.edgeProperties.get(from)?.get(to);
       if (constraint) {
         lines.push(
-          `  "${from}" -> "${to}" [constraint="${constraint.constraintStableId} :: ${constraint.reason}"];`,
+          `  "${from}" -> "${to}" [constraint="${constraint.category}: ${constraint.stableId} :: ${constraint.reason}"];`,
         );
       }
     }
