@@ -281,8 +281,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       // Test procedures
       expect(Object.keys(catalog.procedures).length).toBeGreaterThan(0);
-      // biome-ignore lint/style/noNonNullAssertion: seeded data
-      const procedure = catalog.procedures["procedure:test_schema.test_proc"]!;
+
+      const procedure =
+        // biome-ignore lint/style/noNonNullAssertion: seeded data
+        catalog.procedures["procedure:test_schema.test_proc(integer)"]!;
       expect(procedure.name).toBe("test_proc");
       expect(procedure.schema).toBe("test_schema");
     });

@@ -10,7 +10,6 @@ const RlsPolicyCommandSchema = z.enum([
   "*", // ALL commands
 ]);
 
-
 const rlsPolicyPropsSchema = z.object({
   schema: z.string(),
   name: z.string(),

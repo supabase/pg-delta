@@ -150,6 +150,23 @@ export async function extractCatalog(sql: Sql) {
     ...materializedViews,
   };
 
+  if (process.env.DEBUG) {
+    console.log(
+      "depends: ",
+      JSON.stringify(
+        depends.filter(
+          (depend) =>
+            !depend.dependent_stable_id.includes("information_schema") &&
+            !depend.dependent_stable_id.includes("pg_catalog") &&
+            !depend.dependent_stable_id.includes("pg_toast") &&
+            !depend.dependent_stable_id.includes("language:plpgsql"),
+        ),
+        null,
+        2,
+      ),
+    );
+  }
+
   return new Catalog({
     collations,
     compositeTypes,

@@ -69,8 +69,10 @@ export class Language extends BasePgModel {
   }
 }
 
-async function extractLanguages(sql: Sql): Promise<Language[]> {
-  const languageRows = await sql<LanguageProps[]>`
+async function _extractLanguages(sql: Sql): Promise<Language[]> {
+  const languageRows = await sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    return sql<LanguageProps[]>`
     with extension_oids as (
       select
         objid
@@ -96,6 +98,7 @@ async function extractLanguages(sql: Sql): Promise<Language[]> {
     order by
       lan.lanname;
   `;
+  });
 
   // Process rows to handle "-" as null values
   const processedRows = languageRows.map((row) => ({

@@ -35,41 +35,123 @@ async function extractViewAndMaterializedViewsDepends(
 ): Promise<PgDepend[]> {
   const dependsRows = await sql<PgDepend[]>`
     select * from (
+      -- Views/materialized views depending on tables/views/materialized views
       select distinct
-      case
-        when v.relkind = 'v' then 'view:' || v_ns.nspname || '.' || v.relname 
-        when v.relkind = 'm' then 'materializedView:' || v_ns.nspname || '.' || v.relname
-        else 'unknown:' || v.relname || ':' ||  v.relkind::text
-      end as dependent_stable_id,
-      
-      -- referenced stable id (table/view that the view/materialized view depends on)
-      case
-        when ref_obj.relkind = 'r' then 'table:' || ref_ns.nspname || '.' || ref_obj.relname
-        when ref_obj.relkind = 'v' then 'view:' || ref_ns.nspname || '.' || ref_obj.relname
-        when ref_obj.relkind = 'm' then 'materializedview:' || ref_ns.nspname || '.' || ref_obj.relname
-        else 'unknown:' || ref_obj.relname
-      end as referenced_stable_id,
-      d.deptype
-    from pg_catalog.pg_depend d
-    join pg_catalog.pg_class c1 on d.classid = c1.oid
-    join pg_catalog.pg_class c2 on d.refclassid = c2.oid
-    join pg_catalog.pg_rewrite r on r.oid = d.objid
-    join pg_catalog.pg_class v on r.ev_class = v.oid
-    join pg_catalog.pg_namespace v_ns on v.relnamespace = v_ns.oid
-    join pg_catalog.pg_class ref_obj on d.refobjid = ref_obj.oid
-    join pg_catalog.pg_namespace ref_ns on ref_obj.relnamespace = ref_ns.oid
-    where c1.relname = 'pg_rewrite'  -- dependencies from rewrite rules
-      and c2.relname = 'pg_class'    -- dependencies on tables/views
-      and d.deptype = 'n'            -- normal dependencies only
-      and c1.relnamespace = (select oid from pg_namespace where nspname = 'pg_catalog')
-      and c2.relnamespace = (select oid from pg_namespace where nspname = 'pg_catalog')
-    order by dependent_stable_id, referenced_stable_id
-  ) as view_depends_rows
-  -- remove duplicates
-  where dependent_stable_id != referenced_stable_id
+        case
+          when v.relkind = 'v' then 'view:' || v_ns.nspname || '.' || v.relname
+          when v.relkind = 'm' then 'materializedView:' || v_ns.nspname || '.' || v.relname
+          else 'unknown:' || v.relname || ':' || v.relkind::text
+        end as dependent_stable_id,
+        case
+          when ref_obj.relkind = 'r' then 'table:' || ref_ns.nspname || '.' || ref_obj.relname
+          when ref_obj.relkind = 'v' then 'view:' || ref_ns.nspname || '.' || ref_obj.relname
+          when ref_obj.relkind = 'm' then 'materializedview:' || ref_ns.nspname || '.' || ref_obj.relname
+          else 'unknown:' || ref_obj.relname
+        end as referenced_stable_id,
+        d.deptype
+      from pg_catalog.pg_depend d
+      join pg_catalog.pg_class c1 on d.classid = c1.oid
+      join pg_catalog.pg_class c2 on d.refclassid = c2.oid
+      join pg_catalog.pg_rewrite r on r.oid = d.objid
+      join pg_catalog.pg_class v on r.ev_class = v.oid
+      join pg_catalog.pg_namespace v_ns on v.relnamespace = v_ns.oid
+      join pg_catalog.pg_class ref_obj on d.refobjid = ref_obj.oid
+      join pg_catalog.pg_namespace ref_ns on ref_obj.relnamespace = ref_ns.oid
+      where c1.relname = 'pg_rewrite'
+        and c2.relname = 'pg_class'
+        and d.deptype = 'n'
+        and c1.relnamespace = (select oid from pg_namespace where nspname = 'pg_catalog')
+        and c2.relnamespace = (select oid from pg_namespace where nspname = 'pg_catalog')
+      union all
+      -- Views/materialized views depending on functions
+      select distinct
+        case
+          when v.relkind = 'v' then 'view:' || v_ns.nspname || '.' || v.relname
+          when v.relkind = 'm' then 'materializedView:' || v_ns.nspname || '.' || v.relname
+          else 'unknown:' || v.relname || ':' || v.relkind::text
+        end as dependent_stable_id,
+        'procedure:' || ref_proc_ns.nspname || '.' || ref_proc.proname || '('
+          || coalesce(
+            (
+              select string_agg(format_type(oid, null), ',' order by ord)
+              from unnest(ref_proc.proargtypes) with ordinality as t(oid, ord)
+            ),
+            ''
+          ) || ')' as referenced_stable_id,
+        d.deptype
+      from pg_catalog.pg_depend d
+      join pg_catalog.pg_class c1 on d.classid = c1.oid
+      join pg_catalog.pg_class c2 on d.refclassid = c2.oid
+      join pg_catalog.pg_rewrite r on r.oid = d.objid
+      join pg_catalog.pg_class v on r.ev_class = v.oid
+      join pg_catalog.pg_namespace v_ns on v.relnamespace = v_ns.oid
+      join pg_catalog.pg_proc ref_proc on d.refobjid = ref_proc.oid
+      join pg_catalog.pg_namespace ref_proc_ns on ref_proc.pronamespace = ref_proc_ns.oid
+      where c1.relname = 'pg_rewrite'
+        and c2.relname = 'pg_proc'
+        and d.deptype = 'n'
+        and c1.relnamespace = (select oid from pg_namespace where nspname = 'pg_catalog')
+        and c2.relnamespace = (select oid from pg_namespace where nspname = 'pg_catalog')
+    ) as view_depends_rows
+    where dependent_stable_id != referenced_stable_id
   `;
 
   return dependsRows;
+}
+
+/**
+ * Extract dependencies where tables depend on functions, either via
+ * column defaults (pg_attrdef) or table constraints (pg_constraint).
+ */
+async function extractTableAndConstraintFunctionDepends(
+  sql: Sql,
+): Promise<PgDepend[]> {
+  const rows = await sql<PgDepend[]>`
+    -- Table depends on function via column default expression
+    select distinct
+      'table:' || ns.nspname || '.' || tbl.relname as dependent_stable_id,
+      'procedure:' || proc_ns.nspname || '.' || proc.proname || '('
+        || coalesce(
+          (
+            select string_agg(format_type(oid, null), ',' order by ord)
+            from unnest(proc.proargtypes) with ordinality as t(oid, ord)
+          ),
+          ''
+        ) || ')' as referenced_stable_id,
+      d.deptype
+    from pg_depend d
+    join pg_class c_dep on d.classid = c_dep.oid and c_dep.relname = 'pg_attrdef'
+    join pg_attrdef ad on d.objid = ad.oid
+    join pg_class tbl on ad.adrelid = tbl.oid
+    join pg_namespace ns on tbl.relnamespace = ns.oid
+    join pg_class c_ref on d.refclassid = c_ref.oid and c_ref.relname = 'pg_proc'
+    join pg_proc proc on d.refobjid = proc.oid
+    join pg_namespace proc_ns on proc.pronamespace = proc_ns.oid
+    where d.deptype = 'n'
+    union all
+    -- Table depends on function via CHECK constraint expression
+    select distinct
+      'table:' || ns.nspname || '.' || tbl.relname as dependent_stable_id,
+      'procedure:' || proc_ns.nspname || '.' || proc.proname || '('
+        || coalesce(
+          (
+            select string_agg(format_type(oid, null), ',' order by ord)
+            from unnest(proc.proargtypes) with ordinality as t(oid, ord)
+          ),
+          ''
+        ) || ')' as referenced_stable_id,
+      d.deptype
+    from pg_depend d
+    join pg_class c_dep on d.classid = c_dep.oid and c_dep.relname = 'pg_constraint'
+    join pg_constraint con on d.objid = con.oid and con.conrelid <> 0
+    join pg_class tbl on con.conrelid = tbl.oid
+    join pg_namespace ns on tbl.relnamespace = ns.oid
+    join pg_class c_ref on d.refclassid = c_ref.oid and c_ref.relname = 'pg_proc'
+    join pg_proc proc on d.refobjid = proc.oid
+    join pg_namespace proc_ns on proc.pronamespace = proc_ns.oid
+    where d.deptype = 'n'
+  `;
+  return rows;
 }
 
 /**
@@ -164,9 +246,17 @@ select * from (
     when dep_class.relname = 'pg_policy' and dep_policy.oid is not null and dep_policy_table.oid is not null
       then 'rlsPolicy:' || dep_policy_table_ns.nspname || '.' || dep_policy_table.relname || '.' || dep_policy.polname
     
-    -- Function/Procedure
+    -- Function/Procedure (include identity argument types for overload distinction)
     when dep_class.relname = 'pg_proc' and dep_proc.oid is not null
-      then 'function:' || dep_proc_ns.nspname || '.' || dep_proc.proname
+      then 'procedure:' || dep_proc_ns.nspname || '.' || dep_proc.proname || '('
+        || coalesce(
+          (
+            select string_agg(format_type(oid, null), ',' order by ord)
+            from unnest(dep_proc.proargtypes) with ordinality as t(oid, ord)
+          ),
+          ''
+        )
+        || ')'
     
     -- Trigger
     when dep_class.relname = 'pg_trigger' and dep_trigger.oid is not null and dep_trigger_table.oid is not null
@@ -275,7 +365,15 @@ select * from (
       then 'rlsPolicy:' || ref_policy_table_ns.nspname || '.' || ref_policy_table.relname || '.' || ref_policy.polname
     -- Function/Procedure
     when ref_class.relname = 'pg_proc' and ref_proc.oid is not null
-      then 'function:' || ref_proc_ns.nspname || '.' || ref_proc.proname
+      then 'procedure:' || ref_proc_ns.nspname || '.' || ref_proc.proname || '('
+        || coalesce(
+          (
+            select string_agg(format_type(oid, null), ',' order by ord)
+            from unnest(ref_proc.proargtypes) with ordinality as t(oid, ord)
+          ),
+          ''
+        )
+        || ')'
     -- Trigger
     when ref_class.relname = 'pg_trigger' and ref_trigger.oid is not null and ref_trigger_table.oid is not null
       then 'trigger:' || ref_trigger_table_ns.nspname || '.' || ref_trigger_table.relname || '.' || ref_trigger.tgname
@@ -449,9 +547,15 @@ where dependent_stable_id != referenced_stable_id
 
   // Also extract view dependencies from pg_rewrite
   const viewDepends = await extractViewAndMaterializedViewsDepends(sql);
+  // Also extract table -> function dependencies (defaults/constraints)
+  const tableFuncDepends = await extractTableAndConstraintFunctionDepends(sql);
 
   // Combine both dependency sources and remove duplicates
-  const allDepends = new Set([...dependsRows, ...viewDepends]);
+  const allDepends = new Set([
+    ...dependsRows,
+    ...viewDepends,
+    ...tableFuncDepends,
+  ]);
 
   return Array.from(allDepends).sort(
     (a, b) =>

@@ -1,7 +1,7 @@
 import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
+import { formatConfigValue } from "../utils.ts";
 import { CreateProcedure } from "./procedure.create.ts";
-import { DropProcedure } from "./procedure.drop.ts";
 
 /**
  * Alter a procedure.
@@ -150,11 +150,12 @@ export class AlterProcedureSetConfig extends AlterChange {
       }
     }
 
-    // Added or changed keys -> SET key=value
+    // Added or changed keys -> SET key TO value
     for (const [key, newValue] of branchMap.entries()) {
       const oldValue = mainMap.get(key);
       if (oldValue !== newValue) {
-        statements.push(`${head} SET ${key}=${newValue}`);
+        const formatted = formatConfigValue(key, newValue);
+        statements.push(`${head} SET ${key} TO ${formatted}`);
       }
     }
 
@@ -307,9 +308,10 @@ export class ReplaceProcedure extends ReplaceChange {
   }
 
   serialize(): string {
-    const dropChange = new DropProcedure({ procedure: this.main });
-    const createChange = new CreateProcedure({ procedure: this.branch });
-
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
+    const createChange = new CreateProcedure({
+      procedure: this.branch,
+      orReplace: true,
+    });
+    return createChange.serialize();
   }
 }

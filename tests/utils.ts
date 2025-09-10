@@ -80,7 +80,7 @@ export function getTestWithSupabaseIsolated(postgresVersion: PostgresVersion) {
   });
 }
 
-function pick(keys: string[]) {
+function _pick(keys: string[]) {
   return (obj: Record<string, unknown>) => {
     const result: Record<string, unknown> = {};
     for (const key of keys) {

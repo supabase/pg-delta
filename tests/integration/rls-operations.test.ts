@@ -271,7 +271,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         description: "create policy with WITH CHECK",
         expectedSqlTerms: [
           "CREATE POLICY insert_own_posts ON blog.posts FOR INSERT WITH CHECK (true)",
-
         ],
         expectedMasterDependencies: [
           {
@@ -338,7 +337,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         description: "create RESTRICTIVE policy",
         expectedSqlTerms: [
           "CREATE POLICY admin_only ON secure.sensitive_data AS RESTRICTIVE FOR SELECT USING (true)",
-
         ],
         expectedMasterDependencies: [
           {
@@ -407,8 +405,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP POLICY user_isolation ON app.users;
         `,
         description: "drop RLS policy",
-        expectedSqlTerms: [  "DROP POLICY user_isolation ON app.users",
-        ],
+        expectedSqlTerms: ["DROP POLICY user_isolation ON app.users"],
         expectedMasterDependencies: [
           {
             dependent_stable_id: "table:app.users",
@@ -603,7 +600,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "ALTER TABLE tenant.data ADD CONSTRAINT data_pkey PRIMARY KEY (id)",
           "CREATE POLICY tenant_isolation ON tenant.data USING (true) WITH CHECK (true)",
           "CREATE POLICY admin_bypass ON tenant.data USING (true) WITH CHECK (true)",
-        
         ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
@@ -657,7 +653,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         description: "create basic RLS policy on simple table",
         expectedSqlTerms: [
           "CREATE POLICY user_policy ON app.users USING (true)",
-
         ],
         expectedMasterDependencies: [
           {
@@ -721,9 +716,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP POLICY user_policy ON app.users;
         `,
         description: "drop RLS policy from simple table",
-        expectedSqlTerms: [
-          "DROP POLICY user_policy ON app.users",
-        ],
+        expectedSqlTerms: ["DROP POLICY user_policy ON app.users"],
         expectedMasterDependencies: [
           {
             dependent_stable_id: "table:app.users",

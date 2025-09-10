@@ -25,10 +25,13 @@ describe("procedure", () => {
       argument_modes: null,
       argument_defaults: null,
       source_code: "BEGIN RETURN; END;",
+      definition: null,
       binary_path: null,
       sql_body: null,
       config: null,
       owner: "test",
+      execution_cost: 0,
+      result_rows: 0,
     });
 
     const change = new DropProcedure({
@@ -62,8 +65,11 @@ describe("procedure", () => {
       source_code: null,
       binary_path: null,
       sql_body: "SELECT 1",
+      definition: null,
       config: null,
       owner: "test",
+      execution_cost: 0,
+      result_rows: 0,
     });
 
     const change = new DropProcedure({ procedure: fn });

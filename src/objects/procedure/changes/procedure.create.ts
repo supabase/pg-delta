@@ -1,6 +1,6 @@
 import { CreateChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
-import { formatFunctionArguments } from "../utils.ts";
+import { formatConfigValue, formatFunctionArguments } from "../utils.ts";
 
 /**
  * Create a procedure.
@@ -32,10 +32,12 @@ import { formatFunctionArguments } from "../utils.ts";
  */
 export class CreateProcedure extends CreateChange {
   public readonly procedure: Procedure;
+  public readonly orReplace: boolean;
 
-  constructor(props: { procedure: Procedure }) {
+  constructor(props: { procedure: Procedure; orReplace?: boolean }) {
     super();
     this.procedure = props.procedure;
+    this.orReplace = props.orReplace ?? false;
   }
 
   get stableId(): string {
@@ -44,6 +46,7 @@ export class CreateProcedure extends CreateChange {
 
   serialize(): string {
     const parts: string[] = ["CREATE"];
+    if (this.orReplace) parts.push("OR REPLACE");
 
     // Add FUNCTION or PROCEDURE based on kind
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
@@ -72,12 +75,6 @@ export class CreateProcedure extends CreateChange {
       parts.push("LANGUAGE", this.procedure.language);
     }
 
-    // Add SECURITY DEFINER/INVOKER
-    if (this.procedure.security_definer) {
-      parts.push("SECURITY DEFINER");
-    }
-    // SECURITY INVOKER is default, don't print it
-
     // Mark window functions explicitly
     if (this.procedure.kind === "w") {
       parts.push("WINDOW");
@@ -94,6 +91,24 @@ export class CreateProcedure extends CreateChange {
     }
     // VOLATILE is default, don't print it
 
+    // Add LEAKPROOF
+    if (this.procedure.leakproof) {
+      parts.push("LEAKPROOF");
+    }
+    // NOT LEAKPROOF is default, don't print it
+
+    // Add STRICT
+    if (this.procedure.is_strict) {
+      parts.push("STRICT");
+    }
+    // CALLED ON NULL INPUT is default, don't print it
+
+    // Add SECURITY DEFINER/INVOKER
+    if (this.procedure.security_definer) {
+      parts.push("SECURITY DEFINER");
+    }
+    // SECURITY INVOKER is default, don't print it
+
     // Add parallel safety
     const parallelMap: Record<string, string> = {
       u: "PARALLEL UNSAFE",
@@ -108,31 +123,81 @@ export class CreateProcedure extends CreateChange {
     }
     // PARALLEL UNSAFE is default, don't print it
 
-    // Add STRICT
-    if (this.procedure.is_strict) {
-      parts.push("STRICT");
-    }
-    // CALLED ON NULL INPUT is default, don't print it
+    // Add COST for functions (not procedures). Skip default values
+    if (this.procedure.kind !== "p") {
+      const languageLower = (this.procedure.language || "").toLowerCase();
+      // Defaults: 1 for C/internal functions; 100 for all other languages
+      const defaultCost =
+        languageLower === "c" || languageLower === "internal" ? 1 : 100;
+      if (
+        typeof this.procedure.execution_cost === "number" &&
+        this.procedure.execution_cost !== defaultCost
+      ) {
+        parts.push("COST", String(this.procedure.execution_cost));
+      }
 
-    // Add LEAKPROOF
-    if (this.procedure.leakproof) {
-      parts.push("LEAKPROOF");
+      // Add ROWS for set-returning functions when non-default
+      if (
+        this.procedure.returns_set &&
+        typeof this.procedure.result_rows === "number"
+      ) {
+        const defaultRows = 1000; // PostgreSQL default for set-returning functions
+        const rows = this.procedure.result_rows;
+        if (rows > 0 && rows !== defaultRows) {
+          parts.push("ROWS", String(rows));
+        }
+      }
     }
-    // NOT LEAKPROOF is default, don't print it
 
     // Add SET configuration parameters (only non-defaults; default is no SET)
     if (this.procedure.config && this.procedure.config.length > 0) {
       for (const opt of this.procedure.config) {
-        // opt comes as "key=value" from proconfig; emit as-is
-        parts.push("SET", opt);
+        const eqIndex = opt.indexOf("=");
+        if (eqIndex === -1) continue;
+        const key = opt.slice(0, eqIndex).trim();
+        const rawValue = opt.slice(eqIndex + 1).trim();
+        const formatted = formatConfigValue(key, rawValue);
+        parts.push("SET", `${key} TO ${formatted}`);
       }
     }
 
     // Add AS clause
-    if (this.procedure.sql_body) {
-      parts.push("AS", `$$${this.procedure.sql_body}$$`);
-    } else if (this.procedure.source_code) {
-      parts.push("AS", `$$${this.procedure.source_code}$$`);
+    const lang = (this.procedure.language || "").toLowerCase();
+    if (lang === "sql") {
+      // Prefer normalized body extracted from definition, then fall back
+      let body: string | null = null;
+      if (this.procedure.definition) {
+        // Prefer extracting from dollar-quoted body using the same tag on both sides
+        let match = this.procedure.definition.match(
+          /AS\s+(\$[^$]*\$)([\s\S]*?)\1/i,
+        );
+        if (match && match[2] != null) {
+          body = match[2].trim();
+        } else {
+          // Fallback: single-quoted body in definition
+          match = this.procedure.definition.match(/AS\s+'([\s\S]*?)'/i);
+          if (match && match[1] != null) {
+            body = match[1].replace(/''/g, "'").trim();
+          }
+        }
+      }
+      if (!body) {
+        body = (
+          this.procedure.sql_body ||
+          this.procedure.source_code ||
+          ""
+        ).trim();
+      }
+      if (body) {
+        const singleQuoted = body.replace(/'/g, "''");
+        parts.push("AS", `'${singleQuoted}'`);
+      }
+    } else {
+      if (this.procedure.sql_body) {
+        parts.push("AS", `$$${this.procedure.sql_body}$$`);
+      } else if (this.procedure.source_code) {
+        parts.push("AS", `$$${this.procedure.source_code}$$`);
+      }
     }
 
     return parts.join(" ");

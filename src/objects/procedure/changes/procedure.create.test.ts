@@ -25,10 +25,13 @@ describe("procedure", () => {
       argument_modes: null,
       argument_defaults: null,
       source_code: "BEGIN RETURN; END;",
+      definition: null,
       binary_path: null,
       sql_body: null,
       config: null,
       owner: "test",
+      execution_cost: 0,
+      result_rows: 0,
     });
 
     const change = new CreateProcedure({
@@ -64,8 +67,11 @@ describe("procedure", () => {
       source_code: null,
       binary_path: null,
       sql_body: "SELECT 1",
+      definition: null,
       config: ["search_path=public", "work_mem=64MB"],
       owner: "test",
+      execution_cost: 0,
+      result_rows: 0,
     });
 
     const change = new CreateProcedure({
@@ -73,7 +79,7 @@ describe("procedure", () => {
     });
 
     expect(change.serialize()).toBe(
-      "CREATE FUNCTION public.fn_all() RETURNS SETOF int4 LANGUAGE sql SECURITY DEFINER WINDOW IMMUTABLE PARALLEL SAFE STRICT LEAKPROOF SET search_path=public SET work_mem=64MB AS $$SELECT 1$$",
+      "CREATE FUNCTION public.fn_all() RETURNS SETOF int4 LANGUAGE sql WINDOW IMMUTABLE LEAKPROOF STRICT SECURITY DEFINER PARALLEL SAFE COST 0 SET search_path TO public SET work_mem TO '64MB' AS 'SELECT 1'",
     );
   });
 });

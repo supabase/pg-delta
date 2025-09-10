@@ -37,8 +37,8 @@ export class CreateView extends CreateChange {
       parts.push("WITH", `(${this.view.options.join(", ")})`);
     }
 
-    // Add AS query
-    parts.push("AS", this.view.definition);
+    // Add AS query (trim to avoid double spaces before SELECT)
+    parts.push("AS", (this.view.definition || "").trim());
 
     return parts.join(" ");
   }
