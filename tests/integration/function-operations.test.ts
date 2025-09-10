@@ -414,7 +414,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "CREATE TABLE test_schema.products (price numeric(10,2))",
           "CREATE FUNCTION test_schema.format_price(price numeric) RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT ''$'' || price::text'",
-          `CREATE VIEW test_schema.product_display AS SELECT test_schema.format_price(price) AS formatted_price
+          pgVersion === 15
+            ? `CREATE VIEW test_schema.product_display AS SELECT test_schema.format_price(products.price) AS formatted_price
+   FROM test_schema.products`
+            : `CREATE VIEW test_schema.product_display AS SELECT test_schema.format_price(price) AS formatted_price
    FROM test_schema.products`,
         ],
         expectedMasterDependencies: [],
@@ -506,7 +509,12 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               WHEN denominator = 0 THEN NULL
               ELSE numerator / denominator
             END'`,
-          `CREATE VIEW test_schema.metric_averages AS SELECT name,
+          pgVersion === 15
+            ? `CREATE VIEW test_schema.metric_averages AS SELECT metrics.name,
+    test_schema.safe_divide(metrics.total_value, (metrics.count_value)::numeric) AS average_value
+   FROM test_schema.metrics
+  WHERE (metrics.count_value > 0)`
+            : `CREATE VIEW test_schema.metric_averages AS SELECT name,
     test_schema.safe_divide(total_value, (count_value)::numeric) AS average_value
    FROM test_schema.metrics
   WHERE (count_value > 0)`,

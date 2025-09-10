@@ -442,9 +442,15 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.calculations ADD COLUMN computed numeric GENERATED ALWAYS AS (value_a * value_b) STORED;
         `,
         description: "alter generated column expression",
-        expectedSqlTerms: [
-          "ALTER TABLE test_schema.calculations ALTER COLUMN computed SET EXPRESSION AS (value_a * value_b)",
-        ],
+        expectedSqlTerms:
+          pgVersion === 15
+            ? [
+                "ALTER TABLE test_schema.calculations DROP COLUMN computed",
+                "ALTER TABLE test_schema.calculations ADD COLUMN computed numeric GENERATED ALWAYS AS (value_a * value_b) STORED",
+              ]
+            : [
+                "ALTER TABLE test_schema.calculations ALTER COLUMN computed SET EXPRESSION AS (value_a * value_b)",
+              ],
         expectedMasterDependencies: [
           {
             dependent_stable_id: "table:test_schema.calculations",

@@ -33,7 +33,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "create new materialized view",
         expectedSqlTerms: [
-          `CREATE MATERIALIZED VIEW test_schema.active_users AS  SELECT id,
+          pgVersion === 15
+            ? `CREATE MATERIALIZED VIEW test_schema.active_users AS  SELECT users.id,
+    users.name,
+    users.email
+   FROM test_schema.users
+  WHERE (users.active = true)`
+            : `CREATE MATERIALIZED VIEW test_schema.active_users AS  SELECT id,
     name,
     email
    FROM test_schema.users
@@ -186,7 +192,15 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "replace materialized view definition",
         expectedSqlTerms: [
-          `DROP MATERIALIZED VIEW test_schema.user_summary;
+          pgVersion === 15
+            ? `DROP MATERIALIZED VIEW test_schema.user_summary;
+CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT users.id,
+    users.name,
+    users.email
+   FROM test_schema.users
+  WHERE (users.active = true)
+  ORDER BY users.name`
+            : `DROP MATERIALIZED VIEW test_schema.user_summary;
 CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
     name,
     email
@@ -277,7 +291,14 @@ CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
         `,
         description: "materialized view with aggregations",
         expectedSqlTerms: [
-          `CREATE MATERIALIZED VIEW analytics.monthly_sales AS  SELECT date_trunc('month'::text, (sale_date)::timestamp with time zone) AS month,
+          pgVersion === 15
+            ? `CREATE MATERIALIZED VIEW analytics.monthly_sales AS  SELECT date_trunc('month'::text, (sales.sale_date)::timestamp with time zone) AS month,
+    count(*) AS total_sales,
+    sum(sales.amount) AS total_revenue
+   FROM analytics.sales
+  GROUP BY (date_trunc('month'::text, (sales.sale_date)::timestamp with time zone))
+  ORDER BY (date_trunc('month'::text, (sales.sale_date)::timestamp with time zone))`
+            : `CREATE MATERIALIZED VIEW analytics.monthly_sales AS  SELECT date_trunc('month'::text, (sale_date)::timestamp with time zone) AS month,
     count(*) AS total_sales,
     sum(amount) AS total_revenue
    FROM analytics.sales

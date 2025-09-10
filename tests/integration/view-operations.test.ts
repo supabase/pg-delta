@@ -31,7 +31,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         description: "simple view creation",
         expectedSqlTerms: [
           `CREATE TABLE test_schema.users (id integer, name text, email text)`,
-          `CREATE VIEW test_schema.active_users AS SELECT id,
+          pgVersion === 15
+            ? `CREATE VIEW test_schema.active_users AS SELECT users.id,
+    users.name,
+    users.email
+   FROM test_schema.users
+  WHERE (users.email IS NOT NULL)`
+            : `CREATE VIEW test_schema.active_users AS SELECT id,
     name,
     email
    FROM test_schema.users
@@ -107,14 +113,28 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         description: "nested view dependencies - 3 levels deep",
         expectedSqlTerms: [
           `CREATE TABLE test_schema.users (id integer, name text, email text, created_at timestamp without time zone DEFAULT now())`,
-          `CREATE VIEW test_schema.recent_users AS SELECT id,
+          pgVersion === 15
+            ? `CREATE VIEW test_schema.recent_users AS SELECT users.id,
+    users.name,
+    users.email,
+    users.created_at
+   FROM test_schema.users
+  WHERE (users.created_at > (now() - '30 days'::interval))`
+            : `CREATE VIEW test_schema.recent_users AS SELECT id,
     name,
     email,
     created_at
    FROM test_schema.users
   WHERE (created_at > (now() - '30 days'::interval))`,
           `CREATE TABLE test_schema.orders (id integer, user_id integer, amount numeric(10,2), created_at timestamp without time zone DEFAULT now())`,
-          `CREATE VIEW test_schema.high_value_orders AS SELECT id,
+          pgVersion === 15
+            ? `CREATE VIEW test_schema.high_value_orders AS SELECT orders.id,
+    orders.user_id,
+    orders.amount,
+    orders.created_at
+   FROM test_schema.orders
+  WHERE (orders.amount > (100)::numeric)`
+            : `CREATE VIEW test_schema.high_value_orders AS SELECT id,
     user_id,
     amount,
     created_at
@@ -128,7 +148,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
    FROM (test_schema.recent_users u
      JOIN test_schema.high_value_orders o ON ((u.id = o.user_id)))
   GROUP BY u.id, u.name, u.email`,
-          `CREATE VIEW test_schema.top_customers AS SELECT id,
+          pgVersion === 15
+            ? `CREATE VIEW test_schema.top_customers AS SELECT recent_big_spenders.id,
+    recent_big_spenders.name,
+    recent_big_spenders.email,
+    recent_big_spenders.total_spent
+   FROM test_schema.recent_big_spenders
+  WHERE (recent_big_spenders.total_spent > (1000)::numeric)
+  ORDER BY recent_big_spenders.total_spent DESC
+ LIMIT 10`
+            : `CREATE VIEW test_schema.top_customers AS SELECT id,
     name,
     email,
     total_spent
@@ -513,7 +542,28 @@ UNION ALL
         description: "valid recursive patterns are not flagged as cycles",
         expectedSqlTerms: [
           "CREATE TABLE test_schema.employees (id integer, name text, manager_id integer)",
-          `CREATE VIEW test_schema.employee_hierarchy AS WITH RECURSIVE hierarchy AS (
+          pgVersion === 15
+            ? `CREATE VIEW test_schema.employee_hierarchy AS WITH RECURSIVE hierarchy AS (
+         SELECT employees.id,
+            employees.name,
+            employees.manager_id,
+            0 AS level
+           FROM test_schema.employees
+          WHERE (employees.manager_id IS NULL)
+        UNION ALL
+         SELECT e.id,
+            e.name,
+            e.manager_id,
+            (h.level + 1)
+           FROM (test_schema.employees e
+             JOIN hierarchy h ON ((e.manager_id = h.id)))
+        )
+ SELECT hierarchy.id,
+    hierarchy.name,
+    hierarchy.manager_id,
+    hierarchy.level
+   FROM hierarchy`
+            : `CREATE VIEW test_schema.employee_hierarchy AS WITH RECURSIVE hierarchy AS (
          SELECT employees.id,
             employees.name,
             employees.manager_id,

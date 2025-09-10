@@ -147,6 +147,7 @@ function createAlterConstraintChange(
 export function diffTables(
   main: Record<string, Table>,
   branch: Record<string, Table>,
+  version: number,
 ): Change[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
@@ -338,6 +339,7 @@ export function diffTables(
       // DEFAULT change
       if (mainCol.default !== branchCol.default) {
         if (branchCol.default === null) {
+          // Drop default value
           changes.push(
             new AlterTableAlterColumnDropDefault({
               table: branchTable,
@@ -345,12 +347,37 @@ export function diffTables(
             }),
           );
         } else {
-          changes.push(
-            new AlterTableAlterColumnSetDefault({
-              table: branchTable,
-              column: branchCol,
-            }),
-          );
+          // Set new default value
+          const isGeneratedColumn = branchCol.is_generated;
+          const isPostgresLowerThan17 = version < 170000;
+
+          if (isGeneratedColumn && isPostgresLowerThan17) {
+            // For generated columns in < PostgreSQL 17, we need to drop and recreate
+            // instead of using SET EXPRESSION AS for computed columns
+            // cf: https://git.postgresql.org/gitweb/?p=postgresql.git;a=commitdiff;h=5d06e99a3
+            // cf: https://www.postgresql.org/docs/release/17.0/
+            // > Allow ALTER TABLE to change a column's generation expression
+            changes.push(
+              new AlterTableDropColumn({
+                table: mainTable,
+                column: mainCol,
+              }),
+            );
+            changes.push(
+              new AlterTableAddColumn({
+                table: branchTable,
+                column: branchCol,
+              }),
+            );
+          } else {
+            // Use standard SET DEFAULT or SET EXPRESSION AS for newer PostgreSQL versions
+            changes.push(
+              new AlterTableAlterColumnSetDefault({
+                table: branchTable,
+                column: branchCol,
+              }),
+            );
+          }
         }
       }
 

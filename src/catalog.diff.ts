@@ -39,7 +39,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(...diffRoles(main.roles, branch.roles));
   changes.push(...diffSchemas(main.schemas, branch.schemas));
   changes.push(...diffSequences(main.sequences, branch.sequences));
-  changes.push(...diffTables(main.tables, branch.tables));
+  changes.push(...diffTables(main.tables, branch.tables, branch.version));
   changes.push(
     ...diffTriggers(main.triggers, branch.triggers, branch.indexableObjects),
   );

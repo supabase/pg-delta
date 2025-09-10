@@ -1,6 +1,7 @@
 import type { Sql } from "postgres";
 import { extractDepends, type PgDepend } from "./depend.ts";
 import type { BasePgModel, TableLikeObject } from "./objects/base.model.ts";
+import { extractVersion } from "./version.ts";
 import {
   type Collation,
   extractCollations,
@@ -62,6 +63,7 @@ interface CatalogProps {
   views: Record<string, View>;
   depends: PgDepend[];
   indexableObjects: Record<string, TableLikeObject>;
+  version: number;
 }
 
 export class Catalog {
@@ -83,6 +85,7 @@ export class Catalog {
   public readonly views: CatalogProps["views"];
   public readonly depends: CatalogProps["depends"];
   public readonly indexableObjects: CatalogProps["indexableObjects"];
+  public readonly version: CatalogProps["version"];
 
   constructor(props: CatalogProps) {
     this.collations = props.collations;
@@ -103,6 +106,7 @@ export class Catalog {
     this.views = props.views;
     this.depends = props.depends;
     this.indexableObjects = props.indexableObjects;
+    this.version = props.version;
   }
 }
 
@@ -125,6 +129,7 @@ export async function extractCatalog(sql: Sql) {
     ranges,
     views,
     depends,
+    version,
   ] = await Promise.all([
     extractCollations(sql).then(listToRecord),
     extractCompositeTypes(sql).then(listToRecord),
@@ -143,6 +148,7 @@ export async function extractCatalog(sql: Sql) {
     extractRanges(sql).then(listToRecord),
     extractViews(sql).then(listToRecord),
     extractDepends(sql),
+    extractVersion(sql),
   ]);
 
   const indexableObjects = {
@@ -186,6 +192,7 @@ export async function extractCatalog(sql: Sql) {
     views,
     depends,
     indexableObjects,
+    version,
   });
 }
 
