@@ -19,7 +19,7 @@ export const postgresConfig: postgres.Options<
         return value
           .split(" ")
           .map(Number)
-          .filter((n) => !isNaN(n));
+          .filter((n) => !Number.isNaN(n));
       },
       // Serialize array back to int2vector format if needed
       serialize: (value: number[]) => {

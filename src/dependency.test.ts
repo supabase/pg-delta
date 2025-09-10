@@ -82,7 +82,7 @@ describe("DependencyResolver", () => {
       sequences: {},
       tables: {},
       triggers: {},
-      types: {},
+      ranges: {},
       views: {},
       depends: dependencies,
       indexableObjects: {},
@@ -400,7 +400,9 @@ describe("DependencyResolver", () => {
         cycle_option: false,
         cache_size: 1,
         persistence: "p",
-        owner: "owner",
+        owned_by_schema: "test",
+        owned_by_table: "users",
+        owned_by_column: "id",
       });
 
       const changes = [
@@ -1184,7 +1186,9 @@ describe("DependencyResolver", () => {
             cycle_option: false,
             cache_size: 1,
             persistence: "p",
-            owner: "owner",
+            owned_by_schema: "test",
+            owned_by_table: "users",
+            owned_by_column: "id",
           }),
         }),
         new DummyCreate("schema:test"),
@@ -1704,7 +1708,7 @@ describe("DependencyResolver", () => {
         sequences: {},
         tables: {},
         triggers: {},
-        types: {},
+        ranges: {},
         views: {},
         depends: [
           {

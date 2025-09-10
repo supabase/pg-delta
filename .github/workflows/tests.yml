@@ -57,9 +57,9 @@ jobs:
       - name: Knip
         run: pnpm knip
 
-  test-e2e:
+  test:
     if: github.event.pull_request.draft == false
-    name: E2E tests
+    name: Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -68,5 +68,10 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
 
-      - name: Run E2E tests
-        run: pnpm test inspect
+      - name: Run tests
+        run: pnpm coverage
+
+      - uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: coverage/lcov.info

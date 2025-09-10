@@ -48,7 +48,9 @@ export class Schema extends BasePgModel {
 }
 
 export async function extractSchemas(sql: Sql): Promise<Schema[]> {
-  const schemaRows = await sql`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const schemaRows = await sql`
     with extension_oids as (
       select
         objid
@@ -59,8 +61,8 @@ export async function extractSchemas(sql: Sql): Promise<Schema[]> {
         and d.classid = 'pg_namespace'::regclass
     )
     select
-      nspname as schema,
-      nspowner::regrole as owner
+      quote_ident(nspname) as schema,
+      nspowner::regrole::text as owner
     from
       pg_catalog.pg_namespace
       left outer join extension_oids e on e.objid = oid
@@ -71,9 +73,10 @@ export async function extractSchemas(sql: Sql): Promise<Schema[]> {
     order by
       1;
   `;
-  // Validate and parse each row using the Zod schema
-  const validatedRows = schemaRows.map((row: unknown) =>
-    schemaPropsSchema.parse(row),
-  );
-  return validatedRows.map((row: SchemaProps) => new Schema(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = schemaRows.map((row: unknown) =>
+      schemaPropsSchema.parse(row),
+    );
+    return validatedRows.map((row: SchemaProps) => new Schema(row));
+  });
 }

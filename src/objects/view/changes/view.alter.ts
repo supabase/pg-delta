@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { View } from "../view.model.ts";
 import { CreateView } from "./view.create.ts";
 import { DropView } from "./view.drop.ts";
@@ -17,11 +13,17 @@ import { DropView } from "./view.drop.ts";
  * ALTER VIEW [ IF EXISTS ] name ALTER [ COLUMN ] column_name SET DEFAULT expression
  * ALTER VIEW [ IF EXISTS ] name ALTER [ COLUMN ] column_name DROP DEFAULT
  * ALTER VIEW [ IF EXISTS ] name OWNER TO { new_owner | CURRENT_ROLE | CURRENT_USER | SESSION_USER }
+ * ALTER VIEW [ IF EXISTS ] name RENAME [ COLUMN ] column_name TO new_column_name
  * ALTER VIEW [ IF EXISTS ] name RENAME TO new_name
  * ALTER VIEW [ IF EXISTS ] name SET SCHEMA new_schema
+ * ALTER VIEW [ IF EXISTS ] name SET ( view_option_name [= view_option_value] [, ... ] )
+ * ALTER VIEW [ IF EXISTS ] name RESET ( view_option_name [, ... ] )
  * ```
  */
-export type AlterView = AlterViewChangeOwner;
+type AlterView =
+  | AlterViewChangeOwner
+  | AlterViewSetOptions
+  | AlterViewResetOptions;
 
 /**
  * ALTER VIEW ... OWNER TO ...
@@ -43,9 +45,9 @@ export class AlterViewChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER VIEW",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "OWNER TO",
-      quoteIdentifier(this.branch.owner),
+      this.branch.owner,
     ].join(" ");
   }
 }
@@ -73,5 +75,60 @@ export class ReplaceView extends ReplaceChange {
     const createChange = new CreateView({ view: this.branch });
 
     return [dropChange.serialize(), createChange.serialize()].join(";\n");
+  }
+}
+
+/**
+ * ALTER VIEW ... SET ( ... )
+ */
+export class AlterViewSetOptions extends AlterChange {
+  public readonly main: View;
+  public readonly branch: View;
+
+  constructor(props: { main: View; branch: View }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
+  serialize(): string {
+    const opts = (this.branch.options ?? []).join(", ");
+    return [
+      "ALTER VIEW",
+      `${this.main.schema}.${this.main.name}`,
+      "SET",
+      `(${opts})`,
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER VIEW ... RESET ( ... )
+ */
+export class AlterViewResetOptions extends AlterChange {
+  public readonly view: View;
+  public readonly params: string[];
+
+  constructor(props: { view: View; params: string[] }) {
+    super();
+    this.view = props.view;
+    this.params = props.params;
+  }
+
+  get stableId(): string {
+    return `${this.view.stableId}`;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER VIEW",
+      `${this.view.schema}.${this.view.name}`,
+      "RESET",
+      `(${this.params.join(", ")})`,
+    ].join(" ");
   }
 }

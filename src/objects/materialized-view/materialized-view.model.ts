@@ -117,8 +117,8 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 )
 select
-  regexp_replace(c.relnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
-  c.relname as name,
+  c.relnamespace::regnamespace::text as schema,
+  quote_ident(c.relname) as name,
   -- remove trailing semicolon from the definition if present
   rtrim(pg_get_viewdef(c.oid), ';') as definition,
   c.relrowsecurity as row_security,
@@ -132,7 +132,7 @@ select
   c.relispartition as is_partition,
   c.reloptions as options,
   pg_get_expr(c.relpartbound, c.oid) as partition_bound,
-  c.relowner::regrole as owner,
+  c.relowner::regrole::text as owner,
   coalesce(json_agg(
     case when a.attname is not null then
       json_build_object(

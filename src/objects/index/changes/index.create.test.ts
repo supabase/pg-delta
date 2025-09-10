@@ -6,7 +6,7 @@ import { CreateIndex } from "./index.create.ts";
 describe("index", () => {
   test("create minimal", () => {
     const index = new Index({
-      table_schema: "public",
+      schema: "public",
       table_name: "test_table",
       name: "test_index",
       storage_params: [],
@@ -16,6 +16,7 @@ describe("index", () => {
       is_unique: false,
       is_primary: false,
       is_exclusion: false,
+      is_constraint: false,
       nulls_not_distinct: false,
       immediate: true,
       is_clustered: false,
@@ -61,7 +62,7 @@ describe("index", () => {
     // Full-options index using an expression, non-btree method, partial predicate,
     // storage params and tablespace
     const indexWithExpr = new Index({
-      table_schema: "public",
+      schema: "public",
       table_name: "test_table",
       name: "test_index_expr",
       storage_params: ["fillfactor=90", "deduplicate_items=off"],
@@ -69,6 +70,7 @@ describe("index", () => {
       index_type: "hash",
       tablespace: "fast_space",
       is_unique: true,
+      is_constraint: false,
       is_primary: false,
       is_exclusion: false,
       nulls_not_distinct: true,
@@ -92,7 +94,7 @@ describe("index", () => {
 
     // Also cover column name resolution via indexableObject (mapping)
     const indexWithCols = new Index({
-      table_schema: "public",
+      schema: "public",
       table_name: "test_table",
       name: "test_index_cols",
       storage_params: [],
@@ -100,6 +102,7 @@ describe("index", () => {
       index_type: "btree",
       tablespace: null,
       is_unique: false,
+      is_constraint: false,
       is_primary: false,
       is_exclusion: false,
       nulls_not_distinct: false,
@@ -107,7 +110,7 @@ describe("index", () => {
       is_clustered: false,
       is_replica_identity: false,
       key_columns: [1, 2, 3],
-      column_collations: ["pg_catalog.C", "pg_catalog.C", "pg_catalog.C"],
+      column_collations: ['pg_catalog."C"', 'pg_catalog."C"', 'pg_catalog."C"'],
       operator_classes: [
         "pg_catalog.int4_ops",
         "pg_catalog.timestamptz_ops",
@@ -182,7 +185,7 @@ describe("index", () => {
     });
 
     expect(changeCols.serialize()).toBe(
-      `CREATE INDEX test_index_cols ON public.test_table (id COLLATE "pg_catalog.C" pg_catalog.int4_ops, updated_at COLLATE "pg_catalog.C" pg_catalog.timestamptz_ops DESC NULLS FIRST, priority COLLATE "pg_catalog.C" pg_catalog.int4_ops DESC NULLS LAST)`,
+      `CREATE INDEX test_index_cols ON public.test_table (id COLLATE pg_catalog."C" pg_catalog.int4_ops, updated_at COLLATE pg_catalog."C" pg_catalog.timestamptz_ops DESC NULLS FIRST, priority COLLATE pg_catalog."C" pg_catalog.int4_ops DESC NULLS LAST)`,
     );
   });
 });

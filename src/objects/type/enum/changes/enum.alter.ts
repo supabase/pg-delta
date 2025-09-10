@@ -1,6 +1,5 @@
 import {
   AlterChange,
-  quoteIdentifier,
   quoteLiteral,
   ReplaceChange,
 } from "../../../base.change.ts";
@@ -21,7 +20,7 @@ import { DropEnum } from "./enum.drop.ts";
  * ALTER TYPE name RENAME VALUE existing_enum_value TO new_enum_value
  * ```
  */
-export type AlterEnum = AlterEnumChangeOwner | AlterEnumAddValue;
+type AlterEnum = AlterEnumChangeOwner | AlterEnumAddValue;
 
 /**
  * ALTER TYPE ... OWNER TO ...
@@ -43,9 +42,9 @@ export class AlterEnumChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER TYPE",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "OWNER TO",
-      quoteIdentifier(this.branch.owner),
+      this.branch.owner,
     ].join(" ");
   }
 }
@@ -79,7 +78,7 @@ export class AlterEnumAddValue extends AlterChange {
   serialize(): string {
     const parts = [
       "ALTER TYPE",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "ADD VALUE",
       quoteLiteral(this.newValue),
     ];

@@ -73,9 +73,11 @@ export class Role extends BasePgModel {
 }
 
 export async function extractRoles(sql: Sql): Promise<Role[]> {
-  const roleRows = await sql`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const roleRows = await sql`
 select
-  rolname as role_name,
+  quote_ident(rolname) as role_name,
   rolsuper as is_superuser,
   rolinherit as can_inherit,
   rolcreaterole as can_create_roles,
@@ -91,9 +93,10 @@ from
 order by
   1;
   `;
-  // Validate and parse each row using the Zod schema
-  const validatedRows = roleRows.map((row: unknown) =>
-    rolePropsSchema.parse(row),
-  );
-  return validatedRows.map((row: RoleProps) => new Role(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = roleRows.map((row: unknown) =>
+      rolePropsSchema.parse(row),
+    );
+    return validatedRows.map((row: RoleProps) => new Role(row));
+  });
 }

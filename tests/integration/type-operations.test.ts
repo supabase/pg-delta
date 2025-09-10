@@ -67,7 +67,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "create range type",
         expectedSqlTerms: [
-          `CREATE TYPE test_schema.floatrange AS RANGE (subtype = double precision)`,
+          `CREATE TYPE test_schema.floatrange AS RANGE (SUBTYPE = double precision)`,
         ],
       });
     });
@@ -997,7 +997,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `,
         description: "materialized view with range type dependency",
         expectedSqlTerms: [
-          "CREATE TYPE scheduling.time_range AS RANGE (subtype = timestamp(0) without time zone)",
+          "CREATE TYPE scheduling.time_range AS RANGE (SUBTYPE = timestamp(0) without time zone)",
           "CREATE TABLE scheduling.events (id integer NOT NULL, name text NOT NULL, time_slot scheduling.time_range)",
           "ALTER TABLE scheduling.events ADD CONSTRAINT events_pkey PRIMARY KEY (id)",
           `CREATE MATERIALIZED VIEW scheduling.event_durations AS  SELECT name,

@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../../base.change.ts";
+import { DropChange } from "../../../base.change.ts";
 import type { Enum } from "../enum.model.ts";
 
 /**
@@ -24,9 +24,6 @@ export class DropEnum extends DropChange {
   }
 
   serialize(): string {
-    return [
-      "DROP TYPE",
-      `${quoteIdentifier(this.enum.schema)}.${quoteIdentifier(this.enum.name)}`,
-    ].join(" ");
+    return ["DROP TYPE", `${this.enum.schema}.${this.enum.name}`].join(" ");
   }
 }

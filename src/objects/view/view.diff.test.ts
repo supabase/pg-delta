@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { AlterViewChangeOwner, ReplaceView } from "./changes/view.alter.ts";
+import {
+  AlterViewChangeOwner,
+  AlterViewResetOptions,
+  AlterViewSetOptions,
+  ReplaceView,
+} from "./changes/view.alter.ts";
 import { CreateView } from "./changes/view.create.ts";
 import { DropView } from "./changes/view.drop.ts";
 import { diffViews } from "./view.diff.ts";
@@ -50,5 +55,19 @@ describe.concurrent("view.diff", () => {
       { [branch.stableId]: branch },
     );
     expect(changes[0]).toBeInstanceOf(ReplaceView);
+  });
+
+  test("alter: set and reset options", () => {
+    const main = new View({
+      ...base,
+      options: ["security_barrier=true", "check_option=local"],
+    });
+    const branch = new View({ ...base, options: ["security_barrier=false"] });
+    const changes = diffViews(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((c) => c instanceof AlterViewSetOptions)).toBe(true);
+    expect(changes.some((c) => c instanceof AlterViewResetOptions)).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange } from "../../base.change.ts";
 import type { Language } from "../language.model.ts";
 
 /**
@@ -35,7 +35,7 @@ export class CreateLanguage extends CreateChange {
       parts.push("TRUSTED");
     }
 
-    parts.push("LANGUAGE", quoteIdentifier(this.language.name));
+    parts.push("LANGUAGE", this.language.name);
 
     // HANDLER (omit when null)
     if (this.language.call_handler) {

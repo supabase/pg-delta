@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import { DropChange } from "../../base.change.ts";
 import type { Role } from "../role.model.ts";
 
 /**
@@ -24,6 +24,6 @@ export class DropRole extends DropChange {
   }
 
   serialize(): string {
-    return ["DROP ROLE", quoteIdentifier(this.role.role_name)].join(" ");
+    return ["DROP ROLE", this.role.role_name].join(" ");
   }
 }

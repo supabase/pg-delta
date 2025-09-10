@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../../base.change.ts";
+import { DropChange } from "../../../base.change.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 
 /**
@@ -26,7 +26,7 @@ export class DropCompositeType extends DropChange {
   serialize(): string {
     return [
       "DROP TYPE",
-      `${quoteIdentifier(this.compositeType.schema)}.${quoteIdentifier(this.compositeType.name)}`,
+      `${this.compositeType.schema}.${this.compositeType.name}`,
     ].join(" ");
   }
 }

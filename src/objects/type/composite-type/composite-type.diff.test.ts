@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
+  AlterCompositeTypeAddAttribute,
+  AlterCompositeTypeAlterAttributeType,
   AlterCompositeTypeChangeOwner,
+  AlterCompositeTypeDropAttribute,
   ReplaceCompositeType,
 } from "./changes/composite-type.alter.ts";
 import { CreateCompositeType } from "./changes/composite-type.create.ts";
@@ -56,5 +59,129 @@ describe.concurrent("composite-type.diff", () => {
       { [branch.stableId]: branch },
     );
     expect(changes[0]).toBeInstanceOf(ReplaceCompositeType);
+  });
+
+  test("add attribute", () => {
+    const main = new CompositeType(base);
+    const branch = new CompositeType({
+      ...base,
+      columns: [
+        {
+          name: "a",
+          position: 1,
+          data_type: "text",
+          data_type_str: "text",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+    });
+    const changes = diffCompositeTypes(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(
+      changes.some((c) => c instanceof AlterCompositeTypeAddAttribute),
+    ).toBe(true);
+  });
+
+  test("drop attribute", () => {
+    const main = new CompositeType({
+      ...base,
+      columns: [
+        {
+          name: "a",
+          position: 1,
+          data_type: "text",
+          data_type_str: "text",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+    });
+    const branch = new CompositeType(base);
+    const changes = diffCompositeTypes(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(
+      changes.some((c) => c instanceof AlterCompositeTypeDropAttribute),
+    ).toBe(true);
+  });
+
+  test("alter attribute type/collation", () => {
+    const main = new CompositeType({
+      ...base,
+      columns: [
+        {
+          name: "a",
+          position: 1,
+          data_type: "text",
+          data_type_str: "text",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+    });
+    const branch = new CompositeType({
+      ...base,
+      columns: [
+        {
+          name: "a",
+          position: 1,
+          data_type: "text",
+          data_type_str: "text",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: "en_US",
+          default: null,
+          comment: null,
+        },
+      ],
+    });
+    const changes = diffCompositeTypes(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(
+      changes.some((c) => c instanceof AlterCompositeTypeAlterAttributeType),
+    ).toBe(true);
   });
 });

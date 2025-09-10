@@ -13,64 +13,79 @@ class ContainerManager {
   private containers: Map<PostgresVersion, StartedPostgresAlpineContainer> =
     new Map();
   private dbCounter = 0;
-  private initialized = false;
-  private initializationPromise: Promise<void> | null = null;
+  private initializedVersions: Set<PostgresVersion> = new Set();
+  private initializationPromises: Map<PostgresVersion, Promise<void>> =
+    new Map();
 
   /**
    * Initialize with a single container for each PostgreSQL version
    */
   async initialize(versions: PostgresVersion[]): Promise<void> {
-    if (this.initialized) {
+    // Filter out versions that are already initialized
+    const versionsToInitialize = versions.filter(
+      (version) => !this.initializedVersions.has(version),
+    );
+
+    if (versionsToInitialize.length === 0) {
       return;
     }
 
-    if (this.initializationPromise) {
-      return this.initializationPromise;
-    }
-
-    this.initializationPromise = this._doInitialize(versions);
-    await this.initializationPromise;
-    this.initialized = true;
+    // Start initialization for all versions that need it
+    const initializationPromises = versionsToInitialize.map((version) =>
+      this._initializeVersion(version),
+    );
+    await Promise.all(initializationPromises);
   }
 
-  private async _doInitialize(versions: PostgresVersion[]): Promise<void> {
-    if (process.env.DEBUG) {
-      console.log(
-        `[ContainerManager] Initializing containers for versions: ${versions.join(", ")}`,
-      );
+  private async _initializeVersion(version: PostgresVersion): Promise<void> {
+    // Check if already initialized
+    if (this.initializedVersions.has(version)) {
+      return;
     }
 
-    for (const version of versions) {
-      const image = `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[version]}`;
+    // Check if initialization is already in progress for this version
+    const existingPromise = this.initializationPromises.get(version);
+    if (existingPromise) {
+      return existingPromise;
+    }
 
-      try {
-        if (process.env.DEBUG) {
-          console.log(
-            `[ContainerManager] Starting container for PostgreSQL ${version}...`,
-          );
-        }
+    // Start initialization for this version
+    const initPromise = this._doInitializeVersion(version);
+    this.initializationPromises.set(version, initPromise);
 
-        const container = await new PostgresAlpineContainer(image).start();
-        this.containers.set(version, container);
+    try {
+      await initPromise;
+      this.initializedVersions.add(version);
+    } finally {
+      // Clean up the promise once done
+      this.initializationPromises.delete(version);
+    }
+  }
 
-        if (process.env.DEBUG) {
-          console.log(
-            `[ContainerManager] Successfully started container for PostgreSQL ${version}`,
-          );
-        }
-      } catch (error) {
-        console.error(
-          `Failed to start container for PostgreSQL ${version}:`,
-          error,
+  private async _doInitializeVersion(version: PostgresVersion): Promise<void> {
+    const image = `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[version]}`;
+
+    try {
+      if (process.env.DEBUG) {
+        console.log(
+          `[ContainerManager] Starting container for PostgreSQL ${version}...`,
         );
-        throw error;
       }
-    }
 
-    if (process.env.DEBUG) {
-      console.log(
-        `[ContainerManager] Initialization complete. Total containers: ${this.containers.size}`,
+      const container = await new PostgresAlpineContainer(image).start();
+      this.containers.set(version, container);
+
+      if (process.env.DEBUG) {
+        console.log(
+          `[ContainerManager] Successfully started container for PostgreSQL ${version}`,
+        );
+      }
+    } catch (error) {
+      console.error(
+        `Failed to start container for PostgreSQL ${version}:`,
+        error,
       );
+      throw error;
     }
   }
 
@@ -78,8 +93,11 @@ class ContainerManager {
    * Ensure the manager is initialized with the given versions
    */
   private async ensureInitialized(versions: PostgresVersion[]): Promise<void> {
-    if (!this.initialized) {
-      await this.initialize(versions);
+    const versionsToInitialize = versions.filter(
+      (version) => !this.initializedVersions.has(version),
+    );
+    if (versionsToInitialize.length > 0) {
+      await this.initialize(versionsToInitialize);
     }
   }
 
@@ -91,6 +109,11 @@ class ContainerManager {
     branch: postgres.Sql;
     cleanup: () => Promise<void>;
   }> {
+    if (process.env.DEBUG) {
+      console.log(
+        `[ContainerManager] Getting database pair for PostgreSQL ${version}`,
+      );
+    }
     await this.ensureInitialized([version]);
 
     const container = this.containers.get(version);
@@ -176,6 +199,8 @@ class ContainerManager {
     const allContainers = Array.from(this.containers.values());
     await Promise.all(allContainers.map((container) => container.stop()));
     this.containers.clear();
+    this.initializedVersions.clear();
+    this.initializationPromises.clear();
   }
 }
 

@@ -2,7 +2,10 @@ import type { Change } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../../utils.ts";
 import {
+  AlterCompositeTypeAddAttribute,
+  AlterCompositeTypeAlterAttributeType,
   AlterCompositeTypeChangeOwner,
+  AlterCompositeTypeDropAttribute,
   ReplaceCompositeType,
 } from "./changes/composite-type.alter.ts";
 import { CreateCompositeType } from "./changes/composite-type.create.ts";
@@ -81,6 +84,55 @@ export function diffCompositeTypes(
             branch: branchCompositeType,
           }),
         );
+      }
+
+      // ATTRIBUTE diffs
+      const mainAttrs = new Map(
+        mainCompositeType.columns.map((c) => [c.name, c]),
+      );
+      const branchAttrs = new Map(
+        branchCompositeType.columns.map((c) => [c.name, c]),
+      );
+
+      // Added attributes
+      for (const [name, attr] of branchAttrs) {
+        if (!mainAttrs.has(name)) {
+          changes.push(
+            new AlterCompositeTypeAddAttribute({
+              compositeType: branchCompositeType,
+              attribute: attr,
+            }),
+          );
+        }
+      }
+
+      // Dropped attributes
+      for (const [name, attr] of mainAttrs) {
+        if (!branchAttrs.has(name)) {
+          changes.push(
+            new AlterCompositeTypeDropAttribute({
+              compositeType: mainCompositeType,
+              attribute: attr,
+            }),
+          );
+        }
+      }
+
+      // Altered attribute type/collation
+      for (const [name, mainAttr] of mainAttrs) {
+        const branchAttr = branchAttrs.get(name);
+        if (!branchAttr) continue;
+        if (
+          mainAttr.data_type_str !== branchAttr.data_type_str ||
+          mainAttr.collation !== branchAttr.collation
+        ) {
+          changes.push(
+            new AlterCompositeTypeAlterAttributeType({
+              compositeType: branchCompositeType,
+              attribute: branchAttr,
+            }),
+          );
+        }
       }
 
       // Note: Composite type renaming would also use ALTER TYPE ... RENAME TO ...

@@ -24,12 +24,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
         `,
         testSql: `
-          CREATE INDEX idx_users_email ON test_schema.users (email);
+          CREATE INDEX idx_users_email ON test_schema.users USING btree (email);
         `,
         description: "create btree index",
         expectedSqlTerms: [
-          `CREATE TABLE test_schema.users (id integer, email character varying(255))`,
-          `CREATE INDEX idx_users_email ON test_schema.users USING btree (email)`,
+          "CREATE INDEX idx_users_email ON test_schema.users (email)",
         ],
         expectedMasterDependencies: [
           {
@@ -47,7 +46,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "index:test_schema.idx_users_email",
             referenced_stable_id: "table:test_schema.users",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -69,8 +68,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "create unique index",
         expectedSqlTerms: [
-          `CREATE TABLE test_schema.products (id integer, sku character varying(50))`,
-          `CREATE UNIQUE INDEX idx_products_sku ON test_schema.products USING btree (sku)`,
+          "CREATE UNIQUE INDEX idx_products_sku ON test_schema.products (sku)",
         ],
         expectedMasterDependencies: [
           {
@@ -88,7 +86,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "index:test_schema.idx_products_sku",
             referenced_stable_id: "table:test_schema.products",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -112,8 +110,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "create partial index",
         expectedSqlTerms: [
-          `CREATE TABLE test_schema.orders (id integer, status character varying(20), created_at timestamp without time zone)`,
-          `CREATE INDEX idx_orders_pending ON test_schema.orders USING btree (created_at) WHERE ((status)::text = 'pending'::text)`,
+          "CREATE INDEX idx_orders_pending ON test_schema.orders (created_at) WHERE ((status)::text = 'pending'::text)",
         ],
         expectedMasterDependencies: [
           {
@@ -131,7 +128,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "index:test_schema.idx_orders_pending",
             referenced_stable_id: "table:test_schema.orders",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -153,8 +150,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "create functional index",
         expectedSqlTerms: [
-          `CREATE TABLE test_schema.customers (id integer, email character varying(255))`,
-          `CREATE INDEX idx_customers_email_lower ON test_schema.customers USING btree (lower((email)::text))`,
+          "CREATE INDEX idx_customers_email_lower ON test_schema.customers (lower((email)::text))",
         ],
         expectedMasterDependencies: [
           {
@@ -172,7 +168,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "index:test_schema.idx_customers_email_lower",
             referenced_stable_id: "table:test_schema.customers",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -196,8 +192,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "create multicolumn index",
         expectedSqlTerms: [
-          `CREATE TABLE test_schema.sales (id integer, region character varying(50), product_id integer, sale_date date)`,
-          `CREATE INDEX idx_sales_region_date ON test_schema.sales USING btree (region, sale_date)`,
+          "CREATE INDEX idx_sales_region_date ON test_schema.sales (region, sale_date)",
         ],
         expectedMasterDependencies: [
           {
@@ -215,7 +210,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "index:test_schema.idx_sales_region_date",
             referenced_stable_id: "table:test_schema.sales",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -247,7 +242,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "index:test_schema.idx_items_name",
             referenced_stable_id: "table:test_schema.items",
-            deptype: "n",
+            deptype: "a",
           },
         ],
         expectedBranchDependencies: [

@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange, quoteLiteral } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
 
 /**
@@ -30,14 +30,14 @@ export class CreateExtension extends CreateChange {
     const parts: string[] = ["CREATE EXTENSION"];
 
     // Add extension name
-    parts.push(quoteIdentifier(this.extension.name));
+    parts.push(this.extension.name);
 
     // Add schema
-    parts.push("WITH SCHEMA", quoteIdentifier(this.extension.schema));
+    parts.push("WITH SCHEMA", this.extension.schema);
 
     // Add version
     if (this.extension.version) {
-      parts.push("VERSION", quoteIdentifier(this.extension.version));
+      parts.push("VERSION", quoteLiteral(this.extension.version));
     }
 
     return parts.join(" ");

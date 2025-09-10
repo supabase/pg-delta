@@ -98,12 +98,14 @@ export class Collation extends BasePgModel {
 }
 
 export async function extractCollations(sql: Sql): Promise<Collation[]> {
-  const version = await extractVersion(sql);
-  const isPostgres17OrGreater = version >= 170000;
-  const isPostgres16OrGreater = version >= 160000;
-  let collations: any[];
-  if (isPostgres17OrGreater) {
-    collations = await sql`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const version = await extractVersion(sql);
+    const isPostgres17OrGreater = version >= 170000;
+    const isPostgres16OrGreater = version >= 160000;
+    let collations: Collation[];
+    if (isPostgres17OrGreater) {
+      collations = await sql`
       with extension_oids as (
         select
           objid
@@ -114,8 +116,8 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
           and d.classid = 'pg_collation'::regclass
       )
       select
-        regexp_replace(c.collnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
-        c.collname as name,
+        c.collnamespace::regnamespace::text as schema,
+        quote_ident(c.collname) as name,
         c.collprovider as provider,
         c.collisdeterministic as is_deterministic,
         c.collencoding as encoding,
@@ -124,7 +126,7 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
         c.colllocale as locale,
         c.collicurules as icu_rules,
         c.collversion as version,
-        c.collowner::regrole as owner
+        c.collowner::regrole::text as owner
       from
         pg_catalog.pg_collation c
         left outer join extension_oids e on c.oid = e.objid
@@ -135,9 +137,9 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
       order by
         1, 2;
   `;
-  } else if (isPostgres16OrGreater) {
-    // On postgres 16 there colllocale column was named colliculocale
-    collations = await sql`
+    } else if (isPostgres16OrGreater) {
+      // On postgres 16 there colllocale column was named colliculocale
+      collations = await sql`
       with extension_oids as (
         select
           objid
@@ -148,8 +150,8 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
           and d.classid = 'pg_collation'::regclass
       )
       select
-        regexp_replace(c.collnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
-        c.collname as name,
+        c.collnamespace::regnamespace::text as schema,
+        quote_ident(c.collname) as name,
         c.collprovider as provider,
         c.collisdeterministic as is_deterministic,
         c.collencoding as encoding,
@@ -158,7 +160,7 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
         colliculocale as locale,
         c.collicurules as icu_rules,
         c.collversion as version,
-        c.collowner::regrole as owner
+        c.collowner::regrole::text as owner
       from
         pg_catalog.pg_collation c
         left outer join extension_oids e on c.oid = e.objid
@@ -169,9 +171,9 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
       order by
         1, 2;
     `;
-  } else {
-    // On postgres 15 icu_rules does not exist
-    collations = await sql`
+    } else {
+      // On postgres 15 icu_rules does not exist
+      collations = await sql`
       with extension_oids as (
         select
           objid
@@ -182,8 +184,8 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
           and d.classid = 'pg_collation'::regclass
       )
       select
-        regexp_replace(c.collnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
-        c.collname as name,
+        c.collnamespace::regnamespace::text as schema,
+        quote_ident(c.collname) as name,
         c.collprovider as provider,
         c.collisdeterministic as is_deterministic,
         c.collencoding as encoding,
@@ -192,7 +194,7 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
         colliculocale as locale,
         null as icu_rules,
         c.collversion as version,
-        c.collowner::regrole as owner
+        c.collowner::regrole::text as owner
       from
         pg_catalog.pg_collation c
         left outer join extension_oids e on c.oid = e.objid
@@ -203,11 +205,12 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
       order by
         1, 2;
     `;
-  }
+    }
 
-  // Validate and parse each row using the Zod schema
-  const validatedRows = collations.map((row: unknown) =>
-    collationPropsSchema.parse(row),
-  );
-  return validatedRows.map((row: CollationProps) => new Collation(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = collations.map((row: unknown) =>
+      collationPropsSchema.parse(row),
+    );
+    return validatedRows.map((row: CollationProps) => new Collation(row));
+  });
 }

@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import { DropChange } from "../../base.change.ts";
 import type { Collation } from "../collation.model.ts";
 
 /**
@@ -26,7 +26,7 @@ export class DropCollation extends DropChange {
   serialize(): string {
     return [
       "DROP COLLATION",
-      `${quoteIdentifier(this.collation.schema)}.${quoteIdentifier(this.collation.name)}`,
+      `${this.collation.schema}.${this.collation.name}`,
     ].join(" ");
   }
 }

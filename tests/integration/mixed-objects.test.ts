@@ -195,21 +195,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         description:
           "e-commerce with sequences, tables, constraints, and indexes",
         expectedSqlTerms: [
-          'CREATE SCHEMA "ecommerce"',
-          "CREATE SEQUENCE",
-          'CREATE TABLE "ecommerce"."customers"',
-          'CREATE TABLE "ecommerce"."orders"',
-          "customers_id_seq",
-          "orders_id_seq",
-          "customers_pkey",
-          "orders_pkey",
-          "customers_email_key",
-          "orders_order_number_key",
-          "fk_customer",
-          "idx_orders_customer_status",
-          "idx_customers_email",
-          "OWNED BY",
-          "FOREIGN KEY",
+          "CREATE SCHEMA ecommerce AUTHORIZATION postgres",
+          "CREATE SEQUENCE ecommerce.orders_id_seq AS integer",
+          "CREATE TABLE ecommerce.orders (id integer DEFAULT nextval('ecommerce.orders_id_seq'::regclass) NOT NULL, customer_id integer NOT NULL, order_number character varying(50) NOT NULL, status character varying(20) DEFAULT 'pending'::character varying, total_amount numeric(10,2) NOT NULL, created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP)",
+          "ALTER SEQUENCE ecommerce.orders_id_seq OWNED BY ecommerce.orders.id",
+          "ALTER TABLE ecommerce.orders ADD CONSTRAINT orders_order_number_key UNIQUE (order_number)",
+          "ALTER TABLE ecommerce.orders ADD CONSTRAINT orders_pkey PRIMARY KEY (id)",
+          "CREATE SEQUENCE ecommerce.customers_id_seq AS integer",
+          "CREATE TABLE ecommerce.customers (id integer DEFAULT nextval('ecommerce.customers_id_seq'::regclass) NOT NULL, email character varying(255) NOT NULL, first_name character varying(100) NOT NULL, last_name character varying(100) NOT NULL, created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP)",
+          "ALTER SEQUENCE ecommerce.customers_id_seq OWNED BY ecommerce.customers.id",
+          "ALTER TABLE ecommerce.customers ADD CONSTRAINT customers_email_key UNIQUE (email)",
+          "ALTER TABLE ecommerce.customers ADD CONSTRAINT customers_pkey PRIMARY KEY (id)",
+          "ALTER TABLE ecommerce.orders ADD CONSTRAINT fk_customer FOREIGN KEY (customer_id) REFERENCES ecommerce.customers (id)",
+          "CREATE INDEX idx_orders_customer_status ON ecommerce.orders (customer_id, status)",
+          "CREATE INDEX idx_customers_email ON ecommerce.customers (email)",
         ],
         expectedMasterDependencies: [], // Master has no dependencies (empty state)
         expectedBranchDependencies: [
@@ -239,12 +238,12 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "sequence:ecommerce.customers_id_seq",
             referenced_stable_id: "table:ecommerce.customers",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id: "sequence:ecommerce.orders_id_seq",
             referenced_stable_id: "table:ecommerce.orders",
-            deptype: "n",
+            deptype: "a",
           },
           // Constraint dependencies
           {
@@ -312,12 +311,12 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           {
             dependent_stable_id: "index:ecommerce.idx_customers_email",
             referenced_stable_id: "table:ecommerce.customers",
-            deptype: "n",
+            deptype: "a",
           },
           {
             dependent_stable_id: "index:ecommerce.idx_orders_customer_status",
             referenced_stable_id: "table:ecommerce.orders",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -359,8 +358,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)",
           "CREATE TABLE test_schema.orders (id integer NOT NULL, user_id integer, amount numeric)",
           "ALTER TABLE test_schema.orders ADD CONSTRAINT orders_pkey PRIMARY KEY (id)",
-          "CREATE OR REPLACE VIEW test_schema.user_orders AS  SELECT u.id,\n    u.name,\n    sum(o.amount) AS total\n   FROM (test_schema.users u\n     LEFT JOIN test_schema.orders o ON ((u.id = o.user_id)))\n  GROUP BY u.id, u.name;",
-          "CREATE OR REPLACE VIEW test_schema.top_users AS  SELECT id,\n    name,\n    total\n   FROM test_schema.user_orders\n  WHERE (total > (1000)::numeric);",
+          "CREATE VIEW test_schema.user_orders AS SELECT u.id,\n    u.name,\n    sum(o.amount) AS total\n   FROM (test_schema.users u\n     LEFT JOIN test_schema.orders o ON ((u.id = o.user_id)))\n  GROUP BY u.id, u.name",
+          "CREATE VIEW test_schema.top_users AS SELECT id,\n    name,\n    total\n   FROM test_schema.user_orders\n  WHERE (total > (1000)::numeric)",
         ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
@@ -533,7 +532,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         description: "mixed create and replace operations",
         expectedSqlTerms: [
           "ALTER TABLE test_schema.data ADD COLUMN status text",
-          "DROP VIEW test_schema.summary;\nCREATE OR REPLACE VIEW test_schema.summary AS  SELECT count(*) AS cnt,\n    count(\n        CASE\n            WHEN (status = 'active'::text) THEN 1\n            ELSE NULL::integer\n        END) AS active_cnt\n   FROM test_schema.data;",
+          "DROP VIEW test_schema.summary;\nCREATE VIEW test_schema.summary AS SELECT count(*) AS cnt,\n    count(\n        CASE\n            WHEN (status = 'active'::text) THEN 1\n            ELSE NULL::integer\n        END) AS active_cnt\n   FROM test_schema.data",
         ],
         expectedMasterDependencies: [
           {

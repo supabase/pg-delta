@@ -12,12 +12,13 @@ describe.concurrent("index", () => {
   describe("alter", () => {
     test("set storage params", () => {
       const props: Omit<IndexProps, "storage_params"> = {
-        table_schema: "public",
+        schema: "public",
         table_name: "test_table",
         name: "test_index",
         statistics_target: [0],
         index_type: "btree",
         tablespace: null,
+        is_constraint: false,
         is_unique: false,
         is_primary: false,
         is_exclusion: false,
@@ -54,7 +55,7 @@ describe.concurrent("index", () => {
 
     test("reset and set storage params", () => {
       const props: Omit<IndexProps, "storage_params"> = {
-        table_schema: "public",
+        schema: "public",
         table_name: "test_table",
         name: "test_index",
         statistics_target: [0],
@@ -62,6 +63,7 @@ describe.concurrent("index", () => {
         tablespace: null,
         is_unique: false,
         is_primary: false,
+        is_constraint: false,
         is_exclusion: false,
         nulls_not_distinct: false,
         immediate: true,
@@ -99,7 +101,7 @@ describe.concurrent("index", () => {
 
     test("set statistics", () => {
       const props: Omit<IndexProps, "statistics_target"> = {
-        table_schema: "public",
+        schema: "public",
         table_name: "test_table",
         name: "test_index",
         storage_params: [],
@@ -108,6 +110,7 @@ describe.concurrent("index", () => {
         is_unique: false,
         is_primary: false,
         is_exclusion: false,
+        is_constraint: false,
         nulls_not_distinct: false,
         immediate: true,
         is_clustered: false,
@@ -141,7 +144,7 @@ describe.concurrent("index", () => {
 
     test("set tablespace", () => {
       const props: Omit<IndexProps, "tablespace"> = {
-        table_schema: "public",
+        schema: "public",
         table_name: "test_table",
         name: "test_index",
         storage_params: [],
@@ -149,6 +152,7 @@ describe.concurrent("index", () => {
         index_type: "btree",
         is_unique: false,
         is_primary: false,
+        is_constraint: false,
         is_exclusion: false,
         nulls_not_distinct: false,
         immediate: true,
@@ -183,7 +187,7 @@ describe.concurrent("index", () => {
 
     test("replace index", () => {
       const props: Omit<IndexProps, "index_type"> = {
-        table_schema: "public",
+        schema: "public",
         table_name: "test_table",
         name: "test_index",
         storage_params: [],
@@ -191,6 +195,7 @@ describe.concurrent("index", () => {
         tablespace: null,
         is_unique: false,
         is_primary: false,
+        is_constraint: false,
         is_exclusion: false,
         nulls_not_distinct: false,
         immediate: true,

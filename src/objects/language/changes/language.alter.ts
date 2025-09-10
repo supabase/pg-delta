@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { Language } from "../language.model.ts";
 import { CreateLanguage } from "./language.create.ts";
 import { DropLanguage } from "./language.drop.ts";
@@ -18,7 +14,7 @@ import { DropLanguage } from "./language.drop.ts";
  * ALTER [ PROCEDURAL ] LANGUAGE name RENAME TO new_name
  * ```
  */
-export type AlterLanguage = AlterLanguageChangeOwner;
+type AlterLanguage = AlterLanguageChangeOwner;
 
 /**
  * ALTER LANGUAGE ... OWNER TO ...
@@ -44,12 +40,7 @@ export class AlterLanguageChangeOwner extends AlterChange {
     // It is syntactic noise and the default for procedural languages,
     // so we purposely omit it to avoid emitting defaults.
 
-    parts.push(
-      "LANGUAGE",
-      quoteIdentifier(this.main.name),
-      "OWNER TO",
-      quoteIdentifier(this.branch.owner),
-    );
+    parts.push("LANGUAGE", this.main.name, "OWNER TO", this.branch.owner);
 
     return parts.join(" ");
   }

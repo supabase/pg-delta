@@ -8,7 +8,6 @@ describe.concurrent("trigger", () => {
       const props: Omit<TriggerProps, "enabled"> = {
         schema: "public",
         name: "test_trigger",
-        table_schema: "public",
         table_name: "test_table",
         function_schema: "public",
         function_name: "test_function",
@@ -39,7 +38,7 @@ describe.concurrent("trigger", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP TRIGGER test_trigger ON public.test_table;\nCREATE TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE FOR EACH STATEMENT EXECUTE FUNCTION public.test_function()",
+        "DROP TRIGGER test_trigger ON public.test_table;\nCREATE CONSTRAINT TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE EXECUTE FUNCTION public.test_function()",
       );
     });
   });

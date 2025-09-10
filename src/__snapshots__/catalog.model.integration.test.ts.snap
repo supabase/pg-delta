@@ -114,7 +114,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   "sequences": {},
   "tables": {},
   "triggers": {},
-  "types": {},
+  "ranges": {},
   "views": {},
   "depends": [
     {
@@ -888,71 +888,6 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "deptype": "n"
     },
     {
-      "dependent_stable_id": "function:information_schema._pg_char_max_length",
-      "referenced_stable_id": "schema:information_schema",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "function:information_schema._pg_char_octet_length",
-      "referenced_stable_id": "function:information_schema._pg_char_max_length",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "function:information_schema._pg_char_octet_length",
-      "referenced_stable_id": "schema:information_schema",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "function:information_schema._pg_datetime_precision",
-      "referenced_stable_id": "schema:information_schema",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "function:information_schema._pg_expandarray",
-      "referenced_stable_id": "schema:information_schema",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "function:information_schema._pg_index_position",
-      "referenced_stable_id": "function:information_schema._pg_expandarray",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "function:information_schema._pg_index_position",
-      "referenced_stable_id": "schema:information_schema",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "function:information_schema._pg_interval_type",
-      "referenced_stable_id": "schema:information_schema",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "function:information_schema._pg_numeric_precision",
-      "referenced_stable_id": "schema:information_schema",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "function:information_schema._pg_numeric_precision_radix",
-      "referenced_stable_id": "schema:information_schema",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "function:information_schema._pg_numeric_scale",
-      "referenced_stable_id": "schema:information_schema",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "function:information_schema._pg_truetypid",
-      "referenced_stable_id": "schema:information_schema",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "function:information_schema._pg_truetypmod",
-      "referenced_stable_id": "schema:information_schema",
-      "deptype": "n"
-    },
-    {
       "dependent_stable_id": "index:pg_toast.pg_toast_13463_index",
       "referenced_stable_id": "systemObject:pg_toast.pg_toast_13463:t",
       "deptype": "a"
@@ -974,17 +909,82 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "language:plpgsql",
-      "referenced_stable_id": "function:pg_catalog.plpgsql_call_handler",
+      "referenced_stable_id": "procedure:pg_catalog.plpgsql_call_handler()",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "language:plpgsql",
-      "referenced_stable_id": "function:pg_catalog.plpgsql_inline_handler",
+      "referenced_stable_id": "procedure:pg_catalog.plpgsql_inline_handler(internal)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "language:plpgsql",
-      "referenced_stable_id": "function:pg_catalog.plpgsql_validator",
+      "referenced_stable_id": "procedure:pg_catalog.plpgsql_validator(oid)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "procedure:information_schema._pg_char_max_length(oid,integer)",
+      "referenced_stable_id": "schema:information_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "procedure:information_schema._pg_char_octet_length(oid,integer)",
+      "referenced_stable_id": "procedure:information_schema._pg_char_max_length(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "procedure:information_schema._pg_char_octet_length(oid,integer)",
+      "referenced_stable_id": "schema:information_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "procedure:information_schema._pg_datetime_precision(oid,integer)",
+      "referenced_stable_id": "schema:information_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "procedure:information_schema._pg_expandarray(anyarray)",
+      "referenced_stable_id": "schema:information_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "procedure:information_schema._pg_index_position(oid,smallint)",
+      "referenced_stable_id": "procedure:information_schema._pg_expandarray(anyarray)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "procedure:information_schema._pg_index_position(oid,smallint)",
+      "referenced_stable_id": "schema:information_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "procedure:information_schema._pg_interval_type(oid,integer)",
+      "referenced_stable_id": "schema:information_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "procedure:information_schema._pg_numeric_precision_radix(oid,integer)",
+      "referenced_stable_id": "schema:information_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "procedure:information_schema._pg_numeric_precision(oid,integer)",
+      "referenced_stable_id": "schema:information_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "procedure:information_schema._pg_numeric_scale(oid,integer)",
+      "referenced_stable_id": "schema:information_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "procedure:information_schema._pg_truetypid(pg_attribute,pg_type)",
+      "referenced_stable_id": "schema:information_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "procedure:information_schema._pg_truetypmod(pg_attribute,pg_type)",
+      "referenced_stable_id": "schema:information_schema",
       "deptype": "n"
     },
     {
@@ -1094,47 +1094,47 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.attributes._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_char_max_length",
+      "referenced_stable_id": "procedure:information_schema._pg_char_max_length(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.attributes._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_char_octet_length",
+      "referenced_stable_id": "procedure:information_schema._pg_char_octet_length(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.attributes._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_datetime_precision",
+      "referenced_stable_id": "procedure:information_schema._pg_datetime_precision(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.attributes._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_interval_type",
+      "referenced_stable_id": "procedure:information_schema._pg_interval_type(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.attributes._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_numeric_precision",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_precision_radix(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.attributes._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_numeric_precision_radix",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_precision(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.attributes._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_numeric_scale",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_scale(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.attributes._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_truetypid",
+      "referenced_stable_id": "procedure:information_schema._pg_truetypid(pg_attribute,pg_type)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.attributes._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_truetypmod",
+      "referenced_stable_id": "procedure:information_schema._pg_truetypmod(pg_attribute,pg_type)",
       "deptype": "n"
     },
     {
@@ -1294,47 +1294,47 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.columns._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_char_max_length",
+      "referenced_stable_id": "procedure:information_schema._pg_char_max_length(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.columns._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_char_octet_length",
+      "referenced_stable_id": "procedure:information_schema._pg_char_octet_length(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.columns._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_datetime_precision",
+      "referenced_stable_id": "procedure:information_schema._pg_datetime_precision(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.columns._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_interval_type",
+      "referenced_stable_id": "procedure:information_schema._pg_interval_type(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.columns._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_numeric_precision",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_precision_radix(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.columns._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_numeric_precision_radix",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_precision(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.columns._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_numeric_scale",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_scale(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.columns._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_truetypid",
+      "referenced_stable_id": "procedure:information_schema._pg_truetypid(pg_attribute,pg_type)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.columns._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_truetypmod",
+      "referenced_stable_id": "procedure:information_schema._pg_truetypmod(pg_attribute,pg_type)",
       "deptype": "n"
     },
     {
@@ -1444,37 +1444,37 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.domains._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_char_max_length",
+      "referenced_stable_id": "procedure:information_schema._pg_char_max_length(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.domains._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_char_octet_length",
+      "referenced_stable_id": "procedure:information_schema._pg_char_octet_length(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.domains._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_datetime_precision",
+      "referenced_stable_id": "procedure:information_schema._pg_datetime_precision(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.domains._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_interval_type",
+      "referenced_stable_id": "procedure:information_schema._pg_interval_type(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.domains._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_numeric_precision",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_precision_radix(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.domains._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_numeric_precision_radix",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_precision(oid,integer)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.domains._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_numeric_scale",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_scale(oid,integer)",
       "deptype": "n"
     },
     {
@@ -1499,7 +1499,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.element_types._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_expandarray",
+      "referenced_stable_id": "procedure:information_schema._pg_expandarray(anyarray)",
       "deptype": "n"
     },
     {
@@ -1639,12 +1639,12 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.key_column_usage._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_expandarray",
+      "referenced_stable_id": "procedure:information_schema._pg_expandarray(anyarray)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.key_column_usage._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_index_position",
+      "referenced_stable_id": "procedure:information_schema._pg_index_position(oid,smallint)",
       "deptype": "n"
     },
     {
@@ -1674,7 +1674,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.parameters._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_expandarray",
+      "referenced_stable_id": "procedure:information_schema._pg_expandarray(anyarray)",
       "deptype": "n"
     },
     {
@@ -1924,7 +1924,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.sequences._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_numeric_precision",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_precision(oid,integer)",
       "deptype": "n"
     },
     {
@@ -2014,7 +2014,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.triggered_update_columns._RETURN",
-      "referenced_stable_id": "function:information_schema._pg_expandarray",
+      "referenced_stable_id": "procedure:information_schema._pg_expandarray(anyarray)",
       "deptype": "n"
     },
     {
@@ -3044,12 +3044,12 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "tsTemplate:pg_catalog.snowball",
-      "referenced_stable_id": "function:pg_catalog.dsnowball_init",
+      "referenced_stable_id": "procedure:pg_catalog.dsnowball_init(internal)",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "tsTemplate:pg_catalog.snowball",
-      "referenced_stable_id": "function:pg_catalog.dsnowball_lexize",
+      "referenced_stable_id": "procedure:pg_catalog.dsnowball_lexize(internal,internal,internal,internal)",
       "deptype": "n"
     },
     {
@@ -3929,6 +3929,51 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "view:information_schema.attributes",
+      "referenced_stable_id": "procedure:information_schema._pg_char_max_length(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.attributes",
+      "referenced_stable_id": "procedure:information_schema._pg_char_octet_length(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.attributes",
+      "referenced_stable_id": "procedure:information_schema._pg_datetime_precision(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.attributes",
+      "referenced_stable_id": "procedure:information_schema._pg_interval_type(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.attributes",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_precision_radix(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.attributes",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_precision(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.attributes",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_scale(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.attributes",
+      "referenced_stable_id": "procedure:information_schema._pg_truetypid(pg_attribute,pg_type)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.attributes",
+      "referenced_stable_id": "procedure:information_schema._pg_truetypmod(pg_attribute,pg_type)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.attributes",
       "referenced_stable_id": "schema:information_schema",
       "deptype": "n"
     },
@@ -4084,6 +4129,51 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "view:information_schema.columns",
+      "referenced_stable_id": "procedure:information_schema._pg_char_max_length(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.columns",
+      "referenced_stable_id": "procedure:information_schema._pg_char_octet_length(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.columns",
+      "referenced_stable_id": "procedure:information_schema._pg_datetime_precision(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.columns",
+      "referenced_stable_id": "procedure:information_schema._pg_interval_type(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.columns",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_precision_radix(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.columns",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_precision(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.columns",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_scale(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.columns",
+      "referenced_stable_id": "procedure:information_schema._pg_truetypid(pg_attribute,pg_type)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.columns",
+      "referenced_stable_id": "procedure:information_schema._pg_truetypmod(pg_attribute,pg_type)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.columns",
       "referenced_stable_id": "schema:information_schema",
       "deptype": "n"
     },
@@ -4189,6 +4279,41 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "view:information_schema.domains",
+      "referenced_stable_id": "procedure:information_schema._pg_char_max_length(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.domains",
+      "referenced_stable_id": "procedure:information_schema._pg_char_octet_length(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.domains",
+      "referenced_stable_id": "procedure:information_schema._pg_datetime_precision(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.domains",
+      "referenced_stable_id": "procedure:information_schema._pg_interval_type(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.domains",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_precision_radix(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.domains",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_precision(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.domains",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_scale(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.domains",
       "referenced_stable_id": "schema:information_schema",
       "deptype": "n"
     },
@@ -4205,6 +4330,11 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     {
       "dependent_stable_id": "view:information_schema.element_types",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.element_types",
+      "referenced_stable_id": "procedure:information_schema._pg_expandarray(anyarray)",
       "deptype": "n"
     },
     {
@@ -4364,6 +4494,16 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "view:information_schema.key_column_usage",
+      "referenced_stable_id": "procedure:information_schema._pg_expandarray(anyarray)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.key_column_usage",
+      "referenced_stable_id": "procedure:information_schema._pg_index_position(oid,smallint)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.key_column_usage",
       "referenced_stable_id": "schema:information_schema",
       "deptype": "n"
     },
@@ -4385,6 +4525,11 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     {
       "dependent_stable_id": "view:information_schema.parameters",
       "referenced_stable_id": "domain:information_schema.yes_or_no",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.parameters",
+      "referenced_stable_id": "procedure:information_schema._pg_expandarray(anyarray)",
       "deptype": "n"
     },
     {
@@ -4684,6 +4829,11 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "view:information_schema.sequences",
+      "referenced_stable_id": "procedure:information_schema._pg_numeric_precision(oid,integer)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.sequences",
       "referenced_stable_id": "schema:information_schema",
       "deptype": "n"
     },
@@ -4765,6 +4915,11 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     {
       "dependent_stable_id": "view:information_schema.triggered_update_columns",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "view:information_schema.triggered_update_columns",
+      "referenced_stable_id": "procedure:information_schema._pg_expandarray(anyarray)",
       "deptype": "n"
     },
     {

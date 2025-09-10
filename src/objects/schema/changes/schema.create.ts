@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange } from "../../base.change.ts";
 import type { Schema } from "../schema.model.ts";
 
 /**
@@ -29,12 +29,10 @@ export class CreateSchema extends CreateChange {
     const parts: string[] = ["CREATE SCHEMA"];
 
     // Add schema name
-    parts.push(quoteIdentifier(this.schema.schema));
+    parts.push(this.schema.schema);
 
-    // Add AUTHORIZATION if owner is specified
-    if (this.schema.owner) {
-      parts.push("AUTHORIZATION", quoteIdentifier(this.schema.owner));
-    }
+    // Add AUTHORIZATION
+    parts.push("AUTHORIZATION", this.schema.owner);
 
     return parts.join(" ");
   }

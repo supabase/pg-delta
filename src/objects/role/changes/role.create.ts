@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange } from "../../base.change.ts";
 import type { Role } from "../role.model.ts";
 
 /**
@@ -44,7 +44,7 @@ export class CreateRole extends CreateChange {
     const parts: string[] = ["CREATE ROLE"];
 
     // Add role name
-    parts.push(quoteIdentifier(this.role.role_name));
+    parts.push(this.role.role_name);
 
     // Add options (only non-default values)
     const options: string[] = [];

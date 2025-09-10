@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../../base.change.ts";
+import { CreateChange } from "../../../base.change.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 
 /**
@@ -8,9 +8,8 @@ import type { CompositeType } from "../composite-type.model.ts";
  *
  * Synopsis
  * ```sql
- * CREATE TYPE name AS (
- *     attribute_name data_type [ COLLATE collation ] [ NOT NULL ] [ DEFAULT default_expr ] [, ... ]
- * )
+ * CREATE TYPE name AS
+ *     ( [ attribute_name data_type [ COLLATE collation ] [, ... ] ] )
  * ```
  */
 export class CreateCompositeType extends CreateChange {
@@ -29,18 +28,24 @@ export class CreateCompositeType extends CreateChange {
     const parts: string[] = ["CREATE TYPE"];
 
     // Add schema and name
-    parts.push(
-      `${quoteIdentifier(this.compositeType.schema)}.${quoteIdentifier(this.compositeType.name)}`,
-    );
+    parts.push(`${this.compositeType.schema}.${this.compositeType.name}`);
 
     // Add AS keyword
     parts.push("AS");
 
     parts.push(
       `(${this.compositeType.columns
-        .map(
-          (column) => `${quoteIdentifier(column.name)} ${column.data_type_str}`,
-        )
+        .map((column) => {
+          const tokens: string[] = [];
+          // attribute name and data type
+          tokens.push(column.name);
+          tokens.push(column.data_type_str);
+          // Collation (only when non-default, already filtered by extractor)
+          if (column.collation) {
+            tokens.push("COLLATE", column.collation);
+          }
+          return tokens.join(" ");
+        })
         .join(", ")})`,
     );
 

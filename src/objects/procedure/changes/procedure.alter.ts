@@ -1,11 +1,7 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
+import { formatConfigValue } from "../utils.ts";
 import { CreateProcedure } from "./procedure.create.ts";
-import { DropProcedure } from "./procedure.drop.ts";
 
 /**
  * Alter a procedure.
@@ -31,7 +27,7 @@ import { DropProcedure } from "./procedure.drop.ts";
  *     RESET ALL
  * ```
  */
-export type AlterProcedure =
+type AlterProcedure =
   | AlterProcedureChangeOwner
   | AlterProcedureSetSecurity
   | AlterProcedureSetConfig
@@ -63,9 +59,9 @@ export class AlterProcedureChangeOwner extends AlterChange {
     return [
       "ALTER",
       objectType,
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "OWNER TO",
-      quoteIdentifier(this.branch.owner),
+      this.branch.owner,
     ].join(" ");
   }
 }
@@ -96,7 +92,7 @@ export class AlterProcedureSetSecurity extends AlterChange {
     return [
       "ALTER",
       objectType,
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       security,
     ].join(" ");
   }
@@ -139,7 +135,7 @@ export class AlterProcedureSetConfig extends AlterChange {
     const head = [
       "ALTER",
       this.main.kind === "p" ? "PROCEDURE" : "FUNCTION",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
     ].join(" ");
 
     const statements: string[] = [];
@@ -154,11 +150,12 @@ export class AlterProcedureSetConfig extends AlterChange {
       }
     }
 
-    // Added or changed keys -> SET key=value
+    // Added or changed keys -> SET key TO value
     for (const [key, newValue] of branchMap.entries()) {
       const oldValue = mainMap.get(key);
       if (oldValue !== newValue) {
-        statements.push(`${head} SET ${key}=${newValue}`);
+        const formatted = formatConfigValue(key, newValue);
+        statements.push(`${head} SET ${key} TO ${formatted}`);
       }
     }
 
@@ -193,7 +190,7 @@ export class AlterProcedureSetVolatility extends AlterChange {
     return [
       "ALTER",
       objectType,
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       volMap[this.branch.volatility],
     ].join(" ");
   }
@@ -224,7 +221,7 @@ export class AlterProcedureSetStrictness extends AlterChange {
     return [
       "ALTER",
       objectType,
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       strictness,
     ].join(" ");
   }
@@ -253,7 +250,7 @@ export class AlterProcedureSetLeakproof extends AlterChange {
     return [
       "ALTER",
       objectType,
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       leak,
     ].join(" ");
   }
@@ -286,7 +283,7 @@ export class AlterProcedureSetParallel extends AlterChange {
     return [
       "ALTER",
       objectType,
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       parallelMap[this.branch.parallel_safety],
     ].join(" ");
   }
@@ -311,9 +308,10 @@ export class ReplaceProcedure extends ReplaceChange {
   }
 
   serialize(): string {
-    const dropChange = new DropProcedure({ procedure: this.main });
-    const createChange = new CreateProcedure({ procedure: this.branch });
-
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
+    const createChange = new CreateProcedure({
+      procedure: this.branch,
+      orReplace: true,
+    });
+    return createChange.serialize();
   }
 }

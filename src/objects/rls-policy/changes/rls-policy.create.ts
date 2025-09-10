@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange } from "../../base.change.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 
 /**
@@ -31,16 +31,11 @@ export class CreateRlsPolicy extends CreateChange {
   serialize(): string {
     const parts: string[] = ["CREATE POLICY"];
 
-    // Add policy name with schema
-    parts.push(
-      `${quoteIdentifier(this.rlsPolicy.schema)}.${quoteIdentifier(this.rlsPolicy.name)}`,
-    );
+    // Add policy name
+    parts.push(this.rlsPolicy.name);
 
     // Add ON table
-    parts.push(
-      "ON",
-      `${quoteIdentifier(this.rlsPolicy.table_schema)}.${quoteIdentifier(this.rlsPolicy.table_name)}`,
-    );
+    parts.push("ON", `${this.rlsPolicy.schema}.${this.rlsPolicy.table_name}`);
 
     // Add AS RESTRICTIVE only if false (default is PERMISSIVE)
     if (!this.rlsPolicy.permissive) {
@@ -55,13 +50,20 @@ export class CreateRlsPolicy extends CreateChange {
       d: "FOR DELETE",
       "*": "FOR ALL",
     };
-    if (this.rlsPolicy.command) {
-      parts.push(commandMap[this.rlsPolicy.command] || "FOR ALL");
+    // Default is FOR ALL; only print when not default
+    if (this.rlsPolicy.command && this.rlsPolicy.command !== "*") {
+      parts.push(commandMap[this.rlsPolicy.command]);
     }
 
     // Add TO roles
+    // Default is TO PUBLIC; avoid printing explicit PUBLIC in CREATE
     if (this.rlsPolicy.roles && this.rlsPolicy.roles.length > 0) {
-      parts.push("TO", this.rlsPolicy.roles.map(quoteIdentifier).join(", "));
+      const onlyPublic =
+        this.rlsPolicy.roles.length === 1 &&
+        this.rlsPolicy.roles[0].toLowerCase() === "public";
+      if (!onlyPublic) {
+        parts.push("TO", this.rlsPolicy.roles.join(", "));
+      }
     }
 
     // Add USING expression

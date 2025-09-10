@@ -21,7 +21,7 @@ export default defineConfig({
         test: {
           // Integration tests - run with single fork to share containers
           name: "integration",
-          retry: 1,
+          retry: 0,
           include: [
             "**/*.integration.test.ts",
             "tests/integration/**/*.test.ts",

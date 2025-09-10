@@ -14,6 +14,7 @@ import {
   AlterTableEnableRowLevelSecurity,
   AlterTableForceRowLevelSecurity,
   AlterTableNoForceRowLevelSecurity,
+  AlterTableResetStorageParams,
   AlterTableSetLogged,
   AlterTableSetReplicaIdentity,
   AlterTableSetStorageParams,
@@ -55,6 +56,67 @@ describe.concurrent("table.diff", () => {
     expect(dropped[0]).toBeInstanceOf(DropTable);
   });
 
+  test("created NOT VALID CHECK emits AddConstraint + ValidateConstraint", () => {
+    const main = new Table({
+      ...base,
+      name: "t_nv",
+      columns: [
+        {
+          name: "a",
+          position: 1,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      constraints: [],
+    });
+    const branch = new Table({
+      ...main,
+      constraints: [
+        {
+          name: "ck_nv",
+          constraint_type: "c" as const,
+          deferrable: false,
+          initially_deferred: false,
+          validated: false,
+          is_local: true,
+          no_inherit: false,
+          key_columns: [],
+          foreign_key_columns: null,
+          foreign_key_table: null,
+          foreign_key_schema: null,
+          on_update: null,
+          on_delete: null,
+          match_type: null,
+          check_expression: "a > 0",
+          owner: "o1",
+        },
+      ],
+    });
+    const changes = diffTables(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((c) => c instanceof AlterTableAddConstraint)).toBe(
+      true,
+    );
+    expect(changes.some((c) => c instanceof AlterTableValidateConstraint)).toBe(
+      true,
+    );
+  });
+
   test("alter owner", () => {
     const main = new Table(base);
     const branch = new Table({ ...base, owner: "o2" });
@@ -73,6 +135,27 @@ describe.concurrent("table.diff", () => {
       { [branch.stableId]: branch },
     );
     expect(changes[0]).toBeInstanceOf(AlterTableSetStorageParams);
+  });
+
+  test("option removed emits RESET", () => {
+    const main = new Table({
+      ...base,
+      options: ["fillfactor=90", "autovacuum_enabled=true"],
+    });
+    const branch = new Table({
+      ...base,
+      options: ["autovacuum_enabled=true"],
+    });
+    const changes = diffTables(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((c) => c instanceof AlterTableSetStorageParams)).toBe(
+      true,
+    );
+    expect(changes.some((c) => c instanceof AlterTableResetStorageParams)).toBe(
+      true,
+    );
   });
 
   test("persistence p->u uses ALTER TABLE SET UNLOGGED", () => {
@@ -260,6 +343,246 @@ describe.concurrent("table.diff", () => {
       true,
     );
     expect(altered.some((c) => c instanceof AlterTableAddConstraint)).toBe(
+      true,
+    );
+  });
+
+  test("altered primary key columns triggers drop+add", () => {
+    const tMain = new Table({
+      ...base,
+      name: "t_cols",
+      columns: [
+        {
+          name: "a",
+          position: 1,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+        {
+          name: "b",
+          position: 2,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      constraints: [
+        {
+          name: "pk_cols",
+          constraint_type: "p",
+          deferrable: false,
+          initially_deferred: false,
+          validated: true,
+          is_local: true,
+          no_inherit: false,
+          key_columns: [1],
+          foreign_key_columns: null,
+          foreign_key_table: null,
+          foreign_key_schema: null,
+          on_update: null,
+          on_delete: null,
+          match_type: null,
+          check_expression: null,
+          owner: "o1",
+        },
+      ],
+    });
+    const tBranch = new Table({
+      ...tMain,
+      constraints: [
+        {
+          ...tMain.constraints[0],
+          key_columns: [1, 2],
+        },
+      ],
+    });
+    const changes = diffTables(
+      { [tMain.stableId]: tMain },
+      { [tBranch.stableId]: tBranch },
+    );
+    expect(changes.some((c) => c instanceof AlterTableDropConstraint)).toBe(
+      true,
+    );
+    expect(changes.some((c) => c instanceof AlterTableAddConstraint)).toBe(
+      true,
+    );
+  });
+
+  test("altered foreign key properties triggers drop+add and validate when not validated", () => {
+    const tMain = new Table({
+      ...base,
+      name: "t_fk",
+      columns: [
+        {
+          name: "a",
+          position: 1,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      constraints: [
+        {
+          name: "fk_a",
+          constraint_type: "f",
+          deferrable: false,
+          initially_deferred: false,
+          validated: true,
+          is_local: true,
+          no_inherit: false,
+          key_columns: [1],
+          foreign_key_columns: [1],
+          foreign_key_table: "other",
+          foreign_key_schema: "public",
+          on_update: "a",
+          on_delete: "a",
+          match_type: "u",
+          check_expression: null,
+          owner: "o1",
+        },
+      ],
+    });
+    const tBranch = new Table({
+      ...tMain,
+      constraints: [
+        {
+          ...(tMain.constraints[0] as (typeof tMain.constraints)[number]),
+          on_delete: "c",
+          validated: false,
+        },
+      ],
+    });
+    const changes = diffTables(
+      { [tMain.stableId]: tMain },
+      {
+        [tBranch.stableId]: tBranch,
+        "table:public.other": new Table({
+          ...base,
+          name: "other",
+          columns: [
+            {
+              name: "a",
+              position: 1,
+              data_type: "integer",
+              data_type_str: "integer",
+              is_custom_type: false,
+              custom_type_type: null,
+              custom_type_category: null,
+              custom_type_schema: null,
+              custom_type_name: null,
+              not_null: false,
+              is_identity: false,
+              is_identity_always: false,
+              is_generated: false,
+              collation: null,
+              default: null,
+              comment: null,
+            },
+          ],
+        }),
+      },
+    );
+    expect(changes.some((c) => c instanceof AlterTableDropConstraint)).toBe(
+      true,
+    );
+    expect(changes.some((c) => c instanceof AlterTableAddConstraint)).toBe(
+      true,
+    );
+    expect(changes.some((c) => c instanceof AlterTableValidateConstraint)).toBe(
+      true,
+    );
+  });
+
+  test("altered constraint owner triggers drop+add", () => {
+    const c = {
+      name: "ck_expr",
+      constraint_type: "c" as const,
+      deferrable: false,
+      initially_deferred: false,
+      validated: true,
+      is_local: true,
+      no_inherit: false,
+      key_columns: [],
+      foreign_key_columns: null,
+      foreign_key_table: null,
+      foreign_key_schema: null,
+      on_update: null,
+      on_delete: null,
+      match_type: null,
+      check_expression: "a > 0",
+      owner: "o1",
+    };
+    const tMain = new Table({
+      ...base,
+      name: "t_owner",
+      columns: [
+        {
+          name: "a",
+          position: 1,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      constraints: [c],
+    });
+    const tBranch = new Table({
+      ...tMain,
+      constraints: [{ ...c, owner: "o2" }],
+    });
+    const changes = diffTables(
+      { [tMain.stableId]: tMain },
+      { [tBranch.stableId]: tBranch },
+    );
+    expect(changes.some((c) => c instanceof AlterTableDropConstraint)).toBe(
+      true,
+    );
+    expect(changes.some((c) => c instanceof AlterTableAddConstraint)).toBe(
       true,
     );
   });

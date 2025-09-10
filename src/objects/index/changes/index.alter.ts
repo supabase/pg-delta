@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { TableLikeObject } from "../../base.model.ts";
 import type { Index } from "../index.model.ts";
 import { CreateIndex } from "./index.create.ts";
@@ -23,7 +19,7 @@ import { checkIsSerializable } from "./utils.ts";
  * ALTER INDEX [ CONCURRENTLY ] [ IF EXISTS ] name ALTER [ COLUMN ] column_number SET STATISTICS integer
  * ```
  */
-export type AlterIndex =
+type AlterIndex =
   | AlterIndexSetStorageParams
   | AlterIndexSetStatistics
   | AlterIndexSetTablespace;
@@ -76,10 +72,9 @@ export class AlterIndexSetStorageParams extends AlterChange {
       }
     }
 
-    const head = [
-      "ALTER INDEX",
-      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.name)}`,
-    ].join(" ");
+    const head = ["ALTER INDEX", `${this.main.schema}.${this.main.name}`].join(
+      " ",
+    );
 
     const statements: string[] = [];
     if (keysToReset.length > 0) {
@@ -112,10 +107,9 @@ export class AlterIndexSetStatistics extends AlterChange {
 
   serialize(): string {
     const statements: string[] = [];
-    const head = [
-      "ALTER INDEX",
-      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.name)}`,
-    ].join(" ");
+    const head = ["ALTER INDEX", `${this.main.schema}.${this.main.name}`].join(
+      " ",
+    );
 
     const mainTargets = this.main.statistics_target;
     const branchTargets = this.branch.statistics_target;
@@ -156,10 +150,10 @@ export class AlterIndexSetTablespace extends AlterChange {
   serialize(): string {
     return [
       "ALTER INDEX",
-      `${quoteIdentifier(this.main.table_schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "SET TABLESPACE",
       // biome-ignore lint/style/noNonNullAssertion: the tablespace is set in this case
-      quoteIdentifier(this.branch.tablespace!),
+      this.branch.tablespace!,
     ].join(" ");
   }
 }

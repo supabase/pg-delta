@@ -15,7 +15,8 @@ import { diffTables } from "./objects/table/table.diff.ts";
 import { diffTriggers } from "./objects/trigger/trigger.diff.ts";
 import { diffCompositeTypes } from "./objects/type/composite-type/composite-type.diff.ts";
 import { diffEnums } from "./objects/type/enum/enum.diff.ts";
-import { diffTypes } from "./objects/type/type.diff.ts";
+import { diffRanges } from "./objects/type/range/range.diff.ts";
+import { stringifyWithBigInt } from "./objects/utils.ts";
 import { diffViews } from "./objects/view/view.diff.ts";
 
 export function diffCatalogs(main: Catalog, branch: Catalog) {
@@ -39,12 +40,14 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(...diffSchemas(main.schemas, branch.schemas));
   changes.push(...diffSequences(main.sequences, branch.sequences));
   changes.push(...diffTables(main.tables, branch.tables));
-  changes.push(...diffTriggers(main.triggers, branch.triggers));
-  changes.push(...diffTypes(main.types, branch.types));
+  changes.push(
+    ...diffTriggers(main.triggers, branch.triggers, branch.indexableObjects),
+  );
+  changes.push(...diffRanges(main.ranges, branch.ranges));
   changes.push(...diffViews(main.views, branch.views));
 
   if (DEBUG) {
-    console.log("changes catalog diff: ", changes);
+    console.log("changes catalog diff: ", stringifyWithBigInt(changes, 2));
   }
 
   return changes;

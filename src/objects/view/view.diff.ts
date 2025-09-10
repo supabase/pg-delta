@@ -1,7 +1,12 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
-import { AlterViewChangeOwner, ReplaceView } from "./changes/view.alter.ts";
+import {
+  AlterViewChangeOwner,
+  AlterViewResetOptions,
+  AlterViewSetOptions,
+  ReplaceView,
+} from "./changes/view.alter.ts";
 import { CreateView } from "./changes/view.create.ts";
 import { DropView } from "./changes/view.drop.ts";
 import type { View } from "./view.model.ts";
@@ -46,7 +51,6 @@ export function diffViews(
       "is_populated",
       "replica_identity",
       "is_partition",
-      "options",
       "partition_bound",
     ];
     const nonAlterablePropsChanged = hasNonAlterableChanges(
@@ -70,6 +74,36 @@ export function diffViews(
             branch: branchView,
           }),
         );
+      }
+
+      // VIEW OPTIONS (WITH (...))
+      if (!deepEqual(mainView.options, branchView.options)) {
+        const mainOpts = mainView.options ?? [];
+        const branchOpts = branchView.options ?? [];
+
+        // Always set branch options when provided
+        if (branchOpts.length > 0) {
+          changes.push(
+            new AlterViewSetOptions({ main: mainView, branch: branchView }),
+          );
+        }
+
+        // Reset any params that are present in main but absent in branch
+        if (mainOpts.length > 0) {
+          const mainNames = new Set(mainOpts.map((opt) => opt.split("=")[0]));
+          const branchNames = new Set(
+            branchOpts.map((opt) => opt.split("=")[0]),
+          );
+          const removed: string[] = [];
+          for (const name of mainNames) {
+            if (!branchNames.has(name)) removed.push(name);
+          }
+          if (removed.length > 0) {
+            changes.push(
+              new AlterViewResetOptions({ view: mainView, params: removed }),
+            );
+          }
+        }
       }
 
       // Note: View renaming would also use ALTER VIEW ... RENAME TO ...

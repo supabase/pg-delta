@@ -7,7 +7,6 @@ describe("rls-policy", () => {
     const rlsPolicy = new RlsPolicy({
       schema: "public",
       name: "test_policy",
-      table_schema: "public",
       table_name: "test_table",
       command: "r",
       permissive: true,
@@ -22,7 +21,7 @@ describe("rls-policy", () => {
     });
 
     expect(change.serialize()).toBe(
-      "DROP POLICY public.test_policy ON public.test_table",
+      "DROP POLICY test_policy ON public.test_table",
     );
   });
 });

@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { AlterChange, quoteLiteral, ReplaceChange } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
 import { CreateExtension } from "./extension.create.ts";
 import { DropExtension } from "./extension.drop.ts";
@@ -20,7 +16,7 @@ import { DropExtension } from "./extension.drop.ts";
  * ALTER EXTENSION name DROP member_object
  * ```
  */
-export type AlterExtension =
+type AlterExtension =
   | AlterExtensionUpdateVersion
   | AlterExtensionSetSchema
   | AlterExtensionChangeOwner;
@@ -45,9 +41,9 @@ export class AlterExtensionUpdateVersion extends AlterChange {
   serialize(): string {
     return [
       "ALTER EXTENSION",
-      quoteIdentifier(this.main.name),
+      this.main.name,
       "UPDATE TO",
-      quoteIdentifier(this.branch.version),
+      quoteLiteral(this.branch.version),
     ].join(" ");
   }
 }
@@ -72,9 +68,9 @@ export class AlterExtensionSetSchema extends AlterChange {
   serialize(): string {
     return [
       "ALTER EXTENSION",
-      quoteIdentifier(this.main.name),
+      this.main.name,
       "SET SCHEMA",
-      quoteIdentifier(this.branch.schema),
+      this.branch.schema,
     ].join(" ");
   }
 }
@@ -99,9 +95,9 @@ export class AlterExtensionChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER EXTENSION",
-      quoteIdentifier(this.main.name),
+      this.main.name,
       "OWNER TO",
-      quoteIdentifier(this.branch.owner),
+      this.branch.owner,
     ].join(" ");
   }
 }

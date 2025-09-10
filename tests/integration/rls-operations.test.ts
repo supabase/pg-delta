@@ -183,13 +183,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "create basic RLS policy",
         expectedSqlTerms: [
-          "CREATE POLICY",
-          "user_isolation",
-          '"app"."users"',
-          "FOR ALL",
-          "TO public",
-          "USING",
-          "true",
+          "CREATE POLICY user_isolation ON app.users USING (true)",
         ],
         expectedMasterDependencies: [
           {
@@ -245,9 +239,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             deptype: "i",
           },
           {
-            dependent_stable_id: "policy:app.users.user_isolation",
+            dependent_stable_id: "rlsPolicy:app.users.user_isolation",
             referenced_stable_id: "table:app.users",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -276,13 +270,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "create policy with WITH CHECK",
         expectedSqlTerms: [
-          "CREATE POLICY",
-          "insert_own_posts",
-          '"blog"."posts"',
-          "FOR INSERT",
-          "TO public",
-          "WITH CHECK",
-          "true",
+          "CREATE POLICY insert_own_posts ON blog.posts FOR INSERT WITH CHECK (true)",
         ],
         expectedMasterDependencies: [
           {
@@ -318,9 +306,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             deptype: "i",
           },
           {
-            dependent_stable_id: "policy:blog.posts.insert_own_posts",
+            dependent_stable_id: "rlsPolicy:blog.posts.insert_own_posts",
             referenced_stable_id: "table:blog.posts",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -348,14 +336,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "create RESTRICTIVE policy",
         expectedSqlTerms: [
-          "CREATE POLICY",
-          "admin_only",
-          '"secure"."sensitive_data"',
-          "AS RESTRICTIVE",
-          "FOR SELECT",
-          "TO public",
-          "USING",
-          "true",
+          "CREATE POLICY admin_only ON secure.sensitive_data AS RESTRICTIVE FOR SELECT USING (true)",
         ],
         expectedMasterDependencies: [
           {
@@ -395,9 +376,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             deptype: "i",
           },
           {
-            dependent_stable_id: "policy:secure.sensitive_data.admin_only",
+            dependent_stable_id: "rlsPolicy:secure.sensitive_data.admin_only",
             referenced_stable_id: "table:secure.sensitive_data",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -424,7 +405,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP POLICY user_isolation ON app.users;
         `,
         description: "drop RLS policy",
-        expectedSqlTerms: ["DROP POLICY", "user_isolation", '"app"."users"'],
+        expectedSqlTerms: ["DROP POLICY user_isolation ON app.users"],
         expectedMasterDependencies: [
           {
             dependent_stable_id: "table:app.users",
@@ -452,9 +433,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             deptype: "i",
           },
           {
-            dependent_stable_id: "policy:app.users.user_isolation",
+            dependent_stable_id: "rlsPolicy:app.users.user_isolation",
             referenced_stable_id: "table:app.users",
-            deptype: "n",
+            deptype: "a",
           },
         ],
         expectedBranchDependencies: [
@@ -503,19 +484,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE forum.messages ENABLE ROW LEVEL SECURITY;
         `,
         testSql: `
-          -- Read policy: users can read all messages
+          -- Read rlsPolicy: users can read all messages
           CREATE POLICY read_messages ON forum.messages
             FOR SELECT
             TO public
             USING (true);
 
-          -- Insert policy: users can only insert their own messages
+          -- Insert rlsPolicy: users can only insert their own messages
           CREATE POLICY insert_own_messages ON forum.messages
             FOR INSERT
             TO public
             WITH CHECK (true);
 
-          -- Update policy: users can only update their own messages
+          -- Update rlsPolicy: users can only update their own messages
           CREATE POLICY update_own_messages ON forum.messages
             FOR UPDATE
             TO public
@@ -524,18 +505,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "multiple policies on same table",
         expectedSqlTerms: [
-          "CREATE POLICY",
-          "read_messages",
-          "insert_own_messages",
-          "update_own_messages",
-          '"forum"."messages"',
-          "FOR SELECT",
-          "FOR INSERT",
-          "FOR UPDATE",
-          "TO public",
-          "USING (true)",
-          "WITH CHECK",
-          "true",
+          "CREATE POLICY update_own_messages ON forum.messages FOR UPDATE USING (true) WITH CHECK (true)",
+          "CREATE POLICY read_messages ON forum.messages FOR SELECT USING (true)",
+          "CREATE POLICY insert_own_messages ON forum.messages FOR INSERT WITH CHECK (true)",
         ],
         expectedMasterDependencies: [
           {
@@ -571,19 +543,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             deptype: "i",
           },
           {
-            dependent_stable_id: "policy:forum.messages.read_messages",
+            dependent_stable_id: "rlsPolicy:forum.messages.read_messages",
             referenced_stable_id: "table:forum.messages",
-            deptype: "n",
+            deptype: "a",
           },
           {
-            dependent_stable_id: "policy:forum.messages.insert_own_messages",
+            dependent_stable_id: "rlsPolicy:forum.messages.insert_own_messages",
             referenced_stable_id: "table:forum.messages",
-            deptype: "n",
+            deptype: "a",
           },
           {
-            dependent_stable_id: "policy:forum.messages.update_own_messages",
+            dependent_stable_id: "rlsPolicy:forum.messages.update_own_messages",
             referenced_stable_id: "table:forum.messages",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -624,18 +596,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "complete RLS setup with policies",
         expectedSqlTerms: [
-          "CREATE TABLE",
-          '"tenant"."data"',
-          "ALTER TABLE",
-          "ENABLE ROW LEVEL SECURITY",
-          "CREATE POLICY",
-          "tenant_isolation",
-          "admin_bypass",
-          "FOR ALL",
-          "TO public",
-          "true",
-          "USING (true)",
-          "WITH CHECK (true)",
+          "CREATE TABLE tenant.data (id integer NOT NULL, tenant_id integer NOT NULL, content text NOT NULL, created_by integer NOT NULL)",
+          "ALTER TABLE tenant.data ADD CONSTRAINT data_pkey PRIMARY KEY (id)",
+          "CREATE POLICY tenant_isolation ON tenant.data USING (true) WITH CHECK (true)",
+          "CREATE POLICY admin_bypass ON tenant.data USING (true) WITH CHECK (true)",
         ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
@@ -655,14 +619,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             deptype: "i",
           },
           {
-            dependent_stable_id: "policy:tenant.data.tenant_isolation",
+            dependent_stable_id: "rlsPolicy:tenant.data.tenant_isolation",
             referenced_stable_id: "table:tenant.data",
-            deptype: "n",
+            deptype: "a",
           },
           {
-            dependent_stable_id: "policy:tenant.data.admin_bypass",
+            dependent_stable_id: "rlsPolicy:tenant.data.admin_bypass",
             referenced_stable_id: "table:tenant.data",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -688,13 +652,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "create basic RLS policy on simple table",
         expectedSqlTerms: [
-          "CREATE POLICY",
-          "user_policy",
-          '"app"."users"',
-          "FOR ALL",
-          "TO public",
-          "USING",
-          "true",
+          "CREATE POLICY user_policy ON app.users USING (true)",
         ],
         expectedMasterDependencies: [
           {
@@ -730,9 +688,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             deptype: "i",
           },
           {
-            dependent_stable_id: "policy:app.users.user_policy",
+            dependent_stable_id: "rlsPolicy:app.users.user_policy",
             referenced_stable_id: "table:app.users",
-            deptype: "n",
+            deptype: "a",
           },
         ],
       });
@@ -758,7 +716,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP POLICY user_policy ON app.users;
         `,
         description: "drop RLS policy from simple table",
-        expectedSqlTerms: ["DROP POLICY", "user_policy", '"app"."users"'],
+        expectedSqlTerms: ["DROP POLICY user_policy ON app.users"],
         expectedMasterDependencies: [
           {
             dependent_stable_id: "table:app.users",
@@ -776,9 +734,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             deptype: "i",
           },
           {
-            dependent_stable_id: "policy:app.users.user_policy",
+            dependent_stable_id: "rlsPolicy:app.users.user_policy",
             referenced_stable_id: "table:app.users",
-            deptype: "n",
+            deptype: "a",
           },
         ],
         expectedBranchDependencies: [

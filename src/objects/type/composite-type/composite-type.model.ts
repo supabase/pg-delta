@@ -114,8 +114,8 @@ export async function extractCompositeTypes(
           and d.classid = 'pg_class'::regclass
       ), composite_types as (
         select
-          n.nspname as schema,
-          c.relname as name,
+          c.relnamespace::regnamespace::text as schema,
+          quote_ident(c.relname) as name,
           c.relrowsecurity as row_security,
           c.relforcerowsecurity as force_row_security,
           c.relhasindex as has_indexes,
@@ -127,14 +127,12 @@ export async function extractCompositeTypes(
           c.relispartition as is_partition,
           c.reloptions as options,
           pg_get_expr(c.relpartbound, c.oid) as partition_bound,
-          pg_get_userbyid(c.relowner) as owner,
+          c.relowner::regrole::text as owner,
           c.oid as oid
         from
           pg_catalog.pg_class c
-          inner join pg_catalog.pg_namespace n on n.oid = c.relnamespace
           left outer join extension_oids e on c.oid = e.objid
-        where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-          and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
+        where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
           and e.objid is null
           and c.relkind = 'c'
       )
@@ -156,15 +154,15 @@ export async function extractCompositeTypes(
         coalesce(json_agg(
           case when a.attname is not null then
             json_build_object(
-              'name', a.attname,
+              'name', quote_ident(a.attname),
               'position', a.attnum,
               'data_type', a.atttypid::regtype::text,
               'data_type_str', format_type(a.atttypid, a.atttypmod),
-              'is_custom_type', n.nspname not in ('pg_catalog', 'information_schema'),
-              'custom_type_type', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typtype else null end,
-              'custom_type_category', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typcategory else null end,
-              'custom_type_schema', case when n.nspname not in ('pg_catalog', 'information_schema') then n.nspname else null end,
-              'custom_type_name', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typname else null end,
+              'is_custom_type', ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema'),
+              'custom_type_type', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typtype else null end,
+              'custom_type_category', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typcategory else null end,
+              'custom_type_schema', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typnamespace::regnamespace else null end,
+              'custom_type_name', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typname else null end,
               'not_null', a.attnotnull,
               'is_identity', a.attidentity != '',
               'is_identity_always', a.attidentity = 'a',
@@ -187,7 +185,8 @@ export async function extractCompositeTypes(
         left join pg_attribute a on a.attrelid = ct.oid and a.attnum > 0 and not a.attisdropped
         left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum
         left join pg_type ty on ty.oid = a.atttypid
-        left join pg_namespace n on n.oid = ty.typnamespace
+        -- use regnamespace instead of joining pg_namespace
+        
       group by
         ct.schema, ct.name, ct.row_security, ct.force_row_security, ct.has_indexes, ct.has_rules, ct.has_triggers, ct.has_subclasses, ct.is_populated, ct.replica_identity, ct.is_partition, ct.options, ct.partition_bound, ct.owner, ct.oid
       order by

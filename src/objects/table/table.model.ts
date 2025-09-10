@@ -6,7 +6,7 @@ import {
   type TableLikeObject,
 } from "../base.model.ts";
 
-export const RelationPersistenceSchema = z.enum([
+const RelationPersistenceSchema = z.enum([
   "p", // permanent
   "u", // unlogged
   "t", // temporary
@@ -34,8 +34,8 @@ const ForeignKeyMatchTypeSchema = z.enum([
   "u", // UNSPECIFIED (default)
 ]);
 
-export type RelationPersistence = z.infer<typeof RelationPersistenceSchema>;
-export type ReplicaIdentity = z.infer<typeof ReplicaIdentitySchema>;
+type RelationPersistence = z.infer<typeof RelationPersistenceSchema>;
+type ReplicaIdentity = z.infer<typeof ReplicaIdentitySchema>;
 
 const tableConstraintPropsSchema = z.object({
   name: z.string(),
@@ -173,8 +173,8 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 ), tables as (
   select
-    n.nspname as schema,
-    c.relname as name,
+    c.relnamespace::regnamespace::text as schema,
+    quote_ident(c.relname) as name,
     c.relpersistence as persistence,
     c.relrowsecurity as row_security,
     c.relforcerowsecurity as force_row_security,
@@ -187,22 +187,18 @@ with extension_oids as (
     c.relispartition as is_partition,
     c.reloptions as options,
     pg_get_expr(c.relpartbound, c.oid) as partition_bound,
-    pg_get_userbyid(c.relowner) as owner,
-    n_parent.nspname as parent_schema,
+    c.relowner::regrole::text as owner,
+    c_parent.relnamespace::regnamespace as parent_schema,
     c_parent.relname as parent_name,
     c.oid as oid
   from
     pg_class c
-    inner join pg_namespace n on n.oid = c.relnamespace
     left join extension_oids e1 on c.oid = e1.objid
     left join pg_inherits i on i.inhrelid = c.oid
     left join pg_class c_parent on i.inhparent = c_parent.oid
-    left join pg_namespace n_parent on c_parent.relnamespace = n_parent.oid
   where
     c.relkind in ('r', 'p')
-    and n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-    and n.nspname not like 'pg\_temp\_%'
-    and n.nspname not like 'pg\_toast\_temp\_%'
+    and not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
     and e1.objid is null
 )
 select
@@ -227,7 +223,7 @@ select
     (
       select json_agg(
         json_build_object(
-          'name', c.conname,
+          'name', quote_ident(c.conname),
           'constraint_type', c.contype,
           'deferrable', c.condeferrable,
           'initially_deferred', c.condeferred,
@@ -237,7 +233,7 @@ select
           'key_columns', c.conkey,
           'foreign_key_columns', c.confkey,
           'foreign_key_table', ftc.relname,
-          'foreign_key_schema', ftn.nspname,
+          'foreign_key_schema', ftc.relnamespace::regnamespace::text,
           'on_update', case when c.contype = 'f' then c.confupdtype else null end,
           'on_delete', case when c.contype = 'f' then c.confdeltype else null end,
           'match_type', case when c.contype = 'f' then c.confmatchtype else null end,
@@ -247,28 +243,25 @@ select
         order by c.conname
       )
       from pg_catalog.pg_constraint c
-      inner join pg_catalog.pg_namespace cn on cn.oid = c.connamespace
       left join pg_catalog.pg_class ftc on ftc.oid = c.confrelid
-      left join pg_catalog.pg_namespace ftn on ftn.oid = ftc.relnamespace
       left join pg_depend de on de.classid = 'pg_constraint'::regclass and de.objid = c.oid and de.refclassid = 'pg_extension'::regclass
       where c.conrelid = t.oid
-        and cn.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-        and cn.nspname not like 'pg\_temp\_%' and cn.nspname not like 'pg\_toast\_temp\_%'
+        and not c.connamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
         and de.objid is null
     ), '[]'
   ) as constraints,
   coalesce(json_agg(
     case when a.attname is not null then
       json_build_object(
-        'name', a.attname,
+        'name', quote_ident(a.attname),
         'position', a.attnum,
         'data_type', a.atttypid::regtype::text,
         'data_type_str', format_type(a.atttypid, a.atttypmod),
-        'is_custom_type', n.nspname not in ('pg_catalog', 'information_schema'),
-        'custom_type_type', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typtype else null end,
-        'custom_type_category', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typcategory else null end,
-        'custom_type_schema', case when n.nspname not in ('pg_catalog', 'information_schema') then n.nspname else null end,
-        'custom_type_name', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typname else null end,
+        'is_custom_type', ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema'),
+        'custom_type_type', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typtype else null end,
+        'custom_type_category', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typcategory else null end,
+        'custom_type_schema', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typnamespace::regnamespace else null end,
+        'custom_type_name', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typname else null end,
         'not_null', a.attnotnull,
         'is_identity', a.attidentity != '',
         'is_identity_always', a.attidentity = 'a',
@@ -291,7 +284,6 @@ from
   left join pg_attribute a on a.attrelid = t.oid and a.attnum > 0 and not a.attisdropped
   left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum
   left join pg_type ty on ty.oid = a.atttypid
-  left join pg_namespace n on n.oid = ty.typnamespace
 group by
   t.oid, t.schema, t.name, t.persistence, t.row_security, t.force_row_security, t.has_indexes, t.has_rules, t.has_triggers, t.has_subclasses, t.is_populated, t.replica_identity, t.is_partition, t.options, t.partition_bound, t.owner, t.parent_schema, t.parent_name
 order by

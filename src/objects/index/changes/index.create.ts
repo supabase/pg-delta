@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange } from "../../base.change.ts";
 import type { TableLikeObject } from "../../base.model.ts";
 import type { Index } from "../index.model.ts";
 import { checkIsSerializable } from "./utils.ts";
@@ -59,7 +59,7 @@ export class CreateIndex extends CreateChange {
           `CreateIndex could not resolve column position ${colNum} to a column name`,
         );
       }
-      columnNames.push(quoteIdentifier(columnName));
+      columnNames.push(columnName);
     }
 
     return columnNames;
@@ -76,13 +76,10 @@ export class CreateIndex extends CreateChange {
     parts.push("INDEX");
 
     // Add index name
-    parts.push(quoteIdentifier(this.index.name));
+    parts.push(this.index.name);
 
     // Add ON table/materialized view
-    parts.push(
-      "ON",
-      `${quoteIdentifier(this.index.table_schema)}.${quoteIdentifier(this.index.table_name)}`,
-    );
+    parts.push("ON", `${this.index.schema}.${this.index.table_name}`);
 
     // Add columns (with per-column options)
     const columnNames = this.getColumnNames();
@@ -92,11 +89,11 @@ export class CreateIndex extends CreateChange {
       : columnNames.map((col, i) => {
           const itemParts: string[] = [col];
           const collation = this.index.column_collations[i];
-          if (collation) {
-            itemParts.push(`COLLATE ${quoteIdentifier(collation)}`);
+          if (collation && collation !== "default" && collation !== "NULL") {
+            itemParts.push(`COLLATE ${collation}`);
           }
           const opclass = this.index.operator_classes[i];
-          if (opclass) {
+          if (opclass && opclass !== "default" && opclass !== "NULL") {
             itemParts.push(opclass);
           }
           const optionBits = this.index.column_options[i] ?? 0;
@@ -138,7 +135,7 @@ export class CreateIndex extends CreateChange {
 
     // Add tablespace
     if (this.index.tablespace) {
-      parts.push("TABLESPACE", quoteIdentifier(this.index.tablespace));
+      parts.push("TABLESPACE", this.index.tablespace);
     }
 
     return parts.join(" ");

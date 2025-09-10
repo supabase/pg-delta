@@ -13,7 +13,9 @@ const sequencePropsSchema = z.object({
   cycle_option: z.boolean(),
   cache_size: z.number(),
   persistence: z.string(),
-  owner: z.string(),
+  owned_by_schema: z.string().nullable(),
+  owned_by_table: z.string().nullable(),
+  owned_by_column: z.string().nullable(),
 });
 
 export type SequenceProps = z.infer<typeof sequencePropsSchema>;
@@ -29,7 +31,9 @@ export class Sequence extends BasePgModel {
   public readonly cycle_option: SequenceProps["cycle_option"];
   public readonly cache_size: SequenceProps["cache_size"];
   public readonly persistence: SequenceProps["persistence"];
-  public readonly owner: SequenceProps["owner"];
+  public readonly owned_by_schema: SequenceProps["owned_by_schema"];
+  public readonly owned_by_table: SequenceProps["owned_by_table"];
+  public readonly owned_by_column: SequenceProps["owned_by_column"];
 
   constructor(props: SequenceProps) {
     super();
@@ -47,7 +51,9 @@ export class Sequence extends BasePgModel {
     this.cycle_option = props.cycle_option;
     this.cache_size = props.cache_size;
     this.persistence = props.persistence;
-    this.owner = props.owner;
+    this.owned_by_schema = props.owned_by_schema;
+    this.owned_by_table = props.owned_by_table;
+    this.owned_by_column = props.owned_by_column;
   }
 
   get stableId(): `sequence:${string}` {
@@ -71,13 +77,17 @@ export class Sequence extends BasePgModel {
       cycle_option: this.cycle_option,
       cache_size: this.cache_size,
       persistence: this.persistence,
-      owner: this.owner,
+      owned_by_schema: this.owned_by_schema,
+      owned_by_table: this.owned_by_table,
+      owned_by_column: this.owned_by_column,
     };
   }
 }
 
 export async function extractSequences(sql: Sql): Promise<Sequence[]> {
-  const sequenceRows = await sql`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const sequenceRows = await sql`
 with extension_oids as (
   select
     objid
@@ -88,8 +98,8 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 )
 select
-  n.nspname as schema,
-  c.relname as name,
+  c.relnamespace::regnamespace::text as schema,
+  quote_ident(c.relname) as name,
   format_type(s.seqtypid, null) as data_type,
   s.seqstart::int as start_value,
   s.seqmin as minimum_value,
@@ -98,22 +108,27 @@ select
   s.seqcycle as cycle_option,
   s.seqcache::int as cache_size,
   c.relpersistence as persistence,
-  pg_get_userbyid(c.relowner) as owner
+  quote_ident(t_ns.nspname) as owned_by_schema,
+  case when t.relname is not null then quote_ident(t.relname) else null end as owned_by_table,
+  case when att.attname is not null then quote_ident(att.attname) else null end as owned_by_column
 from
   pg_catalog.pg_class c
-  inner join pg_catalog.pg_namespace n on n.oid = c.relnamespace
   inner join pg_catalog.pg_sequence s on s.seqrelid = c.oid
+  left join pg_depend d on d.classid = 'pg_class'::regclass and d.objid = c.oid and d.refclassid = 'pg_class'::regclass and d.deptype = 'a'
+  left join pg_class t on t.oid = d.refobjid
+  left join pg_namespace t_ns on t.relnamespace = t_ns.oid
+  left join pg_attribute att on att.attrelid = t.oid and att.attnum = d.refobjsubid and d.refobjsubid > 0
   left outer join extension_oids e on c.oid = e.objid
-  where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
+  where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   and e.objid is null
   and c.relkind = 'S'
 order by
   1, 2;
   `;
-  // Validate and parse each row using the Zod schema
-  const validatedRows = sequenceRows.map((row: unknown) =>
-    sequencePropsSchema.parse(row),
-  );
-  return validatedRows.map((row: SequenceProps) => new Sequence(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = sequenceRows.map((row: unknown) =>
+      sequencePropsSchema.parse(row),
+    );
+    return validatedRows.map((row: SequenceProps) => new Sequence(row));
+  });
 }

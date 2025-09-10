@@ -1,6 +1,7 @@
-import { AlterChange, quoteIdentifier } from "../../base.change.ts";
+import { AlterChange } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import type { Table, TableConstraintProps } from "../table.model.ts";
+
 // No drop+create paths; destructive operations are out of scope
 
 /**
@@ -65,6 +66,7 @@ export type AlterTable =
   | AlterTableForceRowLevelSecurity
   | AlterTableNoForceRowLevelSecurity
   | AlterTableSetStorageParams
+  | AlterTableResetStorageParams
   | AlterTableAddConstraint
   | AlterTableDropConstraint
   | AlterTableValidateConstraint
@@ -97,9 +99,9 @@ export class AlterTableChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "OWNER TO",
-      quoteIdentifier(this.branch.owner),
+      this.branch.owner,
     ].join(" ");
   }
 }
@@ -124,7 +126,7 @@ export class AlterTableSetLogged extends AlterChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "SET LOGGED",
     ].join(" ");
   }
@@ -150,7 +152,7 @@ export class AlterTableSetUnlogged extends AlterChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "SET UNLOGGED",
     ].join(" ");
   }
@@ -176,7 +178,7 @@ export class AlterTableEnableRowLevelSecurity extends AlterChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "ENABLE ROW LEVEL SECURITY",
     ].join(" ");
   }
@@ -202,7 +204,7 @@ export class AlterTableDisableRowLevelSecurity extends AlterChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "DISABLE ROW LEVEL SECURITY",
     ].join(" ");
   }
@@ -228,7 +230,7 @@ export class AlterTableForceRowLevelSecurity extends AlterChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "FORCE ROW LEVEL SECURITY",
     ].join(" ");
   }
@@ -254,7 +256,7 @@ export class AlterTableNoForceRowLevelSecurity extends AlterChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "NO FORCE ROW LEVEL SECURITY",
     ].join(" ");
   }
@@ -281,8 +283,35 @@ export class AlterTableSetStorageParams extends AlterChange {
     const storageParams = (this.branch.options ?? []).join(", ");
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       `SET (${storageParams})`,
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... RESET ( storage_parameter [, ... ] )
+ */
+export class AlterTableResetStorageParams extends AlterChange {
+  public readonly table: Table;
+  public readonly params: string[];
+
+  constructor(props: { table: Table; params: string[] }) {
+    super();
+    this.table = props.table;
+    this.params = props.params;
+  }
+
+  get stableId(): string {
+    return `${this.table.stableId}`;
+  }
+
+  serialize(): string {
+    const paramsSql = this.params.join(", ");
+    return [
+      "ALTER TABLE",
+      `${this.table.schema}.${this.table.name}`,
+      `RESET (${paramsSql})`,
     ].join(" ");
   }
 }
@@ -294,15 +323,35 @@ export class AlterTableSetStorageParams extends AlterChange {
  */
 export class AlterTableAddConstraint extends AlterChange {
   public readonly table: Table;
+  public readonly foreignKeyTable?: Table;
   public readonly constraint: TableConstraintProps;
 
-  constructor(props: { table: Table; constraint: TableConstraintProps }) {
+  constructor(props: {
+    table: Table;
+    constraint: TableConstraintProps;
+    foreignKeyTable?: Table;
+  }) {
     super();
+
+    if (props.constraint.constraint_type === "f" && !props.foreignKeyTable) {
+      throw new Error(
+        "foreignKeyTable is required for FOREIGN KEY constraints",
+      );
+    }
+
     this.table = props.table;
     this.constraint = props.constraint;
+    this.foreignKeyTable = props.foreignKeyTable;
   }
 
   get stableId(): string {
+    // If the constraint is a foreign key constraint, use the foreign key table as the stable id
+    // so the dependency resolution can ensure the foreign key table is created before the constraint is added
+    // TODO: the stableId should be the constraint name, not the foreign key table and the resolution should be based on both
+    // the table.stableId AND the constraint name
+    if (this.foreignKeyTable) {
+      return `${this.foreignKeyTable.stableId}`;
+    }
     return `${this.table.stableId}`;
   }
 
@@ -311,22 +360,29 @@ export class AlterTableAddConstraint extends AlterChange {
       this.table.columns.map((c) => [c.position, c]),
     );
     return this.constraint.key_columns.map((position) => {
-      const column = columnByPosition.get(position);
-      if (!column) {
-        throw new Error(
-          `AlterTableAddConstraint could not resolve column position ${position} to a column name`,
-        );
-      }
-      return quoteIdentifier(column.name);
+      // biome-ignore lint/style/noNonNullAssertion: it is guaranteed by our query
+      const column = columnByPosition.get(position)!;
+      return column.name;
     });
+  }
+  private getForeignKeyColumnNames(): string[] {
+    const columnByPosition = new Map(
+      this.foreignKeyTable?.columns.map((c) => [c.position, c]),
+    );
+    // biome-ignore lint/style/noNonNullAssertion: it is guaranteed by our query
+    return this.constraint.foreign_key_columns?.map((position) => {
+      // biome-ignore lint/style/noNonNullAssertion: it is guaranteed by our query
+      const column = columnByPosition.get(position)!;
+      return column.name;
+    })!;
   }
 
   serialize(): string {
     const parts: string[] = [
       "ALTER TABLE",
-      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      `${this.table.schema}.${this.table.name}`,
       "ADD CONSTRAINT",
-      quoteIdentifier(this.constraint.name),
+      this.constraint.name,
     ];
     switch (this.constraint.constraint_type) {
       case "p": {
@@ -337,9 +393,15 @@ export class AlterTableAddConstraint extends AlterChange {
       }
       case "u":
         parts.push("UNIQUE");
+        parts.push(`(${this.getColumnNames().join(", ")})`);
         break;
       case "f":
         parts.push("FOREIGN KEY");
+        parts.push(`(${this.getColumnNames().join(", ")})`);
+        parts.push(
+          `REFERENCES ${this.constraint.foreign_key_schema}.${this.constraint.foreign_key_table}`,
+        );
+        parts.push(`(${this.getForeignKeyColumnNames().join(", ")})`);
         break;
       case "c":
         parts.push("CHECK");
@@ -358,6 +420,40 @@ export class AlterTableAddConstraint extends AlterChange {
           ? "INITIALLY DEFERRED"
           : "INITIALLY IMMEDIATE",
       );
+    }
+    if (this.constraint.constraint_type === "f") {
+      switch (this.constraint.on_update) {
+        case "r":
+          parts.push("ON UPDATE RESTRICT");
+          break;
+        case "c":
+          parts.push("ON UPDATE CASCADE");
+          break;
+        case "n":
+          parts.push("ON UPDATE SET NULL");
+          break;
+        case "d":
+          parts.push("ON UPDATE SET DEFAULT");
+          break;
+        default:
+          break;
+      }
+      switch (this.constraint.on_delete) {
+        case "r":
+          parts.push("ON DELETE RESTRICT");
+          break;
+        case "c":
+          parts.push("ON DELETE CASCADE");
+          break;
+        case "n":
+          parts.push("ON DELETE SET NULL");
+          break;
+        case "d":
+          parts.push("ON DELETE SET DEFAULT");
+          break;
+        default:
+          break;
+      }
     }
     return parts.join(" ");
   }
@@ -383,9 +479,9 @@ export class AlterTableDropConstraint extends AlterChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      `${this.table.schema}.${this.table.name}`,
       "DROP CONSTRAINT",
-      quoteIdentifier(this.constraint.name),
+      this.constraint.name,
     ].join(" ");
   }
 }
@@ -410,9 +506,9 @@ export class AlterTableValidateConstraint extends AlterChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      `${this.table.schema}.${this.table.name}`,
       "VALIDATE CONSTRAINT",
-      quoteIdentifier(this.constraint.name),
+      this.constraint.name,
     ].join(" ");
   }
 }
@@ -446,7 +542,7 @@ export class AlterTableSetReplicaIdentity extends AlterChange {
             : "DEFAULT"; // 'i' (USING INDEX) is handled via index changes; fallback to DEFAULT
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      `${this.main.schema}.${this.main.name}`,
       "REPLICA IDENTITY",
       clause,
     ].join(" ");
@@ -473,15 +569,23 @@ export class AlterTableAddColumn extends AlterChange {
   serialize(): string {
     const parts: string[] = [
       "ALTER TABLE",
-      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      `${this.table.schema}.${this.table.name}`,
       "ADD COLUMN",
-      quoteIdentifier(this.column.name),
+      this.column.name,
       this.column.data_type_str,
     ];
     if (this.column.collation) {
-      parts.push("COLLATE", quoteIdentifier(this.column.collation));
+      parts.push("COLLATE", this.column.collation);
     }
-    if (this.column.default !== null) {
+    if (this.column.is_identity) {
+      parts.push(
+        this.column.is_identity_always
+          ? "GENERATED ALWAYS AS IDENTITY"
+          : "GENERATED BY DEFAULT AS IDENTITY",
+      );
+    } else if (this.column.is_generated && this.column.default !== null) {
+      parts.push(`GENERATED ALWAYS AS ${this.column.default} STORED`);
+    } else if (this.column.default !== null) {
       parts.push("DEFAULT", this.column.default);
     }
     if (this.column.not_null) {
@@ -511,9 +615,9 @@ export class AlterTableDropColumn extends AlterChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      `${this.table.schema}.${this.table.name}`,
       "DROP COLUMN",
-      quoteIdentifier(this.column.name),
+      this.column.name,
     ].join(" ");
   }
 }
@@ -538,14 +642,14 @@ export class AlterTableAlterColumnType extends AlterChange {
   serialize(): string {
     const parts: string[] = [
       "ALTER TABLE",
-      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      `${this.table.schema}.${this.table.name}`,
       "ALTER COLUMN",
-      quoteIdentifier(this.column.name),
+      this.column.name,
       "TYPE",
       this.column.data_type_str,
     ];
     if (this.column.collation) {
-      parts.push("COLLATE", quoteIdentifier(this.column.collation));
+      parts.push("COLLATE", this.column.collation);
     }
     return parts.join(" ");
   }
@@ -569,12 +673,14 @@ export class AlterTableAlterColumnSetDefault extends AlterChange {
   }
 
   serialize(): string {
+    const set = this.column.is_generated ? "SET EXPRESSION AS" : "SET DEFAULT";
+
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      `${this.table.schema}.${this.table.name}`,
       "ALTER COLUMN",
-      quoteIdentifier(this.column.name),
-      "SET DEFAULT",
+      this.column.name,
+      set,
       this.column.default ?? "NULL",
     ].join(" ");
   }
@@ -600,9 +706,9 @@ export class AlterTableAlterColumnDropDefault extends AlterChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      `${this.table.schema}.${this.table.name}`,
       "ALTER COLUMN",
-      quoteIdentifier(this.column.name),
+      this.column.name,
       "DROP DEFAULT",
     ].join(" ");
   }
@@ -628,9 +734,9 @@ export class AlterTableAlterColumnSetNotNull extends AlterChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      `${this.table.schema}.${this.table.name}`,
       "ALTER COLUMN",
-      quoteIdentifier(this.column.name),
+      this.column.name,
       "SET NOT NULL",
     ].join(" ");
   }
@@ -656,9 +762,9 @@ export class AlterTableAlterColumnDropNotNull extends AlterChange {
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      `${this.table.schema}.${this.table.name}`,
       "ALTER COLUMN",
-      quoteIdentifier(this.column.name),
+      this.column.name,
       "DROP NOT NULL",
     ].join(" ");
   }

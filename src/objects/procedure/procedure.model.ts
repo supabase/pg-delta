@@ -39,6 +39,8 @@ const procedurePropsSchema = z.object({
   security_definer: z.boolean(),
   volatility: FunctionVolatilitySchema,
   parallel_safety: FunctionParallelSafetySchema,
+  execution_cost: z.number(),
+  result_rows: z.number(),
   is_strict: z.boolean(),
   leakproof: z.boolean(),
   returns_set: z.boolean(),
@@ -52,6 +54,7 @@ const procedurePropsSchema = z.object({
   source_code: z.string().nullable(),
   binary_path: z.string().nullable(),
   sql_body: z.string().nullable(),
+  definition: z.string().nullable(),
   config: z.array(z.string()).nullable(),
   owner: z.string(),
 });
@@ -68,6 +71,8 @@ export class Procedure extends BasePgModel {
   public readonly security_definer: ProcedureProps["security_definer"];
   public readonly volatility: ProcedureProps["volatility"];
   public readonly parallel_safety: ProcedureProps["parallel_safety"];
+  public readonly execution_cost: ProcedureProps["execution_cost"];
+  public readonly result_rows: ProcedureProps["result_rows"];
   public readonly is_strict: ProcedureProps["is_strict"];
   public readonly leakproof: ProcedureProps["leakproof"];
   public readonly returns_set: ProcedureProps["returns_set"];
@@ -81,6 +86,7 @@ export class Procedure extends BasePgModel {
   public readonly source_code: ProcedureProps["source_code"];
   public readonly binary_path: ProcedureProps["binary_path"];
   public readonly sql_body: ProcedureProps["sql_body"];
+  public readonly definition: ProcedureProps["definition"];
   public readonly config: ProcedureProps["config"];
   public readonly owner: ProcedureProps["owner"];
 
@@ -99,6 +105,8 @@ export class Procedure extends BasePgModel {
     this.security_definer = props.security_definer;
     this.volatility = props.volatility;
     this.parallel_safety = props.parallel_safety;
+    this.execution_cost = props.execution_cost;
+    this.result_rows = props.result_rows;
     this.is_strict = props.is_strict;
     this.leakproof = props.leakproof;
     this.returns_set = props.returns_set;
@@ -112,12 +120,14 @@ export class Procedure extends BasePgModel {
     this.source_code = props.source_code;
     this.binary_path = props.binary_path;
     this.sql_body = props.sql_body;
+    this.definition = props.definition;
     this.config = props.config;
     this.owner = props.owner;
   }
 
   get stableId(): `procedure:${string}` {
-    return `procedure:${this.schema}.${this.name}`;
+    const args = this.argument_types?.join(",") ?? "";
+    return `procedure:${this.schema}.${this.name}(${args})`;
   }
 
   get identityFields() {
@@ -136,6 +146,9 @@ export class Procedure extends BasePgModel {
       security_definer: this.security_definer,
       volatility: this.volatility,
       parallel_safety: this.parallel_safety,
+      // execution_cost and result_rows are planner hints. We intentionally
+      // exclude them from dataFields to avoid generating diffs solely due to
+      // changes in estimates. They are still used for CREATE serialization.
       is_strict: this.is_strict,
       leakproof: this.leakproof,
       returns_set: this.returns_set,
@@ -149,6 +162,7 @@ export class Procedure extends BasePgModel {
       source_code: this.source_code,
       binary_path: this.binary_path,
       sql_body: this.sql_body,
+      definition: this.definition,
       config: this.config,
       owner: this.owner,
     };
@@ -169,21 +183,26 @@ with extension_oids as (
     and d.classid = 'pg_proc'::regclass
 )
 select
-  regexp_replace(p.pronamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
-  p.proname as name,
+  p.pronamespace::regnamespace::text as schema,
+  quote_ident(p.proname) as name,
   p.prokind as kind,
-  rt.typname as return_type,
-  regexp_replace(rt.typnamespace::regnamespace::text, '^"(.*)"$', '\\1') as return_type_schema,
+  format_type(p.prorettype, null) as return_type,
+  rt.typnamespace::regnamespace::text as return_type_schema,
   l.lanname as language,
   p.prosecdef as security_definer,
   p.provolatile as volatility,
   p.proparallel as parallel_safety,
+  p.procost as execution_cost,
+  p.prorows as result_rows,
   p.proisstrict as is_strict,
   p.proleakproof as leakproof,
   p.proretset as returns_set,
   p.pronargs as argument_count,
   p.pronargdefaults as argument_default_count,
-  p.proargnames as argument_names,
+  -- quote argument names server-side for safe serialization
+  case when p.proargnames is null then null
+       else array(select quote_ident(n) from unnest(p.proargnames) as n)
+  end as argument_names,
   array(
     select format_type(oid, null)
     from unnest(p.proargtypes) as oid
@@ -197,8 +216,9 @@ select
   p.prosrc as source_code,
   p.probin as binary_path,
   pg_get_function_sqlbody(p.oid) as sql_body,
+  pg_get_functiondef(p.oid) as definition,
   p.proconfig as config,
-  p.proowner::regrole as owner
+  p.proowner::regrole::text as owner
 from
   pg_catalog.pg_proc p
   inner join pg_catalog.pg_language l on l.oid = p.prolang

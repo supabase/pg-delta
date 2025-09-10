@@ -11,7 +11,7 @@ import { resolveDependencies } from "../../src/dependency.ts";
 import type { Change } from "../../src/objects/base.change.ts";
 import { DEBUG } from "../constants.ts";
 
-export interface RoundtripTestOptions {
+interface RoundtripTestOptions {
   masterSession: postgres.Sql;
   branchSession: postgres.Sql;
   name?: string;
@@ -132,28 +132,45 @@ function catalogsSemanticalyEqual(catalog1: Catalog, catalog2: Catalog) {
 
   const getObjectKeys = (cat: Catalog) => {
     const keys = new Set<string>();
-    Object.keys(cat.schemas || {}).forEach((key) => keys.add(`schema:${key}`));
-    Object.keys(cat.tables || {}).forEach((key) => keys.add(`table:${key}`));
-    Object.keys(cat.types || {}).forEach((key) => keys.add(`type:${key}`));
-    Object.keys(cat.domains || {}).forEach((key) => keys.add(`domain:${key}`));
-    Object.keys(cat.enums || {}).forEach((key) => keys.add(`enum:${key}`));
-    Object.keys(cat.compositeTypes || {}).forEach((key) =>
-      keys.add(`compositeType:${key}`),
-    );
-    Object.keys(cat.views || {}).forEach((key) => keys.add(`view:${key}`));
-    Object.keys(cat.materializedViews || {}).forEach((key) =>
-      keys.add(`materializedView:${key}`),
-    );
-    Object.keys(cat.indexes || {}).forEach((key) => keys.add(`index:${key}`));
-    Object.keys(cat.triggers || {}).forEach((key) =>
-      keys.add(`trigger:${key}`),
-    );
-    Object.keys(cat.procedures || {}).forEach((key) =>
-      keys.add(`procedure:${key}`),
-    );
-    Object.keys(cat.sequences || {}).forEach((key) =>
-      keys.add(`sequence:${key}`),
-    );
+    for (const key of Object.keys(cat.schemas || {})) {
+      keys.add(`schema:${key}`);
+    }
+    for (const key of Object.keys(cat.tables || {})) {
+      keys.add(`table:${key}`);
+    }
+    // for (const key of Object.keys(cat.types || {})) {
+    //   keys.add(`type:${key}`);
+    // }
+    for (const key of Object.keys(cat.ranges || {})) {
+      keys.add(`range:${key}`);
+    }
+    for (const key of Object.keys(cat.domains || {})) {
+      keys.add(`domain:${key}`);
+    }
+    for (const key of Object.keys(cat.enums || {})) {
+      keys.add(`enum:${key}`);
+    }
+    for (const key of Object.keys(cat.compositeTypes || {})) {
+      keys.add(`compositeType:${key}`);
+    }
+    for (const key of Object.keys(cat.views || {})) {
+      keys.add(`view:${key}`);
+    }
+    for (const key of Object.keys(cat.materializedViews || {})) {
+      keys.add(`materializedView:${key}`);
+    }
+    for (const key of Object.keys(cat.indexes || {})) {
+      keys.add(`index:${key}`);
+    }
+    for (const key of Object.keys(cat.triggers || {})) {
+      keys.add(`trigger:${key}`);
+    }
+    for (const key of Object.keys(cat.procedures || {})) {
+      keys.add(`procedure:${key}`);
+    }
+    for (const key of Object.keys(cat.sequences || {})) {
+      keys.add(`sequence:${key}`);
+    }
     return keys;
   };
 

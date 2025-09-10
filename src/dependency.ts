@@ -9,13 +9,20 @@ import {
   DropChange,
   ReplaceChange,
 } from "./objects/base.change.ts";
+import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
+import {
+  AlterSequenceSetOptions,
+  AlterSequenceSetOwnedBy,
+} from "./objects/sequence/changes/sequence.alter.ts";
 import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
+import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
+import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { UnexpectedError } from "./objects/utils.js";
 
-export type ConstraintType = "before";
+type ConstraintType = "before";
 
-export interface Constraint {
+interface Constraint {
   constraintStableId: string;
   changeAIndex: number;
   type: ConstraintType;
@@ -23,7 +30,7 @@ export interface Constraint {
   reason?: string;
 }
 
-export interface ObjectDependency {
+interface ObjectDependency {
   dependent: string;
   referenced: string;
   source?: "master" | "branch" | string;
@@ -144,6 +151,7 @@ export class DependencyExtractor {
     source: string,
   ): DependencyModel {
     for (const depend of catalog.depends) {
+      // Direct dependency between relevant objects
       if (
         relevantObjects.has(depend.dependent_stable_id) &&
         relevantObjects.has(depend.referenced_stable_id) &&
@@ -244,7 +252,10 @@ export class OperationSemantics {
       );
     }
 
-    return null;
+    // No dependency but we might want to order the operations for styling purposes
+    // But they should never impact the correctness of the script, only the order in which
+    // changes get processed (eg: for functions with override, start with the one with less arguments to the one with the most number of arguments)
+    return this.semanticRuleNoDependency(i, changeA, j, changeB);
   }
 
   private dependencySemanticRule(
@@ -255,26 +266,44 @@ export class OperationSemantics {
     reason: string,
   ): Constraint | null {
     // TODO: Investigate and eliminate all special cases
-    // Special rule: For CREATE operations with sequences and tables
+
+    // Special rule: For sequence-table dependencies
     // PostgreSQL reports sequence ownership (sequence depends on table)
     // But for creation, table depends on sequence (table needs sequence to exist first)
+    // If sequence depends on table, invert for all operations
+    // Sequence should be created before table, and table should be dropped before sequence
     if (
-      dependentChange instanceof CreateChange &&
-      referencedChange instanceof CreateChange
+      (dependentChange instanceof CreateSequence ||
+        dependentChange instanceof AlterSequenceSetOwnedBy ||
+        dependentChange instanceof AlterSequenceSetOptions ||
+        dependentChange instanceof DropSequence ||
+        dependentChange instanceof DropSequence) &&
+      (referencedChange instanceof CreateTable ||
+        referencedChange instanceof AlterChange ||
+        referencedChange instanceof DropChange ||
+        referencedChange instanceof DropTable)
     ) {
-      // If sequence depends on table, invert for CREATE operations
+      // Special rule for AlterSequenceSetOwnedBy and CreateTable if the table uses the sequence
+      // we need to first create the sequence, then then table, then set the sequence owned by the table after the table is created
       if (
-        dependentChange instanceof CreateSequence &&
+        dependentChange instanceof AlterSequenceSetOwnedBy &&
         referencedChange instanceof CreateTable
       ) {
         return {
           constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
-          changeAIndex: depIdx, // CreateSequence should come first
+          changeAIndex: refIdx, // Sequence owner should come after the table is created
           type: "before",
-          changeBIndex: refIdx, // Before CreateTable
-          reason: `CREATE table before sequence that uses it (${reason})`,
+          changeBIndex: depIdx,
+          reason: `Sequence owner after the table is created (${reason})`,
         };
       }
+      return {
+        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+        changeAIndex: depIdx, // Sequence should come first
+        type: "before",
+        changeBIndex: refIdx, // Before Table
+        reason: `Sequence before table that uses it (${reason})`,
+      };
     }
 
     // Rule: For DROP operations, drop dependents before dependencies
@@ -338,6 +367,83 @@ export class OperationSemantics {
         reason: `DROP before CREATE/ALTER/REPLACE (${reason})`,
       };
     }
+
+    return null;
+  }
+
+  private semanticRuleNoDependency(
+    idxA: number,
+    changeA: Change,
+    idxB: number,
+    changeB: Change,
+  ): Constraint | null {
+    // TODO: Investigate and eliminate all special cases
+
+    // Rule: Sort function overloads by parameter types
+    if (
+      changeA instanceof CreateProcedure &&
+      changeB instanceof CreateProcedure
+    ) {
+      // Given that the functions have the same name, we need to sort them by parameter types
+      const procedureA = changeA.procedure;
+      const procedureB = changeB.procedure;
+      if (
+        procedureA.schema === procedureB.schema &&
+        procedureA.name === procedureB.name
+      ) {
+        const argumentCountA =
+          procedureA.argument_count ?? procedureA.argument_types?.length ?? 0;
+        const argumentCountB =
+          procedureB.argument_count ?? procedureB.argument_types?.length ?? 0;
+        if (argumentCountA !== argumentCountB) {
+          // The overload with fewer arguments should come first
+          if (argumentCountA < argumentCountB) {
+            return {
+              constraintStableId: `${changeA.stableId} overload before ${changeB.stableId}`,
+              changeAIndex: idxA,
+              type: "before",
+              changeBIndex: idxB,
+              reason:
+                "Function overloads ordered by argument count (fewer args first)",
+            };
+          }
+          return {
+            constraintStableId: `${changeB.stableId} overload before ${changeA.stableId}`,
+            changeAIndex: idxB,
+            type: "before",
+            changeBIndex: idxA,
+            reason:
+              "Function overloads ordered by argument count (fewer args first)",
+          };
+        }
+
+        // Same number of args -> sort alphabetically by argument type list
+        const aSig = procedureA.argument_types?.join(",") ?? "";
+        const bSig = procedureB.argument_types?.join(",") ?? "";
+        if (aSig !== bSig) {
+          if (aSig.localeCompare(bSig) < 0) {
+            return {
+              constraintStableId: `${changeA.stableId} alphabetical before ${changeB.stableId}`,
+              changeAIndex: idxA,
+              type: "before",
+              changeBIndex: idxB,
+              reason:
+                "Function overloads ordered alphabetically when arg count equal",
+            };
+          }
+
+          return {
+            constraintStableId: `${changeB.stableId} alphabetical before ${changeA.stableId}`,
+            changeAIndex: idxB,
+            type: "before",
+            changeBIndex: idxA,
+            reason:
+              "Function overloads ordered alphabetically when arg count equal",
+          };
+        }
+      }
+    }
+
     return null;
   }
 
@@ -433,7 +539,9 @@ export class ConstraintSolver {
     // Add constraint edges
     for (const constraint of constraints) {
       if (constraint.type === "before") {
+        // biome-ignore lint/style/noNonNullAssertion: node ids were built from the provided changes
         const fromId = indexToNodeId.get(constraint.changeAIndex)!;
+        // biome-ignore lint/style/noNonNullAssertion: node ids were built from the provided changes
         const toId = indexToNodeId.get(constraint.changeBIndex)!;
         graph.addEdge(fromId, toId, { props: constraint });
       }

@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import { DropChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { formatFunctionArguments } from "../utils.ts";
 
@@ -38,7 +38,7 @@ export class DropProcedure extends DropChange {
     return [
       "DROP",
       objectType,
-      `${quoteIdentifier(this.procedure.schema)}.${quoteIdentifier(this.procedure.name)}(${args})`,
+      `${this.procedure.schema}.${this.procedure.name}(${args})`,
     ].join(" ");
   }
 }

@@ -31,7 +31,7 @@ describe.concurrent("extension", () => {
       });
 
       expect(change.serialize()).toBe(
-        'ALTER EXTENSION test_extension UPDATE TO "2.0"',
+        "ALTER EXTENSION test_extension UPDATE TO '2.0'",
       );
     });
 
@@ -109,7 +109,7 @@ describe.concurrent("extension", () => {
       });
 
       expect(change.serialize()).toBe(
-        'DROP EXTENSION test_extension;\nCREATE EXTENSION test_extension WITH SCHEMA public VERSION "1.0"',
+        "DROP EXTENSION test_extension;\nCREATE EXTENSION test_extension WITH SCHEMA public VERSION '1.0'",
       );
     });
   });

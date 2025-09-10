@@ -69,8 +69,10 @@ export class Language extends BasePgModel {
   }
 }
 
-export async function extractLanguages(sql: Sql): Promise<Language[]> {
-  const languageRows = await sql`
+async function _extractLanguages(sql: Sql): Promise<Language[]> {
+  const languageRows = await sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    return sql<LanguageProps[]>`
     with extension_oids as (
       select
         objid
@@ -81,13 +83,13 @@ export async function extractLanguages(sql: Sql): Promise<Language[]> {
         and d.classid = 'pg_language'::regclass
     )
     select
-      lan.lanname as name,
+      quote_ident(lan.lanname) as name,
       lan.lanpltrusted as is_trusted,
       lan.lanispl as is_procedural,
-      lan.lanplcallfoid::regprocedure as call_handler,
-      lan.laninline::regprocedure as inline_handler,
-      lan.lanvalidator::regprocedure as validator,
-      lan.lanowner::regrole as owner
+      lan.lanplcallfoid::regprocedure::text as call_handler,
+      lan.laninline::regprocedure::text as inline_handler,
+      lan.lanvalidator::regprocedure::text as validator,
+      lan.lanowner::regrole::text as owner
     from
       pg_catalog.pg_language lan
       left outer join extension_oids e on lan.oid = e.objid
@@ -96,9 +98,10 @@ export async function extractLanguages(sql: Sql): Promise<Language[]> {
     order by
       lan.lanname;
   `;
+  });
 
   // Process rows to handle "-" as null values
-  const processedRows = languageRows.map((row: any) => ({
+  const processedRows = languageRows.map((row) => ({
     ...row,
     call_handler: row.call_handler === "-" ? null : row.call_handler,
     inline_handler: row.inline_handler === "-" ? null : row.inline_handler,

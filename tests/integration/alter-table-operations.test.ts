@@ -367,8 +367,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "generated column operations",
         expectedSqlTerms: [
-          // TODO: PostgresError: cannot use column reference in DEFAULT expression
-          "ALTER TABLE test_schema.users ADD COLUMN full_name text DEFAULT ((first_name || ' '::text) || last_name)",
+          "ALTER TABLE test_schema.users ADD COLUMN full_name text GENERATED ALWAYS AS ((first_name || ' '::text) || last_name) STORED",
           "ALTER TABLE test_schema.users ADD COLUMN email character varying(255) DEFAULT 'user@example.com'::character varying",
         ],
         expectedMasterDependencies: [
@@ -444,8 +443,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "alter generated column expression",
         expectedSqlTerms: [
-          // TODO: Should be drop + create instead ? PostgresError: column "computed" of relation "calculations" is a generated column
-          "ALTER TABLE test_schema.calculations ALTER COLUMN computed SET DEFAULT (value_a * value_b)",
+          "ALTER TABLE test_schema.calculations ALTER COLUMN computed SET EXPRESSION AS (value_a * value_b)",
         ],
         expectedMasterDependencies: [
           {

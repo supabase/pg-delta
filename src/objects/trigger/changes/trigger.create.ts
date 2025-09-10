@@ -1,4 +1,5 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange } from "../../base.change.ts";
+import type { TableLikeObject } from "../../base.model.ts";
 import type { Trigger } from "../trigger.model.ts";
 
 /**
@@ -80,60 +81,140 @@ function decodeTriggerLevel(triggerType: number): string {
  */
 export class CreateTrigger extends CreateChange {
   public readonly trigger: Trigger;
+  public readonly indexableObject?: TableLikeObject;
 
-  constructor(props: { trigger: Trigger }) {
+  constructor(props: { trigger: Trigger; indexableObject?: TableLikeObject }) {
     super();
     this.trigger = props.trigger;
+    this.indexableObject = props.indexableObject;
   }
 
   get stableId(): string {
     return `${this.trigger.stableId}`;
   }
 
+  private resolveUpdateOfColumns(): string[] | null {
+    // Only relevant for UPDATE triggers with specified columns
+    if (
+      !this.trigger.column_numbers ||
+      this.trigger.column_numbers.length === 0
+    ) {
+      return null;
+    }
+    // In extracted catalogs, indexableObject is always available for base tables
+    // and materialized views. If missing here, consider it a programming error.
+    if (!this.indexableObject) {
+      throw new Error(
+        "CreateTrigger requires indexableObject to resolve column_numbers for UPDATE OF",
+      );
+    }
+    const columnByPosition = new Map<number, string>();
+    for (const col of this.indexableObject.columns) {
+      columnByPosition.set(col.position, col.name);
+    }
+    const names: string[] = [];
+    for (const pos of this.trigger.column_numbers) {
+      const name = columnByPosition.get(pos);
+      if (!name) {
+        throw new Error(
+          `CreateTrigger could not resolve column position ${pos} to a column name`,
+        );
+      }
+      names.push(name);
+    }
+    return names;
+  }
+
   serialize(): string {
-    const parts: string[] = ["CREATE TRIGGER"];
+    const parts: string[] = ["CREATE"];
+
+    // Only constraint triggers can be DEFERRABLE. When the model reports
+    // deferrable/initially_deferred, emit the CONSTRAINT keyword.
+    const isConstraint =
+      this.trigger.deferrable || this.trigger.initially_deferred;
+    if (isConstraint) parts.push("CONSTRAINT");
+    parts.push("TRIGGER");
 
     // Add trigger name
-    parts.push(quoteIdentifier(this.trigger.name));
+    parts.push(this.trigger.name);
 
     // Add timing (decoded from trigger_type)
-    parts.push(decodeTriggerTiming(this.trigger.trigger_type));
+    const timing = decodeTriggerTiming(this.trigger.trigger_type);
+    parts.push(timing);
 
-    // Add events (decoded from trigger_type)
+    // Decode events and determine if REFERENCING can be emitted
     const events = decodeTriggerEvents(this.trigger.trigger_type);
-    parts.push(events.join(" OR "));
+    const levelEarly = decodeTriggerLevel(this.trigger.trigger_type);
+    const canUseReferencing =
+      (this.trigger.old_table || this.trigger.new_table) &&
+      !isConstraint &&
+      levelEarly === "FOR EACH STATEMENT" &&
+      timing === "AFTER" &&
+      events.length === 1 &&
+      events[0] !== "TRUNCATE";
+
+    // Add events (decoded), enhancing UPDATE with OF columns when allowed
+    const updateOf = canUseReferencing ? null : this.resolveUpdateOfColumns();
+    const eventsSql = events
+      .map((ev) =>
+        ev === "UPDATE" && updateOf && updateOf.length > 0
+          ? `UPDATE OF ${updateOf.join(", ")}`
+          : ev,
+      )
+      .join(" OR ");
+    parts.push(eventsSql);
 
     // Add ON table
-    parts.push(
-      "ON",
-      `${quoteIdentifier(this.trigger.table_schema)}.${quoteIdentifier(this.trigger.table_name)}`,
-    );
+    parts.push("ON", `${this.trigger.schema}.${this.trigger.table_name}`);
 
-    // Add deferrable options (only if deferrable, since NOT DEFERRABLE is default)
-    if (this.trigger.deferrable) {
+    // Add deferrable options for constraint triggers.
+    // Defaults are NOT DEFERRABLE and INITIALLY IMMEDIATE, so omit them.
+    if (isConstraint && this.trigger.deferrable) {
       parts.push("DEFERRABLE");
-      // Only add INITIALLY DEFERRED if it's actually deferred, since IMMEDIATE is default
       if (this.trigger.initially_deferred) {
         parts.push("INITIALLY DEFERRED");
       }
     }
 
-    // Add FOR EACH ROW/STATEMENT (only if STATEMENT, since ROW is default)
+    // Add REFERENCING transition tables when present
+    // Only valid for non-constraint, statement-level, AFTER triggers
+    if (
+      (this.trigger.old_table || this.trigger.new_table) &&
+      !isConstraint &&
+      decodeTriggerLevel(this.trigger.trigger_type) === "FOR EACH STATEMENT" &&
+      timing === "AFTER"
+    ) {
+      const referencing: string[] = ["REFERENCING"];
+      if (this.trigger.old_table) {
+        referencing.push("OLD TABLE AS", this.trigger.old_table);
+      }
+      if (this.trigger.new_table) {
+        // Separate with space; previous pushes ensure spacing
+        referencing.push("NEW TABLE AS", this.trigger.new_table);
+      }
+      parts.push(referencing.join(" "));
+    }
+
+    // Add FOR EACH ...
+    // Default is FOR EACH STATEMENT; emit only FOR EACH ROW when applicable.
     const level = decodeTriggerLevel(this.trigger.trigger_type);
-    if (level === "FOR EACH STATEMENT") {
+    if (level === "FOR EACH ROW") {
       parts.push(level);
     }
 
-    // Add WHEN condition
-    if (this.trigger.when_condition) {
+    // Add WHEN condition (only applicable to row-level triggers)
+    if (
+      this.trigger.when_condition &&
+      decodeTriggerLevel(this.trigger.trigger_type) === "FOR EACH ROW"
+    ) {
       parts.push("WHEN", `(${this.trigger.when_condition})`);
     }
 
     // Add EXECUTE FUNCTION with arguments (no space before parentheses)
     const functionCall =
       this.trigger.arguments && this.trigger.arguments.length > 0
-        ? `${quoteIdentifier(this.trigger.function_schema)}.${quoteIdentifier(this.trigger.function_name)}(${this.trigger.arguments.join(", ")})`
-        : `${quoteIdentifier(this.trigger.function_schema)}.${quoteIdentifier(this.trigger.function_name)}()`;
+        ? `${this.trigger.function_schema}.${this.trigger.function_name}(${this.trigger.arguments.join(", ")})`
+        : `${this.trigger.function_schema}.${this.trigger.function_name}()`;
 
     parts.push("EXECUTE FUNCTION", functionCall);
 

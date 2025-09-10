@@ -106,31 +106,37 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       const catalog = await extractCatalog(db.main);
 
       // Test type resolution
+      // biome-ignore lint/style/noNonNullAssertion: seeded data
       const typeTable = catalog.tables["table:test_schema.type_test"]!;
       expect(typeTable.columns).toHaveLength(8);
 
       const typeNames = Object.fromEntries(
         typeTable.columns.map((col) => [col.name, col.data_type_str]),
       );
-      expect(typeNames["col_int"]).toBe("integer");
-      expect(typeNames["col_bigint"]).toBe("bigint");
-      expect(typeNames["col_text"]).toBe("text");
-      expect(typeNames["col_varchar"]).toBe("character varying(50)");
-      expect(typeNames["col_boolean"]).toBe("boolean");
-      expect(typeNames["col_timestamp"]).toBe("timestamp without time zone");
-      expect(typeNames["col_numeric"]).toBe("numeric(10,2)");
-      expect(typeNames["col_uuid"]).toBe("uuid");
+      expect(typeNames.col_int).toBe("integer");
+      expect(typeNames.col_bigint).toBe("bigint");
+      expect(typeNames.col_text).toBe("text");
+      expect(typeNames.col_varchar).toBe("character varying(50)");
+      expect(typeNames.col_boolean).toBe("boolean");
+      expect(typeNames.col_timestamp).toBe("timestamp without time zone");
+      expect(typeNames.col_numeric).toBe("numeric(10,2)");
+      expect(typeNames.col_uuid).toBe("uuid");
 
       // Test constraints
       const constrainedTable =
+        // biome-ignore lint/style/noNonNullAssertion: seeded data
         catalog.tables["table:test_schema.constrained_table"]!;
+      // biome-ignore lint/style/noNonNullAssertion: seeded data
       const idCol = constrainedTable.columns.find((col) => col.name === "id")!;
+      // biome-ignore lint/style/noNonNullAssertion: seeded data
       const nameCol = constrainedTable.columns.find(
         (col) => col.name === "name",
       )!;
+      // biome-ignore lint/style/noNonNullAssertion: seeded data
       const emailCol = constrainedTable.columns.find(
         (col) => col.name === "email",
       )!;
+      // biome-ignore lint/style/noNonNullAssertion: seeded data
       const ageCol = constrainedTable.columns.find(
         (col) => col.name === "age",
       )!;
@@ -141,6 +147,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(ageCol.not_null).toBe(false);
 
       // Test column ordering
+      // biome-ignore lint/style/noNonNullAssertion: seeded data
       const orderedTable = catalog.tables["table:test_schema.ordered_table"]!;
       expect(orderedTable.columns).toHaveLength(3);
       expect(orderedTable.columns[0].name).toBe("third_col");
@@ -251,15 +258,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       // Test sequences
       expect(Object.keys(catalog.sequences).length).toBeGreaterThan(0);
+      // biome-ignore lint/style/noNonNullAssertion: seeded data
       const sequence = catalog.sequences["sequence:test_schema.test_seq"]!;
       expect(sequence.name).toBe("test_seq");
       expect(sequence.schema).toBe("test_schema");
 
       // Test indexes
       expect(Object.keys(catalog.indexes).length).toBeGreaterThan(0);
+      // biome-ignore lint/style/noNonNullAssertion: seeded data
       const index = catalog.indexes["index:test_schema.users.users_name_idx"]!;
       expect(index.name).toBe("users_name_idx");
-      expect(index.table_schema).toBe("test_schema");
+      expect(index.schema).toBe("test_schema");
       expect(index.table_name).toBe("users");
 
       // Test triggers
@@ -272,7 +281,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       // Test procedures
       expect(Object.keys(catalog.procedures).length).toBeGreaterThan(0);
-      const procedure = catalog.procedures["procedure:test_schema.test_proc"]!;
+
+      const procedure =
+        // biome-ignore lint/style/noNonNullAssertion: seeded data
+        catalog.procedures["procedure:test_schema.test_proc(integer)"]!;
       expect(procedure.name).toBe("test_proc");
       expect(procedure.schema).toBe("test_schema");
     });

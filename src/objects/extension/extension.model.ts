@@ -70,21 +70,24 @@ export class Extension extends BasePgModel {
 }
 
 export async function extractExtensions(sql: Sql): Promise<Extension[]> {
-  const extensionRows = await sql`
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const extensionRows = await sql`
 select
-  extname as name,
-  regexp_replace(extnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
+  quote_ident(extname) as name,
+  extnamespace::regnamespace::text as schema,
   extrelocatable as relocatable,
   extversion as version,
-  extowner::regrole as owner
+  extowner::regrole::text as owner
 from
   pg_catalog.pg_extension e
 order by
   1;
   `;
-  // Validate and parse each row using the Zod schema
-  const validatedRows = extensionRows.map((row: unknown) =>
-    extensionPropsSchema.parse(row),
-  );
-  return validatedRows.map((row: ExtensionProps) => new Extension(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = extensionRows.map((row: unknown) =>
+      extensionPropsSchema.parse(row),
+    );
+    return validatedRows.map((row: ExtensionProps) => new Extension(row));
+  });
 }

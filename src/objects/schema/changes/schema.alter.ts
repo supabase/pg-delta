@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { Schema } from "../schema.model.ts";
 import { CreateSchema } from "./schema.create.ts";
 import { DropSchema } from "./schema.drop.ts";
@@ -18,7 +14,7 @@ import { DropSchema } from "./schema.drop.ts";
  * ALTER SCHEMA name OWNER TO { new_owner | CURRENT_ROLE | CURRENT_USER | SESSION_USER }
  * ```
  */
-export type AlterSchema = AlterSchemaChangeOwner;
+type AlterSchema = AlterSchemaChangeOwner;
 
 /**
  * ALTER SCHEMA ... OWNER TO ...
@@ -40,9 +36,9 @@ export class AlterSchemaChangeOwner extends AlterChange {
   serialize(): string {
     return [
       "ALTER SCHEMA",
-      quoteIdentifier(this.main.schema),
+      this.main.schema,
       "OWNER TO",
-      quoteIdentifier(this.branch.owner),
+      this.branch.owner,
     ].join(" ");
   }
 }

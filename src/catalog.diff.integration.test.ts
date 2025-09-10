@@ -57,22 +57,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       expect(changes).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({
-            kind: "create",
-            index: expect.objectContaining({
-              name: "users_username_key",
-              table_schema: "test_schema",
-              table_name: "users",
-            }),
-          }),
-          expect.objectContaining({
-            kind: "create",
-            index: expect.objectContaining({
-              name: "users_email_key",
-              table_schema: "test_schema",
-              table_name: "users",
-            }),
-          }),
+          // Remove the two index expectations - unique constraints are handled as table constraints
           expect.objectContaining({
             kind: "create",
             schema: expect.objectContaining({
@@ -84,6 +69,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
+            }),
+          }),
+          expect.objectContaining({
+            kind: "alter",
+            branch: expect.objectContaining({
+              name: "users_id_seq",
+              schema: "test_schema",
+              owned_by_schema: "test_schema",
+              owned_by_table: "users",
+              owned_by_column: "id",
             }),
           }),
           expect.objectContaining({
@@ -125,6 +120,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
+      expect(changes).toHaveLength(7);
     });
 
     test("create view", async ({ db }) => {
@@ -180,9 +176,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               schema: "test_schema",
             }),
           }),
+          expect.objectContaining({
+            kind: "alter",
+            branch: expect.objectContaining({
+              name: "users_id_seq",
+              schema: "test_schema",
+              owned_by_schema: "test_schema",
+              owned_by_table: "users",
+              owned_by_column: "id",
+            }),
+          }),
         ]),
       );
-      expect(changes).toHaveLength(5);
+      expect(changes).toHaveLength(6);
     });
 
     test("create sequence", async ({ db }) => {
@@ -374,9 +380,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               name: "users_pkey",
             }),
           }),
+          expect.objectContaining({
+            kind: "alter",
+            branch: expect.objectContaining({
+              name: "users_id_seq",
+              schema: "test_schema",
+              owned_by_schema: "test_schema",
+              owned_by_table: "users",
+              owned_by_column: "id",
+            }),
+          }),
         ]),
       );
-      expect(changes).toHaveLength(5);
+      expect(changes).toHaveLength(6);
     });
 
     test("create trigger", async ({ db }) => {
@@ -450,9 +466,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               schema: "test_schema",
             }),
           }),
+          expect.objectContaining({
+            kind: "alter",
+            branch: expect.objectContaining({
+              name: "users_id_seq",
+              schema: "test_schema",
+              owned_by_schema: "test_schema",
+              owned_by_table: "users",
+              owned_by_column: "id",
+            }),
+          }),
         ]),
       );
-      expect(changes).toHaveLength(6);
+      expect(changes).toHaveLength(7);
     });
 
     test("create RLS policy", async ({ db }) => {
@@ -513,9 +539,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               name: "users_pkey",
             }),
           }),
+          expect.objectContaining({
+            kind: "alter",
+            branch: expect.objectContaining({
+              name: "users_id_seq",
+              schema: "test_schema",
+              owned_by_schema: "test_schema",
+              owned_by_table: "users",
+              owned_by_column: "id",
+            }),
+          }),
         ]),
       );
-      expect(changes).toHaveLength(5);
+      expect(changes).toHaveLength(6);
     });
 
     test("complex scenario with multiple entity creations", async ({ db }) => {
@@ -575,14 +611,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               schema: "test_schema",
             }),
           }),
-          expect.objectContaining({
-            kind: "create",
-            index: expect.objectContaining({
-              name: "users_username_key",
-              table_schema: "test_schema",
-              table_name: "users",
-            }),
-          }),
+          // Remove the index expectation - unique constraints are handled as table constraints
           expect.objectContaining({
             kind: "create",
             procedure: expect.objectContaining({
@@ -639,7 +668,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
-      expect(changes).toHaveLength(10);
+      expect(changes).toHaveLength(9);
     });
 
     test("complex scenario with multiple entity drops", async ({ db }) => {
@@ -872,7 +901,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         }),
         expect.objectContaining({
-          kind: "replace",
+          kind: "alter",
           main: expect.objectContaining({
             name: "global_id_seq",
             schema: "test_schema",
@@ -1052,13 +1081,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           main: expect.objectContaining({
             name: "user_list",
             schema: "test_schema",
-            definition: " SELECT id,\n    username\n   FROM test_schema.users;",
+            definition: " SELECT id,\n    username\n   FROM test_schema.users",
           }),
           branch: expect.objectContaining({
             name: "user_list",
             schema: "test_schema",
             definition:
-              " SELECT id,\n    username,\n    role\n   FROM test_schema.users;",
+              " SELECT id,\n    username,\n    role\n   FROM test_schema.users",
           }),
         }),
       ]);

@@ -61,6 +61,105 @@ describe.concurrent("enum.diff", () => {
     expect(add).toBeDefined();
   });
 
+  test("add value at beginning (BEFORE first)", () => {
+    const main = new Enum({
+      schema: "public",
+      name: "e1",
+      owner: "o1",
+      labels: [
+        { label: "b", sort_order: 2 },
+        { label: "c", sort_order: 3 },
+      ],
+    });
+    const branch = new Enum({
+      schema: "public",
+      name: "e1",
+      owner: "o1",
+      labels: [
+        { label: "a", sort_order: 1 },
+        { label: "b", sort_order: 2 },
+        { label: "c", sort_order: 3 },
+      ],
+    });
+
+    const changes = diffEnums(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    const add = changes.find((c) => c instanceof AlterEnumAddValue) as
+      | AlterEnumAddValue
+      | undefined;
+    expect(add).toBeDefined();
+    expect(add?.position?.before).toBe("b");
+    expect(add?.position?.after).toBeUndefined();
+  });
+
+  test("add value in middle (BEFORE neighbor)", () => {
+    const main = new Enum({
+      schema: "public",
+      name: "e1",
+      owner: "o1",
+      labels: [
+        { label: "a", sort_order: 1 },
+        { label: "c", sort_order: 3 },
+      ],
+    });
+    const branch = new Enum({
+      schema: "public",
+      name: "e1",
+      owner: "o1",
+      labels: [
+        { label: "a", sort_order: 1 },
+        { label: "b", sort_order: 2 },
+        { label: "c", sort_order: 3 },
+      ],
+    });
+
+    const changes = diffEnums(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    const add = changes.find((c) => c instanceof AlterEnumAddValue) as
+      | AlterEnumAddValue
+      | undefined;
+    expect(add).toBeDefined();
+    expect(add?.position?.before).toBe("c");
+    expect(add?.position?.after).toBeUndefined();
+  });
+
+  test("add value at end (AFTER last)", () => {
+    const main = new Enum({
+      schema: "public",
+      name: "e1",
+      owner: "o1",
+      labels: [
+        { label: "a", sort_order: 1 },
+        { label: "b", sort_order: 2 },
+      ],
+    });
+    const branch = new Enum({
+      schema: "public",
+      name: "e1",
+      owner: "o1",
+      labels: [
+        { label: "a", sort_order: 1 },
+        { label: "b", sort_order: 2 },
+        { label: "c", sort_order: 3 },
+      ],
+    });
+
+    const changes = diffEnums(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    const add = changes.find((c) => c instanceof AlterEnumAddValue) as
+      | AlterEnumAddValue
+      | undefined;
+    expect(add).toBeDefined();
+    expect(add?.position?.after).toBe("b");
+    expect(add?.position?.before).toBeUndefined();
+  });
+
   test("replace for complex label changes (removal)", () => {
     const main = new Enum({
       schema: "public",

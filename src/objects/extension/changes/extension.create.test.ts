@@ -17,7 +17,7 @@ describe("extension", () => {
     });
 
     expect(change.serialize()).toBe(
-      `CREATE EXTENSION test_extension WITH SCHEMA public VERSION "1.0"`,
+      `CREATE EXTENSION test_extension WITH SCHEMA public VERSION '1.0'`,
     );
   });
 });

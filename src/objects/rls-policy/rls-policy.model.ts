@@ -10,12 +10,9 @@ const RlsPolicyCommandSchema = z.enum([
   "*", // ALL commands
 ]);
 
-type RlsPolicyCommand = z.infer<typeof RlsPolicyCommandSchema>;
-
 const rlsPolicyPropsSchema = z.object({
   schema: z.string(),
   name: z.string(),
-  table_schema: z.string(),
   table_name: z.string(),
   command: RlsPolicyCommandSchema,
   permissive: z.boolean(),
@@ -30,7 +27,6 @@ export type RlsPolicyProps = z.infer<typeof rlsPolicyPropsSchema>;
 export class RlsPolicy extends BasePgModel {
   public readonly schema: RlsPolicyProps["schema"];
   public readonly name: RlsPolicyProps["name"];
-  public readonly table_schema: RlsPolicyProps["table_schema"];
   public readonly table_name: RlsPolicyProps["table_name"];
   public readonly command: RlsPolicyProps["command"];
   public readonly permissive: RlsPolicyProps["permissive"];
@@ -45,7 +41,6 @@ export class RlsPolicy extends BasePgModel {
     // Identity fields
     this.schema = props.schema;
     this.name = props.name;
-    this.table_schema = props.table_schema;
     this.table_name = props.table_name;
 
     // Data fields
@@ -95,28 +90,28 @@ with extension_oids as (
     and d.classid = 'pg_policy'::regclass
 )
 select
-  n.nspname as schema,
-  p.polname as name,
-  tn.nspname as table_schema,
-  tc.relname as table_name,
+  tc.relnamespace::regnamespace::text as schema,
+  quote_ident(p.polname) as name,
+  quote_ident(tc.relname) as table_name,
   p.polcmd as command,
   p.polpermissive as permissive,
-  array(
-    select r.rolname
-    from pg_roles r
-    where r.oid = any(p.polroles)
-  ) as roles,
+  case
+    when p.polroles = '{0}' then array['public']::text[]
+    else array(
+      select quote_ident(rolname)
+      from pg_catalog.pg_roles
+      where oid = any(p.polroles)
+      order by rolname
+    )
+  end as roles,
   pg_get_expr(p.polqual, p.polrelid) as using_expression,
   pg_get_expr(p.polwithcheck, p.polrelid) as with_check_expression,
-  pg_get_userbyid(tc.relowner) as owner
+  tc.relowner::regrole::text as owner
 from
   pg_catalog.pg_policy p
   inner join pg_catalog.pg_class tc on tc.oid = p.polrelid
-  inner join pg_catalog.pg_namespace tn on tn.oid = tc.relnamespace
-  inner join pg_catalog.pg_namespace n on n.oid = tc.relnamespace
   left outer join extension_oids e on p.oid = e.objid
-  where tn.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and tn.nspname not like 'pg\_temp\_%' and tn.nspname not like 'pg\_toast\_temp\_%'
+  where not tc.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   and e.objid is null
 order by
   1, 2;

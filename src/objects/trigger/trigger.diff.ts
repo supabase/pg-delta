@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import type { TableLikeObject } from "../base.model.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import { ReplaceTrigger } from "./changes/trigger.alter.ts";
 import { CreateTrigger } from "./changes/trigger.create.ts";
@@ -16,13 +17,21 @@ import type { Trigger } from "./trigger.model.ts";
 export function diffTriggers(
   main: Record<string, Trigger>,
   branch: Record<string, Trigger>,
+  branchIndexableObjects?: Record<string, TableLikeObject>,
 ): Change[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
   const changes: Change[] = [];
 
   for (const triggerId of created) {
-    changes.push(new CreateTrigger({ trigger: branch[triggerId] }));
+    const trg = branch[triggerId];
+    const tableStableId = `table:${trg.schema}.${trg.table_name}` as const;
+    changes.push(
+      new CreateTrigger({
+        trigger: trg,
+        indexableObject: branchIndexableObjects?.[tableStableId],
+      }),
+    );
   }
 
   for (const triggerId of dropped) {
@@ -56,8 +65,14 @@ export function diffTriggers(
       { column_numbers: deepEqual, arguments: deepEqual },
     );
     if (shouldReplace) {
+      const tableStableId =
+        `table:${branchTrigger.schema}.${branchTrigger.table_name}` as const;
       changes.push(
-        new ReplaceTrigger({ main: mainTrigger, branch: branchTrigger }),
+        new ReplaceTrigger({
+          main: mainTrigger,
+          branch: branchTrigger,
+          indexableObject: branchIndexableObjects?.[tableStableId],
+        }),
       );
     }
   }

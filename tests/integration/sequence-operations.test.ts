@@ -82,7 +82,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
 
-    // TODO: Fix sequence-table dependency cycle detection
     test("create table with serial column (sequence dependency)", async ({
       db,
     }) => {
@@ -98,24 +97,29 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "create table with serial column (sequence dependency)",
         expectedSqlTerms: [
-          `CREATE SEQUENCE test_schema.users_id_seq AS integer INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1 NO CYCLE`,
+          `CREATE SEQUENCE test_schema.users_id_seq AS integer`,
           `CREATE TABLE test_schema.users (id integer DEFAULT nextval('test_schema.users_id_seq'::regclass) NOT NULL, name text)`,
-          `ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)`,
           `ALTER SEQUENCE test_schema.users_id_seq OWNED BY test_schema.users.id`,
+          `ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)`,
         ],
         expectedMasterDependencies: [],
         // Serial column creates multiple dependencies:
         expectedBranchDependencies: [
           {
             dependent_stable_id: "sequence:test_schema.users_id_seq",
+            referenced_stable_id: "table:test_schema.users",
+            deptype: "a",
+          }, // sequence owned by table
+          {
+            dependent_stable_id: "sequence:test_schema.users_id_seq",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
           }, // sequence depends on schema
           {
-            dependent_stable_id: "sequence:test_schema.users_id_seq",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "n",
-          }, // sequence owned by table
+            dependent_stable_id: "index:test_schema.users_pkey",
+            referenced_stable_id: "constraint:test_schema.users.users_pkey",
+            deptype: "i",
+          }, // index depends on constraint
           {
             dependent_stable_id: "table:test_schema.users",
             referenced_stable_id: "schema:test_schema",
@@ -126,11 +130,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             referenced_stable_id: "table:test_schema.users",
             deptype: "a",
           }, // constraint depends on table
-          {
-            dependent_stable_id: "index:test_schema.users_pkey",
-            referenced_stable_id: "constraint:test_schema.users.users_pkey",
-            deptype: "i",
-          }, // index depends on constraint
         ],
       });
     });
@@ -148,8 +147,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "alter sequence properties",
         expectedSqlTerms: [
-          `DROP SEQUENCE test_schema.test_seq;
-CREATE SEQUENCE test_schema.test_seq INCREMENT BY 5 CACHE 10`,
+          `ALTER SEQUENCE test_schema.test_seq INCREMENT BY 5 CACHE 10`,
         ],
         expectedMasterDependencies: [
           {

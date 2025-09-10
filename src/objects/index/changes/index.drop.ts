@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import { DropChange } from "../../base.change.ts";
 import type { Index } from "../index.model.ts";
 
 /**
@@ -24,9 +24,6 @@ export class DropIndex extends DropChange {
   }
 
   serialize(): string {
-    return [
-      "DROP INDEX",
-      `${quoteIdentifier(this.index.table_schema)}.${quoteIdentifier(this.index.name)}`,
-    ].join(" ");
+    return ["DROP INDEX", `${this.index.schema}.${this.index.name}`].join(" ");
   }
 }

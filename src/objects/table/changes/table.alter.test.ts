@@ -16,6 +16,7 @@ import {
   AlterTableEnableRowLevelSecurity,
   AlterTableForceRowLevelSecurity,
   AlterTableNoForceRowLevelSecurity,
+  AlterTableResetStorageParams,
   AlterTableSetLogged,
   AlterTableSetReplicaIdentity,
   AlterTableSetStorageParams,
@@ -267,6 +268,39 @@ describe.concurrent("table", () => {
       );
     });
 
+    test("reset storage params", () => {
+      const base: Omit<TableProps, "owner" | "options"> = {
+        schema: "public",
+        name: "test_table",
+        persistence: "p",
+        row_security: false,
+        force_row_security: false,
+        has_indexes: false,
+        has_rules: false,
+        has_triggers: false,
+        has_subclasses: false,
+        is_populated: false,
+        replica_identity: "d",
+        is_partition: false,
+        partition_bound: null,
+        parent_schema: null,
+        parent_name: null,
+        columns: [],
+      };
+      const table = new Table({
+        ...base,
+        owner: "o1",
+        options: ["fillfactor=90", "autovacuum_enabled=true"],
+      });
+      const change = new AlterTableResetStorageParams({
+        table,
+        params: ["fillfactor", "autovacuum_enabled"],
+      });
+      expect(change.serialize()).toBe(
+        "ALTER TABLE public.test_table RESET (fillfactor, autovacuum_enabled)",
+      );
+    });
+
     test("replica identity default/nothing/full", () => {
       const baseProps: Omit<
         TableProps,
@@ -315,6 +349,57 @@ describe.concurrent("table", () => {
       expect(
         new AlterTableSetReplicaIdentity({ main, branch: toFull }).serialize(),
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY FULL");
+    });
+
+    test("replica identity DEFAULT and INDEX fallback", () => {
+      const baseProps: Omit<
+        TableProps,
+        "owner" | "options" | "replica_identity"
+      > = {
+        schema: "public",
+        name: "test_table",
+        persistence: "p",
+        row_security: false,
+        force_row_security: false,
+        has_indexes: false,
+        has_rules: false,
+        has_triggers: false,
+        has_subclasses: false,
+        is_populated: false,
+        is_partition: false,
+        partition_bound: null,
+        parent_schema: null,
+        parent_name: null,
+        columns: [],
+      };
+      const main = new Table({
+        ...baseProps,
+        owner: "o1",
+        options: null,
+        replica_identity: "n",
+      });
+      const toDefault = new Table({
+        ...baseProps,
+        owner: "o1",
+        options: null,
+        replica_identity: "d",
+      });
+      const toIndex = new Table({
+        ...baseProps,
+        owner: "o1",
+        options: null,
+        replica_identity: "i",
+      });
+      expect(
+        new AlterTableSetReplicaIdentity({
+          main,
+          branch: toDefault,
+        }).serialize(),
+      ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY DEFAULT");
+      // AlterTableSetReplicaIdentity of type "i" will not be emitted in diff, it is handled by index changes, we fallback to DEFAULT here
+      expect(
+        new AlterTableSetReplicaIdentity({ main, branch: toIndex }).serialize(),
+      ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY DEFAULT");
     });
 
     test("columns add/drop/alter", () => {
@@ -429,6 +514,144 @@ describe.concurrent("table", () => {
       );
     });
 
+    test("add column with collation, default and not null", () => {
+      const tableProps: Omit<TableProps, "owner" | "options"> = {
+        schema: "public",
+        name: "test_table",
+        persistence: "p",
+        row_security: false,
+        force_row_security: false,
+        has_indexes: false,
+        has_rules: false,
+        has_triggers: false,
+        has_subclasses: false,
+        is_populated: false,
+        replica_identity: "d",
+        is_partition: false,
+        partition_bound: null,
+        parent_schema: null,
+        parent_name: null,
+        columns: [],
+      };
+      const withCols = new Table({ ...tableProps, owner: "o1", options: null });
+      const col: ColumnProps = {
+        name: "a",
+        position: 1,
+        data_type: "integer",
+        data_type_str: "integer",
+        is_custom_type: false,
+        custom_type_type: null,
+        custom_type_category: null,
+        custom_type_schema: null,
+        custom_type_name: null,
+        not_null: true,
+        is_identity: false,
+        is_identity_always: false,
+        is_generated: false,
+        collation: "mycoll",
+        default: "0",
+        comment: null,
+      };
+      const change = new AlterTableAddColumn({ table: withCols, column: col });
+      expect(change.serialize()).toBe(
+        "ALTER TABLE public.test_table ADD COLUMN a integer COLLATE mycoll DEFAULT 0 NOT NULL",
+      );
+    });
+
+    test("alter column type with collation", () => {
+      const tableProps: Omit<TableProps, "owner" | "options"> = {
+        schema: "public",
+        name: "test_table",
+        persistence: "p",
+        row_security: false,
+        force_row_security: false,
+        has_indexes: false,
+        has_rules: false,
+        has_triggers: false,
+        has_subclasses: false,
+        is_populated: false,
+        replica_identity: "d",
+        is_partition: false,
+        partition_bound: null,
+        parent_schema: null,
+        parent_name: null,
+        columns: [],
+      };
+      const withCols = new Table({ ...tableProps, owner: "o1", options: null });
+      const col: ColumnProps = {
+        name: "b",
+        position: 1,
+        data_type: "text",
+        data_type_str: "text",
+        is_custom_type: false,
+        custom_type_type: null,
+        custom_type_category: null,
+        custom_type_schema: null,
+        custom_type_name: null,
+        not_null: false,
+        is_identity: false,
+        is_identity_always: false,
+        is_generated: false,
+        collation: "mycoll",
+        default: null,
+        comment: null,
+      };
+      const change = new AlterTableAlterColumnType({
+        table: withCols,
+        column: col,
+      });
+      expect(change.serialize()).toBe(
+        "ALTER TABLE public.test_table ALTER COLUMN b TYPE text COLLATE mycoll",
+      );
+    });
+
+    test("set default NULL fallback", () => {
+      const tableProps: Omit<TableProps, "owner" | "options"> = {
+        schema: "public",
+        name: "test_table",
+        persistence: "p",
+        row_security: false,
+        force_row_security: false,
+        has_indexes: false,
+        has_rules: false,
+        has_triggers: false,
+        has_subclasses: false,
+        is_populated: false,
+        replica_identity: "d",
+        is_partition: false,
+        partition_bound: null,
+        parent_schema: null,
+        parent_name: null,
+        columns: [],
+      };
+      const withCols = new Table({ ...tableProps, owner: "o1", options: null });
+      const col: ColumnProps = {
+        name: "a",
+        position: 1,
+        data_type: "integer",
+        data_type_str: "integer",
+        is_custom_type: false,
+        custom_type_type: null,
+        custom_type_category: null,
+        custom_type_schema: null,
+        custom_type_name: null,
+        not_null: false,
+        is_identity: false,
+        is_identity_always: false,
+        is_generated: false,
+        collation: null,
+        default: null,
+        comment: null,
+      };
+      const change = new AlterTableAlterColumnSetDefault({
+        table: withCols,
+        column: col,
+      });
+      expect(change.serialize()).toBe(
+        "ALTER TABLE public.test_table ALTER COLUMN a SET DEFAULT NULL",
+      );
+    });
+
     test("constraints add/drop/validate and flavors", () => {
       const t = new Table({
         schema: "public",
@@ -469,7 +692,6 @@ describe.concurrent("table", () => {
           },
         ],
       });
-
       const pkey = {
         name: "pk_t",
         constraint_type: "p" as const,
@@ -504,7 +726,45 @@ describe.concurrent("table", () => {
         check_expression: "a > 0",
       };
       const exclude = { ...pkey, name: "ex_t", constraint_type: "x" as const };
-
+      const otherTable = new Table({
+        schema: "public",
+        name: "other",
+        persistence: "p",
+        row_security: false,
+        force_row_security: false,
+        has_indexes: false,
+        has_rules: false,
+        has_triggers: false,
+        has_subclasses: false,
+        is_populated: false,
+        replica_identity: "d",
+        is_partition: false,
+        options: null,
+        partition_bound: null,
+        owner: "o1",
+        parent_schema: null,
+        parent_name: null,
+        columns: [
+          {
+            name: "a",
+            position: 1,
+            data_type: "integer",
+            data_type_str: "integer",
+            is_custom_type: false,
+            custom_type_type: null,
+            custom_type_category: null,
+            custom_type_schema: null,
+            custom_type_name: null,
+            not_null: false,
+            is_identity: false,
+            is_identity_always: false,
+            is_generated: false,
+            collation: null,
+            default: null,
+            comment: null,
+          },
+        ],
+      });
       expect(
         new AlterTableAddConstraint({ table: t, constraint: pkey }).serialize(),
       ).toBe(
@@ -512,10 +772,16 @@ describe.concurrent("table", () => {
       );
       expect(
         new AlterTableAddConstraint({ table: t, constraint: uniq }).serialize(),
-      ).toBe("ALTER TABLE public.test_table ADD CONSTRAINT uq_t UNIQUE");
+      ).toBe("ALTER TABLE public.test_table ADD CONSTRAINT uq_t UNIQUE (a)");
       expect(
-        new AlterTableAddConstraint({ table: t, constraint: fkey }).serialize(),
-      ).toBe("ALTER TABLE public.test_table ADD CONSTRAINT fk_t FOREIGN KEY");
+        new AlterTableAddConstraint({
+          table: t,
+          constraint: fkey,
+          foreignKeyTable: otherTable,
+        }).serialize(),
+      ).toBe(
+        "ALTER TABLE public.test_table ADD CONSTRAINT fk_t FOREIGN KEY (a) REFERENCES public.other (a)",
+      );
       expect(
         new AlterTableAddConstraint({
           table: t,

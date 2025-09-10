@@ -5,7 +5,7 @@ import { DropIndex } from "./index.drop.ts";
 describe("index", () => {
   test("drop", () => {
     const index = new Index({
-      table_schema: "public",
+      schema: "public",
       table_name: "test_table",
       name: "test_index",
       storage_params: [],
@@ -14,6 +14,7 @@ describe("index", () => {
       tablespace: null,
       is_unique: false,
       is_primary: false,
+      is_constraint: false,
       is_exclusion: false,
       nulls_not_distinct: false,
       immediate: true,

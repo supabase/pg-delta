@@ -11,7 +11,7 @@ import { diffIndexes } from "./index.diff.ts";
 import { Index, type IndexProps } from "./index.model.ts";
 
 const base: IndexProps = {
-  table_schema: "public",
+  schema: "public",
   table_name: "t",
   name: "ix",
   storage_params: [],

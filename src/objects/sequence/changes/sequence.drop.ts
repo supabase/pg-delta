@@ -1,4 +1,4 @@
-import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import { DropChange } from "../../base.change.ts";
 import type { Sequence } from "../sequence.model.ts";
 
 /**
@@ -26,7 +26,7 @@ export class DropSequence extends DropChange {
   serialize(): string {
     return [
       "DROP SEQUENCE",
-      `${quoteIdentifier(this.sequence.schema)}.${quoteIdentifier(this.sequence.name)}`,
+      `${this.sequence.schema}.${this.sequence.name}`,
     ].join(" ");
   }
 }

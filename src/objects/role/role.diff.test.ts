@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { ReplaceRole } from "./changes/role.alter.ts";
+import { AlterRoleSetOptions, ReplaceRole } from "./changes/role.alter.ts";
 import { CreateRole } from "./changes/role.create.ts";
 import { DropRole } from "./changes/role.drop.ts";
 import { diffRoles } from "./role.diff.ts";
@@ -28,9 +28,19 @@ describe.concurrent("role.diff", () => {
     expect(dropped[0]).toBeInstanceOf(DropRole);
   });
 
-  test("replace on any property change", () => {
+  test("alter on flag change", () => {
     const main = new Role(base);
     const branch = new Role({ ...base, can_login: false });
+    const changes = diffRoles(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes[0]).toBeInstanceOf(AlterRoleSetOptions);
+  });
+
+  test("replace on config change", () => {
+    const main = new Role(base);
+    const branch = new Role({ ...base, config: ["search_path=schema1"] });
     const changes = diffRoles(
       { [main.stableId]: main },
       { [branch.stableId]: branch },

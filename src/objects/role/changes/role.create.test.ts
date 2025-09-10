@@ -3,7 +3,7 @@ import { Role } from "../role.model.ts";
 import { CreateRole } from "./role.create.ts";
 
 describe("role", () => {
-  test("create", () => {
+  test("create minimal (omit defaults)", () => {
     const role = new Role({
       role_name: "test_role",
       is_superuser: false,
@@ -22,5 +22,25 @@ describe("role", () => {
     });
 
     expect(change.serialize()).toBe("CREATE ROLE test_role WITH LOGIN");
+  });
+
+  test("create with all options (non-defaults only)", () => {
+    const role = new Role({
+      role_name: "r_all",
+      is_superuser: true,
+      can_inherit: false,
+      can_create_roles: true,
+      can_create_databases: true,
+      can_login: true,
+      can_replicate: true,
+      connection_limit: 5,
+      can_bypass_rls: true,
+      config: null,
+    });
+
+    const change = new CreateRole({ role });
+    expect(change.serialize()).toBe(
+      "CREATE ROLE r_all WITH SUPERUSER CREATEDB CREATEROLE NOINHERIT LOGIN REPLICATION BYPASSRLS CONNECTION LIMIT 5",
+    );
   });
 });
