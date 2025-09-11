@@ -15,10 +15,11 @@ export class SupabasePostgreSqlContainer extends GenericContainer {
   constructor(image: string) {
     super(image);
     this.withExposedPorts(POSTGRES_PORT);
-    this.withWaitStrategy(
-      Wait.forAll([Wait.forHealthCheck(), Wait.forListeningPorts()]),
-    );
+    this.withWaitStrategy(Wait.forHealthCheck());
     this.withStartupTimeout(120_000);
+    this.withTmpFs({
+      "/var/lib/postgresql/data": "rw,noexec,nosuid,size=256m",
+    });
   }
 
   public withDatabase(database: string): this {

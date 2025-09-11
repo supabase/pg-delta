@@ -4,7 +4,6 @@ import {
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   POSTGRES_VERSIONS,
 } from "./constants.ts";
-import { containerManager } from "./container-manager.js";
 
 export async function setup() {
   const containerRuntimeClient = await getContainerRuntimeClient();
@@ -26,11 +25,6 @@ export async function setup() {
       containerRuntimeClient.image.pull(ImageName.fromString(image)),
     ),
   ]);
-
   // Container manager will be initialized lazily when first needed
-}
-
-export async function teardown() {
-  // Cleanup the container manager
-  await containerManager.cleanup();
+  // and auto cleaned up after all tests are completed.
 }
