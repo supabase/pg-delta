@@ -30,6 +30,7 @@ const indexPropsSchema = z.object({
   partial_predicate: z.string().nullable(),
   is_constraint: z.boolean(),
   table_relkind: TableRelkindSchema, // 'r' for table, 'm' for materialized view
+  definition: z.string(),
 });
 
 /**
@@ -70,6 +71,7 @@ export class Index extends BasePgModel {
   public readonly partial_predicate: IndexProps["partial_predicate"];
   public readonly table_relkind: IndexProps["table_relkind"];
   public readonly is_constraint: IndexProps["is_constraint"];
+  public readonly definition: IndexProps["definition"];
 
   constructor(props: IndexProps) {
     super();
@@ -99,6 +101,7 @@ export class Index extends BasePgModel {
     this.partial_predicate = props.partial_predicate;
     this.table_relkind = props.table_relkind;
     this.is_constraint = props.is_constraint;
+    this.definition = props.definition;
   }
 
   get stableId(): `index:${string}` {
@@ -138,6 +141,7 @@ export class Index extends BasePgModel {
       partial_predicate: this.partial_predicate,
       table_relkind: this.table_relkind,
       is_constraint: this.is_constraint,
+      definition: this.definition,
     };
   }
 }
@@ -200,7 +204,8 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
       coalesce(st.statistics_target, array[]::int4[])  as statistics_target,
 
       pg_get_expr(i.indexprs, i.indrelid) as index_expressions,
-      pg_get_expr(i.indpred,  i.indrelid) as partial_predicate
+      pg_get_expr(i.indpred,  i.indrelid) as partial_predicate,
+      pg_get_indexdef(i.indexrelid, 0, true) as definition
 
     from pg_index i
     join pg_class c  on c.oid  = i.indexrelid

@@ -207,8 +207,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "ALTER TABLE ecommerce.customers ADD CONSTRAINT customers_email_key UNIQUE (email)",
           "ALTER TABLE ecommerce.customers ADD CONSTRAINT customers_pkey PRIMARY KEY (id)",
           "ALTER TABLE ecommerce.orders ADD CONSTRAINT fk_customer FOREIGN KEY (customer_id) REFERENCES ecommerce.customers(id)",
-          "CREATE INDEX idx_orders_customer_status ON ecommerce.orders (customer_id, status)",
-          "CREATE INDEX idx_customers_email ON ecommerce.customers (email)",
+          "CREATE INDEX idx_orders_customer_status ON ecommerce.orders USING btree (customer_id, status)",
+          "CREATE INDEX idx_customers_email ON ecommerce.customers USING btree (email)",
         ],
         expectedMainDependencies: [], // Main has no dependencies (empty state)
         expectedBranchDependencies: [

@@ -23,13 +23,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             email character varying(255)
           );
         `,
-        testSql: `
-          CREATE INDEX idx_users_email ON test_schema.users USING btree (email);
-        `,
+        testSql:
+          "CREATE INDEX idx_users_email ON test_schema.users USING btree (email);",
         description: "create btree index",
-        expectedSqlTerms: [
-          "CREATE INDEX idx_users_email ON test_schema.users (email)",
-        ],
         expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
@@ -63,13 +59,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             sku character varying(50)
           );
         `,
-        testSql: `
-          CREATE UNIQUE INDEX idx_products_sku ON test_schema.products (sku);
-        `,
+        testSql:
+          "CREATE UNIQUE INDEX idx_products_sku ON test_schema.products USING btree (sku);",
         description: "create unique index",
-        expectedSqlTerms: [
-          "CREATE UNIQUE INDEX idx_products_sku ON test_schema.products (sku)",
-        ],
         expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.products",
@@ -104,14 +96,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             created_at timestamp
           );
         `,
-        testSql: `
-          CREATE INDEX idx_orders_pending ON test_schema.orders (created_at)
-          WHERE status = 'pending';
-        `,
+        testSql:
+          "CREATE INDEX idx_orders_pending ON test_schema.orders USING btree (created_at) WHERE status::text = 'pending'::text;",
         description: "create partial index",
-        expectedSqlTerms: [
-          "CREATE INDEX idx_orders_pending ON test_schema.orders (created_at) WHERE ((status)::text = 'pending'::text)",
-        ],
         expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.orders",
@@ -145,13 +132,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             email character varying(255)
           );
         `,
-        testSql: `
-          CREATE INDEX idx_customers_email_lower ON test_schema.customers (lower(email));
-        `,
+        testSql:
+          "CREATE INDEX idx_customers_email_lower ON test_schema.customers USING btree (lower(email::text));",
         description: "create functional index",
-        expectedSqlTerms: [
-          "CREATE INDEX idx_customers_email_lower ON test_schema.customers (lower((email)::text))",
-        ],
         expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.customers",
@@ -187,13 +170,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             sale_date date
           );
         `,
-        testSql: `
-          CREATE INDEX idx_sales_region_date ON test_schema.sales (region, sale_date);
-        `,
+        testSql:
+          "CREATE INDEX idx_sales_region_date ON test_schema.sales USING btree (region, sale_date);",
         description: "create multicolumn index",
-        expectedSqlTerms: [
-          "CREATE INDEX idx_sales_region_date ON test_schema.sales (region, sale_date)",
-        ],
         expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.sales",
