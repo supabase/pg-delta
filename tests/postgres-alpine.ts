@@ -16,10 +16,7 @@ export class PostgresAlpineContainer extends GenericContainer {
     super(image);
     this.withExposedPorts(POSTGRES_PORT);
     this.withWaitStrategy(
-      Wait.forAll([
-        Wait.forLogMessage("database system is ready to accept connections", 2),
-        Wait.forListeningPorts(),
-      ]),
+      Wait.forSuccessfulCommand("pg_isready -U postgres -h localhost"),
     );
     this.withStartupTimeout(120_000);
     this.withTmpFs({

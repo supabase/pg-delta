@@ -196,8 +196,9 @@ class ContainerManager {
    * Cleanup all containers
    */
   async cleanup(): Promise<void> {
-    const allContainers = Array.from(this.containers.values());
-    await Promise.all(allContainers.map((container) => container.stop()));
+    await Promise.all(
+      this.containers.values().map((container) => container.stop()),
+    );
     this.containers.clear();
     this.initializedVersions.clear();
     this.initializationPromises.clear();
