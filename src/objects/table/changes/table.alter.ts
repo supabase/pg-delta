@@ -334,28 +334,6 @@ export class AlterTableAddConstraint extends AlterChange {
     return `${this.table.stableId}`;
   }
 
-  private getColumnNames(): string[] {
-    const columnByPosition = new Map(
-      this.table.columns.map((c) => [c.position, c]),
-    );
-    return this.constraint.key_columns.map((position) => {
-      // biome-ignore lint/style/noNonNullAssertion: it is guaranteed by our query
-      const column = columnByPosition.get(position)!;
-      return column.name;
-    });
-  }
-  private getForeignKeyColumnNames(): string[] {
-    const columnByPosition = new Map(
-      this.foreignKeyTable?.columns.map((c) => [c.position, c]),
-    );
-    // biome-ignore lint/style/noNonNullAssertion: it is guaranteed by our query
-    return this.constraint.foreign_key_columns?.map((position) => {
-      // biome-ignore lint/style/noNonNullAssertion: it is guaranteed by our query
-      const column = columnByPosition.get(position)!;
-      return column.name;
-    })!;
-  }
-
   serialize(): string {
     return [
       "ALTER TABLE",

@@ -34,37 +34,6 @@ export class CreateIndex extends CreateChange {
     return `${this.index.stableId}`;
   }
 
-  /**
-   * Get column names from key_columns array using the indexable object's columns.
-   */
-  private getColumnNames(): string[] {
-    if (this.index.index_expressions) {
-      // If there are index expressions, use them directly
-      return [this.index.index_expressions];
-    }
-
-    // Create a mapping from column position to column name
-    const columnMap = new Map<number, string>();
-    // biome-ignore lint/style/noNonNullAssertion: checked in constructor
-    for (const column of this.indexableObject!.columns) {
-      columnMap.set(column.position, column.name);
-    }
-
-    // Resolve column numbers to names
-    const columnNames: string[] = [];
-    for (const colNum of this.index.key_columns) {
-      const columnName = columnMap.get(colNum);
-      if (!columnName) {
-        throw new Error(
-          `CreateIndex could not resolve column position ${colNum} to a column name`,
-        );
-      }
-      columnNames.push(columnName);
-    }
-
-    return columnNames;
-  }
-
   serialize(): string {
     return this.index.definition;
   }
