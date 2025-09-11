@@ -5,5 +5,8 @@
   "editor.defaultFormatter": "biomejs.biome",
   "editor.formatOnSave": true,
   "typescript.tsdk": "node_modules/typescript/lib",
-  "vitest.shellType": "terminal"
+  "vitest.shellType": "terminal",
+  "[typescript]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  }
 }

@@ -39,6 +39,9 @@ export default defineConfig({
               singleFork: true, // Share containers across integration tests
             },
           },
+          sequence: {
+            concurrent: true,
+          },
         },
       },
     ],
