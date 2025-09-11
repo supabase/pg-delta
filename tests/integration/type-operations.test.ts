@@ -2,6 +2,7 @@
  * Integration tests for PostgreSQL type operations.
  */
 
+import dedent from "dedent";
 import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
@@ -13,7 +14,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`type operations (pg${pgVersion})`, () => {
     test("create enum type", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -27,7 +28,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
     test("create domain type with constraint", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -41,7 +42,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
     test("create composite type", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -59,7 +60,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
     test("create range type", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -73,7 +74,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
     test("drop enum type", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup:
           "CREATE SCHEMA test_schema; CREATE TYPE test_schema.old_mood AS ENUM ('sad', 'happy');",
@@ -86,7 +87,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
     test("replace enum type (modify values)", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup:
           "CREATE SCHEMA test_schema; CREATE TYPE test_schema.status AS ENUM ('pending', 'approved');",
@@ -102,7 +103,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
     test("replace domain type (modify constraint)", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup:
           "CREATE SCHEMA test_schema; CREATE DOMAIN test_schema.valid_int AS INTEGER CHECK (VALUE > 0);",
@@ -121,7 +122,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("enum type with table dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "enum-table-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -139,7 +140,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           `CREATE TABLE test_schema.users (id integer NOT NULL, name text NOT NULL, status test_schema.user_status DEFAULT 'pending'::test_schema.user_status)`,
           `ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "enum:test_schema.user_status",
@@ -173,7 +174,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("domain type with table dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "domain-table-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -191,7 +192,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TABLE test_schema.users (id integer NOT NULL, name text NOT NULL, email_address test_schema.email)",
           "ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)",
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "domain:test_schema.email",
@@ -225,7 +226,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("composite type with table dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "composite-table-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -248,7 +249,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TABLE test_schema.customers (id integer NOT NULL, name text NOT NULL, billing_address test_schema.address, shipping_address test_schema.address)",
           "ALTER TABLE test_schema.customers ADD CONSTRAINT customers_pkey PRIMARY KEY (id)",
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "compositeType:test_schema.address",
@@ -284,7 +285,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("multiple types complex dependencies", async ({ db }) => {
       await roundtripFidelityTest({
         name: "multiple-types-complex-dependencies",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA commerce;",
         testSql: `
@@ -322,7 +323,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TABLE commerce.products (id integer NOT NULL, info commerce.product_info, category text)",
           "ALTER TABLE commerce.products ADD CONSTRAINT products_pkey PRIMARY KEY (id)",
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "enum:commerce.order_status",
@@ -396,7 +397,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("type cascade drop with dependent table", async ({ db }) => {
       await roundtripFidelityTest({
         name: "type-cascade-drop-dependent-table",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
         CREATE SCHEMA test_schema;
@@ -417,7 +418,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "DROP TABLE test_schema.tasks",
           "DROP TYPE test_schema.priority",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "enum:test_schema.priority",
             referenced_stable_id: "schema:test_schema",
@@ -451,7 +452,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("type name with special characters", async ({ db }) => {
       await roundtripFidelityTest({
         name: "type-name-special-characters",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: 'CREATE SCHEMA "test-schema";',
         testSql: `
@@ -463,7 +464,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           `CREATE TYPE "test-schema"."user-status" AS ENUM ('active', 'in-active')`,
           `CREATE DOMAIN "test-schema"."positive-number" AS integer CHECK ((VALUE > 0))`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "enum:test-schema.user-status",
@@ -482,10 +483,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("materialized view with enum dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "materialized-view-enum-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA analytics;",
-        testSql: `
+        testSql: dedent`
         CREATE TYPE analytics.status AS ENUM ('active', 'inactive', 'pending');
 
         CREATE TABLE analytics.users (
@@ -507,16 +508,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TABLE analytics.users (id integer NOT NULL, name text NOT NULL, status analytics.status DEFAULT 'pending'::analytics.status)",
           "ALTER TABLE analytics.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)",
           pgVersion === 15
-            ? `CREATE MATERIALIZED VIEW analytics.user_status_summary AS  SELECT users.status,
-    count(*) AS count
-   FROM analytics.users
-  GROUP BY users.status WITH DATA`
-            : `CREATE MATERIALIZED VIEW analytics.user_status_summary AS  SELECT status,
-    count(*) AS count
-   FROM analytics.users
-  GROUP BY status WITH DATA`,
+            ? dedent`
+          CREATE MATERIALIZED VIEW analytics.user_status_summary AS SELECT users.status,
+              count(*) AS count
+             FROM analytics.users
+            GROUP BY users.status WITH DATA`
+            : dedent`
+          CREATE MATERIALIZED VIEW analytics.user_status_summary AS SELECT status,
+              count(*) AS count
+             FROM analytics.users
+            GROUP BY status WITH DATA`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "enum:analytics.status",
@@ -568,10 +571,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("materialized view with domain dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "materialized-view-domain-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA financial;",
-        testSql: `
+        testSql: dedent`
         CREATE DOMAIN financial.currency AS DECIMAL(10,2) CHECK (VALUE >= 0);
 
         CREATE TABLE financial.transactions (
@@ -593,16 +596,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TABLE financial.transactions (id integer NOT NULL, amount financial.currency NOT NULL, description text)",
           "ALTER TABLE financial.transactions ADD CONSTRAINT transactions_pkey PRIMARY KEY (id)",
           pgVersion === 15
-            ? `CREATE MATERIALIZED VIEW financial.transaction_summary AS  SELECT sum((transactions.amount)::numeric) AS total_amount,
-    count(*) AS transaction_count
-   FROM financial.transactions
-  WHERE ((transactions.amount)::numeric > (0)::numeric) WITH DATA`
-            : `CREATE MATERIALIZED VIEW financial.transaction_summary AS  SELECT sum((amount)::numeric) AS total_amount,
-    count(*) AS transaction_count
-   FROM financial.transactions
-  WHERE ((amount)::numeric > (0)::numeric) WITH DATA`,
+            ? dedent`
+          CREATE MATERIALIZED VIEW financial.transaction_summary AS SELECT sum((transactions.amount)::numeric) AS total_amount,
+              count(*) AS transaction_count
+             FROM financial.transactions
+            WHERE ((transactions.amount)::numeric > (0)::numeric) WITH DATA`
+            : dedent`
+            CREATE MATERIALIZED VIEW financial.transaction_summary AS SELECT sum((amount)::numeric) AS total_amount,
+                count(*) AS transaction_count
+               FROM financial.transactions
+              WHERE ((amount)::numeric > (0)::numeric) WITH DATA`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "domain:financial.currency",
@@ -650,10 +655,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("materialized view with composite type dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "materialized-view-composite-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA inventory;",
-        testSql: `
+        testSql: dedent`
         CREATE TYPE inventory.address AS (
           street TEXT,
           city TEXT,
@@ -680,18 +685,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TABLE inventory.warehouses (id integer NOT NULL, name text NOT NULL, location inventory.address)",
           "ALTER TABLE inventory.warehouses ADD CONSTRAINT warehouses_pkey PRIMARY KEY (id)",
           pgVersion === 15
-            ? `CREATE MATERIALIZED VIEW inventory.warehouse_locations AS  SELECT warehouses.name,
-    (warehouses.location).city AS city,
-    (warehouses.location).zip_code AS zip_code
-   FROM inventory.warehouses
-  WHERE ((warehouses.location).city IS NOT NULL) WITH DATA`
-            : `CREATE MATERIALIZED VIEW inventory.warehouse_locations AS  SELECT name,
-    (location).city AS city,
-    (location).zip_code AS zip_code
-   FROM inventory.warehouses
-  WHERE ((location).city IS NOT NULL) WITH DATA`,
+            ? dedent`
+          CREATE MATERIALIZED VIEW inventory.warehouse_locations AS SELECT warehouses.name,
+              (warehouses.location).city AS city,
+              (warehouses.location).zip_code AS zip_code
+             FROM inventory.warehouses
+            WHERE ((warehouses.location).city IS NOT NULL) WITH DATA`
+            : dedent`
+          CREATE MATERIALIZED VIEW inventory.warehouse_locations AS SELECT name,
+              (location).city AS city,
+              (location).zip_code AS zip_code
+             FROM inventory.warehouses
+            WHERE ((location).city IS NOT NULL) WITH DATA`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "compositeType:inventory.address",
@@ -741,10 +748,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     }) => {
       await roundtripFidelityTest({
         name: "complex-mixed-dependencies-materialized-views",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA ecommerce;",
-        testSql: `
+        testSql: dedent`
         -- Create types
         CREATE TYPE ecommerce.order_status AS ENUM ('pending', 'processing', 'shipped', 'delivered');
         CREATE DOMAIN ecommerce.price AS DECIMAL(10,2) CHECK (VALUE >= 0);
@@ -792,34 +799,38 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TABLE ecommerce.orders (id integer NOT NULL, status ecommerce.order_status DEFAULT 'pending'::ecommerce.order_status, final_price ecommerce.price NOT NULL)",
           "ALTER TABLE ecommerce.orders ADD CONSTRAINT orders_pkey PRIMARY KEY (id)",
           pgVersion === 15
-            ? `CREATE MATERIALIZED VIEW ecommerce.order_summary AS  SELECT orders.status,
-    count(*) AS order_count,
-    avg((orders.final_price)::numeric) AS avg_price
-   FROM ecommerce.orders
-  GROUP BY orders.status WITH DATA`
-            : `CREATE MATERIALIZED VIEW ecommerce.order_summary AS  SELECT status,
-    count(*) AS order_count,
-    avg((final_price)::numeric) AS avg_price
-   FROM ecommerce.orders
-  GROUP BY status WITH DATA`,
+            ? dedent`
+              CREATE MATERIALIZED VIEW ecommerce.order_summary AS SELECT orders.status,
+                  count(*) AS order_count,
+                  avg((orders.final_price)::numeric) AS avg_price
+                 FROM ecommerce.orders
+                GROUP BY orders.status WITH DATA`
+            : dedent`
+              CREATE MATERIALIZED VIEW ecommerce.order_summary AS SELECT status,
+                  count(*) AS order_count,
+                  avg((final_price)::numeric) AS avg_price
+                 FROM ecommerce.orders
+                GROUP BY status WITH DATA`,
           "CREATE TYPE ecommerce.product_info AS (name text, description text, base_price ecommerce.price)",
           "CREATE TABLE ecommerce.products (id integer NOT NULL, info ecommerce.product_info NOT NULL, category text)",
           "ALTER TABLE ecommerce.products ADD CONSTRAINT products_pkey PRIMARY KEY (id)",
           pgVersion === 15
-            ? `CREATE MATERIALIZED VIEW ecommerce.product_pricing AS  SELECT products.id,
-    (products.info).name AS product_name,
-    (products.info).base_price AS base_price,
-    products.category
-   FROM ecommerce.products
-  WHERE (((products.info).base_price)::numeric > (0)::numeric) WITH DATA`
-            : `CREATE MATERIALIZED VIEW ecommerce.product_pricing AS  SELECT id,
-    (info).name AS product_name,
-    (info).base_price AS base_price,
-    category
-   FROM ecommerce.products
-  WHERE (((info).base_price)::numeric > (0)::numeric) WITH DATA`,
+            ? dedent`
+              CREATE MATERIALIZED VIEW ecommerce.product_pricing AS SELECT products.id,
+                  (products.info).name AS product_name,
+                  (products.info).base_price AS base_price,
+                  products.category
+                 FROM ecommerce.products
+                WHERE (((products.info).base_price)::numeric > (0)::numeric) WITH DATA`
+            : dedent`
+            CREATE MATERIALIZED VIEW ecommerce.product_pricing AS SELECT id,
+                (info).name AS product_name,
+                (info).base_price AS base_price,
+                category
+               FROM ecommerce.products
+              WHERE (((info).base_price)::numeric > (0)::numeric) WITH DATA`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           // Type dependencies
           {
@@ -927,7 +938,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("drop type with materialized view dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "drop-type-materialized-view-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
         CREATE SCHEMA reporting;
@@ -956,7 +967,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           // TODO: should not try to drop the index on the table since it has been dropped already
           "DROP TYPE reporting.priority",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "enum:reporting.priority",
             referenced_stable_id: "schema:reporting",
@@ -1005,10 +1016,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("materialized view with range type dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "materialized-view-range-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA scheduling;",
-        testSql: `
+        testSql: dedent`
         CREATE TYPE scheduling.time_range AS RANGE (subtype = timestamp);
 
         CREATE TABLE scheduling.events (
@@ -1030,16 +1041,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TABLE scheduling.events (id integer NOT NULL, name text NOT NULL, time_slot scheduling.time_range)",
           "ALTER TABLE scheduling.events ADD CONSTRAINT events_pkey PRIMARY KEY (id)",
           pgVersion === 15
-            ? `CREATE MATERIALIZED VIEW scheduling.event_durations AS  SELECT events.name,
-    (EXTRACT(epoch FROM (upper(events.time_slot) - lower(events.time_slot))) / (3600)::numeric) AS duration_hours
-   FROM scheduling.events
-  WHERE (events.time_slot IS NOT NULL) WITH DATA`
-            : `CREATE MATERIALIZED VIEW scheduling.event_durations AS  SELECT name,
-    (EXTRACT(epoch FROM (upper(time_slot) - lower(time_slot))) / (3600)::numeric) AS duration_hours
-   FROM scheduling.events
-  WHERE (time_slot IS NOT NULL) WITH DATA`,
+            ? dedent`
+          CREATE MATERIALIZED VIEW scheduling.event_durations AS SELECT events.name,
+              (EXTRACT(epoch FROM (upper(events.time_slot) - lower(events.time_slot))) / (3600)::numeric) AS duration_hours
+             FROM scheduling.events
+            WHERE (events.time_slot IS NOT NULL) WITH DATA`
+            : dedent`
+            CREATE MATERIALIZED VIEW scheduling.event_durations AS SELECT name,
+                (EXTRACT(epoch FROM (upper(time_slot) - lower(time_slot))) / (3600)::numeric) AS duration_hours
+               FROM scheduling.events
+              WHERE (time_slot IS NOT NULL) WITH DATA`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "range:scheduling.time_range",

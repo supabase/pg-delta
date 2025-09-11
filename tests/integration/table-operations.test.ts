@@ -13,7 +13,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`table operations (pg${pgVersion})`, () => {
     test("simple table with columns", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -27,7 +27,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           `CREATE TABLE test_schema.users (id integer, name text NOT NULL, email text)`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
@@ -40,7 +40,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("table with constraints", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -55,7 +55,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           `CREATE TABLE test_schema.constrained_table (id integer, name text NOT NULL, email text, age integer)`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:test_schema.constrained_table",
@@ -68,7 +68,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("multiple tables", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -88,7 +88,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           `CREATE TABLE test_schema.users (id integer, name text NOT NULL)`,
           `CREATE TABLE test_schema.posts (id integer, title text NOT NULL, content text)`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
@@ -106,7 +106,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("table with various types", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -125,7 +125,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           `CREATE TABLE test_schema.type_test (col_int integer, col_bigint bigint, col_text text, col_varchar character varying(50), col_boolean boolean, col_timestamp timestamp without time zone, col_numeric numeric(10,2), col_uuid uuid)`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:test_schema.type_test",
@@ -138,7 +138,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("table in public schema", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "",
         testSql: `
@@ -151,7 +151,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           `CREATE TABLE public.simple_table (id integer, name text)`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:public.simple_table",
@@ -164,7 +164,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("empty table", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -172,7 +172,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "empty table",
         expectedSqlTerms: [`CREATE TABLE test_schema.empty_table ()`],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:test_schema.empty_table",
@@ -185,7 +185,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("tables in multiple schemas", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA schema_a;
@@ -207,7 +207,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           `CREATE TABLE schema_b.table_b (id integer, description text)`,
           `CREATE TABLE schema_a.table_a (id integer, name text)`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:schema_a.table_a",

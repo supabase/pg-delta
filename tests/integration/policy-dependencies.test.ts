@@ -14,7 +14,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`policy dependencies (pg${pgVersion})`, () => {
     test("policy depends on table", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA security;
@@ -36,7 +36,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "ALTER TABLE security.users ENABLE ROW LEVEL SECURITY",
           "CREATE POLICY user_isolation ON security.users USING (true)",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:security.users",
             referenced_stable_id: "schema:security",
@@ -100,7 +100,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("multiple policies with dependencies", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA app;
@@ -141,7 +141,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE POLICY read_posts ON app.posts FOR SELECT USING ((published = true))",
           "CREATE POLICY insert_own_posts ON app.posts FOR INSERT WITH CHECK (true)",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:app.posts",
             referenced_stable_id: "schema:app",
@@ -195,7 +195,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("create table and policy together", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA tenant;
@@ -222,7 +222,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "ALTER TABLE tenant.data ADD CONSTRAINT data_pkey PRIMARY KEY (id)",
           "CREATE POLICY tenant_isolation ON tenant.data USING (true) WITH CHECK (true)",
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:tenant.data",

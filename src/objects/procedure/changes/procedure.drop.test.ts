@@ -25,7 +25,8 @@ describe("procedure", () => {
       argument_modes: null,
       argument_defaults: null,
       source_code: "BEGIN RETURN; END;",
-      definition: null,
+      definition:
+        "CREATE PROCEDURE public.test_procedure() LANGUAGE plpgsql AS $$BEGIN RETURN; END;$$",
       binary_path: null,
       sql_body: null,
       config: null,
@@ -65,7 +66,8 @@ describe("procedure", () => {
       source_code: null,
       binary_path: null,
       sql_body: "SELECT 1",
-      definition: null,
+      definition:
+        "CREATE FUNCTION public.test_function() RETURNS int4 LANGUAGE sql AS $$SELECT 1$$",
       config: null,
       owner: "test",
       execution_cost: 0,

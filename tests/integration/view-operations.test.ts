@@ -13,7 +13,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`view operations (pg${pgVersion})`, () => {
     test("simple view creation", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -43,7 +43,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
    FROM test_schema.users
   WHERE (email IS NOT NULL)`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
@@ -66,7 +66,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("nested view dependencies - 3 levels deep", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -166,7 +166,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   ORDER BY total_spent DESC
  LIMIT 10`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           // Table-schema dependencies
           {
@@ -234,7 +234,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("view replacement with dependency changes", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -274,7 +274,7 @@ CREATE VIEW test_schema.user_summary AS SELECT u.id,
    FROM (test_schema.users u
      LEFT JOIN test_schema.profiles p ON ((u.id = p.user_id)))`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
             referenced_stable_id: "schema:test_schema",
@@ -294,7 +294,7 @@ CREATE VIEW test_schema.user_summary AS SELECT u.id,
             dependent_stable_id: "view:test_schema.user_summary",
             referenced_stable_id: "table:test_schema.users",
             deptype: "n",
-          }, // Master has view depending only on users table
+          }, // Main has view depending only on users table
         ],
         expectedBranchDependencies: [
           {
@@ -328,7 +328,7 @@ CREATE VIEW test_schema.user_summary AS SELECT u.id,
 
     test("complex view dependencies with multiple joins", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA analytics;",
         testSql: `
@@ -434,7 +434,7 @@ UNION ALL
    FROM analytics.product_performance
   WHERE (product_performance.units_sold > 0)`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           // Table dependencies
           {
@@ -514,7 +514,7 @@ UNION ALL
     }) => {
       // Test case: Valid recursive CTE pattern that should NOT be flagged as a cycle
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -584,7 +584,7 @@ UNION ALL
     level
    FROM hierarchy`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:test_schema.employees",

@@ -14,7 +14,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`index operations (pg${pgVersion})`, () => {
     test("create btree index", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -23,14 +23,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             email character varying(255)
           );
         `,
-        testSql: `
-          CREATE INDEX idx_users_email ON test_schema.users USING btree (email);
-        `,
+        testSql:
+          "CREATE INDEX idx_users_email ON test_schema.users USING btree (email);",
         description: "create btree index",
-        expectedSqlTerms: [
-          "CREATE INDEX idx_users_email ON test_schema.users (email)",
-        ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
             referenced_stable_id: "schema:test_schema",
@@ -54,7 +50,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("create unique index", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -63,14 +59,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             sku character varying(50)
           );
         `,
-        testSql: `
-          CREATE UNIQUE INDEX idx_products_sku ON test_schema.products (sku);
-        `,
+        testSql:
+          "CREATE UNIQUE INDEX idx_products_sku ON test_schema.products USING btree (sku);",
         description: "create unique index",
-        expectedSqlTerms: [
-          "CREATE UNIQUE INDEX idx_products_sku ON test_schema.products (sku)",
-        ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.products",
             referenced_stable_id: "schema:test_schema",
@@ -94,7 +86,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("create partial index", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -104,15 +96,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             created_at timestamp
           );
         `,
-        testSql: `
-          CREATE INDEX idx_orders_pending ON test_schema.orders (created_at)
-          WHERE status = 'pending';
-        `,
+        testSql:
+          "CREATE INDEX idx_orders_pending ON test_schema.orders USING btree (created_at) WHERE status::text = 'pending'::text;",
         description: "create partial index",
-        expectedSqlTerms: [
-          "CREATE INDEX idx_orders_pending ON test_schema.orders (created_at) WHERE ((status)::text = 'pending'::text)",
-        ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.orders",
             referenced_stable_id: "schema:test_schema",
@@ -136,7 +123,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("create functional index", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -145,14 +132,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             email character varying(255)
           );
         `,
-        testSql: `
-          CREATE INDEX idx_customers_email_lower ON test_schema.customers (lower(email));
-        `,
+        testSql:
+          "CREATE INDEX idx_customers_email_lower ON test_schema.customers USING btree (lower(email::text));",
         description: "create functional index",
-        expectedSqlTerms: [
-          "CREATE INDEX idx_customers_email_lower ON test_schema.customers (lower((email)::text))",
-        ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.customers",
             referenced_stable_id: "schema:test_schema",
@@ -176,7 +159,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("create multicolumn index", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -187,14 +170,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             sale_date date
           );
         `,
-        testSql: `
-          CREATE INDEX idx_sales_region_date ON test_schema.sales (region, sale_date);
-        `,
+        testSql:
+          "CREATE INDEX idx_sales_region_date ON test_schema.sales USING btree (region, sale_date);",
         description: "create multicolumn index",
-        expectedSqlTerms: [
-          "CREATE INDEX idx_sales_region_date ON test_schema.sales (region, sale_date)",
-        ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.sales",
             referenced_stable_id: "schema:test_schema",
@@ -218,7 +197,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop index", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -233,7 +212,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "drop index",
         expectedSqlTerms: [`DROP INDEX test_schema.idx_items_name`],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.items",
             referenced_stable_id: "schema:test_schema",
@@ -258,7 +237,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("drop implicit dependent table index", async ({ db }) => {
       await roundtripFidelityTest({
         name: "drop-implicit-dependent-table-index",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
         CREATE SCHEMA test_schema;
@@ -274,7 +253,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `,
         description: "drop implicit dependent table index",
         expectedSqlTerms: ["DROP TABLE test_schema.test_table"],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [],
       });
     });

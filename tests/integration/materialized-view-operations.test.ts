@@ -2,6 +2,7 @@
  * Integration tests for PostgreSQL materialized view operations.
  */
 
+import dedent from "dedent";
 import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
@@ -13,7 +14,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`materialized view operations (pg${pgVersion})`, () => {
     test("create new materialized view", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -24,7 +25,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             active boolean DEFAULT true
           );
         `,
-        testSql: `
+        testSql: dedent`
           CREATE MATERIALIZED VIEW test_schema.active_users AS
           SELECT id, name, email
           FROM test_schema.users
@@ -34,18 +35,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         description: "create new materialized view",
         expectedSqlTerms: [
           pgVersion === 15
-            ? `CREATE MATERIALIZED VIEW test_schema.active_users AS  SELECT users.id,
-    users.name,
-    users.email
-   FROM test_schema.users
-  WHERE (users.active = true)`
-            : `CREATE MATERIALIZED VIEW test_schema.active_users AS  SELECT id,
-    name,
-    email
-   FROM test_schema.users
-  WHERE (active = true)`,
+            ? dedent`
+              CREATE MATERIALIZED VIEW test_schema.active_users AS SELECT users.id,
+                  users.name,
+                  users.email
+                 FROM test_schema.users
+                WHERE (users.active = true)`
+            : dedent`
+              CREATE MATERIALIZED VIEW test_schema.active_users AS SELECT id,
+                  name,
+                  email
+                 FROM test_schema.users
+                WHERE (active = true)`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
             referenced_stable_id: "schema:test_schema",
@@ -94,7 +97,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop existing materialized view", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -115,7 +118,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "drop existing materialized view",
         expectedSqlTerms: [`DROP MATERIALIZED VIEW test_schema.active_users`],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
             referenced_stable_id: "schema:test_schema",
@@ -164,7 +167,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("replace materialized view definition", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -181,7 +184,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           WHERE active = true
           WITH NO DATA;
         `,
-        testSql: `
+        testSql: dedent`
           DROP MATERIALIZED VIEW test_schema.user_summary;
           CREATE MATERIALIZED VIEW test_schema.user_summary AS
           SELECT id, name, email
@@ -193,22 +196,24 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         description: "replace materialized view definition",
         expectedSqlTerms: [
           pgVersion === 15
-            ? `DROP MATERIALIZED VIEW test_schema.user_summary;
-CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT users.id,
-    users.name,
-    users.email
-   FROM test_schema.users
-  WHERE (users.active = true)
-  ORDER BY users.name`
-            : `DROP MATERIALIZED VIEW test_schema.user_summary;
-CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
-    name,
-    email
-   FROM test_schema.users
-  WHERE (active = true)
-  ORDER BY name`,
+            ? dedent`
+              DROP MATERIALIZED VIEW test_schema.user_summary;
+              CREATE MATERIALIZED VIEW test_schema.user_summary AS SELECT users.id,
+                  users.name,
+                  users.email
+                 FROM test_schema.users
+                WHERE (users.active = true)
+                ORDER BY users.name`
+            : dedent`
+              DROP MATERIALIZED VIEW test_schema.user_summary;
+              CREATE MATERIALIZED VIEW test_schema.user_summary AS SELECT id,
+                  name,
+                  email
+                 FROM test_schema.users
+                WHERE (active = true)
+                ORDER BY name`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
             referenced_stable_id: "schema:test_schema",
@@ -267,7 +272,7 @@ CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
 
     test("materialized view with aggregations", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA analytics;
@@ -278,7 +283,7 @@ CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
             sale_date date
           );
         `,
-        testSql: `
+        testSql: dedent`
           CREATE MATERIALIZED VIEW analytics.monthly_sales AS
           SELECT
             DATE_TRUNC('month', sale_date) as month,
@@ -292,20 +297,22 @@ CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
         description: "materialized view with aggregations",
         expectedSqlTerms: [
           pgVersion === 15
-            ? `CREATE MATERIALIZED VIEW analytics.monthly_sales AS  SELECT date_trunc('month'::text, (sales.sale_date)::timestamp with time zone) AS month,
-    count(*) AS total_sales,
-    sum(sales.amount) AS total_revenue
-   FROM analytics.sales
-  GROUP BY (date_trunc('month'::text, (sales.sale_date)::timestamp with time zone))
-  ORDER BY (date_trunc('month'::text, (sales.sale_date)::timestamp with time zone))`
-            : `CREATE MATERIALIZED VIEW analytics.monthly_sales AS  SELECT date_trunc('month'::text, (sale_date)::timestamp with time zone) AS month,
-    count(*) AS total_sales,
-    sum(amount) AS total_revenue
-   FROM analytics.sales
-  GROUP BY (date_trunc('month'::text, (sale_date)::timestamp with time zone))
-  ORDER BY (date_trunc('month'::text, (sale_date)::timestamp with time zone))`,
+            ? dedent`
+            CREATE MATERIALIZED VIEW analytics.monthly_sales AS SELECT date_trunc('month'::text, (sales.sale_date)::timestamp with time zone) AS month,
+                count(*) AS total_sales,
+                sum(sales.amount) AS total_revenue
+               FROM analytics.sales
+              GROUP BY (date_trunc('month'::text, (sales.sale_date)::timestamp with time zone))
+              ORDER BY (date_trunc('month'::text, (sales.sale_date)::timestamp with time zone))`
+            : dedent`
+            CREATE MATERIALIZED VIEW analytics.monthly_sales AS SELECT date_trunc('month'::text, (sale_date)::timestamp with time zone) AS month,
+                count(*) AS total_sales,
+                sum(amount) AS total_revenue
+               FROM analytics.sales
+              GROUP BY (date_trunc('month'::text, (sale_date)::timestamp with time zone))
+              ORDER BY (date_trunc('month'::text, (sale_date)::timestamp with time zone))`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:analytics.sales",
             referenced_stable_id: "schema:analytics",
@@ -354,7 +361,7 @@ CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
 
     test("materialized view with joins", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA ecommerce;
@@ -383,7 +390,7 @@ CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
         `,
         description: "materialized view with joins",
         expectedSqlTerms: [
-          `CREATE MATERIALIZED VIEW ecommerce.customer_orders AS  SELECT c.id AS customer_id,
+          `CREATE MATERIALIZED VIEW ecommerce.customer_orders AS SELECT c.id AS customer_id,
     c.name,
     count(o.id) AS order_count,
     COALESCE(sum(o.total), (0)::numeric) AS total_spent
@@ -391,7 +398,7 @@ CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
      LEFT JOIN ecommerce.orders o ON ((c.id = o.customer_id)))
   GROUP BY c.id, c.name`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:ecommerce.customers",
             referenced_stable_id: "schema:ecommerce",

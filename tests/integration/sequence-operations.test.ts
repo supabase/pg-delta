@@ -13,13 +13,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`sequence operations (pg${pgVersion})`, () => {
     test("create basic sequence", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: "CREATE SEQUENCE test_schema.test_seq;",
         description: "create basic sequence",
         expectedSqlTerms: [`CREATE SEQUENCE test_schema.test_seq`],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "sequence:test_schema.test_seq",
@@ -32,7 +32,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("create sequence with options", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -49,7 +49,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           `CREATE SEQUENCE test_schema.custom_seq AS integer INCREMENT BY 2 MINVALUE 10 MAXVALUE 1000 START WITH 10 CACHE 5 CYCLE`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "sequence:test_schema.custom_seq",
@@ -62,7 +62,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop sequence", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -71,7 +71,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: "DROP SEQUENCE test_schema.test_seq;",
         description: "drop sequence",
         expectedSqlTerms: [`DROP SEQUENCE test_schema.test_seq`],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "sequence:test_schema.test_seq",
             referenced_stable_id: "schema:test_schema",
@@ -86,7 +86,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       db,
     }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -102,7 +102,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           `ALTER SEQUENCE test_schema.users_id_seq OWNED BY test_schema.users.id`,
           `ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         // Serial column creates multiple dependencies:
         expectedBranchDependencies: [
           {
@@ -136,7 +136,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("alter sequence properties", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -149,7 +149,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           `ALTER SEQUENCE test_schema.test_seq INCREMENT BY 5 CACHE 10`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "sequence:test_schema.test_seq",
             referenced_stable_id: "schema:test_schema",

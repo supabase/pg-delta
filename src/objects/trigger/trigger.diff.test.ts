@@ -25,6 +25,7 @@ const base: Omit<
   initially_deferred: false,
   argument_count: 0,
   owner: "o1",
+  definition: "CREATE TRIGGER trg ON t FOR EACH ROW EXECUTE FUNCTION fn1()",
 };
 
 describe.concurrent("trigger.diff", () => {

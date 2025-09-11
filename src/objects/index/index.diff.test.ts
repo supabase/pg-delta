@@ -33,6 +33,7 @@ const base: IndexProps = {
   partial_predicate: null,
   table_relkind: "r",
   is_constraint: false,
+  definition: "CREATE INDEX ix ON t (expression)",
 };
 
 describe.concurrent("index.diff", () => {

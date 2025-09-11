@@ -54,7 +54,7 @@ const procedurePropsSchema = z.object({
   source_code: z.string().nullable(),
   binary_path: z.string().nullable(),
   sql_body: z.string().nullable(),
-  definition: z.string().nullable(),
+  definition: z.string(),
   config: z.array(z.string()).nullable(),
   owner: z.string(),
 });

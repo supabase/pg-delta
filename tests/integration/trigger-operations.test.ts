@@ -2,6 +2,7 @@
  * Integration tests for PostgreSQL trigger operations.
  */
 
+import dedent from "dedent";
 import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
@@ -13,7 +14,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`trigger operations (pg${pgVersion})`, () => {
     test("simple trigger creation", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -42,7 +43,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           `CREATE TRIGGER update_timestamp_trigger BEFORE UPDATE ON test_schema.users FOR EACH ROW EXECUTE FUNCTION test_schema.update_timestamp()`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.update_timestamp()",
             referenced_stable_id: "schema:test_schema",
@@ -123,7 +124,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("multi-event trigger", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -156,17 +157,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           END;
           $$;
         `,
-        testSql: `
-          CREATE TRIGGER audit_trigger
-          AFTER INSERT OR UPDATE OR DELETE ON test_schema.sensitive_data
-          FOR EACH ROW
-          EXECUTE FUNCTION test_schema.audit_changes();
-        `,
+        testSql:
+          "CREATE TRIGGER audit_trigger AFTER INSERT OR DELETE OR UPDATE ON test_schema.sensitive_data FOR EACH ROW EXECUTE FUNCTION test_schema.audit_changes();",
         description: "multi-event trigger",
-        expectedSqlTerms: [
-          "CREATE TRIGGER audit_trigger AFTER INSERT OR UPDATE OR DELETE ON test_schema.sensitive_data FOR EACH ROW EXECUTE FUNCTION test_schema.audit_changes()",
-        ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.audit_changes()",
             referenced_stable_id: "schema:test_schema",
@@ -305,7 +299,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("conditional trigger with WHEN clause", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -336,7 +330,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "CREATE TRIGGER price_change_trigger AFTER UPDATE ON test_schema.products FOR EACH ROW WHEN (old.price IS DISTINCT FROM new.price) EXECUTE FUNCTION test_schema.log_price_changes()",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.log_price_changes()",
             referenced_stable_id: "schema:test_schema",
@@ -421,7 +415,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("trigger dropping", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -443,7 +437,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           `DROP TRIGGER old_trigger ON test_schema.test_table`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.test_trigger_func()",
             referenced_stable_id: "schema:test_schema",
@@ -526,7 +520,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("trigger replacement (modification)", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -551,11 +545,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.validate_email();
         `,
-        testSql: `
+        testSql: dedent`
           CREATE OR REPLACE FUNCTION test_schema.validate_email()
-          RETURNS trigger
-          LANGUAGE plpgsql
-          AS $$
+           RETURNS trigger
+           LANGUAGE plpgsql
+          AS $function$
           BEGIN
             -- Updated validation logic
             IF NEW.email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$' THEN
@@ -567,10 +561,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             END IF;
             RETURN NEW;
           END;
-          $$;
+          $function$;
 
-          -- Recreate trigger with updated timing
           DROP TRIGGER email_validation_trigger ON test_schema.users;
+
           CREATE TRIGGER email_validation_trigger
           BEFORE INSERT OR UPDATE ON test_schema.users
           FOR EACH ROW
@@ -578,23 +572,27 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "trigger replacement (modification)",
         expectedSqlTerms: [
-          `CREATE OR REPLACE FUNCTION test_schema.validate_email() RETURNS trigger LANGUAGE plpgsql AS $$
-          BEGIN
-            -- Updated validation logic
-            IF NEW.email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$' THEN
-              RAISE EXCEPTION 'Invalid email format: %', NEW.email;
-            END IF;
-            -- Additional validation
-            IF length(NEW.email) > 255 THEN
-              RAISE EXCEPTION 'Email too long';
-            END IF;
-            RETURN NEW;
-          END;
-          $$`,
+          dedent`
+            CREATE OR REPLACE FUNCTION test_schema.validate_email()
+             RETURNS trigger
+             LANGUAGE plpgsql
+            AS $function$
+            BEGIN
+              -- Updated validation logic
+              IF NEW.email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$' THEN
+                RAISE EXCEPTION 'Invalid email format: %', NEW.email;
+              END IF;
+              -- Additional validation
+              IF length(NEW.email) > 255 THEN
+                RAISE EXCEPTION 'Email too long';
+              END IF;
+              RETURN NEW;
+            END;
+            $function$`,
           `DROP TRIGGER email_validation_trigger ON test_schema.users;
 CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.users FOR EACH ROW EXECUTE FUNCTION test_schema.validate_email()`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.validate_email()",
             referenced_stable_id: "schema:test_schema",
@@ -709,10 +707,10 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
 
     test("trigger after function dependency", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema",
-        testSql: `
+        testSql: dedent`
           CREATE TABLE test_schema.events (
             id serial PRIMARY KEY,
             event_type text,
@@ -720,14 +718,14 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
           );
 
           CREATE FUNCTION test_schema.notify_event()
-          RETURNS trigger
-          LANGUAGE plpgsql
-          AS $$
+           RETURNS trigger
+           LANGUAGE plpgsql
+          AS $function$
           BEGIN
             PERFORM pg_notify('event_occurred', NEW.event_type);
             RETURN NEW;
           END;
-          $$;
+          $function$;
 
           CREATE TRIGGER event_notification_trigger
           AFTER INSERT ON test_schema.events
@@ -740,15 +738,19 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
           "CREATE TABLE test_schema.events (id integer DEFAULT nextval('test_schema.events_id_seq'::regclass) NOT NULL, event_type text, occurred_at timestamp without time zone DEFAULT now())",
           "ALTER SEQUENCE test_schema.events_id_seq OWNED BY test_schema.events.id",
           "ALTER TABLE test_schema.events ADD CONSTRAINT events_pkey PRIMARY KEY (id)",
-          `CREATE FUNCTION test_schema.notify_event() RETURNS trigger LANGUAGE plpgsql AS $$
-          BEGIN
-            PERFORM pg_notify('event_occurred', NEW.event_type);
-            RETURN NEW;
-          END;
-          $$`,
+          dedent`
+            CREATE FUNCTION test_schema.notify_event()
+             RETURNS trigger
+             LANGUAGE plpgsql
+            AS $function$
+            BEGIN
+              PERFORM pg_notify('event_occurred', NEW.event_type);
+              RETURN NEW;
+            END;
+            $function$`,
           `CREATE TRIGGER event_notification_trigger AFTER INSERT ON test_schema.events FOR EACH ROW EXECUTE FUNCTION test_schema.notify_event()`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "sequence:test_schema.events_id_seq",
@@ -799,7 +801,7 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
     test("trigger semantic equality", async ({ db }) => {
       // Setup: Create a trigger in both databases
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `CREATE SCHEMA test_schema
         CREATE TABLE test_schema.test_table (
@@ -821,11 +823,10 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
 
     test("trigger with dependencies roundtrip", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema",
-        testSql: `
-          -- Create base table
+        testSql: dedent`
           CREATE TABLE test_schema.orders (
             id serial PRIMARY KEY,
             customer_id integer NOT NULL,
@@ -835,7 +836,6 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
             updated_at timestamp DEFAULT now()
           );
 
-          -- Create audit table
           CREATE TABLE test_schema.order_audit (
             id serial PRIMARY KEY,
             order_id integer,
@@ -844,11 +844,10 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
             changed_at timestamp DEFAULT now()
           );
 
-          -- Create trigger function for status changes
           CREATE FUNCTION test_schema.audit_order_status()
-          RETURNS trigger
-          LANGUAGE plpgsql
-          AS $$
+           RETURNS trigger
+           LANGUAGE plpgsql
+          AS $function$
           BEGIN
             IF OLD.status IS DISTINCT FROM NEW.status THEN
               INSERT INTO test_schema.order_audit (order_id, old_status, new_status)
@@ -856,20 +855,18 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
             END IF;
             RETURN NEW;
           END;
-          $$;
+          $function$;
 
-          -- Create trigger function for timestamp updates
           CREATE FUNCTION test_schema.update_order_timestamp()
-          RETURNS trigger
-          LANGUAGE plpgsql
-          AS $$
+           RETURNS trigger
+           LANGUAGE plpgsql
+          AS $function$
           BEGIN
             NEW.updated_at = now();
             RETURN NEW;
           END;
-          $$;
+          $function$;
 
-          -- Create triggers
           CREATE TRIGGER order_status_audit_trigger
           AFTER UPDATE ON test_schema.orders
           FOR EACH ROW
@@ -891,25 +888,33 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
           "CREATE TABLE test_schema.order_audit (id integer DEFAULT nextval('test_schema.order_audit_id_seq'::regclass) NOT NULL, order_id integer, old_status text, new_status text, changed_at timestamp without time zone DEFAULT now())",
           "ALTER SEQUENCE test_schema.order_audit_id_seq OWNED BY test_schema.order_audit.id",
           "ALTER TABLE test_schema.order_audit ADD CONSTRAINT order_audit_pkey PRIMARY KEY (id)",
-          `CREATE FUNCTION test_schema.update_order_timestamp() RETURNS trigger LANGUAGE plpgsql AS $$
-          BEGIN
-            NEW.updated_at = now();
-            RETURN NEW;
-          END;
-          $$`,
+          dedent`
+            CREATE FUNCTION test_schema.update_order_timestamp()
+             RETURNS trigger
+             LANGUAGE plpgsql
+            AS $function$
+            BEGIN
+              NEW.updated_at = now();
+              RETURN NEW;
+            END;
+            $function$`,
           "CREATE TRIGGER order_timestamp_trigger BEFORE UPDATE ON test_schema.orders FOR EACH ROW EXECUTE FUNCTION test_schema.update_order_timestamp()",
-          `CREATE FUNCTION test_schema.audit_order_status() RETURNS trigger LANGUAGE plpgsql AS $$
-          BEGIN
-            IF OLD.status IS DISTINCT FROM NEW.status THEN
-              INSERT INTO test_schema.order_audit (order_id, old_status, new_status)
-              VALUES (NEW.id, OLD.status, NEW.status);
-            END IF;
-            RETURN NEW;
-          END;
-          $$`,
+          dedent`
+            CREATE FUNCTION test_schema.audit_order_status()
+             RETURNS trigger
+             LANGUAGE plpgsql
+            AS $function$
+            BEGIN
+              IF OLD.status IS DISTINCT FROM NEW.status THEN
+                INSERT INTO test_schema.order_audit (order_id, old_status, new_status)
+                VALUES (NEW.id, OLD.status, NEW.status);
+              END IF;
+              RETURN NEW;
+            END;
+            $function$`,
           "CREATE TRIGGER order_status_audit_trigger AFTER UPDATE ON test_schema.orders FOR EACH ROW WHEN (old.status IS DISTINCT FROM new.status) EXECUTE FUNCTION test_schema.audit_order_status()",
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "sequence:test_schema.orders_id_seq",

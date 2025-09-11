@@ -14,7 +14,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`RLS operations (pg${pgVersion})`, () => {
     test("enable RLS on table", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA app;
@@ -29,7 +29,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "enable RLS on table",
         expectedSqlTerms: [`ALTER TABLE app.users ENABLE ROW LEVEL SECURITY`],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:app.users",
             referenced_stable_id: "schema:app",
@@ -88,7 +88,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("disable RLS on table", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA app;
@@ -104,7 +104,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "disable RLS on table",
         expectedSqlTerms: [`ALTER TABLE app.users DISABLE ROW LEVEL SECURITY`],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:app.users",
             referenced_stable_id: "schema:app",
@@ -164,7 +164,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     // TODO: Fix RLS and policy dependency detection issues
     test("create basic RLS policy", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA app;
@@ -185,7 +185,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "CREATE POLICY user_isolation ON app.users USING (true)",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:app.users",
             referenced_stable_id: "schema:app",
@@ -249,7 +249,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("create policy with WITH CHECK", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA blog;
@@ -272,7 +272,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "CREATE POLICY insert_own_posts ON blog.posts FOR INSERT WITH CHECK (true)",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:blog.posts",
             referenced_stable_id: "schema:blog",
@@ -316,7 +316,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("create RESTRICTIVE policy", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA secure;
@@ -338,7 +338,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "CREATE POLICY admin_only ON secure.sensitive_data AS RESTRICTIVE FOR SELECT USING (true)",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:secure.sensitive_data",
             referenced_stable_id: "schema:secure",
@@ -386,7 +386,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop RLS policy", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA app;
@@ -406,7 +406,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "drop RLS policy",
         expectedSqlTerms: ["DROP POLICY user_isolation ON app.users"],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:app.users",
             referenced_stable_id: "schema:app",
@@ -470,7 +470,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("multiple policies on same table", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA forum;
@@ -509,7 +509,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE POLICY read_messages ON forum.messages FOR SELECT USING (true)",
           "CREATE POLICY insert_own_messages ON forum.messages FOR INSERT WITH CHECK (true)",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:forum.messages",
             referenced_stable_id: "schema:forum",
@@ -563,7 +563,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("complete RLS setup with policies", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA tenant;
@@ -601,7 +601,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE POLICY tenant_isolation ON tenant.data USING (true) WITH CHECK (true)",
           "CREATE POLICY admin_bypass ON tenant.data USING (true) WITH CHECK (true)",
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:tenant.data",
@@ -634,7 +634,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("create basic RLS policy on simple table", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA app;
@@ -654,7 +654,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "CREATE POLICY user_policy ON app.users USING (true)",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:app.users",
             referenced_stable_id: "schema:app",
@@ -698,7 +698,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop RLS policy from simple table", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA app;
@@ -717,7 +717,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "drop RLS policy from simple table",
         expectedSqlTerms: ["DROP POLICY user_policy ON app.users"],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:app.users",
             referenced_stable_id: "schema:app",

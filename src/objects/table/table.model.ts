@@ -57,6 +57,7 @@ const tableConstraintPropsSchema = z.object({
   match_type: ForeignKeyMatchTypeSchema.nullable(),
   check_expression: z.string().nullable(),
   owner: z.string(),
+  definition: z.string(),
 });
 
 export type TableConstraintProps = z.infer<typeof tableConstraintPropsSchema>;
@@ -235,7 +236,8 @@ select
           'on_delete', case when c.contype = 'f' then c.confdeltype else null end,
           'match_type', case when c.contype = 'f' then c.confmatchtype else null end,
           'check_expression', pg_get_expr(c.conbin, c.conrelid),
-          'owner', t.owner
+          'owner', t.owner,
+          'definition', pg_get_constraintdef(c.oid, true)
         )
         order by c.conname
       )

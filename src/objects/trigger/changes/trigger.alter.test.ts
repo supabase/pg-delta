@@ -22,6 +22,8 @@ describe.concurrent("trigger", () => {
         old_table: null,
         new_table: null,
         owner: "test",
+        definition:
+          "CREATE TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE EXECUTE FUNCTION public.test_function()",
       };
       const main = new Trigger({
         ...props,
@@ -38,7 +40,7 @@ describe.concurrent("trigger", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP TRIGGER test_trigger ON public.test_table;\nCREATE CONSTRAINT TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE EXECUTE FUNCTION public.test_function()",
+        "DROP TRIGGER test_trigger ON public.test_table;\nCREATE TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE EXECUTE FUNCTION public.test_function()",
       );
     });
   });

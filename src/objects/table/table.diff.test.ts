@@ -102,6 +102,7 @@ describe.concurrent("table.diff", () => {
           match_type: null,
           check_expression: "a > 0",
           owner: "o1",
+          definition: "CHECK (a > 0)",
         },
       ],
     });
@@ -307,6 +308,7 @@ describe.concurrent("table.diff", () => {
       match_type: null,
       check_expression: null,
       owner: "o1",
+      definition: "PRIMARY KEY (a)",
     };
     const created = diffTables(
       { [t1.stableId]: t1 },
@@ -421,6 +423,7 @@ describe.concurrent("table.diff", () => {
           match_type: null,
           check_expression: null,
           owner: "o1",
+          definition: "PRIMARY KEY (a)",
         },
       ],
     });
@@ -488,6 +491,7 @@ describe.concurrent("table.diff", () => {
           match_type: "u",
           check_expression: null,
           owner: "o1",
+          definition: "FOREIGN KEY (a) REFERENCES other(a)",
         },
       ],
     });
@@ -561,6 +565,7 @@ describe.concurrent("table.diff", () => {
       match_type: null,
       check_expression: "a > 0",
       owner: "o1",
+      definition: "CHECK (a > 0)",
     };
     const tMain = new Table({
       ...base,

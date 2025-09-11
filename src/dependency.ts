@@ -33,7 +33,7 @@ interface Constraint {
 interface ObjectDependency {
   dependent: string;
   referenced: string;
-  source?: "master" | "branch" | string;
+  source?: "main" | "branch" | string;
 }
 
 export class DependencyModel {
@@ -77,11 +77,11 @@ export class DependencyModel {
 }
 
 export class DependencyExtractor {
-  private readonly masterCatalog: Catalog;
+  private readonly mainCatalog: Catalog;
   private readonly branchCatalog: Catalog;
 
-  constructor(masterCatalog: Catalog, branchCatalog: Catalog) {
-    this.masterCatalog = masterCatalog;
+  constructor(mainCatalog: Catalog, branchCatalog: Catalog) {
+    this.mainCatalog = mainCatalog;
     this.branchCatalog = branchCatalog;
   }
 
@@ -91,7 +91,7 @@ export class DependencyExtractor {
       console.log("relevant", relevant);
     }
     const model = new DependencyModel();
-    this.extractFromCatalog(model, this.masterCatalog, relevant, "master");
+    this.extractFromCatalog(model, this.mainCatalog, relevant, "main");
     this.extractFromCatalog(model, this.branchCatalog, relevant, "branch");
     return model;
   }
@@ -107,10 +107,10 @@ export class DependencyExtractor {
       const newObjects = new Set<string>();
       for (const objId of relevant) {
         // Add dependencies from both catalogs
-        newObjects.union(this.getDirectDependencies(objId, this.masterCatalog));
+        newObjects.union(this.getDirectDependencies(objId, this.mainCatalog));
         newObjects.union(this.getDirectDependencies(objId, this.branchCatalog));
         // Add dependents from both catalogs
-        newObjects.union(this.getDirectDependents(objId, this.masterCatalog));
+        newObjects.union(this.getDirectDependents(objId, this.mainCatalog));
         newObjects.union(this.getDirectDependents(objId, this.branchCatalog));
       }
       relevant.union(newObjects);
@@ -222,8 +222,8 @@ export class OperationSemantics {
     if (!stableIdA || !stableIdB) return null;
 
     // Choose appropriate catalog state for each operation
-    const sourceA = changeA instanceof DropChange ? "master" : "branch";
-    const sourceB = changeB instanceof DropChange ? "master" : "branch";
+    const sourceA = changeA instanceof DropChange ? "main" : "branch";
+    const sourceB = changeB instanceof DropChange ? "main" : "branch";
 
     // Check for dependencies in appropriate states
     const aDependsOnB = model.hasDependency(stableIdA, stableIdB, sourceA);
@@ -574,8 +574,8 @@ export class DependencyResolver {
   private readonly semantics: OperationSemantics;
   private readonly solver: ConstraintSolver;
 
-  constructor(masterCatalog: Catalog, branchCatalog: Catalog) {
-    this.extractor = new DependencyExtractor(masterCatalog, branchCatalog);
+  constructor(mainCatalog: Catalog, branchCatalog: Catalog) {
+    this.extractor = new DependencyExtractor(mainCatalog, branchCatalog);
     this.semantics = new OperationSemantics();
     this.solver = new ConstraintSolver();
   }
@@ -594,12 +594,12 @@ export class DependencyResolver {
 
 export function resolveDependencies(
   changes: Change[],
-  masterCatalog: Catalog,
+  mainCatalog: Catalog,
   branchCatalog: Catalog | null,
 ): Result<Change[], CycleError | UnexpectedError> {
   if (branchCatalog === null) {
     branchCatalog = emptyCatalog();
   }
-  const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+  const resolver = new DependencyResolver(mainCatalog, branchCatalog);
   return resolver.resolveDependencies(changes);
 }

@@ -14,7 +14,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`constraint operations (pg${pgVersion})`, () => {
     test("add primary key constraint", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -30,7 +30,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           `ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
             referenced_stable_id: "schema:test_schema",
@@ -59,7 +59,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("add unique constraint", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -75,7 +75,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           `ALTER TABLE test_schema.users ADD CONSTRAINT users_email_key UNIQUE (email)`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
             referenced_stable_id: "schema:test_schema",
@@ -105,7 +105,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("add check constraint", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -119,9 +119,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "add check constraint",
         expectedSqlTerms: [
-          `ALTER TABLE test_schema.products ADD CONSTRAINT products_price_check CHECK ((price > (0)::numeric))`,
+          `ALTER TABLE test_schema.products ADD CONSTRAINT products_price_check CHECK (price > 0::numeric)`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.products",
             referenced_stable_id: "schema:test_schema",
@@ -146,7 +146,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop primary key constraint", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -163,7 +163,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           `ALTER TABLE test_schema.users DROP CONSTRAINT users_pkey`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
             referenced_stable_id: "schema:test_schema",
@@ -192,7 +192,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("add foreign key constraint", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -212,9 +212,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "add foreign key constraint",
         expectedSqlTerms: [
-          "ALTER TABLE test_schema.orders ADD CONSTRAINT orders_user_id_fkey FOREIGN KEY (user_id) REFERENCES test_schema.users (id) ON DELETE CASCADE",
+          "ALTER TABLE test_schema.orders ADD CONSTRAINT orders_user_id_fkey FOREIGN KEY (user_id) REFERENCES test_schema.users(id) ON DELETE CASCADE",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "constraint:test_schema.users.users_pkey",
             referenced_stable_id: "table:test_schema.users",
@@ -281,7 +281,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop unique constraint", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -298,7 +298,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "ALTER TABLE test_schema.users DROP CONSTRAINT users_email_key",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "constraint:test_schema.users.users_email_key",
             referenced_stable_id: "table:test_schema.users",
@@ -328,7 +328,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop check constraint", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -345,7 +345,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "ALTER TABLE test_schema.products DROP CONSTRAINT products_price_check",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id:
               "constraint:test_schema.products.products_price_check",
@@ -370,7 +370,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop foreign key constraint", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -391,7 +391,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "ALTER TABLE test_schema.orders DROP CONSTRAINT orders_user_id_fkey",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id:
               "constraint:test_schema.orders.orders_user_id_fkey",
@@ -458,7 +458,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("add multiple constraints to same table", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -475,11 +475,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "add multiple constraints to same table",
         expectedSqlTerms: [
-          "ALTER TABLE test_schema.users ADD CONSTRAINT users_age_check CHECK ((age >= 0))",
+          "ALTER TABLE test_schema.users ADD CONSTRAINT users_age_check CHECK (age >= 0)",
           "ALTER TABLE test_schema.users ADD CONSTRAINT users_email_key UNIQUE (email)",
           "ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
             referenced_stable_id: "schema:test_schema",
@@ -524,7 +524,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("constraint with special characters in names", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA "my-schema";
@@ -539,9 +539,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "constraint with special characters in names",
         expectedSqlTerms: [
-          'ALTER TABLE "my-schema"."my-table" ADD CONSTRAINT "my-table_check$constraint" CHECK (("my-field" IS NOT NULL))',
+          'ALTER TABLE "my-schema"."my-table" ADD CONSTRAINT "my-table_check$constraint" CHECK ("my-field" IS NOT NULL)',
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:my-schema.my-table",
             referenced_stable_id: "schema:my-schema",

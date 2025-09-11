@@ -33,6 +33,8 @@ describe.concurrent("index", () => {
         index_expressions: null,
         partial_predicate: null,
         table_relkind: "r",
+        definition:
+          "CREATE INDEX test_index ON public.test_table USING btree (id)",
       };
       const main = new Index({
         ...props,
@@ -76,6 +78,8 @@ describe.concurrent("index", () => {
         index_expressions: null,
         partial_predicate: null,
         table_relkind: "r",
+        definition:
+          "CREATE INDEX test_index ON public.test_table USING btree (id)",
       };
       const main = new Index({
         ...props,
@@ -122,6 +126,8 @@ describe.concurrent("index", () => {
         index_expressions: null,
         partial_predicate: null,
         table_relkind: "r",
+        definition:
+          "CREATE INDEX test_index ON public.test_table USING btree (id)",
       };
       const main = new Index({
         ...props,
@@ -165,6 +171,8 @@ describe.concurrent("index", () => {
         index_expressions: null,
         partial_predicate: null,
         table_relkind: "r",
+        definition:
+          "CREATE INDEX test_index ON public.test_table USING btree (id)",
       };
       const main = new Index({
         ...props,
@@ -208,6 +216,8 @@ describe.concurrent("index", () => {
         index_expressions: null,
         partial_predicate: null,
         table_relkind: "r",
+        definition:
+          "CREATE INDEX test_index ON public.test_table USING hash (id)",
       };
       const main = new Index({
         ...props,
@@ -246,7 +256,7 @@ describe.concurrent("index", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP INDEX public.test_index;\nCREATE INDEX test_index ON public.test_table USING hash(id)",
+        "DROP INDEX public.test_index;\nCREATE INDEX test_index ON public.test_table USING hash (id)",
       );
     });
   });

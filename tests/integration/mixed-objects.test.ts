@@ -13,7 +13,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`mixed objects (pg${pgVersion})`, () => {
     test("schema and table creation", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "",
         testSql: `
@@ -30,7 +30,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE SCHEMA test_schema AUTHORIZATION postgres",
           "CREATE TABLE test_schema.users (id integer, name text NOT NULL, email text, created_at timestamp without time zone DEFAULT now())",
         ],
-        expectedMasterDependencies: [], // Master has no dependencies (empty state)
+        expectedMainDependencies: [], // Main has no dependencies (empty state)
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
@@ -43,7 +43,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("multiple schemas and tables", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "",
         testSql: `
@@ -77,7 +77,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE SCHEMA analytics AUTHORIZATION postgres",
           "CREATE TABLE analytics.user_stats (user_id integer, post_count integer DEFAULT 0, last_login timestamp without time zone)",
         ],
-        expectedMasterDependencies: [], // Master has no dependencies (empty state)
+        expectedMainDependencies: [], // Main has no dependencies (empty state)
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:core.users",
@@ -100,7 +100,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("complex column types", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "",
         testSql: `
@@ -120,7 +120,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE SCHEMA test_schema AUTHORIZATION postgres",
           "CREATE TABLE test_schema.complex_table (id uuid, metadata jsonb, tags text[], coordinates point, price numeric(10,2), is_active boolean DEFAULT true, created_at timestamp with time zone DEFAULT now())",
         ],
-        expectedMasterDependencies: [], // Master has no dependencies (empty state)
+        expectedMainDependencies: [], // Main has no dependencies (empty state)
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:test_schema.complex_table",
@@ -133,26 +133,26 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("empty database", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "",
         testSql: "",
         description: "empty database",
         expectedSqlTerms: [], // No SQL terms
-        expectedMasterDependencies: [], // Master has no dependencies (empty state)
+        expectedMainDependencies: [], // Main has no dependencies (empty state)
         expectedBranchDependencies: [], // Branch has no dependencies (empty state)
       });
     });
 
     test("schema only", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "",
         testSql: "CREATE SCHEMA empty_schema;",
         description: "schema only",
         expectedSqlTerms: ["CREATE SCHEMA empty_schema AUTHORIZATION postgres"],
-        expectedMasterDependencies: [], // Master has no dependencies (empty state)
+        expectedMainDependencies: [], // Main has no dependencies (empty state)
         expectedBranchDependencies: [], // Branch has no dependencies (just schema)
       });
     });
@@ -162,7 +162,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     }) => {
       // TODO: fix this test, if we skip the dependencies checks we get a CycleError exception
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "",
         testSql: `
@@ -206,11 +206,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "ALTER SEQUENCE ecommerce.customers_id_seq OWNED BY ecommerce.customers.id",
           "ALTER TABLE ecommerce.customers ADD CONSTRAINT customers_email_key UNIQUE (email)",
           "ALTER TABLE ecommerce.customers ADD CONSTRAINT customers_pkey PRIMARY KEY (id)",
-          "ALTER TABLE ecommerce.orders ADD CONSTRAINT fk_customer FOREIGN KEY (customer_id) REFERENCES ecommerce.customers (id)",
-          "CREATE INDEX idx_orders_customer_status ON ecommerce.orders (customer_id, status)",
-          "CREATE INDEX idx_customers_email ON ecommerce.customers (email)",
+          "ALTER TABLE ecommerce.orders ADD CONSTRAINT fk_customer FOREIGN KEY (customer_id) REFERENCES ecommerce.customers(id)",
+          "CREATE INDEX idx_orders_customer_status ON ecommerce.orders USING btree (customer_id, status)",
+          "CREATE INDEX idx_customers_email ON ecommerce.customers USING btree (email)",
         ],
-        expectedMasterDependencies: [], // Master has no dependencies (empty state)
+        expectedMainDependencies: [], // Main has no dependencies (empty state)
         expectedBranchDependencies: [
           // Schema dependencies
           {
@@ -324,7 +324,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("complex dependency ordering", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema",
         testSql: `
@@ -363,7 +363,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             ? "CREATE VIEW test_schema.top_users AS SELECT user_orders.id,\n    user_orders.name,\n    user_orders.total\n   FROM test_schema.user_orders\n  WHERE (user_orders.total > (1000)::numeric)"
             : "CREATE VIEW test_schema.top_users AS SELECT id,\n    name,\n    total\n   FROM test_schema.user_orders\n  WHERE (total > (1000)::numeric)",
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
@@ -426,7 +426,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop operations with complex dependencies", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -456,7 +456,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "DROP TABLE test_schema.base",
           "DROP SCHEMA test_schema",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.base",
             referenced_stable_id: "schema:test_schema",
@@ -509,7 +509,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("mixed create and replace operations", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -538,7 +538,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             ? "DROP VIEW test_schema.summary;\nCREATE VIEW test_schema.summary AS SELECT count(*) AS cnt,\n    count(\n        CASE\n            WHEN (data.status = 'active'::text) THEN 1\n            ELSE NULL::integer\n        END) AS active_cnt\n   FROM test_schema.data"
             : "DROP VIEW test_schema.summary;\nCREATE VIEW test_schema.summary AS SELECT count(*) AS cnt,\n    count(\n        CASE\n            WHEN (status = 'active'::text) THEN 1\n            ELSE NULL::integer\n        END) AS active_cnt\n   FROM test_schema.data",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.data",
             referenced_stable_id: "schema:test_schema",
@@ -597,7 +597,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("cross-schema view dependencies", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA schema_a;
@@ -615,7 +615,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: "", // No changes - just test dependency extraction
         description: "cross-schema view dependencies",
         expectedSqlTerms: [], // No SQL expected since no changes
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:schema_a.table_a",
             referenced_stable_id: "schema:schema_a",
@@ -714,7 +714,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("basic table schema dependency validation", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "",
         testSql: `
@@ -729,7 +729,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE SCHEMA analytics AUTHORIZATION postgres",
           "CREATE TABLE analytics.users (id integer, name text)",
         ],
-        expectedMasterDependencies: [], // Master has no dependencies (empty state)
+        expectedMainDependencies: [], // Main has no dependencies (empty state)
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:analytics.users",
@@ -742,7 +742,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("multiple independent schema table pairs", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "",
         testSql: `
@@ -758,7 +758,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE SCHEMA analytics AUTHORIZATION postgres",
           "CREATE TABLE analytics.reports (id integer)",
         ],
-        expectedMasterDependencies: [], // Master has no dependencies (empty state)
+        expectedMainDependencies: [], // Main has no dependencies (empty state)
         expectedBranchDependencies: [
           {
             dependent_stable_id: "table:app.users",
@@ -776,7 +776,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop schema only", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA temp_schema;
@@ -786,14 +786,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "drop schema only",
         expectedSqlTerms: ["DROP SCHEMA temp_schema"],
-        expectedMasterDependencies: [], // Master dependencies (temp_schema exists)
+        expectedMainDependencies: [], // Main dependencies (temp_schema exists)
         expectedBranchDependencies: [], // Branch has no dependencies (schema dropped)
       });
     });
 
     test("multiple drops with dependency ordering", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA app;
@@ -814,7 +814,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "DROP SCHEMA app",
           "DROP SCHEMA analytics",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:app.users",
             referenced_stable_id: "schema:app",
@@ -825,14 +825,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             referenced_stable_id: "schema:analytics",
             deptype: "n",
           },
-        ], // Master dependencies (objects exist before drop)
+        ], // Main dependencies (objects exist before drop)
         expectedBranchDependencies: [], // Branch has no dependencies (everything dropped)
       });
     });
 
     test("complex multi-schema drop scenario", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA core;
@@ -859,7 +859,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "DROP SCHEMA core",
           "DROP SCHEMA analytics",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:core.users",
             referenced_stable_id: "schema:core",
@@ -875,7 +875,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             referenced_stable_id: "schema:reporting",
             deptype: "n",
           },
-        ], // Master dependencies (objects exist before drop)
+        ], // Main dependencies (objects exist before drop)
         expectedBranchDependencies: [], // Branch has no dependencies (everything dropped)
       });
     });

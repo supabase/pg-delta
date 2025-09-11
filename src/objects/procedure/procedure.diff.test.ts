@@ -37,7 +37,8 @@ const base: ProcedureProps = {
   source_code: null,
   binary_path: null,
   sql_body: null,
-  definition: null,
+  definition:
+    "CREATE FUNCTION public.fn1() RETURNS int4 LANGUAGE sql AS $$SELECT NULL::int4$$",
   config: null,
   owner: "o1",
   execution_cost: 0,

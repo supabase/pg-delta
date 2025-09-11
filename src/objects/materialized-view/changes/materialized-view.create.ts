@@ -50,7 +50,7 @@ export class CreateMaterializedView extends CreateChange {
     }
 
     // Add AS query (definition is required)
-    parts.push("AS", this.materializedView.definition);
+    parts.push("AS", this.materializedView.definition.trim());
 
     // Add population clause only when non-default
     // Default in PostgreSQL is WITH NO DATA, so we omit it to keep output minimal

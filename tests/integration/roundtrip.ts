@@ -12,15 +12,17 @@ import type { Change } from "../../src/objects/base.change.ts";
 import { DEBUG } from "../constants.ts";
 
 interface RoundtripTestOptions {
-  masterSession: postgres.Sql;
+  mainSession: postgres.Sql;
   branchSession: postgres.Sql;
   name?: string;
   initialSetup?: string;
   testSql?: string;
   description: string;
-  expectedSqlTerms: string[];
-  // List of dependencies that must be present in master catalog.
-  expectedMasterDependencies?: PgDepend[];
+  // List of terms that must appear in the generated SQL.
+  // If not provided, we expect the generated SQL to match the testSql.
+  expectedSqlTerms?: string[];
+  // List of dependencies that must be present in main catalog.
+  expectedMainDependencies?: PgDepend[];
   // List of dependencies that must be present in branch catalog.
   expectedBranchDependencies?: PgDepend[];
   // List of stable_ids in the order they should appear in the generated changes.
@@ -33,29 +35,29 @@ interface RoundtripTestOptions {
  * functionally identical pg_catalog data.
  *
  * This validates the core roundtrip fidelity:
- * 1. Extract catalog from master database (masterSession)
+ * 1. Extract catalog from main database (mainSession)
  * 2. Extract catalog from branch database (branchSession)
- * 3. Generate migration from master to branch
- * 4. Apply migration to master database
- * 5. Verify master and branch catalogs are now semantically identical
+ * 3. Generate migration from main to branch
+ * 4. Apply migration to main database
+ * 5. Verify main and branch catalogs are now semantically identical
  */
 export async function roundtripFidelityTest(
   options: RoundtripTestOptions,
 ): Promise<void> {
   const {
-    masterSession,
+    mainSession,
     branchSession,
     initialSetup,
     testSql,
     expectedSqlTerms,
-    expectedMasterDependencies,
+    expectedMainDependencies,
     expectedBranchDependencies,
     expectedOperationOrder,
   } = options;
 
   // Set up initial schema in BOTH databases
   if (initialSetup) {
-    await expect(masterSession.unsafe(initialSetup)).resolves.not.toThrow();
+    await expect(mainSession.unsafe(initialSetup)).resolves.not.toThrow();
     await expect(branchSession.unsafe(initialSetup)).resolves.not.toThrow();
   }
 
@@ -65,25 +67,25 @@ export async function roundtripFidelityTest(
   }
 
   // Extract catalogs from both databases
-  const masterCatalog = await extractCatalog(masterSession);
+  const mainCatalog = await extractCatalog(mainSession);
   const branchCatalog = await extractCatalog(branchSession);
 
-  if (expectedMasterDependencies && expectedBranchDependencies) {
+  if (expectedMainDependencies && expectedBranchDependencies) {
     validateDependencies(
-      masterCatalog,
+      mainCatalog,
       branchCatalog,
-      expectedMasterDependencies,
+      expectedMainDependencies,
       expectedBranchDependencies,
     );
   }
 
-  // Generate migration from master to branch
-  const changes = diffCatalogs(masterCatalog, branchCatalog);
+  // Generate migration from main to branch
+  const changes = diffCatalogs(mainCatalog, branchCatalog);
 
   // Resolve dependencies to get the proper order
   const sortedChangesResult = resolveDependencies(
     changes,
-    masterCatalog,
+    mainCatalog,
     branchCatalog,
   );
   if (sortedChangesResult.isErr()) {
@@ -98,26 +100,30 @@ export async function roundtripFidelityTest(
   // Generate SQL from changes
   const sqlStatements = sortedChanges.map((change) => change.serialize());
 
-  // Verify expected terms are the same as the generated SQL
-  expect(sqlStatements).toStrictEqual(expectedSqlTerms);
-
   // Join SQL statements
   const diffScript =
-    sqlStatements.join(";\n") + (sqlStatements.length > 0 ? ";" : "");
+    sqlStatements.join(";\n\n") + (sqlStatements.length > 0 ? ";" : "");
+
+  // Verify expected terms are the same as the generated SQL
+  if (!expectedSqlTerms) {
+    expect(diffScript).toStrictEqual(testSql);
+  } else {
+    expect(sqlStatements).toStrictEqual(expectedSqlTerms);
+  }
 
   if (DEBUG) {
     console.log("diffScript: ", diffScript);
   }
-  // Apply migration to master database
+  // Apply migration to main database
   if (diffScript.trim()) {
-    await expect(masterSession.unsafe(diffScript)).resolves.not.toThrow();
+    await expect(mainSession.unsafe(diffScript)).resolves.not.toThrow();
   }
 
-  // Extract final catalog from master database
-  const masterCatalogAfter = await extractCatalog(masterSession);
+  // Extract final catalog from main database
+  const mainCatalogAfter = await extractCatalog(mainSession);
 
-  // Verify semantic equality between master and branch catalogs
-  catalogsSemanticalyEqual(branchCatalog, masterCatalogAfter);
+  // Verify semantic equality between main and branch catalogs
+  catalogsSemanticalyEqual(branchCatalog, mainCatalogAfter);
 }
 
 /**
@@ -193,13 +199,13 @@ function getDependencyStableId(depend: PgDepend): string {
 }
 
 function validateDependencies(
-  masterCatalog: Catalog,
+  mainCatalog: Catalog,
   branchCatalog: Catalog,
-  expectedMasterDependencies: PgDepend[],
+  expectedMainDependencies: PgDepend[],
   expectedBranchDependencies: PgDepend[],
 ) {
-  const masterDependencies = new Set(
-    masterCatalog.depends.reduce((acc, depend) => {
+  const mainDependencies = new Set(
+    mainCatalog.depends.reduce((acc, depend) => {
       if (
         !depend.dependent_stable_id.startsWith("unknown") &&
         !depend.referenced_stable_id.startsWith("unknown")
@@ -223,8 +229,8 @@ function validateDependencies(
 
   if (DEBUG) {
     console.log(
-      "masterDependencies: ",
-      Array.from(masterDependencies).filter(
+      "mainDependencies: ",
+      Array.from(mainDependencies).filter(
         (dep) =>
           !dep.includes("pg_") &&
           !dep.includes("information_schema") &&
@@ -258,18 +264,18 @@ function validateDependencies(
     );
   }
 
-  // Extract dependencies from master catalog
-  const expectedMasterSet = new Set(
-    expectedMasterDependencies.map(getDependencyStableId),
+  // Extract dependencies from main catalog
+  const expectedMainSet = new Set(
+    expectedMainDependencies.map(getDependencyStableId),
   );
   const expectedBranchSet = new Set(
     expectedBranchDependencies.map(getDependencyStableId),
   );
-  // Validate master dependencies
-  const masterMissing = expectedMasterSet.difference(masterDependencies);
+  // Validate main dependencies
+  const mainMissing = expectedMainSet.difference(mainDependencies);
   const branchMissing = expectedBranchSet.difference(branchDependencies);
 
-  expect(masterMissing).toEqual(new Set());
+  expect(mainMissing).toEqual(new Set());
   expect(branchMissing).toEqual(new Set());
 }
 

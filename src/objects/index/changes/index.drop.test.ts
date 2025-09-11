@@ -27,6 +27,7 @@ describe("index", () => {
       index_expressions: null,
       partial_predicate: null,
       table_relkind: "r",
+      definition: "CREATE INDEX test_index ON public.test_table (id)",
     });
 
     const change = new DropIndex({

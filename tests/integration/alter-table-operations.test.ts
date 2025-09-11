@@ -14,7 +14,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`alter table operations (pg${pgVersion})`, () => {
     test("add column to existing table", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -29,7 +29,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "ALTER TABLE test_schema.users ADD COLUMN email character varying(255) DEFAULT 'user@example.com'::character varying NOT NULL",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
             referenced_stable_id: "schema:test_schema",
@@ -48,7 +48,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop column from existing table", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -66,7 +66,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "ALTER TABLE test_schema.products DROP COLUMN old_field",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.products",
             referenced_stable_id: "schema:test_schema",
@@ -85,7 +85,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("change column type", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -102,7 +102,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "ALTER TABLE test_schema.conversions ALTER COLUMN price TYPE numeric(12,4)",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.conversions",
             referenced_stable_id: "schema:test_schema",
@@ -121,7 +121,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("set column default", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -138,7 +138,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "ALTER TABLE test_schema.settings ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.settings",
             referenced_stable_id: "schema:test_schema",
@@ -157,7 +157,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop column default", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -174,7 +174,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "ALTER TABLE test_schema.configs ALTER COLUMN status DROP DEFAULT",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.configs",
             referenced_stable_id: "schema:test_schema",
@@ -193,7 +193,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("set column not null", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -210,7 +210,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "ALTER TABLE test_schema.users ALTER COLUMN name SET NOT NULL",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
             referenced_stable_id: "schema:test_schema",
@@ -229,7 +229,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop column not null", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -246,7 +246,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "ALTER TABLE test_schema.profiles ALTER COLUMN email DROP NOT NULL",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.profiles",
             referenced_stable_id: "schema:test_schema",
@@ -265,7 +265,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("multiple alter operations - state-based diffing", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -287,7 +287,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "ALTER TABLE test_schema.evolution DROP COLUMN status",
           "ALTER TABLE test_schema.evolution ALTER COLUMN old_name TYPE text",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.evolution",
             referenced_stable_id: "schema:test_schema",
@@ -306,7 +306,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("complex column changes", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -332,7 +332,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "ALTER TABLE test_schema.complex_changes ALTER COLUMN status DROP DEFAULT",
           "ALTER TABLE test_schema.complex_changes ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.complex_changes",
             referenced_stable_id: "schema:test_schema",
@@ -351,7 +351,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("generated column operations", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -370,7 +370,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "ALTER TABLE test_schema.users ADD COLUMN full_name text GENERATED ALWAYS AS ((first_name || ' '::text) || last_name) STORED",
           "ALTER TABLE test_schema.users ADD COLUMN email character varying(255) DEFAULT 'user@example.com'::character varying",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
             referenced_stable_id: "schema:test_schema",
@@ -389,7 +389,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop generated column", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -407,7 +407,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "ALTER TABLE test_schema.products DROP COLUMN total_price",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.products",
             referenced_stable_id: "schema:test_schema",
@@ -426,7 +426,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("alter generated column expression", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -451,7 +451,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             : [
                 "ALTER TABLE test_schema.calculations ALTER COLUMN computed SET EXPRESSION AS (value_a * value_b)",
               ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.calculations",
             referenced_stable_id: "schema:test_schema",
