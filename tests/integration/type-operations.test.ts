@@ -2,6 +2,7 @@
  * Integration tests for PostgreSQL type operations.
  */
 
+import dedent from "dedent";
 import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
@@ -485,7 +486,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA analytics;",
-        testSql: `
+        testSql: dedent`
         CREATE TYPE analytics.status AS ENUM ('active', 'inactive', 'pending');
 
         CREATE TABLE analytics.users (
@@ -506,10 +507,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TYPE analytics.status AS ENUM ('active', 'inactive', 'pending')",
           "CREATE TABLE analytics.users (id integer NOT NULL, name text NOT NULL, status analytics.status DEFAULT 'pending'::analytics.status)",
           "ALTER TABLE analytics.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)",
-          `CREATE MATERIALIZED VIEW analytics.user_status_summary AS  SELECT status,
-    count(*) AS count
-   FROM analytics.users
-  GROUP BY status WITH DATA`,
+          pgVersion === 15
+            ? dedent`
+          CREATE MATERIALIZED VIEW analytics.user_status_summary AS SELECT users.status,
+              count(*) AS count
+             FROM analytics.users
+            GROUP BY users.status WITH DATA`
+            : dedent`
+          CREATE MATERIALIZED VIEW analytics.user_status_summary AS SELECT status,
+              count(*) AS count
+             FROM analytics.users
+            GROUP BY status WITH DATA`,
         ],
         expectedMainDependencies: [],
         expectedBranchDependencies: [
@@ -566,7 +574,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA financial;",
-        testSql: `
+        testSql: dedent`
         CREATE DOMAIN financial.currency AS DECIMAL(10,2) CHECK (VALUE >= 0);
 
         CREATE TABLE financial.transactions (
@@ -587,10 +595,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE DOMAIN financial.currency AS numeric(10,2) CHECK ((VALUE >= (0)::numeric))",
           "CREATE TABLE financial.transactions (id integer NOT NULL, amount financial.currency NOT NULL, description text)",
           "ALTER TABLE financial.transactions ADD CONSTRAINT transactions_pkey PRIMARY KEY (id)",
-          `CREATE MATERIALIZED VIEW financial.transaction_summary AS  SELECT sum((amount)::numeric) AS total_amount,
-    count(*) AS transaction_count
-   FROM financial.transactions
-  WHERE ((amount)::numeric > (0)::numeric) WITH DATA`,
+          pgVersion === 15
+            ? dedent`
+          CREATE MATERIALIZED VIEW financial.transaction_summary AS SELECT sum((transactions.amount)::numeric) AS total_amount,
+              count(*) AS transaction_count
+             FROM financial.transactions
+            WHERE ((transactions.amount)::numeric > (0)::numeric) WITH DATA`
+            : dedent`
+            CREATE MATERIALIZED VIEW financial.transaction_summary AS SELECT sum((amount)::numeric) AS total_amount,
+                count(*) AS transaction_count
+               FROM financial.transactions
+              WHERE ((amount)::numeric > (0)::numeric) WITH DATA`,
         ],
         expectedMainDependencies: [],
         expectedBranchDependencies: [
@@ -643,7 +658,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA inventory;",
-        testSql: `
+        testSql: dedent`
         CREATE TYPE inventory.address AS (
           street TEXT,
           city TEXT,
@@ -669,11 +684,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TYPE inventory.address AS (street text, city text, zip_code text)",
           "CREATE TABLE inventory.warehouses (id integer NOT NULL, name text NOT NULL, location inventory.address)",
           "ALTER TABLE inventory.warehouses ADD CONSTRAINT warehouses_pkey PRIMARY KEY (id)",
-          `CREATE MATERIALIZED VIEW inventory.warehouse_locations AS  SELECT name,
-    (location).city AS city,
-    (location).zip_code AS zip_code
-   FROM inventory.warehouses
-  WHERE ((location).city IS NOT NULL) WITH DATA`,
+          pgVersion === 15
+            ? dedent`
+          CREATE MATERIALIZED VIEW inventory.warehouse_locations AS SELECT warehouses.name,
+              (warehouses.location).city AS city,
+              (warehouses.location).zip_code AS zip_code
+             FROM inventory.warehouses
+            WHERE ((warehouses.location).city IS NOT NULL) WITH DATA`
+            : dedent`
+          CREATE MATERIALIZED VIEW inventory.warehouse_locations AS SELECT name,
+              (location).city AS city,
+              (location).zip_code AS zip_code
+             FROM inventory.warehouses
+            WHERE ((location).city IS NOT NULL) WITH DATA`,
         ],
         expectedMainDependencies: [],
         expectedBranchDependencies: [
@@ -728,7 +751,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA ecommerce;",
-        testSql: `
+        testSql: dedent`
         -- Create types
         CREATE TYPE ecommerce.order_status AS ENUM ('pending', 'processing', 'shipped', 'delivered');
         CREATE DOMAIN ecommerce.price AS DECIMAL(10,2) CHECK (VALUE >= 0);
@@ -775,20 +798,37 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE DOMAIN ecommerce.price AS numeric(10,2) CHECK ((VALUE >= (0)::numeric))",
           "CREATE TABLE ecommerce.orders (id integer NOT NULL, status ecommerce.order_status DEFAULT 'pending'::ecommerce.order_status, final_price ecommerce.price NOT NULL)",
           "ALTER TABLE ecommerce.orders ADD CONSTRAINT orders_pkey PRIMARY KEY (id)",
-          `CREATE MATERIALIZED VIEW ecommerce.order_summary AS  SELECT status,
-    count(*) AS order_count,
-    avg((final_price)::numeric) AS avg_price
-   FROM ecommerce.orders
-  GROUP BY status WITH DATA`,
+          pgVersion === 15
+            ? dedent`
+              CREATE MATERIALIZED VIEW ecommerce.order_summary AS SELECT orders.status,
+                  count(*) AS order_count,
+                  avg((orders.final_price)::numeric) AS avg_price
+                 FROM ecommerce.orders
+                GROUP BY orders.status WITH DATA`
+            : dedent`
+              CREATE MATERIALIZED VIEW ecommerce.order_summary AS SELECT status,
+                  count(*) AS order_count,
+                  avg((final_price)::numeric) AS avg_price
+                 FROM ecommerce.orders
+                GROUP BY status WITH DATA`,
           "CREATE TYPE ecommerce.product_info AS (name text, description text, base_price ecommerce.price)",
           "CREATE TABLE ecommerce.products (id integer NOT NULL, info ecommerce.product_info NOT NULL, category text)",
           "ALTER TABLE ecommerce.products ADD CONSTRAINT products_pkey PRIMARY KEY (id)",
-          `CREATE MATERIALIZED VIEW ecommerce.product_pricing AS  SELECT id,
-    (info).name AS product_name,
-    (info).base_price AS base_price,
-    category
-   FROM ecommerce.products
-  WHERE (((info).base_price)::numeric > (0)::numeric) WITH DATA`,
+          pgVersion === 15
+            ? dedent`
+              CREATE MATERIALIZED VIEW ecommerce.product_pricing AS SELECT products.id,
+                  (products.info).name AS product_name,
+                  (products.info).base_price AS base_price,
+                  products.category
+                 FROM ecommerce.products
+                WHERE (((products.info).base_price)::numeric > (0)::numeric) WITH DATA`
+            : dedent`
+            CREATE MATERIALIZED VIEW ecommerce.product_pricing AS SELECT id,
+                (info).name AS product_name,
+                (info).base_price AS base_price,
+                category
+               FROM ecommerce.products
+              WHERE (((info).base_price)::numeric > (0)::numeric) WITH DATA`,
         ],
         expectedMainDependencies: [],
         expectedBranchDependencies: [
@@ -979,7 +1019,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA scheduling;",
-        testSql: `
+        testSql: dedent`
         CREATE TYPE scheduling.time_range AS RANGE (subtype = timestamp);
 
         CREATE TABLE scheduling.events (
@@ -1000,10 +1040,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TYPE scheduling.time_range AS RANGE (SUBTYPE = timestamp(0) without time zone)",
           "CREATE TABLE scheduling.events (id integer NOT NULL, name text NOT NULL, time_slot scheduling.time_range)",
           "ALTER TABLE scheduling.events ADD CONSTRAINT events_pkey PRIMARY KEY (id)",
-          `CREATE MATERIALIZED VIEW scheduling.event_durations AS  SELECT name,
-    (EXTRACT(epoch FROM (upper(time_slot) - lower(time_slot))) / (3600)::numeric) AS duration_hours
-   FROM scheduling.events
-  WHERE (time_slot IS NOT NULL) WITH DATA`,
+          pgVersion === 15
+            ? dedent`
+          CREATE MATERIALIZED VIEW scheduling.event_durations AS SELECT events.name,
+              (EXTRACT(epoch FROM (upper(events.time_slot) - lower(events.time_slot))) / (3600)::numeric) AS duration_hours
+             FROM scheduling.events
+            WHERE (events.time_slot IS NOT NULL) WITH DATA`
+            : dedent`
+            CREATE MATERIALIZED VIEW scheduling.event_durations AS SELECT name,
+                (EXTRACT(epoch FROM (upper(time_slot) - lower(time_slot))) / (3600)::numeric) AS duration_hours
+               FROM scheduling.events
+              WHERE (time_slot IS NOT NULL) WITH DATA`,
         ],
         expectedMainDependencies: [],
         expectedBranchDependencies: [

@@ -33,7 +33,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "create new materialized view",
         expectedSqlTerms: [
-          `CREATE MATERIALIZED VIEW test_schema.active_users AS  SELECT id,
+          `CREATE MATERIALIZED VIEW test_schema.active_users AS SELECT id,
     name,
     email
    FROM test_schema.users
@@ -187,7 +187,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         description: "replace materialized view definition",
         expectedSqlTerms: [
           `DROP MATERIALIZED VIEW test_schema.user_summary;
-CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
+CREATE MATERIALIZED VIEW test_schema.user_summary AS SELECT id,
     name,
     email
    FROM test_schema.users
@@ -277,7 +277,7 @@ CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
         `,
         description: "materialized view with aggregations",
         expectedSqlTerms: [
-          `CREATE MATERIALIZED VIEW analytics.monthly_sales AS  SELECT date_trunc('month'::text, (sale_date)::timestamp with time zone) AS month,
+          `CREATE MATERIALIZED VIEW analytics.monthly_sales AS SELECT date_trunc('month'::text, (sale_date)::timestamp with time zone) AS month,
     count(*) AS total_sales,
     sum(amount) AS total_revenue
    FROM analytics.sales
@@ -362,7 +362,7 @@ CREATE MATERIALIZED VIEW test_schema.user_summary AS  SELECT id,
         `,
         description: "materialized view with joins",
         expectedSqlTerms: [
-          `CREATE MATERIALIZED VIEW ecommerce.customer_orders AS  SELECT c.id AS customer_id,
+          `CREATE MATERIALIZED VIEW ecommerce.customer_orders AS SELECT c.id AS customer_id,
     c.name,
     count(o.id) AS order_count,
     COALESCE(sum(o.total), (0)::numeric) AS total_spent
