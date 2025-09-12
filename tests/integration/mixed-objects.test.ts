@@ -535,8 +535,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "ALTER TABLE test_schema.data ADD COLUMN status text",
           pgVersion === 15
-            ? "DROP VIEW test_schema.summary;\nCREATE VIEW test_schema.summary AS SELECT count(*) AS cnt,\n    count(\n        CASE\n            WHEN (data.status = 'active'::text) THEN 1\n            ELSE NULL::integer\n        END) AS active_cnt\n   FROM test_schema.data"
-            : "DROP VIEW test_schema.summary;\nCREATE VIEW test_schema.summary AS SELECT count(*) AS cnt,\n    count(\n        CASE\n            WHEN (status = 'active'::text) THEN 1\n            ELSE NULL::integer\n        END) AS active_cnt\n   FROM test_schema.data",
+            ? "CREATE OR REPLACE VIEW test_schema.summary AS SELECT count(*) AS cnt,\n    count(\n        CASE\n            WHEN (data.status = 'active'::text) THEN 1\n            ELSE NULL::integer\n        END) AS active_cnt\n   FROM test_schema.data"
+            : "CREATE OR REPLACE VIEW test_schema.summary AS SELECT count(*) AS cnt,\n    count(\n        CASE\n            WHEN (status = 'active'::text) THEN 1\n            ELSE NULL::integer\n        END) AS active_cnt\n   FROM test_schema.data",
         ],
         expectedMainDependencies: [
           {

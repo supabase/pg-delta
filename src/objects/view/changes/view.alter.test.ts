@@ -77,7 +77,7 @@ describe.concurrent("view", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP VIEW public.test_view;\nCREATE VIEW public.test_view AS SELECT id, name FROM test_table",
+        "CREATE OR REPLACE VIEW public.test_view AS SELECT id, name FROM test_table",
       );
     });
   });

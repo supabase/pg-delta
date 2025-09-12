@@ -16,10 +16,12 @@ import type { View } from "../view.model.ts";
  */
 export class CreateView extends CreateChange {
   public readonly view: View;
+  public readonly orReplace?: boolean;
 
-  constructor(props: { view: View }) {
+  constructor(props: { view: View; orReplace?: boolean }) {
     super();
     this.view = props.view;
+    this.orReplace = props.orReplace;
   }
 
   get stableId(): string {
@@ -27,7 +29,9 @@ export class CreateView extends CreateChange {
   }
 
   serialize(): string {
-    const parts: string[] = ["CREATE VIEW"];
+    const parts: string[] = [
+      `CREATE${this.orReplace ? " OR REPLACE" : ""} VIEW`,
+    ];
 
     // Add schema and name
     parts.push(`${this.view.schema}.${this.view.name}`);

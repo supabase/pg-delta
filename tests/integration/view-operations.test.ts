@@ -264,9 +264,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "view replacement with dependency changes",
         expectedSqlTerms: [
-          // TODO: check with Julien if the DROP + CREATE is expected here
-          `DROP VIEW test_schema.user_summary;
-CREATE VIEW test_schema.user_summary AS SELECT u.id,
+          `CREATE OR REPLACE VIEW test_schema.user_summary AS SELECT u.id,
     u.name,
     u.status,
     p.bio,

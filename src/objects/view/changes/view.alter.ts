@@ -1,7 +1,6 @@
 import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { View } from "../view.model.ts";
 import { CreateView } from "./view.create.ts";
-import { DropView } from "./view.drop.ts";
 
 /**
  * Alter a view.
@@ -49,7 +48,7 @@ export class AlterViewChangeOwner extends AlterChange {
 }
 
 /**
- * Replace a view by dropping and recreating it.
+ * Replace a view.
  * This is used when properties that cannot be altered via ALTER VIEW change.
  */
 export class ReplaceView extends ReplaceChange {
@@ -67,10 +66,9 @@ export class ReplaceView extends ReplaceChange {
   }
 
   serialize(): string {
-    const dropChange = new DropView({ view: this.main });
-    const createChange = new CreateView({ view: this.branch });
+    const createChange = new CreateView({ view: this.branch, orReplace: true });
 
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
+    return createChange.serialize();
   }
 }
 
