@@ -18,7 +18,7 @@ import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
-import { UnexpectedError } from "./objects/utils.js";
+import { UnexpectedError } from "./objects/utils.ts";
 
 type ConstraintType = "before";
 
@@ -397,7 +397,6 @@ export class OperationSemantics {
     changeB: Change,
   ): Constraint | null {
     // TODO: Investigate and eliminate all special cases
-
     // Rule: Sort function overloads by parameter types
     if (
       changeA instanceof CreateProcedure &&

@@ -31,7 +31,10 @@ export class AlterSequenceSetOwnedBy extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [
+      `${this.main.stableId}`,
+      `table:${this.branch.owned_by_schema}.${this.branch.owned_by_table}`,
+    ];
   }
 
   serialize(): string {

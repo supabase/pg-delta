@@ -21,7 +21,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         db,
       }) => {
         await roundtripFidelityTest({
-          masterSession: db.main,
+          mainSession: db.main,
           branchSession: db.branch,
           initialSetup: `
           CREATE SCHEMA ecommerce;
@@ -190,7 +190,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         db,
       }) => {
         await roundtripFidelityTest({
-          masterSession: db.main,
+          mainSession: db.main,
           branchSession: db.branch,
           initialSetup: `
           CREATE SCHEMA test_schema;
@@ -225,7 +225,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         db,
       }) => {
         await roundtripFidelityTest({
-          masterSession: db.main,
+          mainSession: db.main,
           branchSession: db.branch,
           initialSetup: `
           CREATE SCHEMA test_schema;

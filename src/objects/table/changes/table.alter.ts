@@ -72,7 +72,7 @@ export class AlterTableChangeOwner extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [`${this.main.stableId}`, `role:${this.main.owner}`];
   }
 
   serialize(): string {

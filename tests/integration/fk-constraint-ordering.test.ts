@@ -23,7 +23,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         // This test reproduces the exact scenario mentioned in the PR
         // where the FK constraint was being created before the referenced table
         await roundtripFidelityTest({
-          masterSession: db.main,
+          mainSession: db.main,
           branchSession: db.branch,
           initialSetup: `
           CREATE SCHEMA test_schema;
@@ -59,7 +59,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         db,
       }) => {
         await roundtripFidelityTest({
-          masterSession: db.main,
+          mainSession: db.main,
           branchSession: db.branch,
           initialSetup: `
           CREATE SCHEMA ecommerce;
@@ -112,7 +112,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       test("FK constraint with deferred validation", async ({ db }) => {
         await roundtripFidelityTest({
-          masterSession: db.main,
+          mainSession: db.main,
           branchSession: db.branch,
           initialSetup: `
           CREATE SCHEMA test_schema;
@@ -143,7 +143,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       test("self-referencing FK constraint", async ({ db }) => {
         await roundtripFidelityTest({
-          masterSession: db.main,
+          mainSession: db.main,
           branchSession: db.branch,
           initialSetup: `
           CREATE SCHEMA test_schema;
@@ -168,7 +168,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       test("FK constraint with ON DELETE/UPDATE actions", async ({ db }) => {
         await roundtripFidelityTest({
-          masterSession: db.main,
+          mainSession: db.main,
           branchSession: db.branch,
           initialSetup: `
           CREATE SCHEMA test_schema;

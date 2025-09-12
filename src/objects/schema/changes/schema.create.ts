@@ -22,7 +22,7 @@ export class CreateSchema extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.schema.stableId}`];
+    return [`${this.schema.stableId}`, `role:${this.schema.owner}`];
   }
 
   serialize(): string {

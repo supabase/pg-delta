@@ -42,7 +42,7 @@ export class AlterProcedureChangeOwner extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [`${this.main.stableId}`, `role:${this.branch.owner}`];
   }
 
   serialize(): string {

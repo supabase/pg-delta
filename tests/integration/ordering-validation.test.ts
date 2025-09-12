@@ -18,7 +18,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`ordering validation (pg${pgVersion})`, () => {
     test("table owner change with role creation dependency", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -43,7 +43,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       db,
     }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA app_schema;
@@ -87,7 +87,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       db,
     }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -124,7 +124,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       db,
     }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -152,11 +152,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
 
-    test("complex multi-dependency scenario with owner changes", async ({
+    test.only("complex multi-dependency scenario with owner changes", async ({
       db,
     }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA app_schema;
@@ -213,7 +213,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("schema owner change with role dependency", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "",
         testSql: `
@@ -237,7 +237,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("type owner change with role dependency", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;

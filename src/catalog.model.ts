@@ -172,6 +172,26 @@ export async function extractCatalog(sql: Sql) {
       ),
     );
   }
+  for (const schema of Object.values(schemas)) {
+    // Add transitive dependencies between schemas owners and roles
+    if (schema.owner) {
+      depends.push({
+        dependent_stable_id: schema.stableId,
+        referenced_stable_id: `role:${schema.owner}`,
+        deptype: "a",
+      });
+    }
+  }
+  for (const table of Object.values(tables)) {
+    // Add transitive dependencies between tables owners and roles
+    if (table.owner) {
+      depends.push({
+        dependent_stable_id: table.stableId,
+        referenced_stable_id: `role:${table.owner}`,
+        deptype: "a",
+      });
+    }
+  }
 
   return new Catalog({
     collations,
