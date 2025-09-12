@@ -17,6 +17,7 @@ const base: TableProps = {
   is_partition: false,
   options: null,
   partition_bound: null,
+  partition_by: null,
   owner: "o1",
   parent_schema: null,
   parent_name: null,

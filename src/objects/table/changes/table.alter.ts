@@ -655,3 +655,61 @@ export class AlterTableAlterColumnDropNotNull extends AlterChange {
     ].join(" ");
   }
 }
+
+/**
+ * ALTER TABLE ... ATTACH PARTITION ...
+ */
+export class AlterTableAttachPartition extends AlterChange {
+  public readonly parent: Table;
+  public readonly partition: Table;
+
+  constructor(props: { parent: Table; partition: Table }) {
+    super();
+    this.parent = props.parent;
+    this.partition = props.partition;
+  }
+
+  get stableId(): string {
+    // Depend on the partition child so that it is created before attach
+    return `${this.partition.stableId}`;
+  }
+
+  serialize(): string {
+    const bound = this.partition.partition_bound ?? "DEFAULT";
+    return [
+      "ALTER TABLE",
+      `${this.parent.schema}.${this.parent.name}`,
+      "ATTACH PARTITION",
+      `${this.partition.schema}.${this.partition.name}`,
+      bound,
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... DETACH PARTITION ...
+ */
+export class AlterTableDetachPartition extends AlterChange {
+  public readonly parent: Table;
+  public readonly partition: Table;
+
+  constructor(props: { parent: Table; partition: Table }) {
+    super();
+    this.parent = props.parent;
+    this.partition = props.partition;
+  }
+
+  get stableId(): string {
+    // Depend on the partition child for consistent ordering with potential drops
+    return `${this.partition.stableId}`;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${this.parent.schema}.${this.parent.name}`,
+      "DETACH PARTITION",
+      `${this.partition.schema}.${this.partition.name}`,
+    ].join(" ");
+  }
+}

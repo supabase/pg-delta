@@ -9,7 +9,9 @@ import {
   AlterTableAlterColumnSetDefault,
   AlterTableAlterColumnSetNotNull,
   AlterTableAlterColumnType,
+  AlterTableAttachPartition,
   AlterTableChangeOwner,
+  AlterTableDetachPartition,
   AlterTableDisableRowLevelSecurity,
   AlterTableDropColumn,
   AlterTableDropConstraint,
@@ -290,6 +292,79 @@ export function diffTables(
           branch: branchTable,
         }),
       );
+    }
+
+    // PARTITION ATTACH/DETACH
+    const mainIsPartition = Boolean(
+      mainTable.parent_schema && mainTable.parent_name,
+    );
+    const branchIsPartition = Boolean(
+      branchTable.parent_schema && branchTable.parent_name,
+    );
+
+    // Helper to resolve parent table from catalogs
+    const resolveParent = (
+      catalog: Record<string, Table>,
+      schema: string,
+      name: string,
+    ): Table | undefined => catalog[`table:${schema}.${name}`];
+
+    if (!mainIsPartition && branchIsPartition) {
+      const parent = resolveParent(
+        branch,
+        branchTable.parent_schema as string,
+        branchTable.parent_name as string,
+      );
+      if (parent) {
+        changes.push(
+          new AlterTableAttachPartition({ parent, partition: branchTable }),
+        );
+      }
+    } else if (mainIsPartition && !branchIsPartition) {
+      const parent = resolveParent(
+        main,
+        mainTable.parent_schema as string,
+        mainTable.parent_name as string,
+      );
+      if (parent) {
+        changes.push(
+          new AlterTableDetachPartition({ parent, partition: mainTable }),
+        );
+      }
+    } else if (mainIsPartition && branchIsPartition) {
+      const parentChanged =
+        mainTable.parent_schema !== branchTable.parent_schema ||
+        mainTable.parent_name !== branchTable.parent_name;
+      const boundChanged =
+        mainTable.partition_bound !== branchTable.partition_bound;
+      if (parentChanged || boundChanged) {
+        const oldParent = resolveParent(
+          main,
+          mainTable.parent_schema as string,
+          mainTable.parent_name as string,
+        );
+        if (oldParent) {
+          changes.push(
+            new AlterTableDetachPartition({
+              parent: oldParent,
+              partition: mainTable,
+            }),
+          );
+        }
+        const newParent = resolveParent(
+          branch,
+          branchTable.parent_schema as string,
+          branchTable.parent_name as string,
+        );
+        if (newParent) {
+          changes.push(
+            new AlterTableAttachPartition({
+              parent: newParent,
+              partition: branchTable,
+            }),
+          );
+        }
+      }
     }
 
     changes.push(

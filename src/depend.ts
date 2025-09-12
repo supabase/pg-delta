@@ -170,7 +170,7 @@ select * from (
     when dep_class.relname = 'pg_namespace' and dep_namespace.oid is not null
       then 'schema:' || dep_namespace.nspname
     -- Table
-    when dep_class.relname = 'pg_class' and dep_obj.oid is not null and dep_obj.relkind = 'r'
+    when dep_class.relname = 'pg_class' and dep_obj.oid is not null and dep_obj.relkind in ('r','p')
       then 'table:' || dep_ns.nspname || '.' || dep_obj.relname
     
     -- View
@@ -307,7 +307,7 @@ select * from (
     when ref_class.relname = 'pg_namespace' and ref_namespace.oid is not null
       then 'schema:' || ref_namespace.nspname
     -- Table
-    when ref_class.relname = 'pg_class' and ref_obj.oid is not null and ref_obj.relkind = 'r'
+    when ref_class.relname = 'pg_class' and ref_obj.oid is not null and ref_obj.relkind in ('r','p')
       then 'table:' || ref_ns.nspname || '.' || ref_obj.relname
     -- View
     when ref_class.relname = 'pg_class' and ref_obj.oid is not null and ref_obj.relkind = 'v'

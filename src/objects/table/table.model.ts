@@ -77,6 +77,7 @@ const tablePropsSchema = z.object({
   is_partition: z.boolean(),
   options: z.array(z.string()).nullable(),
   partition_bound: z.string().nullable(),
+  partition_by: z.string().nullable(),
   owner: z.string(),
   parent_schema: z.string().nullable(),
   parent_name: z.string().nullable(),
@@ -101,6 +102,7 @@ export class Table extends BasePgModel implements TableLikeObject {
   public readonly is_partition: TableProps["is_partition"];
   public readonly options: TableProps["options"];
   public readonly partition_bound: TableProps["partition_bound"];
+  public readonly partition_by: TableProps["partition_by"];
   public readonly owner: TableProps["owner"];
   public readonly parent_schema: TableProps["parent_schema"];
   public readonly parent_name: TableProps["parent_name"];
@@ -127,6 +129,7 @@ export class Table extends BasePgModel implements TableLikeObject {
     this.is_partition = props.is_partition;
     this.options = props.options;
     this.partition_bound = props.partition_bound;
+    this.partition_by = props.partition_by;
     this.owner = props.owner;
     this.parent_schema = props.parent_schema;
     this.parent_name = props.parent_name;
@@ -153,6 +156,10 @@ export class Table extends BasePgModel implements TableLikeObject {
       force_row_security: this.force_row_security,
       replica_identity: this.replica_identity,
       options: this.options,
+      // Partition membership can be altered via ATTACH/DETACH
+      parent_schema: this.parent_schema,
+      parent_name: this.parent_name,
+      partition_bound: this.partition_bound,
       owner: this.owner,
       columns: this.columns,
       constraints: this.constraints,
@@ -185,6 +192,7 @@ with extension_oids as (
     c.relispartition as is_partition,
     c.reloptions as options,
     pg_get_expr(c.relpartbound, c.oid) as partition_bound,
+    pg_get_partkeydef(c.oid) as partition_by,
     c.relowner::regrole::text as owner,
     c_parent.relnamespace::regnamespace as parent_schema,
     c_parent.relname as parent_name,
@@ -214,6 +222,7 @@ select
   t.is_partition,
   t.options,
   t.partition_bound,
+  t.partition_by,
   t.owner,
   t.parent_schema,
   t.parent_name,
@@ -284,7 +293,7 @@ from
   left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum
   left join pg_type ty on ty.oid = a.atttypid
 group by
-  t.oid, t.schema, t.name, t.persistence, t.row_security, t.force_row_security, t.has_indexes, t.has_rules, t.has_triggers, t.has_subclasses, t.is_populated, t.replica_identity, t.is_partition, t.options, t.partition_bound, t.owner, t.parent_schema, t.parent_name
+  t.oid, t.schema, t.name, t.persistence, t.row_security, t.force_row_security, t.has_indexes, t.has_rules, t.has_triggers, t.has_subclasses, t.is_populated, t.replica_identity, t.is_partition, t.options, t.partition_bound, t.partition_by, t.owner, t.parent_schema, t.parent_name
 order by
   t.schema, t.name;
     `;

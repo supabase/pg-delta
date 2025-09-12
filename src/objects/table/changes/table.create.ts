@@ -49,6 +49,20 @@ export class CreateTable extends CreateChange {
     // Add schema and name
     parts.push(`${this.table.schema}.${this.table.name}`);
 
+    // If this is a partition (child) table, emit PARTITION OF ... FOR VALUES ...
+    if (
+      this.table.parent_schema &&
+      this.table.parent_name &&
+      this.table.partition_bound
+    ) {
+      return [
+        ...parts,
+        "PARTITION OF",
+        `${this.table.parent_schema}.${this.table.parent_name}`,
+        this.table.partition_bound,
+      ].join(" ");
+    }
+
     // Add columns definition
     if (this.table.columns.length === 0) {
       parts.push("()");
@@ -92,12 +106,21 @@ export class CreateTable extends CreateChange {
       parts.push(`(${columnDefinitions.join(", ")})`);
     }
 
-    // Add INHERITS if parent table exists
-    if (this.table.parent_schema && this.table.parent_name) {
+    // Add INHERITS if parent table exists (non-partition inheritance only)
+    if (
+      this.table.parent_schema &&
+      this.table.parent_name &&
+      !this.table.partition_bound
+    ) {
       parts.push(
         "INHERITS",
         `(${this.table.parent_schema}.${this.table.parent_name})`,
       );
+    }
+
+    // Add PARTITION BY if this is a partitioned table (parent)
+    if (this.table.partition_by) {
+      parts.push("PARTITION BY", this.table.partition_by);
     }
 
     // Add storage parameters if specified
