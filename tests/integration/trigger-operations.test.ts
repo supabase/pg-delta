@@ -518,7 +518,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
 
-    test.only("trigger replacement (modification)", async ({ db }) => {
+    test("trigger replacement (modification)", async ({ db }) => {
       await roundtripFidelityTest({
         mainSession: db.main,
         branchSession: db.branch,
