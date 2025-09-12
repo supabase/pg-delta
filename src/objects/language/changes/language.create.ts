@@ -14,10 +14,12 @@ import type { Language } from "../language.model.ts";
  */
 export class CreateLanguage extends CreateChange {
   public readonly language: Language;
+  public readonly orReplace?: boolean;
 
-  constructor(props: { language: Language }) {
+  constructor(props: { language: Language; orReplace?: boolean }) {
     super();
     this.language = props.language;
+    this.orReplace = props.orReplace;
   }
 
   get stableId(): string {
@@ -25,7 +27,7 @@ export class CreateLanguage extends CreateChange {
   }
 
   serialize(): string {
-    const parts: string[] = ["CREATE"];
+    const parts: string[] = [`CREATE${this.orReplace ? " OR REPLACE" : ""}`];
 
     // Only include non-default flags. We never print the optional
     // PROCEDURAL keyword or any defaults.

@@ -1,7 +1,6 @@
 import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { Language } from "../language.model.ts";
 import { CreateLanguage } from "./language.create.ts";
-import { DropLanguage } from "./language.drop.ts";
 
 /**
  * Alter a language.
@@ -46,7 +45,7 @@ export class AlterLanguageChangeOwner extends AlterChange {
 }
 
 /**
- * Replace a language by dropping and recreating it.
+ * Replace a language.
  * This is used when properties that cannot be altered via ALTER LANGUAGE change.
  */
 export class ReplaceLanguage extends ReplaceChange {
@@ -64,9 +63,11 @@ export class ReplaceLanguage extends ReplaceChange {
   }
 
   serialize(): string {
-    const dropChange = new DropLanguage({ language: this.main });
-    const createChange = new CreateLanguage({ language: this.branch });
+    const createChange = new CreateLanguage({
+      language: this.branch,
+      orReplace: true,
+    });
 
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
+    return createChange.serialize();
   }
 }
