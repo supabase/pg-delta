@@ -40,7 +40,7 @@ describe.concurrent("trigger", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP TRIGGER test_trigger ON public.test_table;\nCREATE TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE EXECUTE FUNCTION public.test_function()",
+        "CREATE OR REPLACE TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE EXECUTE FUNCTION public.test_function()",
       );
     });
   });
