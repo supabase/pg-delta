@@ -161,7 +161,7 @@ select
       )
     end
     order by a.attnum
-  ) filter (where quote_ident(a.attname) is not null), '[]') as columns
+  ) filter (where a.attname is not null), '[]') as columns
 from
   pg_catalog.pg_class c
   left outer join extension_oids e on c.oid = e.objid

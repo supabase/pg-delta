@@ -179,7 +179,7 @@ export async function extractCompositeTypes(
             )
           end
           order by a.attnum
-        ) filter (where quote_ident(a.attname) is not null), '[]') as columns
+        ) filter (where a.attname is not null), '[]') as columns
       from
         composite_types ct
         left join pg_attribute a on a.attrelid = ct.oid and a.attnum > 0 and not a.attisdropped

@@ -221,7 +221,7 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
         array_agg(
           case
             when ic2.coll_oid = 0 then null
-            when quote_ident(col.collname) = 'default'
+            when col.collname = 'default'
             and col.collnamespace = 'pg_catalog'::regnamespace then null
             else quote_ident(ns_coll.nspname) || '.' || quote_ident(col.collname)
           end
@@ -269,8 +269,8 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
         and a2.attnum > 0
     ) as st on true
 
-    where quote_ident(n.nspname) not like 'pg\_%'
-      and quote_ident(n.nspname) <> 'information_schema'
+    where n.nspname not like 'pg\_%'
+      and n.nspname <> 'information_schema'
       and i.indislive is true
       and e.objid is null
 

@@ -286,7 +286,7 @@ select
       )
     end
     order by a.attnum
-  ) filter (where quote_ident(a.attname) is not null), '[]') as columns
+  ) filter (where a.attname is not null), '[]') as columns
 from
   tables t
   left join pg_attribute a on a.attrelid = t.oid and a.attnum > 0 and not a.attisdropped
