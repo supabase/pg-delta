@@ -589,8 +589,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               RETURN NEW;
             END;
             $function$`,
-          `DROP TRIGGER email_validation_trigger ON test_schema.users;
-CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.users FOR EACH ROW EXECUTE FUNCTION test_schema.validate_email()`,
+          `CREATE OR REPLACE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.users FOR EACH ROW EXECUTE FUNCTION test_schema.validate_email()`,
         ],
         expectedMainDependencies: [
           {

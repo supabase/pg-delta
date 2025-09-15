@@ -9,24 +9,37 @@ import type { Trigger } from "../trigger.model.ts";
  *
  * Synopsis
  * ```sql
- * CREATE [ CONSTRAINT ] TRIGGER name { BEFORE | AFTER | INSTEAD OF } { event [ OR ... ] }
+ * CREATE [ OR REPLACE ] [ CONSTRAINT ] TRIGGER name { BEFORE | AFTER | INSTEAD OF } { event [ OR ... ] }
  *     ON table_name
  *     [ FROM referenced_table_name ]
- *     [ NOT DEFERRABLE | [ DEFERRABLE ] { INITIALLY IMMEDIATE | INITIALLY DEFERRED } ]
+ *     [ NOT DEFERRABLE | [ DEFERRABLE ] [ INITIALLY IMMEDIATE | INITIALLY DEFERRED ] ]
  *     [ REFERENCING { { OLD | NEW } TABLE [ AS ] transition_relation_name } [ ... ] ]
  *     [ FOR [ EACH ] { ROW | STATEMENT } ]
  *     [ WHEN ( condition ) ]
  *     EXECUTE { FUNCTION | PROCEDURE } function_name ( arguments )
+ *
+ * where event can be one of:
+ *
+ *     INSERT
+ *     UPDATE [ OF column_name [, ... ] ]
+ *     DELETE
+ *     TRUNCATE
  * ```
  */
 export class CreateTrigger extends CreateChange {
   public readonly trigger: Trigger;
   public readonly indexableObject?: TableLikeObject;
+  public readonly orReplace?: boolean;
 
-  constructor(props: { trigger: Trigger; indexableObject?: TableLikeObject }) {
+  constructor(props: {
+    trigger: Trigger;
+    indexableObject?: TableLikeObject;
+    orReplace?: boolean;
+  }) {
     super();
     this.trigger = props.trigger;
     this.indexableObject = props.indexableObject;
+    this.orReplace = props.orReplace;
   }
 
   get stableId(): string {
@@ -34,6 +47,13 @@ export class CreateTrigger extends CreateChange {
   }
 
   serialize(): string {
-    return this.trigger.definition;
+    let definition = this.trigger.definition.trim();
+
+    definition = definition.replace(
+      /^CREATE\s+(?:OR\s+REPLACE\s+)?/i,
+      `CREATE ${this.orReplace ? "OR REPLACE " : ""}`,
+    );
+
+    return definition;
   }
 }
