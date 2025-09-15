@@ -30,6 +30,23 @@ interface RoundtripTestOptions {
   expectedOperationOrder?: Change[];
 }
 
+async function runOrDump(
+  action: () => Promise<unknown>,
+  opts: { label?: string; diffScript?: string },
+) {
+  try {
+    await action();
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    const lbl = opts.label ?? "Context";
+    const dump = opts.diffScript
+      ? `\n\n==== ${lbl} diffScript (failed to apply) ====\n${opts.diffScript}\n==== end ====\n`
+      : "";
+    err.message += dump;
+    throw err;
+  }
+}
+
 /**
  * Test that schema extraction, SQL generation, and re-execution produces
  * functionally identical pg_catalog data.
@@ -118,7 +135,10 @@ export async function roundtripFidelityTest(
   }
   // Apply migration to main database
   if (diffScript.trim()) {
-    await expect(mainSession.unsafe(diffScript)).resolves.not.toThrow();
+    await runOrDump(() => mainSession.unsafe(diffScript), {
+      label: "migration",
+      diffScript,
+    });
   }
 
   // Extract final catalog from main database
