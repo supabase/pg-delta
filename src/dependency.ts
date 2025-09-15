@@ -244,10 +244,10 @@ export class OperationSemantics {
     // Check for dependencies in appropriate states
     for (const stableIdA of stableIdsA) {
       for (const stableIdB of stableIdsB) {
-        // if (model.setPairOfObjects.has(`${stableIdA} -> ${stableIdB}`)) {
-        //   continue;
-        // }
-        // model.setPairOfObjects.add(`${stableIdA} -> ${stableIdB}`);
+        if (model.setPairOfObjects.has(`${stableIdA} -> ${stableIdB}`)) {
+          continue;
+        }
+        model.setPairOfObjects.add(`${stableIdA} -> ${stableIdB}`);
         const aDependsOnB = model.hasDependency(stableIdA, stableIdB, sourceA);
         const bDependsOnA = model.hasDependency(stableIdB, stableIdA, sourceB);
         const aDependsOnBGeneral = model.hasDependency(stableIdA, stableIdB);

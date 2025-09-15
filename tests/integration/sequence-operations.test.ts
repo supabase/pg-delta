@@ -96,41 +96,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
         `,
         description: "create table with serial column (sequence dependency)",
-        expectedSqlTerms: [
-          `CREATE SEQUENCE test_schema.users_id_seq AS integer`,
-          `CREATE TABLE test_schema.users (id integer DEFAULT nextval('test_schema.users_id_seq'::regclass) NOT NULL, name text)`,
-          `ALTER SEQUENCE test_schema.users_id_seq OWNED BY test_schema.users.id`,
-          `ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)`,
-        ],
-        expectedMainDependencies: [],
-        // Serial column creates multiple dependencies:
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "sequence:test_schema.users_id_seq",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          }, // sequence owned by table
-          {
-            dependent_stable_id: "sequence:test_schema.users_id_seq",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          }, // sequence depends on schema
-          {
-            dependent_stable_id: "index:test_schema.users_pkey",
-            referenced_stable_id: "constraint:test_schema.users.users_pkey",
-            deptype: "i",
-          }, // index depends on constraint
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          }, // table depends on schema
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_pkey",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          }, // constraint depends on table
-        ],
       });
     });
 

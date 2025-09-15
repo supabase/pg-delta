@@ -83,8 +83,10 @@ export function graphToMermaid(graph: Graph<string, Constraint>): string {
       for (const w of graph.adjacent(v) ?? []) {
         if (!nodeToIndex.has(w)) {
           strongConnect(w);
+          // biome-ignore lint/style/noNonNullAssertion: nodeToLow is built from orderedNodes
           nodeToLow.set(v, Math.min(nodeToLow.get(v)!, nodeToLow.get(w)!));
         } else if (onStack.has(w)) {
+          // biome-ignore lint/style/noNonNullAssertion: nodeToLow is built from orderedNodes
           nodeToLow.set(v, Math.min(nodeToLow.get(v)!, nodeToIndex.get(w)!));
         }
       }
@@ -190,6 +192,7 @@ export function graphToMermaid(graph: Graph<string, Constraint>): string {
     for (const scc of cyclicSccs) {
       const membersSet = new Set<string>(scc.members);
       const memberList = [...membersSet].sort(
+        // biome-ignore lint/style/noNonNullAssertion: orderIndex is built from orderedNodes
         (a, b) => orderIndex.get(a)! - orderIndex.get(b)!,
       );
 
