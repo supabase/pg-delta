@@ -467,13 +467,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
-            dependent_stable_id: "enum:test-schema.user-status",
-            referenced_stable_id: "schema:test-schema",
+            dependent_stable_id: 'enum:"test-schema"."user-status"',
+            referenced_stable_id: 'schema:"test-schema"',
             deptype: "n",
           }, // Enum type depends on schema
           {
-            dependent_stable_id: "domain:test-schema.positive-number",
-            referenced_stable_id: "schema:test-schema",
+            dependent_stable_id: 'domain:"test-schema"."positive-number"',
+            referenced_stable_id: 'schema:"test-schema"',
             deptype: "n",
           }, // Domain type depends on schema
         ],

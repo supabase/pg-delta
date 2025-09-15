@@ -162,13 +162,13 @@ export async function extractCompositeTypes(
               'custom_type_type', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typtype else null end,
               'custom_type_category', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typcategory else null end,
               'custom_type_schema', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typnamespace::regnamespace else null end,
-              'custom_type_name', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typname else null end,
+              'custom_type_name', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then quote_ident(ty.typname) else null end,
               'not_null', a.attnotnull,
               'is_identity', a.attidentity != '',
               'is_identity_always', a.attidentity = 'a',
               'is_generated', a.attgenerated != '',
               'collation', (
-                select c2.collname
+                select quote_ident(c2.collname)
                 from pg_collation c2, pg_type t2
                 where c2.oid = a.attcollation
                   and t2.oid = a.atttypid

@@ -132,13 +132,13 @@ select
 
   -- include canonical/subtype_diff when set
   case when r.rngcanonical <> 0 then pn_subcanon.nspname::regnamespace::text else null end as canonical_function_schema,
-  case when r.rngcanonical <> 0 then p_subcanon.proname else null end as canonical_function_name,
+  case when r.rngcanonical <> 0 then quote_ident(p_subcanon.proname) else null end as canonical_function_name,
   case when r.rngsubdiff <> 0 then pn_subdiff.nspname::regnamespace::text else null end as subtype_diff_schema,
-  case when r.rngsubdiff <> 0 then p_subdiff.proname else null end as subtype_diff_name,
+  case when r.rngsubdiff <> 0 then quote_ident(p_subdiff.proname) else null end as subtype_diff_name,
 
   -- include opclass only when not default for btree
   case when r.rngsubopc is not null and r.rngsubopc <> 0 and r.rngsubopc <> dbo.opclass_oid then opc.opcnamespace::regnamespace::text else null end as subtype_opclass_schema,
-  case when r.rngsubopc is not null and r.rngsubopc <> 0 and r.rngsubopc <> dbo.opclass_oid then opc.opcname else null end as subtype_opclass_name
+  case when r.rngsubopc is not null and r.rngsubopc <> 0 and r.rngsubopc <> dbo.opclass_oid then quote_ident(opc.opcname) else null end as subtype_opclass_name
 from pg_catalog.pg_range r
 join pg_catalog.pg_type t on t.oid = r.rngtypid
 join pg_catalog.pg_type subt on subt.oid = r.rngsubtype

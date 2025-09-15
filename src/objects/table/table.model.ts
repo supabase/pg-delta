@@ -195,7 +195,7 @@ with extension_oids as (
     pg_get_partkeydef(c.oid) as partition_by,
     c.relowner::regrole::text as owner,
     c_parent.relnamespace::regnamespace as parent_schema,
-    c_parent.relname as parent_name,
+    quote_ident(c_parent.relname) as parent_name,
     c.oid as oid
   from
     pg_class c
@@ -239,7 +239,7 @@ select
           'no_inherit', c.connoinherit,
           'key_columns', c.conkey,
           'foreign_key_columns', c.confkey,
-          'foreign_key_table', ftc.relname,
+          'foreign_key_table', quote_ident(ftc.relname),
           'foreign_key_schema', ftc.relnamespace::regnamespace::text,
           'on_update', case when c.contype = 'f' then c.confupdtype else null end,
           'on_delete', case when c.contype = 'f' then c.confdeltype else null end,
@@ -269,13 +269,13 @@ select
         'custom_type_type', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typtype else null end,
         'custom_type_category', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typcategory else null end,
         'custom_type_schema', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typnamespace::regnamespace else null end,
-        'custom_type_name', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typname else null end,
+        'custom_type_name', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then quote_ident(ty.typname) else null end,
         'not_null', a.attnotnull,
         'is_identity', a.attidentity != '',
         'is_identity_always', a.attidentity = 'a',
         'is_generated', a.attgenerated != '',
         'collation', (
-          select c2.collname
+          select quote_ident(c2.collname)
           from pg_collation c2, pg_type t2
           where c2.oid = a.attcollation
             and t2.oid = a.atttypid

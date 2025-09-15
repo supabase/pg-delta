@@ -543,21 +543,21 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
         expectedMainDependencies: [
           {
-            dependent_stable_id: "table:my-schema.my-table",
-            referenced_stable_id: "schema:my-schema",
+            dependent_stable_id: 'table:"my-schema"."my-table"',
+            referenced_stable_id: 'schema:"my-schema"',
             deptype: "n",
           },
         ],
         expectedBranchDependencies: [
           {
             dependent_stable_id:
-              "constraint:my-schema.my-table.my-table_check$constraint",
-            referenced_stable_id: "table:my-schema.my-table",
+              'constraint:"my-schema"."my-table"."my-table_check$constraint"',
+            referenced_stable_id: 'table:"my-schema"."my-table"',
             deptype: "a",
           },
           {
-            dependent_stable_id: "table:my-schema.my-table",
-            referenced_stable_id: "schema:my-schema",
+            dependent_stable_id: 'table:"my-schema"."my-table"',
+            referenced_stable_id: 'schema:"my-schema"',
             deptype: "n",
           },
         ],

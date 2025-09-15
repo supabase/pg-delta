@@ -177,7 +177,7 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
       left join lateral unnest(i.indoption)    with ordinality as opt(val, ordi) on ordi = k.ord
     )
     select
-      n.nspname                        as schema,
+      quote_ident(n.nspname)                        as schema,
       quote_ident(tc.relname)          as table_name,
       tc.relkind                       as table_relkind,
       quote_ident(c.relname)           as name,
@@ -223,7 +223,7 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
             when ic2.coll_oid = 0 then null
             when col.collname = 'default'
             and col.collnamespace = 'pg_catalog'::regnamespace then null
-            else ns_coll.nspname || '.' || col.collname
+            else quote_ident(ns_coll.nspname) || '.' || quote_ident(col.collname)
           end
           order by ic2.ord
         ) as column_collations,
