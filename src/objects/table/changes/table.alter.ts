@@ -327,13 +327,13 @@ export class AlterTableAddConstraint extends AlterChange {
     // If the constraint is a foreign key constraint, use the foreign key table as the dependency
     // so the dependency resolution can ensure the foreign key table is created before the constraint is added
     const baseDependencies = [
-      `constraint:${this.table.schema}.${this.table.name}.${this.constraint.name}`,
+      // TODO: the dependencies should include both the table.stableId AND the constraint name
+      // `constraint:${this.table.schema}.${this.table.name}.${this.constraint.name}`,
       `${this.table.stableId}`,
     ];
-    // TODO: the dependencies should include both the table.stableId AND the constraint name
-    // if (this.foreignKeyTable) {
-    //   return [`${this.foreignKeyTable.stableId}`, ...baseDependencies];
-    // }
+    if (this.foreignKeyTable) {
+      return [`${this.foreignKeyTable.stableId}`, ...baseDependencies];
+    }
     return baseDependencies;
   }
 

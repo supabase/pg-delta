@@ -49,7 +49,6 @@ export class DependencyCycleError extends Error {
 }
 
 export class DependencyModel {
-  public readonly setPairOfObjects = new Set<string>();
   private readonly dependencies = new Map<string, ObjectDependency>();
   private readonly dependencyIndex = new Map<string, Set<string>>();
   private readonly reverseIndex = new Map<string, Set<string>>();
@@ -244,10 +243,6 @@ export class OperationSemantics {
     // Check for dependencies in appropriate states
     for (const stableIdA of stableIdsA) {
       for (const stableIdB of stableIdsB) {
-        if (model.setPairOfObjects.has(`${stableIdA} -> ${stableIdB}`)) {
-          continue;
-        }
-        model.setPairOfObjects.add(`${stableIdA} -> ${stableIdB}`);
         const aDependsOnB = model.hasDependency(stableIdA, stableIdB, sourceA);
         const bDependsOnA = model.hasDependency(stableIdB, stableIdA, sourceB);
         const aDependsOnBGeneral = model.hasDependency(stableIdA, stableIdB);
