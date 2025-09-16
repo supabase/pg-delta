@@ -12,6 +12,7 @@ describe("enum", () => {
         { sort_order: 1, label: "value1" },
         { sort_order: 2, label: "value2" },
       ],
+      comment: null,
     });
 
     const change = new DropEnum({

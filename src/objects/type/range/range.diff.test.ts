@@ -18,6 +18,7 @@ const base: RangeProps = {
   subtype_diff_name: null,
   subtype_opclass_schema: null,
   subtype_opclass_name: null,
+  comment: null,
 };
 
 describe.concurrent("range.diff", () => {

@@ -19,6 +19,7 @@ describe.concurrent("enum.diff", () => {
         { label: "a", sort_order: 1 },
         { label: "b", sort_order: 2 },
       ],
+      comment: null,
     };
     const e = new Enum(props);
 
@@ -38,6 +39,7 @@ describe.concurrent("enum.diff", () => {
         { label: "a", sort_order: 1 },
         { label: "c", sort_order: 3 },
       ],
+      comment: null,
     });
     const branch = new Enum({
       schema: "public",
@@ -48,6 +50,7 @@ describe.concurrent("enum.diff", () => {
         { label: "b", sort_order: 2 },
         { label: "c", sort_order: 3 },
       ],
+      comment: null,
     });
 
     const changes = diffEnums(
@@ -70,6 +73,7 @@ describe.concurrent("enum.diff", () => {
         { label: "b", sort_order: 2 },
         { label: "c", sort_order: 3 },
       ],
+      comment: null,
     });
     const branch = new Enum({
       schema: "public",
@@ -80,6 +84,7 @@ describe.concurrent("enum.diff", () => {
         { label: "b", sort_order: 2 },
         { label: "c", sort_order: 3 },
       ],
+      comment: null,
     });
 
     const changes = diffEnums(
@@ -103,6 +108,7 @@ describe.concurrent("enum.diff", () => {
         { label: "a", sort_order: 1 },
         { label: "c", sort_order: 3 },
       ],
+      comment: null,
     });
     const branch = new Enum({
       schema: "public",
@@ -113,6 +119,7 @@ describe.concurrent("enum.diff", () => {
         { label: "b", sort_order: 2 },
         { label: "c", sort_order: 3 },
       ],
+      comment: null,
     });
 
     const changes = diffEnums(
@@ -136,6 +143,7 @@ describe.concurrent("enum.diff", () => {
         { label: "a", sort_order: 1 },
         { label: "b", sort_order: 2 },
       ],
+      comment: null,
     });
     const branch = new Enum({
       schema: "public",
@@ -146,6 +154,7 @@ describe.concurrent("enum.diff", () => {
         { label: "b", sort_order: 2 },
         { label: "c", sort_order: 3 },
       ],
+      comment: null,
     });
 
     const changes = diffEnums(
@@ -169,12 +178,14 @@ describe.concurrent("enum.diff", () => {
         { label: "a", sort_order: 1 },
         { label: "b", sort_order: 2 },
       ],
+      comment: null,
     });
     const branch = new Enum({
       schema: "public",
       name: "e1",
       owner: "o1",
       labels: [{ label: "a", sort_order: 1 }],
+      comment: null,
     });
 
     const changes = diffEnums(

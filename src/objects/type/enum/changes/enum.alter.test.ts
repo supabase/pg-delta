@@ -16,6 +16,7 @@ describe.concurrent("enum", () => {
           { sort_order: 1, label: "value1" },
           { sort_order: 2, label: "value2" },
         ],
+        comment: null,
       };
       const main = new Enum({
         ...props,
@@ -45,6 +46,7 @@ describe.concurrent("enum", () => {
           { sort_order: 1, label: "value1" },
           { sort_order: 2, label: "value2" },
         ],
+        comment: null,
       };
       const main = new Enum(props);
       const branch = new Enum({
@@ -72,6 +74,7 @@ describe.concurrent("enum", () => {
           { sort_order: 1, label: "value1" },
           { sort_order: 2, label: "value2" },
         ],
+        comment: null,
       };
       const main = new Enum(props);
       const branch = new Enum({
@@ -104,6 +107,7 @@ describe.concurrent("enum", () => {
           { sort_order: 1, label: "value1" },
           { sort_order: 2, label: "value2" },
         ],
+        comment: null,
       };
       const main = new Enum(props);
       const branch = new Enum({
@@ -136,6 +140,7 @@ describe.concurrent("enum", () => {
           { sort_order: 1, label: "value1" },
           { sort_order: 2, label: "value2" },
         ],
+        comment: null,
       };
       const main = new Enum(props);
       const branch = new Enum({

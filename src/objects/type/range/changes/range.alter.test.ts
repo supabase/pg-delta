@@ -17,6 +17,7 @@ describe.concurrent("range", () => {
       subtype_diff_name: null,
       subtype_opclass_schema: null,
       subtype_opclass_name: null,
+      comment: null,
     };
     const main = new Range(base);
     const branch = new Range({ ...base, owner: "o2" });
@@ -38,6 +39,7 @@ describe.concurrent("range", () => {
       subtype_diff_name: null,
       subtype_opclass_schema: null,
       subtype_opclass_name: null,
+      comment: null,
     };
     const main = new Range(base);
     const branch = new Range({ ...base, subtype_str: "int8" });
