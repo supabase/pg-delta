@@ -96,6 +96,7 @@ export class Collation extends BasePgModel {
       icu_rules: this.icu_rules,
       version: this.version,
       owner: this.owner,
+      comment: this.comment,
     };
   }
 }

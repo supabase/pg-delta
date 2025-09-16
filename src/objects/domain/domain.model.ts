@@ -95,6 +95,7 @@ export class Domain extends BasePgModel {
       default_bin: this.default_bin,
       default_value: this.default_value,
       owner: this.owner,
+      comment: this.comment,
       constraints: this.constraints,
     };
   }

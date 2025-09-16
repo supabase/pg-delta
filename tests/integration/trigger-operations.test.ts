@@ -303,5 +303,35 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
       });
     });
+
+    test("trigger comments", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: dedent`
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.logs (
+            id serial PRIMARY KEY,
+            msg text,
+            created_at timestamp DEFAULT now()
+          );
+          CREATE FUNCTION test_schema.log_insert()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          AS $$
+          BEGIN
+            RETURN NEW;
+          END;
+          $$;
+          CREATE TRIGGER logs_insert_trigger
+          BEFORE INSERT ON test_schema.logs
+          FOR EACH ROW
+          EXECUTE FUNCTION test_schema.log_insert();
+        `,
+        testSql: `
+          COMMENT ON TRIGGER logs_insert_trigger ON test_schema.logs IS 'logs insert trigger';
+        `,
+      });
+    });
   });
 }

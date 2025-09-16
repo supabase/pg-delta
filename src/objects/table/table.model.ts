@@ -165,6 +165,7 @@ export class Table extends BasePgModel implements TableLikeObject {
       parent_name: this.parent_name,
       partition_bound: this.partition_bound,
       owner: this.owner,
+      comment: this.comment,
       columns: this.columns,
       constraints: this.constraints,
     };

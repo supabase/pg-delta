@@ -329,5 +329,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
       });
     });
+
+    test("schema comments", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `CREATE SCHEMA test_schema;`,
+        testSql: `
+          COMMENT ON SCHEMA test_schema IS 'a test schema';
+        `,
+      });
+    });
   });
 }

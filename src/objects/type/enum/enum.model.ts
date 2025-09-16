@@ -26,6 +26,7 @@ const enumPropsSchema = z.object({
   name: z.string(),
   owner: z.string(),
   labels: z.array(enumLabelSchema),
+  comment: z.string().nullable(),
 });
 
 export type EnumProps = z.infer<typeof enumPropsSchema>;
@@ -35,6 +36,7 @@ export class Enum extends BasePgModel {
   public readonly name: EnumProps["name"];
   public readonly owner: EnumProps["owner"];
   public readonly labels: EnumProps["labels"];
+  public readonly comment: EnumProps["comment"];
 
   constructor(props: EnumProps) {
     super();
@@ -46,6 +48,7 @@ export class Enum extends BasePgModel {
     // Data fields
     this.owner = props.owner;
     this.labels = props.labels;
+    this.comment = props.comment;
   }
 
   get stableId(): `enum:${string}` {
@@ -63,6 +66,7 @@ export class Enum extends BasePgModel {
     return {
       owner: this.owner,
       labels: this.labels,
+      comment: this.comment,
     };
   }
 }
@@ -85,7 +89,8 @@ select
   quote_ident(t.typname) as name,
   e.enumsortorder as sort_order,
   e.enumlabel as label,
-  t.typowner::regrole::text as owner
+  t.typowner::regrole::text as owner,
+  obj_description(t.oid, 'pg_type') as comment
 from
   pg_catalog.pg_enum e
   inner join pg_catalog.pg_type t on t.oid = e.enumtypid
@@ -102,6 +107,7 @@ order by
         name: string;
         owner: string;
         labels: { sort_order: number; label: string }[];
+        comment: string | null;
       }
     > = {};
     for (const e of enumRows) {
@@ -112,6 +118,7 @@ order by
           name: e.name,
           owner: e.owner,
           labels: [],
+          comment: e.comment,
         };
       }
       grouped[key].labels.push({ sort_order: e.sort_order, label: e.label });

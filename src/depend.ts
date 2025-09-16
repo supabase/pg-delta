@@ -358,10 +358,16 @@ SELECT DISTINCT
   'compositeType:'   || quote_ident(n.nspname) || '.' || quote_ident(t.relname)   AS referenced_stable_id,
   'n'::char AS deptype
 FROM pg_description d
-JOIN pg_class t ON d.classoid = 'pg_class'::regclass AND d.objoid = t.oid AND d.objsubid = 0
-JOIN pg_namespace n ON t.relnamespace = n.oid
+JOIN pg_type ty
+  ON d.classoid = 'pg_type'::regclass
+ AND d.objoid   = ty.oid
+ AND d.objsubid = 0
+JOIN pg_class t
+  ON t.reltype = ty.oid       -- composite's underlying rowtype
+JOIN pg_namespace n
+  ON n.oid = t.relnamespace
 WHERE t.relkind = 'c'
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+  AND NOT n.nspname LIKE ANY (ARRAY['pg\\_%', 'information\\_schema'])
 
 UNION ALL
 
@@ -385,6 +391,28 @@ FROM pg_description d
 JOIN pg_collation c ON d.classoid = 'pg_collation'::regclass AND d.objoid = c.oid AND d.objsubid = 0
 JOIN pg_namespace n ON c.collnamespace = n.oid
 WHERE NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Enum type comments
+SELECT DISTINCT
+  'comment:' || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS dependent_stable_id,
+  'enum:'   || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_type t ON d.classoid = 'pg_type'::regclass AND d.objoid = t.oid AND t.typtype = 'e' AND d.objsubid = 0
+WHERE NOT t.typnamespace::regnamespace::text LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Range type comments
+SELECT DISTINCT
+  'comment:' || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS dependent_stable_id,
+  'range:'   || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_type t ON d.classoid = 'pg_type'::regclass AND d.objoid = t.oid AND t.typtype = 'r' AND d.objsubid = 0
+WHERE NOT t.typnamespace::regnamespace::text LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
 
 UNION ALL
 

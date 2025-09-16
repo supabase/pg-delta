@@ -68,6 +68,7 @@ export class Language extends BasePgModel {
       inline_handler: this.inline_handler,
       validator: this.validator,
       owner: this.owner,
+      comment: this.comment,
     };
   }
 }

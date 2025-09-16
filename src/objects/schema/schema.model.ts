@@ -46,6 +46,7 @@ export class Schema extends BasePgModel {
   get dataFields() {
     return {
       owner: this.owner,
+      comment: this.comment,
     };
   }
 }

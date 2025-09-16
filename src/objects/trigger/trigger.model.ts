@@ -109,6 +109,7 @@ export class Trigger extends BasePgModel {
       old_table: this.old_table,
       new_table: this.new_table,
       owner: this.owner,
+      comment: this.comment,
     };
   }
 }

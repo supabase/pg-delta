@@ -168,6 +168,7 @@ export class Procedure extends BasePgModel {
       definition: this.definition,
       config: this.config,
       owner: this.owner,
+      comment: this.comment,
     };
   }
 }

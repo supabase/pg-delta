@@ -22,7 +22,8 @@ export class CreateCommentOnRlsPolicy extends CreateChange {
       "ON",
       `${this.rlsPolicy.schema}.${this.rlsPolicy.table_name}`,
       "IS",
-      quoteLiteral(this.rlsPolicy.comment as string),
+      // biome-ignore lint/style/noNonNullAssertion: rls policy comment is not nullable in this case
+      quoteLiteral(this.rlsPolicy.comment!),
     ].join(" ");
   }
 }

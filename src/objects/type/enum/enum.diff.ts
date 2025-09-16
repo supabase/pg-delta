@@ -5,6 +5,10 @@ import {
   AlterEnumChangeOwner,
   ReplaceEnum,
 } from "./changes/enum.alter.ts";
+import {
+  CreateCommentOnEnum,
+  DropCommentOnEnum,
+} from "./changes/enum.comment.ts";
 import { CreateEnum } from "./changes/enum.create.ts";
 import { DropEnum } from "./changes/enum.drop.ts";
 import type { Enum } from "./enum.model.ts";
@@ -25,7 +29,11 @@ export function diffEnums(
   const changes: Change[] = [];
 
   for (const enumId of created) {
-    changes.push(new CreateEnum({ enum: branch[enumId] }));
+    const createdEnum = branch[enumId];
+    changes.push(new CreateEnum({ enum: createdEnum }));
+    if (createdEnum.comment !== null) {
+      changes.push(new CreateCommentOnEnum({ enum: createdEnum }));
+    }
   }
 
   for (const enumId of dropped) {
@@ -50,6 +58,15 @@ export function diffEnums(
     if (JSON.stringify(mainEnum.labels) !== JSON.stringify(branchEnum.labels)) {
       const labelChanges = diffEnumLabels(mainEnum, branchEnum);
       changes.push(...labelChanges);
+    }
+
+    // COMMENT
+    if (mainEnum.comment !== branchEnum.comment) {
+      if (branchEnum.comment === null) {
+        changes.push(new DropCommentOnEnum({ enum: mainEnum }));
+      } else {
+        changes.push(new CreateCommentOnEnum({ enum: branchEnum }));
+      }
     }
 
     // Note: Enum renaming would also use ALTER TYPE ... RENAME TO ...

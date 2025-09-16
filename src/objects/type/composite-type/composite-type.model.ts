@@ -95,6 +95,7 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
       options: this.options,
       partition_bound: this.partition_bound,
       owner: this.owner,
+      comment: this.comment,
       columns: this.columns,
     };
   }
@@ -131,7 +132,7 @@ export async function extractCompositeTypes(
           c.reloptions as options,
           pg_get_expr(c.relpartbound, c.oid) as partition_bound,
           c.relowner::regrole::text as owner,
-          obj_description(c.oid, 'pg_class') as comment,
+          obj_description(c.reltype, 'pg_type') as comment,
           c.oid as oid
         from
           pg_catalog.pg_class c

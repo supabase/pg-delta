@@ -272,5 +272,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
       });
     });
+
+    test("function comments", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: "CREATE SCHEMA test_schema;",
+        testSql: dedent`
+          CREATE FUNCTION test_schema.greet(name text)
+           RETURNS text
+           LANGUAGE sql
+           IMMUTABLE
+          AS $function$SELECT 'Hello, ' || name$function$;
+
+          COMMENT ON FUNCTION test_schema.greet(text) IS 'greet function';
+        `,
+      });
+    });
   });
 }

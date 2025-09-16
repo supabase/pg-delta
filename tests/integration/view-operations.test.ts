@@ -220,6 +220,24 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           `,
       });
     });
+
+    test("view comments", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.users (
+            id integer,
+            name text
+          );
+          CREATE VIEW test_schema.user_names AS SELECT id, name FROM test_schema.users;
+        `,
+        testSql: `
+          COMMENT ON VIEW test_schema.user_names IS 'users names view';
+        `,
+      });
+    });
   });
 }
 // CASCADE operations are intentionally not supported as dependency resolution

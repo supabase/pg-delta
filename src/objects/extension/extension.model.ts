@@ -68,6 +68,7 @@ export class Extension extends BasePgModel {
       relocatable: this.relocatable,
       version: this.version,
       owner: this.owner,
+      comment: this.comment,
     };
   }
 }

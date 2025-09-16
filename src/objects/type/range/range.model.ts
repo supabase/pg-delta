@@ -6,6 +6,7 @@ const rangePropsSchema = z.object({
   schema: z.string(),
   name: z.string(),
   owner: z.string(),
+  comment: z.string().nullable(),
 
   // Subtype information
   subtype_schema: z.string(),
@@ -31,6 +32,7 @@ export class Range extends BasePgModel {
   public readonly schema: RangeProps["schema"];
   public readonly name: RangeProps["name"];
   public readonly owner: RangeProps["owner"];
+  public readonly comment: RangeProps["comment"];
 
   public readonly subtype_schema: RangeProps["subtype_schema"];
   public readonly subtype_str: RangeProps["subtype_str"];
@@ -54,6 +56,7 @@ export class Range extends BasePgModel {
 
     // Data fields
     this.owner = props.owner;
+    this.comment = props.comment;
     this.subtype_schema = props.subtype_schema;
     this.subtype_str = props.subtype_str;
     this.collation = props.collation;
@@ -88,6 +91,7 @@ export class Range extends BasePgModel {
       subtype_diff_name: this.subtype_diff_name,
       subtype_opclass_schema: this.subtype_opclass_schema,
       subtype_opclass_name: this.subtype_opclass_name,
+      comment: this.comment,
     };
   }
 }
@@ -122,6 +126,7 @@ select
   t.typnamespace::regnamespace::text as schema,
   quote_ident(t.typname) as name,
   t.typowner::regrole::text as owner,
+  obj_description(t.oid, 'pg_type') as comment,
 
   -- subtype info
   subt.typnamespace::regnamespace::text as subtype_schema,

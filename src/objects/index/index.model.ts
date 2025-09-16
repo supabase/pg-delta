@@ -145,6 +145,7 @@ export class Index extends BasePgModel {
       table_relkind: this.table_relkind,
       is_constraint: this.is_constraint,
       definition: this.definition,
+      comment: this.comment,
     };
   }
 }

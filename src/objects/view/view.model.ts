@@ -92,6 +92,7 @@ export class View extends BasePgModel {
       options: this.options,
       partition_bound: this.partition_bound,
       owner: this.owner,
+      comment: this.comment,
     };
   }
 }

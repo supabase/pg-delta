@@ -83,6 +83,7 @@ export class Sequence extends BasePgModel {
       owned_by_schema: this.owned_by_schema,
       owned_by_table: this.owned_by_table,
       owned_by_column: this.owned_by_column,
+      comment: this.comment,
     };
   }
 }

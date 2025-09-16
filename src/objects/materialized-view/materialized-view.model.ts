@@ -99,6 +99,7 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
       options: this.options,
       partition_bound: this.partition_bound,
       owner: this.owner,
+      comment: this.comment,
       columns: this.columns,
     };
   }

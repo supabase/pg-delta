@@ -2,6 +2,10 @@ import type { Change } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
 import { hasNonAlterableChanges } from "../../utils.ts";
 import { AlterRangeChangeOwner, ReplaceRange } from "./changes/range.alter.ts";
+import {
+  CreateCommentOnRange,
+  DropCommentOnRange,
+} from "./changes/range.comment.ts";
 import { CreateRange } from "./changes/range.create.ts";
 import { DropRange } from "./changes/range.drop.ts";
 import type { Range } from "./range.model.ts";
@@ -22,7 +26,11 @@ export function diffRanges(
   const changes: Change[] = [];
 
   for (const id of created) {
-    changes.push(new CreateRange({ range: branch[id] }));
+    const createdRange = branch[id];
+    changes.push(new CreateRange({ range: createdRange }));
+    if (createdRange.comment !== null) {
+      changes.push(new CreateCommentOnRange({ range: createdRange }));
+    }
   }
 
   for (const id of dropped) {
@@ -59,6 +67,15 @@ export function diffRanges(
         changes.push(
           new AlterRangeChangeOwner({ main: mainRange, branch: branchRange }),
         );
+      }
+
+      // COMMENT
+      if (mainRange.comment !== branchRange.comment) {
+        if (branchRange.comment === null) {
+          changes.push(new DropCommentOnRange({ range: mainRange }));
+        } else {
+          changes.push(new CreateCommentOnRange({ range: branchRange }));
+        }
       }
     }
   }

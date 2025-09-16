@@ -79,5 +79,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
       });
     });
+
+    test("sequence comments", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE SEQUENCE test_schema.seq1;
+        `,
+        testSql: `
+          COMMENT ON SEQUENCE test_schema.seq1 IS 'test sequence comment';
+        `,
+      });
+    });
   });
 }

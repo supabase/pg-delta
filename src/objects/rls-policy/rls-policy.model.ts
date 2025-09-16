@@ -75,6 +75,7 @@ export class RlsPolicy extends BasePgModel {
       using_expression: this.using_expression,
       with_check_expression: this.with_check_expression,
       owner: this.owner,
+      comment: this.comment,
     };
   }
 }

@@ -71,6 +71,7 @@ export class Role extends BasePgModel {
       connection_limit: this.connection_limit,
       can_bypass_rls: this.can_bypass_rls,
       config: this.config,
+      comment: this.comment,
     };
   }
 }

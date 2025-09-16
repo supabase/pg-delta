@@ -238,5 +238,23 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
       });
     });
+
+    test("table and column comments", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.events (
+            id integer,
+            created_at timestamp
+          );
+        `,
+        testSql: `
+          COMMENT ON TABLE test_schema.events IS 'events table';
+          COMMENT ON COLUMN test_schema.events.created_at IS 'created_at column';
+        `,
+      });
+    });
   });
 }
