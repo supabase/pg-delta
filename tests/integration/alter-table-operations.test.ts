@@ -25,7 +25,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.users ADD COLUMN email character varying(255) NOT NULL DEFAULT 'user@example.com';
         `,
-        description: "add column to existing table",
       });
     });
 
@@ -45,7 +44,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.products DROP COLUMN old_field;
         `,
-        description: "drop column from existing table",
       });
     });
 
@@ -64,7 +62,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.conversions ALTER COLUMN price TYPE numeric(12,4);
         `,
-        description: "change column type",
       });
     });
 
@@ -83,7 +80,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.settings ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;
         `,
-        description: "set column default",
       });
     });
 
@@ -102,7 +98,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.configs ALTER COLUMN status DROP DEFAULT;
         `,
-        description: "drop column default",
       });
     });
 
@@ -121,7 +116,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.users ALTER COLUMN name SET NOT NULL;
         `,
-        description: "set column not null",
       });
     });
 
@@ -140,7 +134,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.profiles ALTER COLUMN email DROP NOT NULL;
         `,
-        description: "drop column not null",
       });
     });
 
@@ -162,7 +155,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.evolution ALTER COLUMN status DROP DEFAULT;
           ALTER TABLE test_schema.evolution DROP COLUMN status;
         `,
-        description: "multiple alter operations - state-based diffing",
       });
     });
 
@@ -186,7 +178,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.complex_changes ALTER COLUMN status DROP DEFAULT;
           ALTER TABLE test_schema.complex_changes ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;
         `,
-        description: "complex column changes",
       });
     });
 
@@ -206,7 +197,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.users ADD COLUMN full_name text GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED;
           ALTER TABLE test_schema.users ADD COLUMN email character varying(255) DEFAULT 'user@example.com';
         `,
-        description: "generated column operations",
       });
     });
 
@@ -226,7 +216,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.products DROP COLUMN total_price;
         `,
-        description: "drop generated column",
       });
     });
 
@@ -247,7 +236,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.calculations DROP COLUMN computed;
           ALTER TABLE test_schema.calculations ADD COLUMN computed numeric GENERATED ALWAYS AS (value_a * value_b) STORED;
         `,
-        description: "alter generated column expression",
       });
     });
   });

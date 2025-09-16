@@ -17,7 +17,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: "CREATE SEQUENCE test_schema.test_seq;",
-        description: "create basic sequence",
       });
     });
 
@@ -36,7 +35,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             CACHE 5
             CYCLE;
         `,
-        description: "create sequence with options",
       });
     });
 
@@ -49,7 +47,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE SEQUENCE test_schema.test_seq;
         `,
         testSql: "DROP SEQUENCE test_schema.test_seq;",
-        description: "drop sequence",
       });
     });
 
@@ -66,7 +63,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             name TEXT
           );
         `,
-        description: "create table with serial column (sequence dependency)",
       });
     });
 
@@ -81,7 +77,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER SEQUENCE test_schema.test_seq INCREMENT BY 5 CACHE 10;
         `,
-        description: "alter sequence properties",
       });
     });
   });

@@ -20,7 +20,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           CREATE TYPE test_schema.mood AS ENUM ('sad', 'ok', 'happy');
         `,
-        description: "create enum type",
       });
     });
     test("create domain type with constraint", async ({ db }) => {
@@ -31,7 +30,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           CREATE DOMAIN test_schema.positive_int AS INTEGER CHECK (VALUE > 0);
         `,
-        description: "create domain type with constraint",
       });
     });
     test("create composite type", async ({ db }) => {
@@ -46,7 +44,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             state VARCHAR(2)
           );
         `,
-        description: "create composite type",
       });
     });
     test("create range type", async ({ db }) => {
@@ -57,7 +54,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           CREATE TYPE test_schema.floatrange AS RANGE (subtype = float8);
         `,
-        description: "create range type",
       });
     });
     test("drop enum type", async ({ db }) => {
@@ -69,7 +65,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           DROP TYPE test_schema.old_mood;
         `,
-        description: "drop enum type",
       });
     });
     test("replace enum type (modify values)", async ({ db }) => {
@@ -82,7 +77,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP TYPE test_schema.status;
           CREATE TYPE test_schema.status AS ENUM ('pending', 'approved', 'rejected');
         `,
-        description: "replace enum type (modify values)",
       });
     });
     test("replace domain type (modify constraint)", async ({ db }) => {
@@ -95,7 +89,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP DOMAIN test_schema.valid_int;
           CREATE DOMAIN test_schema.valid_int AS INTEGER CHECK (VALUE >= 0 AND VALUE <= 100);
         `,
-        description: "replace domain type (modify constraint)",
       });
     });
 
@@ -114,7 +107,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         status test_schema.user_status DEFAULT 'pending'
       );
     `,
-        description: "enum type with table dependency",
       });
     });
 
@@ -133,7 +125,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           email_address test_schema.email
         );
       `,
-        description: "domain type with table dependency",
       });
     });
 
@@ -157,7 +148,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           shipping_address test_schema.address
         );
       `,
-        description: "composite type with table dependency",
       });
     });
 
@@ -192,7 +182,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           total_amount commerce.price
         );
       `,
-        description: "multiple types with complex dependencies",
       });
     });
 
@@ -214,7 +203,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         DROP TABLE test_schema.tasks;
         DROP TYPE test_schema.priority;
       `,
-        description: "type cascade drop with dependent table",
       });
     });
 
@@ -228,7 +216,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         CREATE TYPE "test-schema"."user-status" AS ENUM ('active', 'in-active');
         CREATE DOMAIN "test-schema"."positive-number" AS INTEGER CHECK (VALUE > 0);
       `,
-        description: "type names with special characters",
       });
     });
 
@@ -254,7 +241,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         FROM analytics.users
         GROUP BY status;
       `,
-        description: "materialized view with enum dependency",
       });
     });
 
@@ -280,7 +266,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         FROM financial.transactions
         WHERE amount > 0;
       `,
-        description: "materialized view with domain dependency",
       });
     });
 
@@ -311,7 +296,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         FROM inventory.warehouses
         WHERE (location).city IS NOT NULL;
       `,
-        description: "materialized view with composite type dependency",
       });
     });
 
@@ -364,7 +348,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         FROM ecommerce.orders
         GROUP BY status;
       `,
-        description: "complex mixed dependencies with materialized views",
       });
     });
 
@@ -393,7 +376,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         DROP TABLE reporting.tasks;
         DROP TYPE reporting.priority;
       `,
-        description: "drop type with materialized view dependency",
       });
     });
 
@@ -419,7 +401,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         FROM scheduling.events
         WHERE time_slot IS NOT NULL;
       `,
-        description: "materialized view with range type dependency",
       });
     });
   });

@@ -25,7 +25,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         testSql:
           "CREATE INDEX idx_users_email ON test_schema.users USING btree (email);",
-        description: "create btree index",
       });
     });
 
@@ -42,7 +41,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         testSql:
           "CREATE UNIQUE INDEX idx_products_sku ON test_schema.products USING btree (sku);",
-        description: "create unique index",
       });
     });
 
@@ -60,7 +58,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         testSql:
           "CREATE INDEX idx_orders_pending ON test_schema.orders USING btree (created_at) WHERE status::text = 'pending'::text;",
-        description: "create partial index",
       });
     });
 
@@ -77,7 +74,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         testSql:
           "CREATE INDEX idx_customers_email_lower ON test_schema.customers USING btree (lower(email::text));",
-        description: "create functional index",
       });
     });
 
@@ -96,7 +92,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         testSql:
           "CREATE INDEX idx_sales_region_date ON test_schema.sales USING btree (region, sale_date);",
-        description: "create multicolumn index",
       });
     });
 
@@ -115,7 +110,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           DROP INDEX test_schema.idx_items_name;
         `,
-        description: "drop index",
       });
     });
 
@@ -136,7 +130,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
         DROP TABLE test_schema.test_table;
       `,
-        description: "drop implicit dependent table index",
       });
     });
   });

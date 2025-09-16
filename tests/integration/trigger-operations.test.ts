@@ -39,7 +39,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.update_timestamp();
         `,
-        description: "simple trigger creation",
       });
     });
 
@@ -80,7 +79,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         testSql:
           "CREATE TRIGGER audit_trigger AFTER INSERT OR DELETE OR UPDATE ON test_schema.sensitive_data FOR EACH ROW EXECUTE FUNCTION test_schema.audit_changes();",
-        description: "multi-event trigger",
       });
     });
 
@@ -113,7 +111,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           WHEN (OLD.price IS DISTINCT FROM NEW.price)
           EXECUTE FUNCTION test_schema.log_price_changes();
         `,
-        description: "conditional trigger with WHEN clause",
       });
     });
 
@@ -137,7 +134,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           EXECUTE FUNCTION test_schema.test_trigger_func();
         `,
         testSql: `DROP TRIGGER old_trigger ON test_schema.test_table;`,
-        description: "trigger dropping",
       });
     });
 
@@ -193,7 +189,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.validate_email();
         `,
-        description: "trigger replacement (modification)",
       });
     });
 
@@ -224,7 +219,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.notify_event();
         `,
-        description: "trigger after function dependency",
       });
     });
 
@@ -246,7 +240,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         BEFORE INSERT ON test_schema.test_table
         FOR EACH ROW
         EXECUTE FUNCTION test_schema.test_func();`,
-        description: "trigger semantic equality",
         expectedSqlTerms: [],
       });
     });
@@ -308,7 +301,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.update_order_timestamp();
         `,
-        description: "Complex trigger scenario with multiple dependencies",
       });
     });
   });

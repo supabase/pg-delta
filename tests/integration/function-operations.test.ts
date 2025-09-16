@@ -25,7 +25,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
            IMMUTABLE
           AS $function$SELECT $1 + $2$function$;
         `,
-        description: "simple function creation",
       });
     });
 
@@ -45,7 +44,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           END;
           $function$;
         `,
-        description: "plpgsql function with security definer",
       });
     });
 
@@ -68,7 +66,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
          IMMUTABLE
         AS $function$SELECT 'v2.0'$function$;
       `,
-        description: "function replacement",
       });
     });
 
@@ -90,7 +87,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
            IMMUTABLE
           AS $function$SELECT prefix || input_val::text$function$;
         `,
-        description: "function overloading",
       });
     });
 
@@ -108,7 +104,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: dedent`
           DROP FUNCTION test_schema.temp_function();
         `,
-        description: "drop function",
       });
     });
 
@@ -130,7 +125,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           END;
           $function$;
         `,
-        description: "function with complex attributes",
       });
     });
 
@@ -152,7 +146,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           END;
           $function$;
         `,
-        description: "function with configuration parameters",
       });
     });
 
@@ -170,7 +163,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
           CREATE TABLE test_schema.events (created_at timestamp with time zone DEFAULT test_schema.get_timestamp());
         `,
-        description: "function used in table default",
       });
     });
 
@@ -186,7 +178,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           AS 'SELECT 42';
         `,
         testSql: ``,
-        description: "function no changes when identical",
       });
     });
   });
@@ -211,7 +202,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
           ALTER TABLE test_schema.users ADD CONSTRAINT valid_email CHECK (test_schema.validate_email(email));
         `,
-        description: "function before constraint that uses it",
       });
     });
 
@@ -232,7 +222,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE VIEW test_schema.product_display AS SELECT test_schema.format_price(price) AS formatted_price
           FROM test_schema.products;
         `,
-        description: "function before view that uses it",
       });
     });
   });
@@ -281,7 +270,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           END;
           $function$;
         `,
-        description: "Complex function scenario with multiple dependencies",
       });
     });
   });

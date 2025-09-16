@@ -25,7 +25,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             created_at timestamp DEFAULT now()
           );
         `,
-        description: "schema and table creation",
       });
     });
 
@@ -57,7 +56,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             last_login timestamp
           );
         `,
-        description: "multiple schemas and tables",
       });
     });
 
@@ -78,7 +76,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             created_at timestamptz DEFAULT now()
           );
         `,
-        description: "complex column types",
       });
     });
 
@@ -88,7 +85,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         branchSession: db.branch,
         initialSetup: "",
         testSql: "",
-        description: "empty database",
         expectedSqlTerms: [], // No SQL terms
         expectedMainDependencies: [], // Main has no dependencies (empty state)
         expectedBranchDependencies: [], // Branch has no dependencies (empty state)
@@ -101,7 +97,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         branchSession: db.branch,
         initialSetup: "",
         testSql: "CREATE SCHEMA empty_schema;",
-        description: "schema only",
       });
     });
 
@@ -140,8 +135,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE INDEX idx_orders_customer_status ON ecommerce.orders(customer_id, status);
           CREATE INDEX idx_customers_email ON ecommerce.customers(email);
         `,
-        description:
-          "e-commerce with sequences, tables, constraints, and indexes",
       });
     });
 
@@ -175,7 +168,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             SELECT * FROM test_schema.user_orders
             WHERE total > 1000;
         `,
-        description: "complex dependency ordering",
       });
     });
 
@@ -203,7 +195,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP TABLE test_schema.base;
           DROP SCHEMA test_schema;
         `,
-        description: "drop operations with complex dependencies",
       });
     });
 
@@ -231,7 +222,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                    COUNT(CASE WHEN status = 'active' THEN 1 END) as active_cnt
             FROM test_schema.data;
         `,
-        description: "mixed create and replace operations",
       });
     });
 
@@ -253,7 +243,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             CROSS JOIN schema_b.table_b b;
         `,
         testSql: "", // No changes - just test dependency extraction
-        description: "cross-schema view dependencies",
       });
     });
 
@@ -269,7 +258,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             name text
           );
         `,
-        description: "basic table schema dependency validation",
       });
     });
 
@@ -284,7 +272,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE TABLE app.users (id integer);
           CREATE TABLE analytics.reports (id integer);
         `,
-        description: "multiple independent schema table pairs",
       });
     });
 
@@ -298,7 +285,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           DROP SCHEMA temp_schema;
         `,
-        description: "drop schema only",
       });
     });
 
@@ -318,7 +304,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP SCHEMA app;
           DROP SCHEMA analytics;
         `,
-        description: "multiple drops with dependency ordering",
       });
     });
 
@@ -342,7 +327,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP SCHEMA analytics;
           DROP SCHEMA reporting;
         `,
-        description: "complex multi-schema drop scenario",
       });
     });
   });

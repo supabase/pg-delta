@@ -27,7 +27,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE app.users ENABLE ROW LEVEL SECURITY;
         `,
-        description: "enable RLS on table",
       });
     });
 
@@ -47,7 +46,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE app.users DISABLE ROW LEVEL SECURITY;
         `,
-        description: "disable RLS on table",
       });
     });
 
@@ -71,7 +69,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             TO public
             USING (true);
         `,
-        description: "create basic RLS policy",
       });
     });
 
@@ -96,7 +93,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             TO public
             WITH CHECK (true);
         `,
-        description: "create policy with WITH CHECK",
       });
     });
 
@@ -120,7 +116,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             TO public
             USING (true);
         `,
-        description: "create RESTRICTIVE policy",
       });
     });
 
@@ -144,7 +139,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           DROP POLICY user_isolation ON app.users;
         `,
-        description: "drop RLS policy",
       });
     });
 
@@ -183,7 +177,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             USING (true)
             WITH CHECK (true);
         `,
-        description: "multiple policies on same table",
       });
     });
 
@@ -220,7 +213,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             USING (true)
             WITH CHECK (true);
         `,
-        description: "complete RLS setup with policies",
       });
     });
 
@@ -242,7 +234,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             TO public
             USING (true);
         `,
-        description: "create basic RLS policy on simple table",
       });
     });
 
@@ -265,7 +256,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           DROP POLICY user_policy ON app.users;
         `,
-        description: "drop RLS policy from simple table",
       });
     });
   });
