@@ -34,8 +34,8 @@ export class ReplaceTrigger extends ReplaceChange {
     this.indexableObject = props.indexableObject;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {

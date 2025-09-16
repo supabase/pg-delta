@@ -19,8 +19,8 @@ export class DropDomain extends DropChange {
     this.domain = props.domain;
   }
 
-  get stableId(): string {
-    return `${this.domain.stableId}`;
+  get dependencies() {
+    return [this.domain.stableId];
   }
 
   serialize(): string {

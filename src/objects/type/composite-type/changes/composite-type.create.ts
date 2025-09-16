@@ -20,8 +20,8 @@ export class CreateCompositeType extends CreateChange {
     this.compositeType = props.compositeType;
   }
 
-  get stableId(): string {
-    return `${this.compositeType.stableId}`;
+  get dependencies() {
+    return [this.compositeType.stableId];
   }
 
   serialize(): string {

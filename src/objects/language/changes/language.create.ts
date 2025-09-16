@@ -22,8 +22,8 @@ export class CreateLanguage extends CreateChange {
     this.orReplace = props.orReplace;
   }
 
-  get stableId(): string {
-    return `${this.language.stableId}`;
+  get dependencies() {
+    return [this.language.stableId];
   }
 
   serialize(): string {

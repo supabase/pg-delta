@@ -22,8 +22,8 @@ export class CreateExtension extends CreateChange {
     this.extension = props.extension;
   }
 
-  get stableId(): string {
-    return `${this.extension.stableId}`;
+  get dependencies() {
+    return [this.extension.stableId];
   }
 
   serialize(): string {

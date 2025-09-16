@@ -23,8 +23,8 @@ export class DropMaterializedView extends DropChange {
     this.materializedView = props.materializedView;
   }
 
-  get stableId(): string {
-    return `${this.materializedView.stableId}`;
+  get dependencies() {
+    return [this.materializedView.stableId];
   }
 
   serialize(): string {

@@ -24,8 +24,8 @@ export class CreateView extends CreateChange {
     this.orReplace = props.orReplace;
   }
 
-  get stableId(): string {
-    return `${this.view.stableId}`;
+  get dependencies() {
+    return [this.view.stableId];
   }
 
   serialize(): string {

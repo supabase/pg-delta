@@ -27,8 +27,8 @@ export class AlterLanguageChangeOwner extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -58,8 +58,8 @@ export class ReplaceLanguage extends ReplaceChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {

@@ -19,8 +19,8 @@ export class DropExtension extends DropChange {
     this.extension = props.extension;
   }
 
-  get stableId(): string {
-    return `${this.extension.stableId}`;
+  get dependencies() {
+    return [this.extension.stableId];
   }
 
   serialize(): string {

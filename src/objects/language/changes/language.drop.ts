@@ -19,8 +19,8 @@ export class DropLanguage extends DropChange {
     this.language = props.language;
   }
 
-  get stableId(): string {
-    return `${this.language.stableId}`;
+  get dependencies() {
+    return [this.language.stableId];
   }
 
   serialize(): string {

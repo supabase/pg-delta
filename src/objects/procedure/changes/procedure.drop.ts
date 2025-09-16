@@ -21,8 +21,8 @@ export class DropProcedure extends DropChange {
     this.procedure = props.procedure;
   }
 
-  get stableId(): string {
-    return `${this.procedure.stableId}`;
+  get dependencies() {
+    return [this.procedure.stableId];
   }
 
   serialize(): string {

@@ -47,8 +47,8 @@ export class AlterDomainSetDefault extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -69,8 +69,8 @@ export class AlterDomainDropDefault extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -91,8 +91,8 @@ export class AlterDomainSetNotNull extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -113,8 +113,8 @@ export class AlterDomainDropNotNull extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -135,8 +135,8 @@ export class AlterDomainChangeOwner extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -157,8 +157,8 @@ export class AlterDomainAddConstraint extends AlterChange {
     this.constraint = props.constraint;
   }
 
-  get stableId(): string {
-    return `${this.domain.stableId}:${this.constraint.name}`;
+  get dependencies() {
+    return [`${this.domain.stableId}:${this.constraint.name}`];
   }
 
   serialize(): string {
@@ -192,8 +192,8 @@ export class AlterDomainDropConstraint extends DropChange {
     this.constraint = props.constraint;
   }
 
-  get stableId(): string {
-    return `${this.domain.stableId}:${this.constraint.name}`;
+  get dependencies() {
+    return [`${this.domain.stableId}:${this.constraint.name}`];
   }
 
   serialize(): string {
@@ -223,8 +223,8 @@ export class AlterDomainValidateConstraint extends AlterChange {
     this.constraint = props.constraint;
   }
 
-  get stableId(): string {
-    return `${this.domain.stableId}`;
+  get dependencies() {
+    return [this.domain.stableId];
   }
 
   serialize(): string {

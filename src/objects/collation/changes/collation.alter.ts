@@ -29,8 +29,8 @@ export class AlterCollationChangeOwner extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -56,8 +56,8 @@ export class AlterCollationRefreshVersion extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -83,8 +83,8 @@ export class ReplaceCollation extends ReplaceChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {

@@ -30,8 +30,8 @@ export class AlterRlsPolicySetRoles extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -65,8 +65,8 @@ export class AlterRlsPolicySetUsingExpression extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -95,8 +95,8 @@ export class AlterRlsPolicySetWithCheckExpression extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -126,8 +126,8 @@ export class ReplaceRlsPolicy extends ReplaceChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {

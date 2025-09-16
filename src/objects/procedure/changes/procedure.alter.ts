@@ -41,8 +41,8 @@ export class AlterProcedureChangeOwner extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -71,8 +71,8 @@ export class AlterProcedureSetSecurity extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -104,8 +104,8 @@ export class AlterProcedureSetConfig extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -168,8 +168,8 @@ export class AlterProcedureSetVolatility extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -201,8 +201,8 @@ export class AlterProcedureSetStrictness extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -232,8 +232,8 @@ export class AlterProcedureSetLeakproof extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -261,8 +261,8 @@ export class AlterProcedureSetParallel extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -295,8 +295,8 @@ export class ReplaceProcedure extends ReplaceChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {

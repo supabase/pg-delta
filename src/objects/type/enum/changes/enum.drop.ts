@@ -19,8 +19,8 @@ export class DropEnum extends DropChange {
     this.enum = props.enum;
   }
 
-  get stableId(): string {
-    return `${this.enum.stableId}`;
+  get dependencies() {
+    return [this.enum.stableId];
   }
 
   serialize(): string {

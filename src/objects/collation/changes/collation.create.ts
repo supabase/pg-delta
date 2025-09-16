@@ -29,8 +29,8 @@ export class CreateCollation extends CreateChange {
     this.collation = props.collation;
   }
 
-  get stableId(): string {
-    return `${this.collation.stableId}`;
+  get dependencies() {
+    return [this.collation.stableId];
   }
 
   serialize(): string {

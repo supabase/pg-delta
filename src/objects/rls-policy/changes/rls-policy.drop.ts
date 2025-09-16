@@ -19,8 +19,8 @@ export class DropRlsPolicy extends DropChange {
     this.rlsPolicy = props.rlsPolicy;
   }
 
-  get stableId(): string {
-    return `${this.rlsPolicy.stableId}`;
+  get dependencies() {
+    return [this.rlsPolicy.stableId];
   }
 
   serialize(): string {

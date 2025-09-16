@@ -33,8 +33,8 @@ export class AlterCompositeTypeChangeOwner extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -63,8 +63,8 @@ export class AlterCompositeTypeAddAttribute extends AlterChange {
     this.attribute = props.attribute;
   }
 
-  get stableId(): string {
-    return `${this.compositeType.stableId}:${this.attribute.name}`;
+  get dependencies() {
+    return [`${this.compositeType.stableId}:${this.attribute.name}`];
   }
 
   serialize(): string {
@@ -98,8 +98,8 @@ export class AlterCompositeTypeDropAttribute extends AlterChange {
     this.attribute = props.attribute;
   }
 
-  get stableId(): string {
-    return `${this.compositeType.stableId}:${this.attribute.name}`;
+  get dependencies() {
+    return [`${this.compositeType.stableId}:${this.attribute.name}`];
   }
 
   serialize(): string {
@@ -128,8 +128,8 @@ export class AlterCompositeTypeAlterAttributeType extends AlterChange {
     this.attribute = props.attribute;
   }
 
-  get stableId(): string {
-    return `${this.compositeType.stableId}:${this.attribute.name}`;
+  get dependencies() {
+    return [`${this.compositeType.stableId}:${this.attribute.name}`];
   }
 
   serialize(): string {
@@ -163,8 +163,8 @@ export class ReplaceCompositeType extends ReplaceChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {

@@ -36,8 +36,8 @@ export class CreateRole extends CreateChange {
     this.role = props.role;
   }
 
-  get stableId(): string {
-    return `${this.role.stableId}`;
+  get dependencies() {
+    return [this.role.stableId];
   }
 
   serialize(): string {

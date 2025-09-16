@@ -19,8 +19,8 @@ export class DropTable extends DropChange {
     this.table = props.table;
   }
 
-  get stableId(): string {
-    return `${this.table.stableId}`;
+  get dependencies() {
+    return [this.table.stableId];
   }
 
   serialize(): string {

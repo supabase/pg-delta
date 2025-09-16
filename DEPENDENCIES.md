@@ -289,3 +289,82 @@ console.log('All dependencies:', table.dependent_on_all)
 2. **Dependency Validation**: Tools to validate dependency consistency
 3. **Visualization**: Graph visualization of dependency relationships
 4. **Performance Metrics**: Dependency analysis performance monitoring 
+
+
+All postgres objects in a diagram looks like this:
+
+```
+---
+config:
+  layout: elk
+---
+flowchart TD
+ subgraph Cluster["Cluster (Server-wide)"]
+        ROLES["Role (user/group)"]
+        TABLESPACES["Tablespace"]
+        DATABASES["Database"]
+  end
+ subgraph Database["Database (per-db objects)"]
+        SCHEMAS["Schema"]
+        EXTENSIONS["Extension"]
+        EVENTTRIG["Event Trigger"]
+        FDW["Foreign Data Wrapper"]
+        SERVER["Foreign Server"]
+        USERMAP["User Mapping (role↔server)"]
+        PUBLICATION["Publication"]
+        SUBSCRIPTION["Subscription"]
+        LANGUAGE["Language"]
+        CAST["Cast"]
+  end
+ subgraph Schema["Schema (namespace)"]
+        TABLE["Table"]
+        VIEW["View"]
+        MATVIEW["Materialized View"]
+        SEQUENCE["Sequence"]
+        FRTABLE["Foreign Table"]
+        TYPE["Type"]
+        ENUM["Enum Type"]
+        DOMAIN["Domain"]
+        RANGE["Range Type"]
+        COMPOSITE["Composite Type"]
+        FUNCTION["Function"]
+        PROCEDURE["Procedure"]
+        AGGREGATE["Aggregate"]
+        OPERATOR["Operator"]
+        OPCLASS["Operator Class"]
+        OPFAMILY["Operator Family"]
+        COLLATION["Collation"]
+        TS_CONFIG["TS Configuration"]
+        TS_DICT["TS Dictionary"]
+        TS_PARSER["TS Parser"]
+        TS_TEMPLATE["TS Template"]
+        CONVERSION["Conversion"]
+        STATS["Extended Statistics"]
+  end
+ subgraph Relation["Table/View/MV specific"]
+        INDEX["Index"]
+        CONSTRAINT["Constraint (PK/UK/CK/FK)"]
+        TRIGGER["Trigger"]
+        RULE["Rule"]
+        POLICY["RLS Policy"]
+        COLUMNATTR["Column: default/generated/identity/collation"]
+  end
+ subgraph DomainObj["Domain specific"]
+        DOM_CONS["Domain Constraint"]
+        DOM_ATTR["Domain Default/Not Null"]
+  end
+    Cluster --> DATABASES
+    DATABASES --> Database
+    Database --> SCHEMAS & EXTENSIONS & EVENTTRIG & FDW & SERVER & USERMAP & PUBLICATION & SUBSCRIPTION & LANGUAGE & CAST
+    SCHEMAS --> TABLE & VIEW & MATVIEW & SEQUENCE & FRTABLE & TYPE & FUNCTION & PROCEDURE & AGGREGATE & OPERATOR & OPCLASS & OPFAMILY & COLLATION & TS_CONFIG & TS_DICT & TS_PARSER & TS_TEMPLATE & CONVERSION & STATS
+    TYPE --> ENUM & DOMAIN & RANGE & COMPOSITE
+    TABLE --> Relation
+    VIEW --> Relation
+    MATVIEW --> Relation
+    DOMAIN --> DomainObj
+```
+![diagram](https://github.com/user-attachments/assets/21e2a9c1-2fcf-4374-980e-2b426bfcc9dc)
+
+When creating a "Change" of any kind, you should always only add into the dependencies of the change objects that are "at the same level".
+While the "inter level" ordering (a table is under schema) will be handled by global level rules.
+Same thing for some general same object constraint (a create table must come before the alter table)

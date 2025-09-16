@@ -33,8 +33,8 @@ export class AlterViewChangeOwner extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -61,8 +61,8 @@ export class ReplaceView extends ReplaceChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -85,8 +85,8 @@ export class AlterViewSetOptions extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -113,8 +113,8 @@ export class AlterViewResetOptions extends AlterChange {
     this.params = props.params;
   }
 
-  get stableId(): string {
-    return `${this.view.stableId}`;
+  get dependencies() {
+    return [this.view.stableId];
   }
 
   serialize(): string {

@@ -39,8 +39,8 @@ export class CreateProcedure extends CreateChange {
     this.orReplace = props.orReplace ?? false;
   }
 
-  get stableId(): string {
-    return `${this.procedure.stableId}`;
+  get dependencies() {
+    return [this.procedure.stableId];
   }
 
   serialize(): string {

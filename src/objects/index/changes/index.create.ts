@@ -30,8 +30,8 @@ export class CreateIndex extends CreateChange {
     this.indexableObject = props.indexableObject;
   }
 
-  get stableId(): string {
-    return `${this.index.stableId}`;
+  get dependencies() {
+    return [this.index.stableId];
   }
 
   serialize(): string {

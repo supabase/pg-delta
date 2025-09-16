@@ -19,8 +19,8 @@ export class DropTrigger extends DropChange {
     this.trigger = props.trigger;
   }
 
-  get stableId(): string {
-    return `${this.trigger.stableId}`;
+  get dependencies() {
+    return [this.trigger.stableId];
   }
 
   serialize(): string {

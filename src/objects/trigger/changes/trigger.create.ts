@@ -42,8 +42,8 @@ export class CreateTrigger extends CreateChange {
     this.orReplace = props.orReplace;
   }
 
-  get stableId(): string {
-    return `${this.trigger.stableId}`;
+  get dependencies() {
+    return [this.trigger.stableId];
   }
 
   serialize(): string {

@@ -22,8 +22,8 @@ export class CreateSequence extends CreateChange {
     this.sequence = props.sequence;
   }
 
-  get stableId(): string {
-    return `${this.sequence.stableId}`;
+  get dependencies() {
+    return [this.sequence.stableId];
   }
 
   serialize(): string {

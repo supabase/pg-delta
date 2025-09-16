@@ -19,8 +19,8 @@ export class DropIndex extends DropChange {
     this.index = props.index;
   }
 
-  get stableId(): string {
-    return `${this.index.stableId}`;
+  get dependencies() {
+    return [this.index.stableId];
   }
 
   serialize(): string {

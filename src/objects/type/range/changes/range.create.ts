@@ -28,8 +28,8 @@ export class CreateRange extends CreateChange {
     this.range = props.range;
   }
 
-  get stableId(): string {
-    return `${this.range.stableId}`;
+  get dependencies() {
+    return [this.range.stableId];
   }
 
   serialize(): string {

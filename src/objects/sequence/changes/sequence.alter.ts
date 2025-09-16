@@ -30,8 +30,11 @@ export class AlterSequenceSetOwnedBy extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [
+      `${this.main.stableId}`,
+      `table:${this.branch.owned_by_schema}.${this.branch.owned_by_table}`,
+    ];
   }
 
   serialize(): string {
@@ -65,8 +68,8 @@ export class AlterSequenceSetOptions extends AlterChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   private computeDefaultMax(type: string): bigint {
@@ -140,8 +143,8 @@ export class ReplaceSequence extends ReplaceChange {
     this.branch = props.branch;
   }
 
-  get stableId(): string {
-    return `${this.main.stableId}`;
+  get dependencies() {
+    return [this.main.stableId];
   }
 
   serialize(): string {

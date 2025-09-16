@@ -19,8 +19,8 @@ export class DropRange extends DropChange {
     this.range = props.range;
   }
 
-  get stableId(): string {
-    return `${this.range.stableId}`;
+  get dependencies() {
+    return [`${this.range.stableId}`];
   }
 
   serialize(): string {
