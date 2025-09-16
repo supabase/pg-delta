@@ -41,13 +41,18 @@ export function graphToMermaid(graph: Graph<string, Constraint>): string {
     for (const to of graph.adjacent(from) ?? []) {
       const toId = idMap.get(to);
       if (!toId) continue;
+
+      // Get the constraint reason from the edge properties
+      const edgeProps = graph.getEdgeProperties(from, to);
+      const reason = edgeProps?.reason ? `"${edgeProps.reason}"` : "depends on";
+
       edges.push({
         fromSafe: fromId,
         toSafe: toId,
         fromOrig: from,
         toOrig: to,
       });
-      lines.push(`  ${fromId} -->|depends on ${fromId}| ${toId}`);
+      lines.push(`  ${fromId} -->|${reason}| ${toId}`);
     }
   }
 

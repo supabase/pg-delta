@@ -436,48 +436,6 @@ describe("DependencyResolver", () => {
       expect(sequenceIndex).toBeLessThan(tableIndex);
     });
 
-    test.skip("operation priority ordering within same object", () => {
-      const testCatalog = emptyCatalog();
-      const resolver = new DependencyResolver(testCatalog, testCatalog);
-
-      // Create multiple operations on the same object to test priority ordering
-      const changes = [
-        new DummyReplace("table:test.users"),
-        new DummyAlter("table:test.users"),
-        new DummyCreate("table:test.users"),
-        new DummyDrop("table:test.users"),
-      ];
-
-      const result = resolver.resolveDependencies(changes);
-
-      // This scenario actually creates a cycle because operations on the same object
-      // can conflict - DROP and CREATE on the same object is logically inconsistent
-      expect(result.isErr()).toBe(true);
-      if (result.isErr()) {
-        expect(result.error instanceof DependencyCycleError).toBe(true);
-      }
-    });
-
-    test.skip("non-conflicting operation priority ordering", () => {
-      const testCatalog = emptyCatalog();
-      const resolver = new DependencyResolver(testCatalog, testCatalog);
-
-      // Create operations that don't conflict with each other
-      const changes = [
-        new DummyReplace("view:test.user_view"),
-        new DummyAlter("view:test.user_view"),
-      ];
-
-      const result = resolver.resolveDependencies(changes);
-
-      // Even non-conflicting operations on the same object can create cycles
-      // in the constraint graph due to the generateSameObjectConstraints
-      expect(result.isErr()).toBe(true);
-      if (result.isErr()) {
-        expect(result.error instanceof DependencyCycleError).toBe(true);
-      }
-    });
-
     test("mixed create/alter/replace dependency constraints", () => {
       // Test constraint generation for mixed operation types
       const mainCatalog = createCatalogWithDependencies([

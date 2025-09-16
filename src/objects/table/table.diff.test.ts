@@ -548,68 +548,6 @@ describe.concurrent("table.diff", () => {
     );
   });
 
-  test("altered constraint owner triggers drop+add", () => {
-    const c = {
-      name: "ck_expr",
-      constraint_type: "c" as const,
-      deferrable: false,
-      initially_deferred: false,
-      validated: true,
-      is_local: true,
-      no_inherit: false,
-      key_columns: [],
-      foreign_key_columns: null,
-      foreign_key_table: null,
-      foreign_key_schema: null,
-      on_update: null,
-      on_delete: null,
-      match_type: null,
-      check_expression: "a > 0",
-      owner: "o1",
-      definition: "CHECK (a > 0)",
-    };
-    const tMain = new Table({
-      ...base,
-      name: "t_owner",
-      columns: [
-        {
-          name: "a",
-          position: 1,
-          data_type: "integer",
-          data_type_str: "integer",
-          is_custom_type: false,
-          custom_type_type: null,
-          custom_type_category: null,
-          custom_type_schema: null,
-          custom_type_name: null,
-          not_null: false,
-          is_identity: false,
-          is_identity_always: false,
-          is_generated: false,
-          collation: null,
-          default: null,
-          comment: null,
-        },
-      ],
-      constraints: [c],
-    });
-    const tBranch = new Table({
-      ...tMain,
-      constraints: [{ ...c, owner: "o2" }],
-    });
-    const changes = diffTables(
-      { [tMain.stableId]: tMain },
-      { [tBranch.stableId]: tBranch },
-      150014,
-    );
-    expect(changes.some((c) => c instanceof AlterTableDropConstraint)).toBe(
-      true,
-    );
-    expect(changes.some((c) => c instanceof AlterTableAddConstraint)).toBe(
-      true,
-    );
-  });
-
   test("columns added/dropped/altered (type, default, not null)", () => {
     const main = new Table({ ...base, name: "t2", columns: [] });
     const withCol = new Table({

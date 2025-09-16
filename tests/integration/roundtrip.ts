@@ -84,7 +84,13 @@ export async function roundtripFidelityTest(
   }
 
   // Extract catalogs from both databases
+  if (DEBUG) {
+    console.log("mainCatalog: ");
+  }
   const mainCatalog = await extractCatalog(mainSession);
+  if (DEBUG) {
+    console.log("branchCatalog: ");
+  }
   const branchCatalog = await extractCatalog(branchSession);
 
   if (expectedMainDependencies && expectedBranchDependencies) {
@@ -142,6 +148,9 @@ export async function roundtripFidelityTest(
   }
 
   // Extract final catalog from main database
+  if (DEBUG) {
+    console.log("mainCatalogAfter: ");
+  }
   const mainCatalogAfter = await extractCatalog(mainSession);
 
   // Verify semantic equality between main and branch catalogs

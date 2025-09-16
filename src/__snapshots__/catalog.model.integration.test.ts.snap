@@ -872,6 +872,11 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "deptype": "n"
     },
     {
+      "dependent_stable_id": "language:plpgsql",
+      "referenced_stable_id": "role:postgres",
+      "deptype": "n"
+    },
+    {
       "dependent_stable_id": "procedure:information_schema._pg_char_max_length(oid,integer)",
       "referenced_stable_id": "schema:information_schema",
       "deptype": "n"
@@ -3304,6 +3309,11 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_views.\\"_RETURN\\"",
       "referenced_stable_id": "view:pg_catalog.pg_views",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "schema:public",
+      "referenced_stable_id": "role:pg_database_owner",
       "deptype": "n"
     },
     {
@@ -6720,6 +6730,11 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "deptype": "n"
     },
     {
+      "dependent_stable_id": "language:plpgsql",
+      "referenced_stable_id": "role:postgres",
+      "deptype": "n"
+    },
+    {
       "dependent_stable_id": "procedure:information_schema._pg_char_max_length(oid,integer)",
       "referenced_stable_id": "schema:information_schema",
       "deptype": "n"
@@ -8468,6 +8483,11 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_wait_events.\\"_RETURN\\"",
       "referenced_stable_id": "view:pg_catalog.pg_wait_events",
       "deptype": "i"
+    },
+    {
+      "dependent_stable_id": "schema:public",
+      "referenced_stable_id": "role:pg_database_owner",
+      "deptype": "n"
     },
     {
       "dependent_stable_id": "systemObject:pg_toast.pg_toast_13463:t",

@@ -17,6 +17,7 @@ import {
 } from "./objects/sequence/changes/sequence.alter.ts";
 import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
+import { AlterTableAddConstraint } from "./objects/table/changes/table.alter.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { UnexpectedError } from "./objects/utils.ts";
@@ -319,7 +320,9 @@ export class OperationSemantics {
       // we need to first create the sequence, then then table, then set the sequence owned by the table after the table is created
       if (
         dependentChange instanceof AlterSequenceSetOwnedBy &&
-        referencedChange instanceof CreateTable
+        referencedChange instanceof CreateTable &&
+        `table:${dependentChange.branch.owned_by_schema}.${dependentChange.branch.owned_by_table}` ===
+          referencedChange.table.stableId
       ) {
         return {
           constraintStableId: `${dependentChange.changeId} depends on ${referencedChange.changeId}`,
@@ -368,6 +371,7 @@ export class OperationSemantics {
 
     // Rule: For mixed CREATE/ALTER/REPLACE, create dependencies first
     if (
+      dependentChange.kind !== referencedChange.kind &&
       (dependentChange instanceof CreateChange ||
         dependentChange instanceof AlterChange ||
         dependentChange instanceof ReplaceChange) &&
@@ -380,7 +384,7 @@ export class OperationSemantics {
         changeAIndex: refIdx,
         type: "before",
         changeBIndex: depIdx,
-        reason: `CREATE/ALTER/REPLACE dependency before dependent (${reason})`,
+        reason: `${referencedChange.kind}/${dependentChange.kind} dependency before dependent (${reason})`,
       };
     }
 
@@ -400,6 +404,28 @@ export class OperationSemantics {
       };
     }
 
+    // Rule: ALTER constraint can depend on another constraint being created (eg: FK constraint depends on unique/primary key constraint)
+    if (
+      dependentChange instanceof AlterTableAddConstraint &&
+      referencedChange instanceof AlterTableAddConstraint
+    ) {
+      if (
+        ((dependentChange.constraint.constraint_type === "f" &&
+          referencedChange.constraint.constraint_type === "p") ||
+          referencedChange.constraint.constraint_type === "u") &&
+        dependentChange.foreignKeyTable?.stableId ===
+          referencedChange.table.stableId
+      ) {
+        return {
+          constraintStableId: `${dependentChange.changeId} depends on ${referencedChange.changeId}`,
+          changeAIndex: refIdx,
+          type: "before",
+          changeBIndex: depIdx,
+          reason: `Foreign key constraint depends on unique/primary key constraint (${reason})`,
+        };
+      }
+    }
+
     return null;
   }
 
@@ -409,7 +435,7 @@ export class OperationSemantics {
     idxB: number,
     changeB: Change,
   ): Constraint | null {
-    // TODO: Investigate and eliminate all special cases
+    // TODO: Investigate and eliminate all special cases this should only be for depedencies that are missing from our pg_depend extraction
     // Rule: Sort function overloads by parameter types
     if (
       changeA instanceof CreateProcedure &&
