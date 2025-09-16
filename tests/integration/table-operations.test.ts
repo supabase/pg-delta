@@ -23,7 +23,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             email text
           );
         `,
-        description: "simple table with columns",
       });
     });
 
@@ -40,7 +39,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             age integer
           );
         `,
-        description: "table with constraints",
       });
     });
 
@@ -61,7 +59,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             content text
           );
         `,
-        description: "multiple tables",
       });
     });
 
@@ -82,7 +79,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             col_uuid uuid
           );
         `,
-        description: "table with various types",
       });
     });
 
@@ -97,7 +93,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             name text
           );
         `,
-        description: "table in public schema",
       });
     });
 
@@ -109,7 +104,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           CREATE TABLE test_schema.empty_table ();
         `,
-        description: "empty table",
       });
     });
 
@@ -132,7 +126,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             description text
           );
         `,
-        description: "tables in multiple schemas",
       });
     });
 
@@ -153,7 +146,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE TABLE test_schema.events_2025 PARTITION OF test_schema.events
           FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
         `,
-        description: "partitioned table by RANGE",
       });
     });
 
@@ -178,7 +170,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ATTACH PARTITION test_schema.events_2025
           FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
         `,
-        description: "attach an existing table as partition",
       });
     });
 
@@ -200,7 +191,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.events
           DETACH PARTITION test_schema.events_2025;
         `,
-        description: "detach an existing partition",
       });
     });
   });

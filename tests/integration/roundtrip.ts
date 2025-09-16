@@ -17,7 +17,7 @@ interface RoundtripTestOptions {
   name?: string;
   initialSetup?: string;
   testSql?: string;
-  description: string;
+  description?: string;
   // List of terms that must appear in the generated SQL.
   // If not provided, we expect the generated SQL to match the testSql.
   expectedSqlTerms?: string[] | "same-as-test-sql";

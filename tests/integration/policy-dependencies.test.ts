@@ -31,7 +31,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             TO public
             USING (true);
         `,
-        description: "policy depends on table",
       });
     });
 
@@ -71,7 +70,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             USING (true)
             WITH CHECK (true);
         `,
-        description: "multiple policies with dependencies",
       });
     });
 
@@ -98,7 +96,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             USING (true)
             WITH CHECK (true);
         `,
-        description: "create table and policy together",
       });
     });
   });

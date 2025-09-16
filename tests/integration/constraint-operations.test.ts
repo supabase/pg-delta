@@ -26,7 +26,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id);
         `,
-        description: "add primary key constraint",
       });
     });
 
@@ -44,7 +43,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.users ADD CONSTRAINT users_email_key UNIQUE (email);
         `,
-        description: "add unique constraint",
       });
     });
 
@@ -62,7 +60,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.products ADD CONSTRAINT products_price_check CHECK (price > 0);
         `,
-        description: "add check constraint",
       });
     });
 
@@ -81,7 +78,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.users DROP CONSTRAINT users_pkey;
         `,
-        description: "drop primary key constraint",
       });
     });
 
@@ -105,7 +101,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.orders ADD CONSTRAINT orders_user_id_fkey
             FOREIGN KEY (user_id) REFERENCES test_schema.users (id) ON DELETE CASCADE;
         `,
-        description: "add foreign key constraint",
       });
     });
 
@@ -124,7 +119,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.users DROP CONSTRAINT users_email_key;
         `,
-        description: "drop unique constraint",
       });
     });
 
@@ -143,7 +137,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.products DROP CONSTRAINT products_price_check;
         `,
-        description: "drop check constraint",
       });
     });
 
@@ -166,7 +159,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER TABLE test_schema.orders DROP CONSTRAINT orders_user_id_fkey;
         `,
-        description: "drop foreign key constraint",
       });
     });
 
@@ -187,7 +179,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.users ADD CONSTRAINT users_email_key UNIQUE (email);
           ALTER TABLE test_schema.users ADD CONSTRAINT users_age_check CHECK (age >= 0);
         `,
-        description: "add multiple constraints to same table",
       });
     });
 
@@ -206,7 +197,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE "my-schema"."my-table" ADD CONSTRAINT "my-table_check$constraint"
             CHECK ("my-field" IS NOT NULL);
         `,
-        description: "constraint with special characters in names",
       });
     });
   });

@@ -28,7 +28,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FROM test_schema.users
           WHERE email IS NOT NULL;
         `,
-        description: "simple view creation",
       });
     });
 
@@ -78,7 +77,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ORDER BY total_spent DESC
           LIMIT 10;
         `,
-        description: "nested view dependencies - 3 levels deep",
       });
     });
 
@@ -112,7 +110,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FROM test_schema.users u
           LEFT JOIN test_schema.profiles p ON u.id = p.user_id;
         `,
-        description: "view replacement with dependency changes",
       });
     });
 
@@ -188,7 +185,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FROM analytics.product_performance
           WHERE units_sold > 0;
         `,
-        description: "complex view dependencies with multiple joins",
       });
     });
 
@@ -222,7 +218,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             )
             SELECT * FROM hierarchy;
           `,
-        description: "valid recursive patterns are not flagged as cycles",
       });
     });
   });

@@ -32,7 +32,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           WHERE active = true
           WITH NO DATA;
         `,
-        description: "create new materialized view",
       });
     });
 
@@ -57,7 +56,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           DROP MATERIALIZED VIEW test_schema.active_users;
         `,
-        description: "drop existing materialized view",
       });
     });
 
@@ -89,7 +87,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ORDER BY name
           WITH NO DATA;
         `,
-        description: "replace materialized view definition",
       });
     });
 
@@ -117,7 +114,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ORDER BY month
           WITH NO DATA;
         `,
-        description: "materialized view with aggregations",
       });
     });
 
@@ -150,7 +146,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           GROUP BY c.id, c.name
           WITH NO DATA;
         `,
-        description: "materialized view with joins",
       });
     });
   });
