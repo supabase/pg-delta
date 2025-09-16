@@ -320,7 +320,9 @@ export class OperationSemantics {
       // we need to first create the sequence, then then table, then set the sequence owned by the table after the table is created
       if (
         dependentChange instanceof AlterSequenceSetOwnedBy &&
-        referencedChange instanceof CreateTable
+        referencedChange instanceof CreateTable &&
+        `table:${dependentChange.branch.owned_by_schema}.${dependentChange.branch.owned_by_table}` ===
+          referencedChange.table.stableId
       ) {
         return {
           constraintStableId: `${dependentChange.changeId} depends on ${referencedChange.changeId}`,
@@ -402,6 +404,28 @@ export class OperationSemantics {
       };
     }
 
+    // Rule: ALTER constraint can depend on another constraint being created (eg: FK constraint depends on unique/primary key constraint)
+    if (
+      dependentChange instanceof AlterTableAddConstraint &&
+      referencedChange instanceof AlterTableAddConstraint
+    ) {
+      if (
+        ((dependentChange.constraint.constraint_type === "f" &&
+          referencedChange.constraint.constraint_type === "p") ||
+          referencedChange.constraint.constraint_type === "u") &&
+        dependentChange.foreignKeyTable?.stableId ===
+          referencedChange.table.stableId
+      ) {
+        return {
+          constraintStableId: `${dependentChange.changeId} depends on ${referencedChange.changeId}`,
+          changeAIndex: refIdx,
+          type: "before",
+          changeBIndex: depIdx,
+          reason: `Foreign key constraint depends on unique/primary key constraint (${reason})`,
+        };
+      }
+    }
+
     return null;
   }
 
@@ -472,28 +496,6 @@ export class OperationSemantics {
             changeBIndex: idxA,
             reason:
               "Function overloads ordered alphabetically when arg count equal",
-          };
-        }
-      }
-    }
-
-    if (
-      changeA instanceof AlterTableAddConstraint &&
-      changeB instanceof AlterTableAddConstraint
-    ) {
-      // Any foreign key constraint should come after the unique/primary key constraint has been set on the table
-      if (
-        changeA.constraint.constraint_type === "f" &&
-        (changeB.constraint.constraint_type === "p" ||
-          changeB.constraint.constraint_type === "u")
-      ) {
-        if (changeA.foreignKeyTable?.stableId === changeB.table.stableId) {
-          return {
-            constraintStableId: `${changeB.changeId} depends on ${changeA.changeId}`,
-            changeAIndex: idxB,
-            type: "before",
-            changeBIndex: idxA,
-            reason: `Foreign key constraint after unique/primary key constraint`,
           };
         }
       }
