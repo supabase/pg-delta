@@ -31,7 +31,7 @@ export class AlterExtensionUpdateVersion extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -58,7 +58,7 @@ export class AlterExtensionSetSchema extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -85,7 +85,7 @@ export class AlterExtensionChangeOwner extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -113,7 +113,7 @@ export class ReplaceExtension extends ReplaceChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {

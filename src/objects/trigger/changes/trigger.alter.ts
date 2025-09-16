@@ -35,7 +35,7 @@ export class ReplaceTrigger extends ReplaceChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {

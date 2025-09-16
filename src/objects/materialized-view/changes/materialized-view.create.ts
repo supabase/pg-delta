@@ -32,7 +32,7 @@ export class CreateMaterializedView extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.materializedView.stableId}`];
+    return [this.materializedView.stableId];
   }
 
   serialize(): string {

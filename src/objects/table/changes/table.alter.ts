@@ -72,7 +72,7 @@ export class AlterTableChangeOwner extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -99,7 +99,7 @@ export class AlterTableSetLogged extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -125,7 +125,7 @@ export class AlterTableSetUnlogged extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -151,7 +151,7 @@ export class AlterTableEnableRowLevelSecurity extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -177,7 +177,7 @@ export class AlterTableDisableRowLevelSecurity extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -203,7 +203,7 @@ export class AlterTableForceRowLevelSecurity extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -229,7 +229,7 @@ export class AlterTableNoForceRowLevelSecurity extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -255,7 +255,7 @@ export class AlterTableSetStorageParams extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -282,7 +282,7 @@ export class AlterTableResetStorageParams extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.table.stableId}`];
+    return [this.table.stableId];
   }
 
   serialize(): string {
@@ -362,7 +362,7 @@ export class AlterTableDropConstraint extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.table.stableId}`];
+    return [this.table.stableId];
   }
 
   serialize(): string {
@@ -389,7 +389,7 @@ export class AlterTableValidateConstraint extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.table.stableId}`];
+    return [this.table.stableId];
   }
 
   serialize(): string {
@@ -416,7 +416,7 @@ export class AlterTableSetReplicaIdentity extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -452,7 +452,7 @@ export class AlterTableAddColumn extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.table.stableId}`];
+    return [this.table.stableId];
   }
 
   serialize(): string {
@@ -498,7 +498,7 @@ export class AlterTableDropColumn extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.table.stableId}`];
+    return [this.table.stableId];
   }
 
   serialize(): string {
@@ -525,7 +525,7 @@ export class AlterTableAlterColumnType extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.table.stableId}`];
+    return [this.table.stableId];
   }
 
   serialize(): string {
@@ -558,7 +558,7 @@ export class AlterTableAlterColumnSetDefault extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.table.stableId}`];
+    return [this.table.stableId];
   }
 
   serialize(): string {
@@ -589,7 +589,7 @@ export class AlterTableAlterColumnDropDefault extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.table.stableId}`];
+    return [this.table.stableId];
   }
 
   serialize(): string {
@@ -617,7 +617,7 @@ export class AlterTableAlterColumnSetNotNull extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.table.stableId}`];
+    return [this.table.stableId];
   }
 
   serialize(): string {
@@ -645,7 +645,7 @@ export class AlterTableAlterColumnDropNotNull extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.table.stableId}`];
+    return [this.table.stableId];
   }
 
   serialize(): string {

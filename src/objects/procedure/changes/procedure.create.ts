@@ -40,7 +40,7 @@ export class CreateProcedure extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.procedure.stableId}`];
+    return [this.procedure.stableId];
   }
 
   serialize(): string {

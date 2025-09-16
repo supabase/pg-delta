@@ -20,7 +20,7 @@ export class DropIndex extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.index.stableId}`];
+    return [this.index.stableId];
   }
 
   serialize(): string {

@@ -46,7 +46,7 @@ export class AlterRoleSetOptions extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -116,7 +116,7 @@ export class ReplaceRole extends ReplaceChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {

@@ -21,7 +21,7 @@ export class CreateCompositeType extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.compositeType.stableId}`];
+    return [this.compositeType.stableId];
   }
 
   serialize(): string {

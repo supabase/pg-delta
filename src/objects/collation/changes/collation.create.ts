@@ -30,7 +30,7 @@ export class CreateCollation extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.collation.stableId}`];
+    return [this.collation.stableId];
   }
 
   serialize(): string {

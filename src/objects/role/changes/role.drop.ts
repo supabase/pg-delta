@@ -20,7 +20,7 @@ export class DropRole extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.role.stableId}`];
+    return [this.role.stableId];
   }
 
   serialize(): string {

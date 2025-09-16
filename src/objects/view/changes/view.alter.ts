@@ -34,7 +34,7 @@ export class AlterViewChangeOwner extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -62,7 +62,7 @@ export class ReplaceView extends ReplaceChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -86,7 +86,7 @@ export class AlterViewSetOptions extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -114,7 +114,7 @@ export class AlterViewResetOptions extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.view.stableId}`];
+    return [this.view.stableId];
   }
 
   serialize(): string {

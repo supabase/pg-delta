@@ -20,7 +20,7 @@ export class DropLanguage extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.language.stableId}`];
+    return [this.language.stableId];
   }
 
   serialize(): string {

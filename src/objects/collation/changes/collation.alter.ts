@@ -30,7 +30,7 @@ export class AlterCollationChangeOwner extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -57,7 +57,7 @@ export class AlterCollationRefreshVersion extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -84,7 +84,7 @@ export class ReplaceCollation extends ReplaceChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {

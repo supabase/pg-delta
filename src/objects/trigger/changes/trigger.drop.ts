@@ -20,7 +20,7 @@ export class DropTrigger extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.trigger.stableId}`];
+    return [this.trigger.stableId];
   }
 
   serialize(): string {

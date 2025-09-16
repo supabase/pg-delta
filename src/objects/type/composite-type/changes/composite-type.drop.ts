@@ -20,7 +20,7 @@ export class DropCompositeType extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.compositeType.stableId}`];
+    return [this.compositeType.stableId];
   }
 
   serialize(): string {

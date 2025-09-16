@@ -28,7 +28,7 @@ export class CreateDomain extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.domain.stableId}`];
+    return [this.domain.stableId];
   }
 
   serialize(): string {

@@ -15,7 +15,7 @@ export class DropView extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.view.stableId}`];
+    return [this.view.stableId];
   }
 
   serialize(): string {

@@ -20,7 +20,7 @@ export class DropDomain extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.domain.stableId}`];
+    return [this.domain.stableId];
   }
 
   serialize(): string {

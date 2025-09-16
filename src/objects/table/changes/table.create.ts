@@ -31,7 +31,7 @@ export class CreateTable extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.table.stableId}`];
+    return [this.table.stableId];
   }
 
   serialize(): string {

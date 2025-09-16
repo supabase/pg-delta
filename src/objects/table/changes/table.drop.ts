@@ -20,7 +20,7 @@ export class DropTable extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.table.stableId}`];
+    return [this.table.stableId];
   }
 
   serialize(): string {

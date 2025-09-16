@@ -23,7 +23,7 @@ export class CreateSequence extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.sequence.stableId}`];
+    return [this.sequence.stableId];
   }
 
   serialize(): string {

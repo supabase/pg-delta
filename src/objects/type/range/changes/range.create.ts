@@ -29,7 +29,7 @@ export class CreateRange extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.range.stableId}`];
+    return [this.range.stableId];
   }
 
   serialize(): string {

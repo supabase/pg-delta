@@ -20,7 +20,7 @@ export class DropSequence extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.sequence.stableId}`];
+    return [this.sequence.stableId];
   }
 
   serialize(): string {

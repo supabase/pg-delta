@@ -25,7 +25,7 @@ export class CreateView extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.view.stableId}`];
+    return [this.view.stableId];
   }
 
   serialize(): string {

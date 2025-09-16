@@ -20,7 +20,7 @@ export class DropRlsPolicy extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.rlsPolicy.stableId}`];
+    return [this.rlsPolicy.stableId];
   }
 
   serialize(): string {

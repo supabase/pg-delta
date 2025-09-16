@@ -23,7 +23,7 @@ export class CreateExtension extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.extension.stableId}`];
+    return [this.extension.stableId];
   }
 
   serialize(): string {

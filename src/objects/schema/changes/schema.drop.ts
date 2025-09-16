@@ -20,7 +20,7 @@ export class DropSchema extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.schema.stableId}`];
+    return [this.schema.stableId];
   }
 
   serialize(): string {

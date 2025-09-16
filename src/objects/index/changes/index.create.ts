@@ -31,7 +31,7 @@ export class CreateIndex extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.index.stableId}`];
+    return [this.index.stableId];
   }
 
   serialize(): string {

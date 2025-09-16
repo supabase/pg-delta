@@ -48,7 +48,7 @@ export class AlterDomainSetDefault extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -70,7 +70,7 @@ export class AlterDomainDropDefault extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -92,7 +92,7 @@ export class AlterDomainSetNotNull extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -114,7 +114,7 @@ export class AlterDomainDropNotNull extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -136,7 +136,7 @@ export class AlterDomainChangeOwner extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {
@@ -224,7 +224,7 @@ export class AlterDomainValidateConstraint extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.domain.stableId}`];
+    return [this.domain.stableId];
   }
 
   serialize(): string {

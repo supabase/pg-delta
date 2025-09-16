@@ -23,7 +23,7 @@ export class CreateLanguage extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.language.stableId}`];
+    return [this.language.stableId];
   }
 
   serialize(): string {

@@ -69,7 +69,7 @@ export class AlterSequenceSetOptions extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   private computeDefaultMax(type: string): bigint {
@@ -144,7 +144,7 @@ export class ReplaceSequence extends ReplaceChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`];
+    return [this.main.stableId];
   }
 
   serialize(): string {

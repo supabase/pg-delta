@@ -20,7 +20,7 @@ export class DropCollation extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.collation.stableId}`];
+    return [this.collation.stableId];
   }
 
   serialize(): string {

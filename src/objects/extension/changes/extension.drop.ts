@@ -20,7 +20,7 @@ export class DropExtension extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.extension.stableId}`];
+    return [this.extension.stableId];
   }
 
   serialize(): string {

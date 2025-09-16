@@ -25,7 +25,7 @@ export class CreateRlsPolicy extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.rlsPolicy.stableId}`];
+    return [this.rlsPolicy.stableId];
   }
 
   serialize(): string {

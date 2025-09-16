@@ -43,7 +43,7 @@ export class CreateTrigger extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.trigger.stableId}`];
+    return [this.trigger.stableId];
   }
 
   serialize(): string {

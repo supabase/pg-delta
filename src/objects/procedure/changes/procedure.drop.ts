@@ -22,7 +22,7 @@ export class DropProcedure extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.procedure.stableId}`];
+    return [this.procedure.stableId];
   }
 
   serialize(): string {

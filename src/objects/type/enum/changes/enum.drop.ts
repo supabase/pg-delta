@@ -20,7 +20,7 @@ export class DropEnum extends DropChange {
   }
 
   get dependencies() {
-    return [`${this.enum.stableId}`];
+    return [this.enum.stableId];
   }
 
   serialize(): string {

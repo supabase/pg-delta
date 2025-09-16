@@ -20,7 +20,7 @@ export class CreateEnum extends CreateChange {
   }
 
   get dependencies() {
-    return [`${this.enum.stableId}`];
+    return [this.enum.stableId];
   }
 
   serialize(): string {
