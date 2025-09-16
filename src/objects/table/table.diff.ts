@@ -109,8 +109,7 @@ function createAlterConstraintChange(
       mainC.on_update !== branchC.on_update ||
       mainC.on_delete !== branchC.on_delete ||
       mainC.match_type !== branchC.match_type ||
-      mainC.check_expression !== branchC.check_expression ||
-      mainC.owner !== branchC.owner;
+      mainC.check_expression !== branchC.check_expression;
     if (changed) {
       changes.push(
         new AlterTableDropConstraint({

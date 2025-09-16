@@ -327,12 +327,36 @@ export class AlterTableAddConstraint extends AlterChange {
     // If the constraint is a foreign key constraint, use the foreign key table as the dependency
     // so the dependency resolution can ensure the foreign key table is created before the constraint is added
     const baseDependencies = [
-      // TODO: the dependencies should include both the table.stableId AND the constraint name
-      // `constraint:${this.table.schema}.${this.table.name}.${this.constraint.name}`,
+      `constraint:${this.table.schema}.${this.table.name}.${this.constraint.name}`,
       `${this.table.stableId}`,
     ];
+
     if (this.foreignKeyTable) {
-      return [`${this.foreignKeyTable.stableId}`, ...baseDependencies];
+      const foreignKeyDependencies = [`${this.foreignKeyTable.stableId}`];
+
+      // For foreign key constraints, also add dependency on the referenced unique/primary key constraint
+      if (this.constraint.constraint_type === "f") {
+        // Find the referenced constraint by looking for primary key or unique constraint
+        // on the same columns that this foreign key references
+        const referencedColumns = this.constraint.foreign_key_columns;
+        if (referencedColumns && referencedColumns.length > 0) {
+          // For now, we'll assume the referenced constraint follows the naming convention
+          // This is a heuristic - ideally we'd look it up from the catalog
+          const referencedConstraints = this.foreignKeyTable.constraints.filter(
+            (c) =>
+              (c.constraint_type === "p" || c.constraint_type === "u") &&
+              c.key_columns.length === referencedColumns.length &&
+              c.key_columns.every((col, idx) => col === referencedColumns[idx]),
+          );
+
+          for (const refConstraint of referencedConstraints) {
+            const constraintDep = `constraint:${this.foreignKeyTable.schema}.${this.foreignKeyTable.name}.${refConstraint.name}`;
+            foreignKeyDependencies.push(constraintDep);
+          }
+        }
+      }
+
+      return [...foreignKeyDependencies, ...baseDependencies];
     }
     return baseDependencies;
   }

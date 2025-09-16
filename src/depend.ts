@@ -100,6 +100,256 @@ async function extractViewAndMaterializedViewsDepends(
 }
 
 /**
+ * Extract ownership dependencies between all database objects and their owner roles.
+ * These dependencies ensure that roles are created before objects that depend on them,
+ * and objects are dropped before their owner roles.
+ */
+async function extractOwnershipDepends(sql: Sql): Promise<PgDepend[]> {
+  const ownershipRows = await sql<PgDepend[]>`
+-- OWNERSHIP DEPENDENCIES: All objects depend on their owner roles
+
+-- Schema ownership dependencies
+SELECT DISTINCT
+  'schema:' || quote_ident(n.nspname) as dependent_stable_id,
+  'role:' || n.nspowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_namespace n
+WHERE NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Table ownership dependencies  
+SELECT DISTINCT
+  'table:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) as dependent_stable_id,
+  'role:' || c.relowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_class c
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE c.relkind IN ('r', 'p')
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- View ownership dependencies
+SELECT DISTINCT
+  'view:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) as dependent_stable_id,
+  'role:' || c.relowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_class c
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE c.relkind = 'v'
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Materialized view ownership dependencies
+SELECT DISTINCT
+  'materializedView:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) as dependent_stable_id,
+  'role:' || c.relowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_class c
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE c.relkind = 'm'
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Sequence ownership dependencies
+SELECT DISTINCT
+  'sequence:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) as dependent_stable_id,
+  'role:' || c.relowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_class c
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE c.relkind = 'S'
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Composite type ownership dependencies
+SELECT DISTINCT
+  'compositeType:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) as dependent_stable_id,
+  'role:' || c.relowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_class c
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE c.relkind = 'c'
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Function/procedure ownership dependencies
+SELECT DISTINCT
+  'procedure:' || quote_ident(n.nspname) || '.' || quote_ident(p.proname) || '('
+    || COALESCE(
+      (
+        SELECT string_agg(format_type(oid, null), ',' ORDER BY ord)
+        FROM unnest(p.proargtypes) WITH ORDINALITY AS t(oid, ord)
+      ),
+      ''
+    )
+    || ')' as dependent_stable_id,
+  'role:' || p.proowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_proc p
+JOIN pg_namespace n ON p.pronamespace = n.oid
+WHERE NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Domain ownership dependencies
+SELECT DISTINCT
+  'domain:' || quote_ident(n.nspname) || '.' || quote_ident(t.typname) as dependent_stable_id,
+  'role:' || t.typowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_type t
+JOIN pg_namespace n ON t.typnamespace = n.oid
+WHERE t.typtype = 'd'
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Enum ownership dependencies
+SELECT DISTINCT
+  'enum:' || quote_ident(n.nspname) || '.' || quote_ident(t.typname) as dependent_stable_id,
+  'role:' || t.typowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_type t
+JOIN pg_namespace n ON t.typnamespace = n.oid
+WHERE t.typtype = 'e'
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Range type ownership dependencies
+SELECT DISTINCT
+  'range:' || quote_ident(n.nspname) || '.' || quote_ident(t.typname) as dependent_stable_id,
+  'role:' || t.typowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_type t
+JOIN pg_namespace n ON t.typnamespace = n.oid
+WHERE t.typtype = 'r'
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Multirange type ownership dependencies
+SELECT DISTINCT
+  'multirange:' || quote_ident(n.nspname) || '.' || quote_ident(t.typname) as dependent_stable_id,
+  'role:' || t.typowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_type t
+JOIN pg_namespace n ON t.typnamespace = n.oid
+WHERE t.typtype = 'm'
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Base type ownership dependencies
+SELECT DISTINCT
+  'type:' || quote_ident(n.nspname) || '.' || quote_ident(t.typname) as dependent_stable_id,
+  'role:' || t.typowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_type t
+JOIN pg_namespace n ON t.typnamespace = n.oid
+WHERE t.typtype = 'b'
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Trigger ownership dependencies (triggers inherit owner from their table)
+SELECT DISTINCT
+  'trigger:' || quote_ident(tn.nspname) || '.' || quote_ident(tc.relname) || '.' || quote_ident(tg.tgname) as dependent_stable_id,
+  'role:' || tc.relowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_trigger tg
+JOIN pg_class tc ON tg.tgrelid = tc.oid
+JOIN pg_namespace tn ON tc.relnamespace = tn.oid
+WHERE NOT tn.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+  AND NOT tg.tgisinternal
+
+UNION ALL
+
+-- RLS Policy ownership dependencies (policies inherit owner from their table)
+SELECT DISTINCT
+  'rlsPolicy:' || quote_ident(tn.nspname) || '.' || quote_ident(tc.relname) || '.' || quote_ident(pol.polname) as dependent_stable_id,
+  'role:' || tc.relowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_policy pol
+JOIN pg_class tc ON pol.polrelid = tc.oid
+JOIN pg_namespace tn ON tc.relnamespace = tn.oid
+WHERE NOT tn.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Language ownership dependencies
+SELECT DISTINCT
+  'language:' || quote_ident(l.lanname) as dependent_stable_id,
+  'role:' || l.lanowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_language l
+WHERE l.lanname NOT IN ('internal', 'c', 'sql')
+
+UNION ALL
+
+-- Extension ownership dependencies
+SELECT DISTINCT
+  'extension:' || quote_ident(e.extname) as dependent_stable_id,
+  'role:' || e.extowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_extension e
+WHERE e.extname <> 'plpgsql'  -- Exclude default extensions
+
+UNION ALL
+
+-- Collation ownership dependencies
+SELECT DISTINCT
+  'collation:' || quote_ident(n.nspname) || '.' || quote_ident(c.collname) as dependent_stable_id,
+  'role:' || c.collowner::regrole::text as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_collation c
+JOIN pg_namespace n ON c.collnamespace = n.oid
+WHERE NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+  `;
+
+  return ownershipRows;
+}
+
+/**
+ * Extract constraint-to-constraint dependencies between foreign key constraints
+ * and their referenced unique/primary key constraints.
+ */
+async function extractConstraintDepends(sql: Sql): Promise<PgDepend[]> {
+  const constraintRows = await sql<PgDepend[]>`
+-- CONSTRAINT-TO-CONSTRAINT DEPENDENCIES: Foreign key constraints depend on their referenced unique/primary key constraints
+
+-- Foreign key constraint dependencies on referenced unique/primary key constraints
+SELECT DISTINCT
+  'constraint:' || quote_ident(fk_ns.nspname) || '.' || quote_ident(fk_table.relname) || '.' || quote_ident(fk_con.conname) as dependent_stable_id,
+  'constraint:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_table.relname) || '.' || quote_ident(ref_con.conname) as referenced_stable_id,
+  'n'::char as deptype
+FROM pg_constraint fk_con
+-- Foreign key constraint table and schema
+JOIN pg_class fk_table ON fk_con.conrelid = fk_table.oid
+JOIN pg_namespace fk_ns ON fk_table.relnamespace = fk_ns.oid
+-- Referenced table and schema
+JOIN pg_class ref_table ON fk_con.confrelid = ref_table.oid
+JOIN pg_namespace ref_ns ON ref_table.relnamespace = ref_ns.oid
+-- Find the referenced unique/primary key constraint
+JOIN pg_constraint ref_con ON (
+  ref_con.conrelid = fk_con.confrelid  -- Same referenced table
+  AND ref_con.contype IN ('p', 'u')    -- Primary key or unique constraint
+  AND ref_con.conkey = fk_con.confkey   -- Same columns
+)
+WHERE fk_con.contype = 'f'  -- Only foreign key constraints
+  AND NOT fk_ns.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+  AND NOT ref_ns.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+  `;
+
+  return constraintRows;
+}
+
+/**
  * Extract dependencies where tables depend on functions, either via
  * column defaults (pg_attrdef) or table constraints (pg_constraint).
  */
@@ -543,18 +793,26 @@ order by
 -- In some corner case (composite type) we can have the same stable ids in the case where an internal object depends on it's parent type
 -- eg: compositeType contains internal columns but we don't distinct them from the parent type itself in our stable ids
 where dependent_stable_id != referenced_stable_id
+
+
   `;
 
   // Also extract view dependencies from pg_rewrite
   const viewDepends = await extractViewAndMaterializedViewsDepends(sql);
   // Also extract table -> function dependencies (defaults/constraints)
   const tableFuncDepends = await extractTableAndConstraintFunctionDepends(sql);
+  // Extract ownership dependencies (all objects depend on their owner roles)
+  const ownershipDepends = await extractOwnershipDepends(sql);
+  // Extract constraint-to-constraint dependencies (foreign key -> unique/primary key)
+  const constraintDepends = await extractConstraintDepends(sql);
 
-  // Combine both dependency sources and remove duplicates
+  // Combine all dependency sources and remove duplicates
   const allDepends = new Set([
     ...dependsRows,
     ...viewDepends,
     ...tableFuncDepends,
+    ...ownershipDepends,
+    ...constraintDepends,
   ]);
 
   return Array.from(allDepends).sort(
