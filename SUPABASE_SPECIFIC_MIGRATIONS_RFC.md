@@ -501,3 +501,149 @@ We'll know we've succeeded when:
 3. **Safe**: Migrations are reversible and don't break existing functionality
 4. **Fast**: Large databases migrate in reasonable timeframes
 5. **Reliable**: Migrations succeed consistently across different Supabase configurations
+
+## Technical implementation and E2E tests in this repository
+
+This ties the RFC to the existing `pg-diff` architecture and describes concrete engine additions and end-to-end tests using our current harness.
+
+### Reusing the current engine
+
+- Use `src/main.ts` as the entrypoint (already extracts both catalogs, diffs, resolves dependencies, and serializes a migration script).
+
+```48:80:/Users/avallete/Programming/Supa/pg-diff/src/main.ts
+export async function main(mainDatabaseUrl: string, branchDatabaseUrl: string) {
+  const mainSql = postgres(mainDatabaseUrl, postgresConfig);
+  const branchSql = postgres(branchDatabaseUrl, postgresConfig);
+
+  const [mainCatalog, branchCatalog] = await Promise.all([
+    extractCatalog(mainSql),
+    extractCatalog(branchSql),
+  ]);
+
+  await Promise.all([mainSql.end(), branchSql.end()]);
+
+  const changes = diffCatalogs(mainCatalog, branchCatalog);
+
+  // Order the changes to satisfy dependencies constraints between objects
+  const sortedChanges = resolveDependencies(
+    changes,
+    mainCatalog,
+    branchCatalog,
+  );
+
+  if (sortedChanges.isErr()) {
+    throw sortedChanges.error;
+  }
+
+  const migrationScript = sortedChanges.value
+    .map((change) => change.serialize())
+    .join("\n\n");
+
+  console.log(migrationScript);
+
+  return migrationScript;
+}
+```
+
+- Extensions are already modeled and diffed (`src/objects/extension/*`). Add a small classifier layer (core/optional/system) to influence output filtering/ordering without changing the extractor.
+
+```76:98:/Users/avallete/Programming/Supa/pg-diff/src/objects/extension/extension.model.ts
+export async function extractExtensions(sql: Sql): Promise<Extension[]> {
+  return sql.begin(async (sql) => {
+    await sql`set search_path = ''`;
+    const extensionRows = await sql`
+select
+  quote_ident(extname) as name,
+  extnamespace::regnamespace::text as schema,
+  extrelocatable as relocatable,
+  extversion as version,
+  extowner::regrole::text as owner,
+  obj_description(e.oid, 'pg_extension') as comment
+from
+  pg_catalog.pg_extension e
+order by
+  1;
+  `;
+    const validatedRows = extensionRows.map((row: unknown) =>
+      extensionPropsSchema.parse(row),
+    );
+    return validatedRows.map((row: ExtensionProps) => new Extension(row));
+  });
+}
+```
+
+### Minimal new objects/handlers
+
+- Publications: add `src/objects/publication/` with extractor from `pg_publication` and `pg_publication_tables`, diff to create/drop publications and reattach member tables. Always skip `supabase_realtime` by default.
+- pg_cron: add a light handler that reads `cron.job` and emits `SELECT cron.schedule(name, schedule, command)` statements. Order after function creation. Only active when `pg_cron` is installed.
+- pgmq: detect queues (via catalog or `pgmq.list_queues()`), emit `SELECT pgmq.create('queue')`. Gate message copy behind an engine flag (default off) surfaced by the CLI.
+- Vector: ensure index definitions for `vector` operator classes are preserved via the existing index model. Large data copy remains a CLI concern.
+- Reserved roles and internal schemas: introduce a shared `filters.ts` consulted by extractors and the serializer to exclude internal schemas and reserved roles.
+
+### Engine flags (passed by the CLI)
+
+- `includePgmqMessages` (default false)
+- `includeVectorData` (default false)
+- `includeStorageObjects` (default false)
+
+These flags only affect data-copy helpers; the diff/DDL remains deterministic and idempotent.
+
+### E2E testing strategy (Vitest + Testcontainers)
+
+- Use `tests/utils.ts#getTestWithSupabaseIsolated` to spin up two isolated `supabase/postgres` containers per test (source/target). This is already implemented and returns `db.main` and `db.branch` connections.
+
+```58:81:/Users/avallete/Programming/Supa/pg-diff/tests/utils.ts
+export function getTestWithSupabaseIsolated(postgresVersion: PostgresVersion) {
+  return baseTest.extend<{
+    db: { main: postgres.Sql; branch: postgres.Sql };
+  }>({
+    db: async ({}, use) => {
+      const image = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[postgresVersion]}`;
+      const [containerMain, containerBranch] = await Promise.all([
+        new SupabasePostgreSqlContainer(image).start(),
+        new SupabasePostgreSqlContainer(image).start(),
+      ]);
+      const main = postgres(containerMain.getConnectionUri(), postgresConfig);
+      const branch = postgres(
+        containerBranch.getConnectionUri(),
+        postgresConfig,
+      );
+
+      await use({ main, branch });
+
+      await Promise.all([main.end(), branch.end()]);
+      await Promise.all([containerMain.stop(), containerBranch.stop()]);
+    },
+  });
+}
+```
+
+- For heavy scenarios, rely on container `snapshot()`/`restoreSnapshot()` to avoid reseeding (available on both Alpine and Supabase containers in `tests/postgres-alpine.ts` and `tests/supabase-postgres.ts`).
+
+- Test flow per case:
+  1. Seed features on `db.main` (functions, policies, publications, cron jobs, queues, vector indexes, etc.).
+  2. Generate script with `src/main.ts#main(mainUrl, branchUrl)`.
+  3. Apply the script to `db.branch`.
+  4. Assert post-conditions using the SQL from each Issue’s "E2E Test" subsection in this RFC.
+
+### Proposed test file and mapping
+
+- New file: `tests/integration/supabase_migration.integration.test.ts`.
+- Cover, at minimum:
+  - Extensions parity (Issue #1)
+  - pg_cron jobs recreated (Issue #2)
+  - pgmq queues recreated; optional message copy respected (Issue #3)
+  - Auth custom triggers/RLS preserved without altering core tables (Issue #4)
+  - Storage buckets metadata and policies (Issue #5)
+  - Publications except `supabase_realtime` (Issue #6)
+  - Vector indexes (and optional data when flag on) (Issue #7)
+  - Migration history tables handled by the CLI step (Issue #8)
+  - pgsodium keys: engine blocks and emits a clear error if keys are missing (Issue #9)
+  - Reserved roles are never emitted (Issue #10)
+
+### Idempotency and safety checks
+
+- Assert that re-running the generated script yields no further changes (empty diff).
+- Add rollback smoke tests for DDL-only segments where safe (e.g., drop publication then re-apply).
+
+This plan keeps core logic inside the existing diff/dependency engine, adds small Supabase-specific object handlers, and validates behavior end-to-end on real `supabase/postgres` images we already orchestrate in tests.
