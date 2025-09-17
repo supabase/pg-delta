@@ -238,6 +238,27 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
       });
     });
+
+    test("view with options", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.users (
+            id integer,
+            name text
+          );
+          CREATE VIEW test_schema.alter_options WITH (security_barrier = TRUE) AS SELECT id, name FROM test_schema.users;
+          CREATE VIEW test_schema.reset_options WITH (security_invoker = TRUE) AS SELECT id, name FROM test_schema.users;
+        `,
+        testSql: `
+          ALTER VIEW test_schema.alter_options SET (security_invoker = TRUE, security_barrier = FALSE);
+          CREATE VIEW test_schema.create_with_options WITH (security_invoker = TRUE) AS SELECT id, name FROM test_schema.users;
+          ALTER VIEW test_schema.reset_options RESET (security_invoker);
+          `,
+      });
+    });
   });
 }
 // CASCADE operations are intentionally not supported as dependency resolution
