@@ -6,7 +6,7 @@
 Add comprehensive test coverage for PostgreSQL privileges and grants (`GRANT`/`REVOKE` operations). Database security and permissions are critical but currently lack test coverage in pg-diff.
 
 ## Reference
-- **Migra fixture**: [`tests/FIXTURES/privileges/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/privileges)
+- **Migra fixture**: [`tests/FIXTURES/privileges/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/privileges)
 - **Migra test examples**: [a.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/privileges/a.sql), [expected.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/privileges/expected.sql)
 
 ## Missing Test Scenarios

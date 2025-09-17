@@ -6,7 +6,7 @@
 Add comprehensive test coverage for PostgreSQL generated columns (`GENERATED ALWAYS AS (...) STORED`). These computed columns are commonly used for derived values but currently lack test coverage in pg-diff.
 
 ## Reference
-- **Migra fixture**: [`tests/FIXTURES/generated/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/generated)
+- **Migra fixture**: [`tests/FIXTURES/generated/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/generated)
 - **Migra test examples**: [a.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/generated/a.sql), [b.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/generated/b.sql), [expected.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/generated/expected.sql)
 
 ## Missing Test Scenarios

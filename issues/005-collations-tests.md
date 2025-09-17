@@ -6,7 +6,7 @@
 Add comprehensive test coverage for PostgreSQL collations. Collations are important for internationalization and text sorting but currently lack test coverage in pg-diff.
 
 ## Reference
-- **Migra fixture**: [`tests/FIXTURES/collations/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/collations)
+- **Migra fixture**: [`tests/FIXTURES/collations/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/collations)
 - **Migra test examples**: [a.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/collations/a.sql), [b.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/collations/b.sql), [expected.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/collations/expected.sql)
 
 ## Missing Test Scenarios

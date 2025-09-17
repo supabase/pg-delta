@@ -7,8 +7,8 @@ Add comprehensive test coverage for PostgreSQL extension management including ve
 
 ## Reference
 - **Migra fixtures**: 
-  - [`tests/FIXTURES/singleschema_ext/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/singleschema_ext)
-  - [`tests/FIXTURES/extversions/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/extversions)
+  - [`tests/FIXTURES/singleschema_ext/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/singleschema_ext)
+  - [`tests/FIXTURES/extversions/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/extversions)
 - **Migra test examples**: [extversions/a.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/extversions/a.sql), [extversions/expected.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/extversions/expected.sql)
 
 ## Missing Test Scenarios

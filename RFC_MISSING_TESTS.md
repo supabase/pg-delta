@@ -22,7 +22,7 @@ Our integration tests cover the basics well but miss several advanced scenarios 
 ### 1. **Collations Support**
 **Status**: ❌ **Missing**
 **Priority**: Medium
-**Migra Reference**: [`tests/FIXTURES/collations/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/collations)
+**Migra Reference**: [`tests/FIXTURES/collations/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/collations)
 
 **Missing Scenarios**:
 - Creating/dropping collations
@@ -56,7 +56,7 @@ Our integration tests cover the basics well but miss several advanced scenarios 
 ### 2. **Identity Columns (GENERATED ... AS IDENTITY)**
 **Status**: ❌ **Missing** 
 **Priority**: High
-**Migra Reference**: [`tests/FIXTURES/identitycols/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/identitycols)
+**Migra Reference**: [`tests/FIXTURES/identitycols/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/identitycols)
 
 **Missing Scenarios**:
 - `GENERATED ALWAYS AS IDENTITY` columns
@@ -101,7 +101,7 @@ Our integration tests cover the basics well but miss several advanced scenarios 
 ### 3. **Generated Columns (STORED)**
 **Status**: ❌ **Missing**
 **Priority**: High  
-**Migra Reference**: [`tests/FIXTURES/generated/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/generated)
+**Migra Reference**: [`tests/FIXTURES/generated/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/generated)
 
 **Missing Scenarios**:
 - `GENERATED ALWAYS AS (...) STORED` columns
@@ -140,7 +140,7 @@ Our integration tests cover the basics well but miss several advanced scenarios 
 ### 4. **Table Inheritance**
 **Status**: ❌ **Missing**
 **Priority**: Medium
-**Migra Reference**: [`tests/FIXTURES/inherit/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/inherit), [`tests/FIXTURES/inherit2/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/inherit2)
+**Migra Reference**: [`tests/FIXTURES/inherit/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/inherit), [`tests/FIXTURES/inherit2/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/inherit2)
 
 **Missing Scenarios**:
 - Table inheritance with `INHERITS`
@@ -164,7 +164,7 @@ Our integration tests cover the basics well but miss several advanced scenarios 
 ### 5. **Extension Management**
 **Status**: ⚠️ **Partial** 
 **Priority**: Medium
-**Migra Reference**: [`tests/FIXTURES/singleschema_ext/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/singleschema_ext), [`tests/FIXTURES/extversions/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/extversions)
+**Migra Reference**: [`tests/FIXTURES/singleschema_ext/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/singleschema_ext), [`tests/FIXTURES/extversions/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/extversions)
 
 **Missing Scenarios**:
 - Extension version changes
@@ -186,7 +186,7 @@ Our integration tests cover the basics well but miss several advanced scenarios 
 ### 6. **Privileges and Grants**
 **Status**: ❌ **Missing**
 **Priority**: High
-**Migra Reference**: [`tests/FIXTURES/privileges/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/privileges)
+**Migra Reference**: [`tests/FIXTURES/privileges/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/privileges)
 
 **Missing Scenarios**:
 - Table/view/function privileges
@@ -221,7 +221,7 @@ Our integration tests cover the basics well but miss several advanced scenarios 
 ### 7. **Schema Filtering**
 **Status**: ❌ **Missing**
 **Priority**: Medium
-**Migra Reference**: [`tests/FIXTURES/singleschema/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/singleschema), [`tests/FIXTURES/excludeschema/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/excludeschema)
+**Migra Reference**: [`tests/FIXTURES/singleschema/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/singleschema), [`tests/FIXTURES/excludeschema/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/excludeschema)
 
 **Missing Scenarios**:
 - Single schema operations
@@ -244,7 +244,7 @@ Our integration tests cover the basics well but miss several advanced scenarios 
 ### 8. **Enum Type Edge Cases**
 **Status**: ⚠️ **Partial**
 **Priority**: High
-**Migra Reference**: [`tests/FIXTURES/enumdefaults/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/enumdefaults), [`tests/FIXTURES/enumdeps/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/enumdeps)
+**Migra Reference**: [`tests/FIXTURES/enumdefaults/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/enumdefaults), [`tests/FIXTURES/enumdeps/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/enumdeps)
 
 **Missing Scenarios**:
 - Enum values with defaults
@@ -292,7 +292,7 @@ Our integration tests cover the basics well but miss several advanced scenarios 
 ### 9. **Complex Dependency Scenarios**
 **Status**: ⚠️ **Partial**
 **Priority**: High
-**Migra Reference**: [`tests/FIXTURES/dependencies/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/dependencies), [`tests/FIXTURES/dependencies2/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/dependencies2), [`tests/FIXTURES/dependencies3/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/dependencies3), [`tests/FIXTURES/dependencies4/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/dependencies4)
+**Migra Reference**: [`tests/FIXTURES/dependencies/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/dependencies), [`tests/FIXTURES/dependencies2/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/dependencies2), [`tests/FIXTURES/dependencies3/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/dependencies3), [`tests/FIXTURES/dependencies4/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/dependencies4)
 
 **Missing Scenarios**:
 - Multiple dependency chain scenarios
@@ -306,7 +306,7 @@ Our integration tests cover the basics well but miss several advanced scenarios 
 ### 10. **Comprehensive Integration Test**
 **Status**: ❌ **Missing**
 **Priority**: Medium
-**Migra Reference**: [`tests/FIXTURES/everything/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/everything)
+**Migra Reference**: [`tests/FIXTURES/everything/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/everything)
 
 **Missing Scenarios**:
 - All-in-one comprehensive schema changes

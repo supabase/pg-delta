@@ -7,8 +7,8 @@ Extend existing enum type test coverage to handle complex edge cases including e
 
 ## Reference
 - **Migra fixtures**: 
-  - [`tests/FIXTURES/enumdefaults/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/enumdefaults)
-  - [`tests/FIXTURES/enumdeps/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/enumdeps)
+  - [`tests/FIXTURES/enumdefaults/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/enumdefaults)
+  - [`tests/FIXTURES/enumdeps/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/enumdeps)
 - **Migra test examples**: [enumdefaults/a.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/enumdefaults/a.sql), [enumdefaults/expected.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/enumdefaults/expected.sql)
 
 ## Missing Test Scenarios

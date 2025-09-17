@@ -7,8 +7,8 @@ Add comprehensive test coverage for PostgreSQL table inheritance using the `INHE
 
 ## Reference
 - **Migra fixtures**: 
-  - [`tests/FIXTURES/inherit/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/inherit)
-  - [`tests/FIXTURES/inherit2/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/inherit2)
+  - [`tests/FIXTURES/inherit/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/inherit)
+  - [`tests/FIXTURES/inherit2/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/inherit2)
 - **Migra test examples**: [inherit/a.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/inherit/a.sql), [inherit/expected.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/inherit/expected.sql)
 
 ## Missing Test Scenarios

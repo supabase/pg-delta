@@ -6,7 +6,7 @@
 Add a comprehensive integration test that combines multiple PostgreSQL object types and operations in a single complex scenario. This mirrors migra's "everything" fixture and serves as a regression test for real-world complexity.
 
 ## Reference
-- **Migra fixture**: [`tests/FIXTURES/everything/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/everything)
+- **Migra fixture**: [`tests/FIXTURES/everything/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/everything)
 - **Migra test examples**: [everything/a.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/everything/a.sql), [everything/b.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/everything/b.sql), [everything/expected.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/everything/expected.sql)
 
 ## Test Scenario Overview

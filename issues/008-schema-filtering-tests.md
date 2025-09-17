@@ -7,8 +7,8 @@ Add comprehensive test coverage for schema filtering operations including single
 
 ## Reference
 - **Migra fixtures**: 
-  - [`tests/FIXTURES/singleschema/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/singleschema)
-  - [`tests/FIXTURES/excludeschema/`](https://github.com/djrobstep/migra/tree/main/tests/FIXTURES/excludeschema)
+  - [`tests/FIXTURES/singleschema/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/singleschema)
+  - [`tests/FIXTURES/excludeschema/`](https://github.com/djrobstep/migra/tree/master/tests/FIXTURES/excludeschema)
 - **Migra test examples**: [singleschema/a.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/singleschema/a.sql), [excludeschema/expected.sql](https://github.com/djrobstep/migra/blob/main/tests/FIXTURES/excludeschema/expected.sql)
 
 ## Missing Test Scenarios
