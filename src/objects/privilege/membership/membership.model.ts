@@ -11,7 +11,7 @@ const membershipPropsSchema = z.object({
   set_option: z.boolean().optional(),
 });
 
-export type MembershipProps = z.infer<typeof membershipPropsSchema>;
+type MembershipProps = z.infer<typeof membershipPropsSchema>;
 
 export class RoleMembership extends BasePgModel {
   public readonly role: MembershipProps["role"];

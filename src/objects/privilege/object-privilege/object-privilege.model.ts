@@ -23,7 +23,7 @@ const objectPrivilegeRowSchema = z.object({
   is_grantable: z.boolean(),
 });
 
-export type ObjectPrivilegeRow = z.infer<typeof objectPrivilegeRowSchema>;
+type ObjectPrivilegeRow = z.infer<typeof objectPrivilegeRowSchema>;
 
 const objectPrivilegeSetSchema = z.object({
   target_kind: objectPrivilegeRowSchema.shape.target_kind,
@@ -37,7 +37,7 @@ const objectPrivilegeSetSchema = z.object({
   ),
 });
 
-export type ObjectPrivilegeSetProps = z.infer<typeof objectPrivilegeSetSchema>;
+type ObjectPrivilegeSetProps = z.infer<typeof objectPrivilegeSetSchema>;
 
 export class ObjectPrivilegeSet extends BasePgModel {
   public readonly target_kind: ObjectPrivilegeSetProps["target_kind"];

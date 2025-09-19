@@ -11,7 +11,7 @@ const defaultPrivilegeRowSchema = z.object({
   is_grantable: z.boolean(),
 });
 
-export type DefaultPrivilegeRow = z.infer<typeof defaultPrivilegeRowSchema>;
+type DefaultPrivilegeRow = z.infer<typeof defaultPrivilegeRowSchema>;
 
 const defaultPrivilegeSetSchema = z.object({
   grantor: z.string(),
@@ -23,7 +23,7 @@ const defaultPrivilegeSetSchema = z.object({
   ),
 });
 
-export type DefaultPrivilegeSetProps = z.infer<
+type DefaultPrivilegeSetProps = z.infer<
   typeof defaultPrivilegeSetSchema
 >;
 

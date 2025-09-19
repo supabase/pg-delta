@@ -11,7 +11,7 @@ const columnPrivilegeRowSchema = z.object({
   is_grantable: z.boolean(),
 });
 
-export type ColumnPrivilegeRow = z.infer<typeof columnPrivilegeRowSchema>;
+type ColumnPrivilegeRow = z.infer<typeof columnPrivilegeRowSchema>;
 
 const columnPrivilegeSetSchema = z.object({
   schema: z.string(),
@@ -27,7 +27,7 @@ const columnPrivilegeSetSchema = z.object({
   ),
 });
 
-export type ColumnPrivilegeSetProps = z.infer<typeof columnPrivilegeSetSchema>;
+type ColumnPrivilegeSetProps = z.infer<typeof columnPrivilegeSetSchema>;
 
 export class ColumnPrivilegeSet extends BasePgModel {
   public readonly schema: ColumnPrivilegeSetProps["schema"];
