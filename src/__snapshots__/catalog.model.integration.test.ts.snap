@@ -19,6 +19,42 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
   "procedures": {},
   "indexes": {},
   "materializedViews": {},
+  "objectPrivileges": {
+    "acl:schema:public::grantee:PUBLIC": {
+      "target_kind": "SCHEMA",
+      "schema": null,
+      "name": "public",
+      "arg_types": null,
+      "target_stable_id": "schema:public",
+      "grantee": "PUBLIC",
+      "privileges": [
+        {
+          "privilege": "USAGE",
+          "grantable": false
+        }
+      ]
+    },
+    "acl:schema:public::grantee:pg_database_owner": {
+      "target_kind": "SCHEMA",
+      "schema": null,
+      "name": "public",
+      "arg_types": null,
+      "target_stable_id": "schema:public",
+      "grantee": "pg_database_owner",
+      "privileges": [
+        {
+          "privilege": "CREATE",
+          "grantable": false
+        },
+        {
+          "privilege": "USAGE",
+          "grantable": false
+        }
+      ]
+    }
+  },
+  "columnPrivileges": {},
+  "defaultPrivileges": {},
   "rlsPolicies": {},
   "roles": {
     "role:pg_checkpoint": {
@@ -74,6 +110,26 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "comment": null
     }
   },
+  "roleMemberships": {
+    "membership:pg_read_all_settings->pg_monitor": {
+      "role": "pg_read_all_settings",
+      "member": "pg_monitor",
+      "grantor": "postgres",
+      "admin_option": false
+    },
+    "membership:pg_read_all_stats->pg_monitor": {
+      "role": "pg_read_all_stats",
+      "member": "pg_monitor",
+      "grantor": "postgres",
+      "admin_option": false
+    },
+    "membership:pg_stat_scan_tables->pg_monitor": {
+      "role": "pg_stat_scan_tables",
+      "member": "pg_monitor",
+      "grantor": "postgres",
+      "admin_option": false
+    }
+  },
   "schemas": {
     "schema:public": {
       "schema": "public",
@@ -87,6 +143,26 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
   "ranges": {},
   "views": {},
   "depends": [
+    {
+      "dependent_stable_id": "acl:schema:public::grantee:pg_database_owner",
+      "referenced_stable_id": "role:pg_database_owner",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "acl:schema:public::grantee:pg_database_owner",
+      "referenced_stable_id": "schema:public",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "acl:schema:public::grantee:PUBLIC",
+      "referenced_stable_id": "role:PUBLIC",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "acl:schema:public::grantee:PUBLIC",
+      "referenced_stable_id": "schema:public",
+      "deptype": "n"
+    },
     {
       "dependent_stable_id": "comment:plpgsql",
       "referenced_stable_id": "extension:plpgsql",
@@ -895,6 +971,36 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     {
       "dependent_stable_id": "language:plpgsql",
       "referenced_stable_id": "role:postgres",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_read_all_settings->pg_monitor",
+      "referenced_stable_id": "role:pg_monitor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_read_all_settings->pg_monitor",
+      "referenced_stable_id": "role:pg_read_all_settings",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_read_all_stats->pg_monitor",
+      "referenced_stable_id": "role:pg_monitor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_read_all_stats->pg_monitor",
+      "referenced_stable_id": "role:pg_read_all_stats",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_stat_scan_tables->pg_monitor",
+      "referenced_stable_id": "role:pg_monitor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_stat_scan_tables->pg_monitor",
+      "referenced_stable_id": "role:pg_stat_scan_tables",
       "deptype": "n"
     },
     {
@@ -5847,6 +5953,42 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   "procedures": {},
   "indexes": {},
   "materializedViews": {},
+  "objectPrivileges": {
+    "acl:schema:public::grantee:PUBLIC": {
+      "target_kind": "SCHEMA",
+      "schema": null,
+      "name": "public",
+      "arg_types": null,
+      "target_stable_id": "schema:public",
+      "grantee": "PUBLIC",
+      "privileges": [
+        {
+          "privilege": "USAGE",
+          "grantable": false
+        }
+      ]
+    },
+    "acl:schema:public::grantee:pg_database_owner": {
+      "target_kind": "SCHEMA",
+      "schema": null,
+      "name": "public",
+      "arg_types": null,
+      "target_stable_id": "schema:public",
+      "grantee": "pg_database_owner",
+      "privileges": [
+        {
+          "privilege": "CREATE",
+          "grantable": false
+        },
+        {
+          "privilege": "USAGE",
+          "grantable": false
+        }
+      ]
+    }
+  },
+  "columnPrivileges": {},
+  "defaultPrivileges": {},
   "rlsPolicies": {},
   "roles": {
     "role:pg_checkpoint": {
@@ -5941,6 +6083,32 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "comment": null
     }
   },
+  "roleMemberships": {
+    "membership:pg_read_all_settings->pg_monitor": {
+      "role": "pg_read_all_settings",
+      "member": "pg_monitor",
+      "grantor": "postgres",
+      "admin_option": false,
+      "inherit_option": true,
+      "set_option": true
+    },
+    "membership:pg_read_all_stats->pg_monitor": {
+      "role": "pg_read_all_stats",
+      "member": "pg_monitor",
+      "grantor": "postgres",
+      "admin_option": false,
+      "inherit_option": true,
+      "set_option": true
+    },
+    "membership:pg_stat_scan_tables->pg_monitor": {
+      "role": "pg_stat_scan_tables",
+      "member": "pg_monitor",
+      "grantor": "postgres",
+      "admin_option": false,
+      "inherit_option": true,
+      "set_option": true
+    }
+  },
   "schemas": {
     "schema:public": {
       "schema": "public",
@@ -5954,6 +6122,26 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   "ranges": {},
   "views": {},
   "depends": [
+    {
+      "dependent_stable_id": "acl:schema:public::grantee:pg_database_owner",
+      "referenced_stable_id": "role:pg_database_owner",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "acl:schema:public::grantee:pg_database_owner",
+      "referenced_stable_id": "schema:public",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "acl:schema:public::grantee:PUBLIC",
+      "referenced_stable_id": "role:PUBLIC",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "acl:schema:public::grantee:PUBLIC",
+      "referenced_stable_id": "schema:public",
+      "deptype": "n"
+    },
     {
       "dependent_stable_id": "comment:plpgsql",
       "referenced_stable_id": "extension:plpgsql",
@@ -6777,6 +6965,36 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     {
       "dependent_stable_id": "language:plpgsql",
       "referenced_stable_id": "role:postgres",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_read_all_settings->pg_monitor",
+      "referenced_stable_id": "role:pg_monitor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_read_all_settings->pg_monitor",
+      "referenced_stable_id": "role:pg_read_all_settings",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_read_all_stats->pg_monitor",
+      "referenced_stable_id": "role:pg_monitor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_read_all_stats->pg_monitor",
+      "referenced_stable_id": "role:pg_read_all_stats",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_stat_scan_tables->pg_monitor",
+      "referenced_stable_id": "role:pg_monitor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_stat_scan_tables->pg_monitor",
+      "referenced_stable_id": "role:pg_stat_scan_tables",
       "deptype": "n"
     },
     {

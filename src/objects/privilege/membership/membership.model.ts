@@ -57,7 +57,27 @@ export async function extractRoleMemberships(
 ): Promise<RoleMembership[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
-    const rows = await sql`
+    const [capabilities] = await sql<
+      { has_inherit: boolean; has_set: boolean }[]
+    >`
+      select
+        exists (
+          select 1
+          from pg_attribute
+          where attrelid = 'pg_auth_members'::regclass
+            and attname = 'inherit_option'
+        ) as has_inherit,
+        exists (
+          select 1
+          from pg_attribute
+          where attrelid = 'pg_auth_members'::regclass
+            and attname = 'set_option'
+        ) as has_set
+    `;
+
+    const rows =
+      capabilities?.has_inherit && capabilities?.has_set
+        ? await sql`
 select
   r.rolname as role,
   m.rolname as member,
@@ -70,7 +90,21 @@ join pg_roles r on r.oid = am.roleid
 join pg_roles m on m.oid = am.member
 join pg_roles g on g.oid = am.grantor
 order by 1, 2;
-    `;
+      `
+        : await sql`
+-- PG15: columns inherit_option and set_option do not exist
+select
+  r.rolname as role,
+  m.rolname as member,
+  g.rolname as grantor,
+  am.admin_option
+from pg_auth_members am
+join pg_roles r on r.oid = am.roleid
+join pg_roles m on m.oid = am.member
+join pg_roles g on g.oid = am.grantor
+order by 1, 2;
+      `;
+
     return rows.map(
       (row: unknown) => new RoleMembership(membershipPropsSchema.parse(row)),
     );

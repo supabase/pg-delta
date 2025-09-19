@@ -8,7 +8,7 @@ import { diffIndexes } from "./objects/index/index.diff.ts";
 import { diffMaterializedViews } from "./objects/materialized-view/materialized-view.diff.ts";
 import { diffColumnPrivileges } from "./objects/privilege/column-privilege/column-privilege.diff.ts";
 import { diffDefaultPrivileges } from "./objects/privilege/default-privilege/default-privilege.diff.ts";
-import { diffRoleMemberships } from "./objects/privilege/membership.diff.ts";
+import { diffRoleMemberships } from "./objects/privilege/membership/membership.diff.ts";
 import { diffObjectPrivileges } from "./objects/privilege/object-privilege/object-privilege.diff.ts";
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
 import { diffRlsPolicies } from "./objects/rls-policy/rls-policy.diff.ts";
