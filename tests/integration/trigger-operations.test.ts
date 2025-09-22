@@ -333,5 +333,67 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
       });
     });
+
+    // Assert that https://github.com/djrobstep/migra/issues/159 is working
+    test("hasura event trigger function introspection", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: "",
+        testSql: dedent`
+          CREATE SCHEMA IF NOT EXISTS hdb_catalog;
+          CREATE SCHEMA IF NOT EXISTS hdb_views;
+
+          -- Minimal stub for Hasura's event log insertion function
+          CREATE OR REPLACE FUNCTION hdb_catalog.insert_event_log(
+            schema_name text,
+            table_name text,
+            trigger_name text,
+            op text,
+            data json
+          ) RETURNS void
+          LANGUAGE plpgsql
+          AS $fn$
+          BEGIN
+            PERFORM 1;
+          END;
+          $fn$;
+
+          CREATE FUNCTION hdb_views."notify_hasura_my_event_trigger_name_I"() RETURNS trigger
+              LANGUAGE plpgsql
+              AS $$
+            DECLARE
+              _old record;
+              _new record;
+              _data json;
+            BEGIN
+              IF TG_OP = 'UPDATE' THEN
+                _old := row(OLD );
+                _new := row(NEW );
+              ELSE
+              /* initialize _old and _new with dummy values for INSERT and UPDATE events*/
+                _old := row((select 1));
+                _new := row((select 1));
+              END IF;
+              _data := json_build_object(
+                'old', NULL,
+                'new', row_to_json(NEW )
+              );
+              BEGIN
+                IF (TG_OP <> 'UPDATE') OR (_old <> _new) THEN
+                  PERFORM hdb_catalog.insert_event_log(CAST(TG_TABLE_SCHEMA AS text), CAST(TG_TABLE_NAME AS text), CAST('my_event_trigger_name' AS text), TG_OP, _data);
+                END IF;
+                EXCEPTION WHEN undefined_function THEN
+                  IF (TG_OP <> 'UPDATE') OR (_old *<> _new) THEN
+                    PERFORM hdb_catalog.insert_event_log(CAST(TG_TABLE_SCHEMA AS text), CAST(TG_TABLE_NAME AS text), CAST('my_event_trigger_name' AS text), TG_OP, _data);
+                  END IF;
+              END;
+
+              RETURN NULL;
+            END;
+          $$;
+        `,
+      });
+    });
   });
 }
