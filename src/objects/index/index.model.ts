@@ -5,6 +5,7 @@ import { BasePgModel } from "../base.model.ts";
 const TableRelkindSchema = z.enum([
   "r", // table (regular relation)
   "m", // materialized view
+  "p", // partitioned table
 ]);
 
 const indexPropsSchema = z.object({
@@ -219,6 +220,7 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
     join pg_am am    on am.oid = c.relam
     left join pg_tablespace ts on ts.oid = c.reltablespace
     left join extension_oids e  on c.oid = e.objid
+    left join extension_oids e_table on tc.oid = e_table.objid
 
     -- single lateral aggregate keeps order by ic2.ord
     left join lateral (
@@ -278,10 +280,10 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
       and n.nspname <> 'information_schema'
       and i.indislive is true
       and e.objid is null
+      and e_table.objid is null
 
     order by 1, 2;
     `;
-
     // Validate and parse each row using the Zod schema
     const validatedRows = indexRows.map((row: unknown) =>
       indexPropsSchema.parse(row),
