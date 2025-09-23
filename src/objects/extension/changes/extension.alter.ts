@@ -1,5 +1,6 @@
 import { AlterChange, quoteLiteral, ReplaceChange } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
+import type { ExtensionChange } from "./extension.base.ts";
 import { CreateExtension } from "./extension.create.ts";
 import { DropExtension } from "./extension.drop.ts";
 
@@ -20,9 +21,13 @@ import { DropExtension } from "./extension.drop.ts";
 /**
  * ALTER EXTENSION ... UPDATE TO ...
  */
-export class AlterExtensionUpdateVersion extends AlterChange {
+export class AlterExtensionUpdateVersion
+  extends AlterChange
+  implements ExtensionChange
+{
   public readonly main: Extension;
   public readonly branch: Extension;
+  public readonly category = "extension" as const;
 
   constructor(props: { main: Extension; branch: Extension }) {
     super();
@@ -47,9 +52,13 @@ export class AlterExtensionUpdateVersion extends AlterChange {
 /**
  * ALTER EXTENSION ... SET SCHEMA ...
  */
-export class AlterExtensionSetSchema extends AlterChange {
+export class AlterExtensionSetSchema
+  extends AlterChange
+  implements ExtensionChange
+{
   public readonly main: Extension;
   public readonly branch: Extension;
+  public readonly category = "extension" as const;
 
   constructor(props: { main: Extension; branch: Extension }) {
     super();
@@ -74,9 +83,13 @@ export class AlterExtensionSetSchema extends AlterChange {
 /**
  * ALTER EXTENSION ... OWNER TO ...
  */
-export class AlterExtensionChangeOwner extends AlterChange {
+export class AlterExtensionChangeOwner
+  extends AlterChange
+  implements ExtensionChange
+{
   public readonly main: Extension;
   public readonly branch: Extension;
+  public readonly category = "extension" as const;
 
   constructor(props: { main: Extension; branch: Extension }) {
     super();
@@ -102,9 +115,10 @@ export class AlterExtensionChangeOwner extends AlterChange {
  * Replace an extension by dropping and recreating it.
  * This is used when properties that cannot be altered via ALTER EXTENSION change.
  */
-export class ReplaceExtension extends ReplaceChange {
+export class ReplaceExtension extends ReplaceChange implements ExtensionChange {
   public readonly main: Extension;
   public readonly branch: Extension;
+  public readonly category = "extension" as const;
 
   constructor(props: { main: Extension; branch: Extension }) {
     super();

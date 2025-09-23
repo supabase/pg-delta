@@ -1,6 +1,13 @@
+import type { ExtensionChange } from "./extension/changes/extension.base.ts";
+
 type ChangeKind = "create" | "drop" | "alter" | "replace";
+
+export type ChangeCategory = "generic" | ExtensionChange["category"];
+
 export abstract class Change {
   abstract kind: ChangeKind;
+  // High-level category used for global ordering rules
+  readonly category: ChangeCategory = "generic";
 
   get changeId(): string {
     return `${this.kind}:${this.serialize()}`;

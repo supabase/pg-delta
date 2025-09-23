@@ -1,5 +1,6 @@
 import { CreateChange, quoteLiteral } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
+import type { ExtensionChange } from "./extension.base.ts";
 
 /**
  * Create an extension.
@@ -14,8 +15,9 @@ import type { Extension } from "../extension.model.ts";
  *     [ FROM old_version ]
  * ```
  */
-export class CreateExtension extends CreateChange {
+export class CreateExtension extends CreateChange implements ExtensionChange {
   public readonly extension: Extension;
+  public readonly category = "extension" as const;
 
   constructor(props: { extension: Extension }) {
     super();

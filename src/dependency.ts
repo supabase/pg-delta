@@ -438,6 +438,27 @@ export class OperationSemantics {
     idxB: number,
     changeB: Change,
   ): Constraint | null {
+    // Global category priority: ensure certain categories run before others
+    const categoryPriorityA = this.getCategoryPriority(changeA);
+    const categoryPriorityB = this.getCategoryPriority(changeB);
+    if (categoryPriorityA !== categoryPriorityB) {
+      if (categoryPriorityA < categoryPriorityB) {
+        return {
+          constraintStableId: `${changeA.changeId} category before ${changeB.changeId}`,
+          changeAIndex: idxA,
+          type: "before",
+          changeBIndex: idxB,
+          reason: "Category priority",
+        };
+      }
+      return {
+        constraintStableId: `${changeB.changeId} category before ${changeA.changeId}`,
+        changeAIndex: idxB,
+        type: "before",
+        changeBIndex: idxA,
+        reason: "Category priority",
+      };
+    }
     // TODO: Investigate and eliminate all special cases this should only be for depedencies that are missing from our pg_depend extraction
     // Rule: When altering a table, add columns before adding constraints on that table
     if (
@@ -581,6 +602,16 @@ export class OperationSemantics {
     if (change instanceof AlterChange) return 2; // ALTER should come after CREATE for same object
     if (change instanceof ReplaceChange) return 3;
     return 4;
+  }
+
+  private getCategoryPriority(change: Change): number {
+    // Lower numbers run earlier
+    switch (change.category) {
+      case "extension":
+        return 0;
+      default:
+        return 10;
+    }
   }
 }
 
