@@ -12,6 +12,36 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   const test = getTestIsolated(pgVersion);
 
   describe.concurrent(`privilege operations (pg${pgVersion})`, () => {
+    test("object privileges on view (grant)", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: dedent`
+          CREATE SCHEMA test_schema;
+          CREATE VIEW test_schema.v AS SELECT 1 AS a;
+          CREATE ROLE r_view;
+        `,
+        testSql: dedent`
+          GRANT SELECT ON test_schema.v TO r_view;
+        `,
+      });
+    });
+
+    test("domain privileges (grant)", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: dedent`
+          CREATE SCHEMA test_schema;
+          CREATE DOMAIN test_schema.dom AS int;
+          CREATE ROLE r_dom;
+        `,
+        testSql: dedent`
+          GRANT USAGE ON DOMAIN test_schema.dom TO r_dom;
+        `,
+      });
+    });
+
     // GRANT tests
     test("object privileges on table (grant)", async ({ db }) => {
       await roundtripFidelityTest({

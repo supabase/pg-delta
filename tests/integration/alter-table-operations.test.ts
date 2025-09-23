@@ -3,6 +3,10 @@
  */
 
 import { describe } from "vitest";
+import {
+  AlterTableAddColumn,
+  AlterTableAddConstraint,
+} from "../../src/objects/table/changes/table.alter.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -12,6 +16,32 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
   // TODO: Fix ALTER TABLE operations dependency detection issues
   describe.concurrent(`alter table operations (pg${pgVersion})`, () => {
+    test("add column then create unique index on it", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.idx_users (
+            id integer NOT NULL
+          );
+        `,
+        testSql: `
+          ALTER TABLE test_schema.idx_users ADD COLUMN email character varying(255);
+          ALTER TABLE test_schema.idx_users ADD CONSTRAINT users_email_key UNIQUE (email);
+        `,
+        // Force AlterTableAddConstraint to be after AlterTableAddColumn
+        sortChangesCallback: (a, b) => {
+          if (
+            a instanceof AlterTableAddColumn &&
+            b instanceof AlterTableAddConstraint
+          ) {
+            return -1;
+          }
+          return 0;
+        },
+      });
+    });
     test("add column to existing table", async ({ db }) => {
       await roundtripFidelityTest({
         mainSession: db.main,

@@ -46,13 +46,11 @@ export class GrantObjectPrivileges extends AlterChange {
               ? "ON SCHEMA"
               : this.objectKind === "SEQUENCE"
                 ? "ON SEQUENCE"
-                : this.objectKind === "MATERIALIZED VIEW"
-                  ? "ON MATERIALIZED VIEW"
-                  : this.objectKind === "VIEW"
-                    ? "ON VIEW"
-                    : this.objectKind === "TYPE" || this.objectKind === "DOMAIN"
-                      ? "ON TYPE"
-                      : "ON TABLE";
+                : this.objectKind === "DOMAIN"
+                  ? "ON DOMAIN"
+                  : this.objectKind === "TYPE"
+                    ? "ON TYPE"
+                    : "ON";
       stmts.push(
         `GRANT ${[...new Set(list)].sort().join(", ")} ${kindPrefix} ${this.objectNameSql} TO ${this.grantee}${withGrant}`,
       );
@@ -106,13 +104,11 @@ export class RevokeObjectPrivileges extends AlterChange {
               ? "ON SCHEMA"
               : this.objectKind === "SEQUENCE"
                 ? "ON SEQUENCE"
-                : this.objectKind === "MATERIALIZED VIEW"
-                  ? "ON MATERIALIZED VIEW"
-                  : this.objectKind === "VIEW"
-                    ? "ON VIEW"
-                    : this.objectKind === "TYPE" || this.objectKind === "DOMAIN"
-                      ? "ON TYPE"
-                      : "ON TABLE";
+                : this.objectKind === "DOMAIN"
+                  ? "ON DOMAIN"
+                  : this.objectKind === "TYPE"
+                    ? "ON TYPE"
+                    : "ON";
       void _grantable;
       stmts.push(
         `REVOKE ${[...new Set(list)].sort().join(", ")} ${kindPrefix} ${this.objectNameSql} FROM ${this.grantee}`,
@@ -159,13 +155,11 @@ export class RevokeGrantOptionObjectPrivileges extends AlterChange {
             ? "ON SCHEMA"
             : this.objectKind === "SEQUENCE"
               ? "ON SEQUENCE"
-              : this.objectKind === "MATERIALIZED VIEW"
-                ? "ON MATERIALIZED VIEW"
-                : this.objectKind === "VIEW"
-                  ? "ON VIEW"
-                  : this.objectKind === "TYPE" || this.objectKind === "DOMAIN"
-                    ? "ON TYPE"
-                    : "ON TABLE";
+              : this.objectKind === "DOMAIN"
+                ? "ON DOMAIN"
+                : this.objectKind === "TYPE"
+                  ? "ON TYPE"
+                  : "ON";
     return `REVOKE GRANT OPTION FOR ${this.privilegeNames.join(", ")} ${kindPrefix} ${this.objectNameSql} FROM ${this.grantee}`;
   }
 }

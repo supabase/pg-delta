@@ -18,6 +18,8 @@ interface RoundtripTestOptions {
   initialSetup?: string;
   testSql?: string;
   description?: string;
+  // Forcing the changes order to be deterministic.
+  sortChangesCallback?: (a: Change, b: Change) => number;
   // List of terms that must appear in the generated SQL.
   // If not provided, we expect the generated SQL to match the testSql.
   expectedSqlTerms?: string[] | "same-as-test-sql";
@@ -70,6 +72,7 @@ export async function roundtripFidelityTest(
     expectedMainDependencies,
     expectedBranchDependencies,
     expectedOperationOrder,
+    sortChangesCallback,
   } = options;
 
   // Set up initial schema in BOTH databases
@@ -103,7 +106,11 @@ export async function roundtripFidelityTest(
   }
 
   // Generate migration from main to branch
-  const changes = diffCatalogs(mainCatalog, branchCatalog);
+  let changes = diffCatalogs(mainCatalog, branchCatalog);
+
+  if (sortChangesCallback) {
+    changes = changes.sort(sortChangesCallback);
+  }
 
   // Resolve dependencies to get the proper order
   const sortedChangesResult = resolveDependencies(

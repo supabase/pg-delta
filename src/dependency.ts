@@ -17,7 +17,10 @@ import {
 } from "./objects/sequence/changes/sequence.alter.ts";
 import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
-import { AlterTableAddConstraint } from "./objects/table/changes/table.alter.ts";
+import {
+  AlterTableAddColumn,
+  AlterTableAddConstraint,
+} from "./objects/table/changes/table.alter.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { UnexpectedError } from "./objects/utils.ts";
@@ -436,6 +439,20 @@ export class OperationSemantics {
     changeB: Change,
   ): Constraint | null {
     // TODO: Investigate and eliminate all special cases this should only be for depedencies that are missing from our pg_depend extraction
+    // Rule: When altering a table, add columns before adding constraints on that table
+    if (
+      changeA instanceof AlterTableAddColumn &&
+      changeB instanceof AlterTableAddConstraint &&
+      changeA.table.stableId === changeB.table.stableId
+    ) {
+      return {
+        constraintStableId: `${changeA.changeId} -> ${changeB.changeId}`,
+        changeAIndex: idxA,
+        type: "before",
+        changeBIndex: idxB,
+        reason: "Add column before add constraint on same table",
+      };
+    }
     // Rule: Sort function overloads by parameter types
     if (
       changeA instanceof CreateProcedure &&

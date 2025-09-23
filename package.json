@@ -21,7 +21,8 @@
     "test:integration": "vitest --project integration",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage --project=integration",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:real-world": "tsx scripts/real-project-roundtrip-test.ts"
   },
   "keywords": [
     "pg",
@@ -43,6 +44,7 @@
     "knip": "^5.63.1",
     "postgres": "^3.4.7",
     "testcontainers": "^11.5.1",
+    "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vitest": "3.2.4"
   },
