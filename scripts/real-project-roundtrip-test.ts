@@ -677,7 +677,7 @@ async function main() {
     const results = await tester.runTests(projectsData, 1);
 
     // Print summary
-    console.log("\n" + "=".repeat(50));
+    console.log(`\n${"=".repeat(50)}`);
     console.log("ROUNDTRIP TEST SUMMARY");
     console.log("=".repeat(50));
 
