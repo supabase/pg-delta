@@ -5,6 +5,9 @@ import { diffCatalogs } from "../src/catalog.diff.ts";
 import { extractCatalog } from "../src/catalog.model.ts";
 import { resolveDependencies } from "../src/dependency.ts";
 import { postgresConfig } from "../src/main.ts";
+import { pgDumpSort } from "../src/sort/global-sort.ts";
+import { applyRefinements } from "../src/sort/refined-sort.ts";
+import { sortChangesByRules } from "../src/sort/sort-utils.ts";
 import {
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   type PostgresVersion,
@@ -171,32 +174,38 @@ class RealProjectRoundtripTester {
           }
 
           // Resolve dependencies
-          const sortedChangesResult = resolveDependencies(
-            changes,
-            localCatalog,
-            remoteCatalog,
+          // const sortedChangesResult = resolveDependencies(
+          //   changes,
+          //   localCatalog,
+          //   remoteCatalog,
+          // );
+
+          // if (sortedChangesResult.isErr()) {
+          //   issues.push({
+          //     type: "dependency-resolution-error",
+          //     description: `Failed to resolve dependencies: ${sortedChangesResult.error.message}`,
+          //     details: {
+          //       projectRef: project.ref,
+          //       postgresVersion: project.postgres_version,
+          //       errorMessage: sortedChangesResult.error.message,
+          //     },
+          //   });
+
+          //   return {
+          //     projectRef: project.ref,
+          //     success: false,
+          //     issues,
+          //     testType: "no-migrations",
+          //   };
+          // }
+
+          // const sortedChanges = sortedChangesResult.value;
+
+          const globallySortedChanges = sortChangesByRules(changes, pgDumpSort);
+          const sortedChanges = applyRefinements(
+            { mainCatalog: localCatalog, branchCatalog: remoteCatalog },
+            globallySortedChanges,
           );
-
-          if (sortedChangesResult.isErr()) {
-            issues.push({
-              type: "dependency-resolution-error",
-              description: `Failed to resolve dependencies: ${sortedChangesResult.error.message}`,
-              details: {
-                projectRef: project.ref,
-                postgresVersion: project.postgres_version,
-                errorMessage: sortedChangesResult.error.message,
-              },
-            });
-
-            return {
-              projectRef: project.ref,
-              success: false,
-              issues,
-              testType: "no-migrations",
-            };
-          }
-
-          const sortedChanges = sortedChangesResult.value;
 
           // Generate migration SQL
           const sqlStatements = sortedChanges.map((change) =>

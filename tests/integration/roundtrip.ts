@@ -9,6 +9,9 @@ import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
 import type { PgDepend } from "../../src/depend.ts";
 import { resolveDependencies } from "../../src/dependency.ts";
 import type { Change } from "../../src/objects/base.change.ts";
+import { pgDumpSort } from "../../src/sort/global-sort.ts";
+import { applyRefinements } from "../../src/sort/refined-sort.ts";
+import { sortChangesByRules } from "../../src/sort/sort-utils.ts";
 import { DEBUG } from "../constants.ts";
 
 interface RoundtripTestOptions {
@@ -113,15 +116,22 @@ export async function roundtripFidelityTest(
   }
 
   // Resolve dependencies to get the proper order
-  const sortedChangesResult = resolveDependencies(
-    changes,
-    mainCatalog,
-    branchCatalog,
+  // const sortedChangesResult = resolveDependencies(
+  //   changes,
+  //   mainCatalog,
+  //   branchCatalog,
+  // );
+  // if (sortedChangesResult.isErr()) {
+  //   throw sortedChangesResult.error;
+  // }
+  const globallySortedChanges = sortChangesByRules(changes, pgDumpSort);
+  const sortedChanges = applyRefinements(
+    {
+      mainCatalog,
+      branchCatalog,
+    },
+    globallySortedChanges,
   );
-  if (sortedChangesResult.isErr()) {
-    throw sortedChangesResult.error;
-  }
-  const sortedChanges = sortedChangesResult.value;
 
   if (expectedOperationOrder) {
     validateOperationOrder(sortedChanges, expectedOperationOrder);
