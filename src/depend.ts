@@ -1066,9 +1066,9 @@ select * from (
     when quote_ident(dep_class.relname) = 'pg_ts_template' and dep_ts_template.oid is not null
       then 'tsTemplate:' || quote_ident(dep_ts_template_ns.nspname) || '.' || quote_ident(dep_ts_template.tmplname)
     
-    -- Attribute defaults (column default values)
+    -- Attribute defaults (column default values) — use column stable id
     when quote_ident(dep_class.relname) = 'pg_attrdef' and dep_attrdef.oid is not null and dep_attrdef_table.oid is not null
-      then 'attrdef:' || quote_ident(dep_attrdef_table_ns.nspname) || '.' || quote_ident(dep_attrdef_table.relname) || '.' || dep_attrdef.adnum::text
+      then 'column:' || quote_ident(dep_attrdef_table_ns.nspname) || '.' || quote_ident(dep_attrdef_table.relname) || '.' || quote_ident(dep_attrdef_col.attname)
     
     -- Default ACLs
     when quote_ident(dep_class.relname) = 'pg_default_acl' and dep_default_acl.oid is not null and dep_default_acl_ns.oid is not null
@@ -1087,6 +1087,9 @@ select * from (
 
   -- Referenced stable ID
   case
+    -- Referenced column on a table via refobjsubid
+    when quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and d.refobjsubid > 0
+      then 'column:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname) || '.' || quote_ident(ref_obj_col.attname)
     -- Schema (namespace)
     when quote_ident(ref_class.relname) = 'pg_namespace' and ref_namespace.oid is not null
       then 'schema:' || quote_ident(ref_namespace.nspname)
@@ -1184,7 +1187,7 @@ select * from (
     
     -- Attribute defaults (column default values)
     when quote_ident(ref_class.relname) = 'pg_attrdef' and ref_attrdef.oid is not null and ref_attrdef_table.oid is not null
-      then 'attrdef:' || quote_ident(ref_attrdef_table_ns.nspname) || '.' || quote_ident(ref_attrdef_table.relname) || '.' || ref_attrdef.adnum::text
+      then 'column:' || quote_ident(ref_attrdef_table_ns.nspname) || '.' || quote_ident(ref_attrdef_table.relname) || '.' || quote_ident(ref_attrdef_col.attname)
     
     -- Default ACLs
     when quote_ident(ref_class.relname) = 'pg_default_acl' and ref_default_acl.oid is not null and ref_default_acl_ns.oid is not null
@@ -1256,6 +1259,7 @@ from
   left join pg_attrdef dep_attrdef on quote_ident(dep_class.relname) = 'pg_attrdef' and d.objid = dep_attrdef.oid
   left join pg_class dep_attrdef_table on dep_attrdef.adrelid = dep_attrdef_table.oid
   left join pg_namespace dep_attrdef_table_ns on dep_attrdef_table.relnamespace = dep_attrdef_table_ns.oid
+  left join pg_attribute dep_attrdef_col on quote_ident(dep_class.relname) = 'pg_attrdef' and dep_attrdef.adrelid = dep_attrdef_col.attrelid and dep_attrdef.adnum = dep_attrdef_col.attnum and dep_attrdef_col.attnum > 0 and not dep_attrdef_col.attisdropped
 
   -- Additional system catalog objects
   left join pg_default_acl dep_default_acl on quote_ident(dep_class.relname) = 'pg_default_acl' and d.objid = dep_default_acl.oid
@@ -1310,7 +1314,10 @@ from
   left join pg_attrdef ref_attrdef on quote_ident(ref_class.relname) = 'pg_attrdef' and d.refobjid = ref_attrdef.oid
   left join pg_class ref_attrdef_table on ref_attrdef.adrelid = ref_attrdef_table.oid
   left join pg_namespace ref_attrdef_table_ns on ref_attrdef_table.relnamespace = ref_attrdef_table_ns.oid
-
+  left join pg_attribute ref_attrdef_col on quote_ident(ref_class.relname) = 'pg_attrdef' and ref_attrdef.adrelid = ref_attrdef_col.attrelid and ref_attrdef.adnum = ref_attrdef_col.attnum and ref_attrdef_col.attnum > 0 and not ref_attrdef_col.attisdropped
+  -- Referenced column by refobjsubid on referenced table
+  left join pg_attribute ref_obj_col on quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and d.refobjsubid > 0 and ref_obj_col.attrelid = ref_obj.oid and ref_obj_col.attnum = d.refobjsubid and ref_obj_col.attnum > 0 and not ref_obj_col.attisdropped
+  
   -- Additional system catalog objects
   left join pg_default_acl ref_default_acl on quote_ident(ref_class.relname) = 'pg_default_acl' and d.refobjid = ref_default_acl.oid
   left join pg_namespace ref_default_acl_ns on ref_default_acl.defaclnamespace = ref_default_acl_ns.oid
