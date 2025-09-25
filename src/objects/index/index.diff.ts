@@ -1,4 +1,3 @@
-import { DEBUG } from "../../../tests/constants.ts";
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import type { TableLikeObject } from "../base.model.ts";
@@ -36,10 +35,6 @@ export function diffIndexes(
     const index = branch[indexId];
     // Skip primary and unique indexes - they are automatically created by AlterTableAddConstraint
     if (!index.is_constraint) {
-      if (DEBUG) {
-        console.log(Object.keys(branchIndexableObjects));
-        console.log(index.tableStableId);
-      }
       changes.push(
         new CreateIndex({
           index,

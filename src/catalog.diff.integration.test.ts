@@ -1068,7 +1068,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
       const changes = await diffCatalogs(mainCatalog, branchCatalog);
-      console.log(changes);
+
       expect(changes).toEqual([
         expect.objectContaining({
           operation: "create",
