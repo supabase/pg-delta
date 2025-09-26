@@ -34,6 +34,10 @@ export const pgDumpSort: Rule[] = [
   { operation: "create", objectType: "extension", scope: "object" },
   { operation: "alter", objectType: "extension", scope: "object" }, // e.g., UPDATE TO version / SET SCHEMA
   { operation: "create", objectType: "collation", scope: "object" },
+
+  // Default privileges after roles and schemas
+  { scope: "default_privilege" },
+
   // Types and domains
   { operation: "create", objectType: "domain", scope: "object" },
   { operation: "alter", objectType: "domain", scope: "object" },
@@ -73,7 +77,6 @@ export const pgDumpSort: Rule[] = [
   { scope: "owner" },
 
   // PRIVILEGES near the end
-  { scope: "default_privilege" },
   { scope: "privilege" },
   { scope: "membership" },
 

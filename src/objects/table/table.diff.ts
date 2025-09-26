@@ -224,9 +224,9 @@ function createAlterConstraintChange(
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffTables(
+  ctx: { version: number },
   main: Record<string, Table>,
   branch: Record<string, Table>,
-  version: number,
 ): Change[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
@@ -529,7 +529,7 @@ export function diffTables(
         } else {
           // Set new default value
           const isGeneratedColumn = branchCol.is_generated;
-          const isPostgresLowerThan17 = version < 170000;
+          const isPostgresLowerThan17 = ctx.version < 170000;
 
           if (isGeneratedColumn && isPostgresLowerThan17) {
             // For generated columns in < PostgreSQL 17, we need to drop and recreate

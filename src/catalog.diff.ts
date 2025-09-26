@@ -48,7 +48,9 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(...diffRoles(main.roles, branch.roles));
   changes.push(...diffSchemas(main.schemas, branch.schemas));
   changes.push(...diffSequences(main.sequences, branch.sequences));
-  changes.push(...diffTables(main.tables, branch.tables, branch.version));
+  changes.push(
+    ...diffTables({ version: branch.version }, main.tables, branch.tables),
+  );
   changes.push(
     ...diffTriggers(main.triggers, branch.triggers, branch.indexableObjects),
   );
@@ -60,13 +62,21 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
     ...diffRoleMemberships(main.roleMemberships, branch.roleMemberships),
   );
   changes.push(
-    ...diffObjectPrivileges(main.objectPrivileges, branch.objectPrivileges),
+    ...diffObjectPrivileges(
+      { version: branch.version },
+      main.objectPrivileges,
+      branch.objectPrivileges,
+    ),
   );
   changes.push(
     ...diffColumnPrivileges(main.columnPrivileges, branch.columnPrivileges),
   );
   changes.push(
-    ...diffDefaultPrivileges(main.defaultPrivileges, branch.defaultPrivileges),
+    ...diffDefaultPrivileges(
+      { version: branch.version },
+      main.defaultPrivileges,
+      branch.defaultPrivileges,
+    ),
   );
 
   // Filter privilege REVOKEs for objects that are being dropped
