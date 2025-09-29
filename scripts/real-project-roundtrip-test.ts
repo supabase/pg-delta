@@ -13,9 +13,19 @@ import { SupabasePostgreSqlContainer } from "../tests/supabase-postgres.ts";
 
 interface ProjectData {
   ref: string;
-  connection_string: string;
+  connection_strings: {
+    supabase_admin: string;
+    postgres: string;
+    auth: string;
+    storage: string;
+    pgbouncer: string;
+    etl: string;
+    postgrest: string;
+    replication: string;
+  };
   connection_valid: boolean;
-  postgres_version: number;
+  postgres_major_version: number;
+  postgres_image_version: string;
   migrations_schema_exists: boolean;
   migrations_table_exists: boolean;
   migrations: Migration[];
@@ -74,7 +84,7 @@ class RealProjectRoundtripTester {
 
     for (const project of validProjects) {
       console.log(
-        `\nTesting project: ${project.ref} (PostgreSQL ${project.postgres_version})`,
+        `\nTesting project: ${project.ref} (PostgreSQL ${project.postgres_major_version})`,
       );
 
       try {
@@ -103,7 +113,7 @@ class RealProjectRoundtripTester {
               description: `Failed to test project: ${errorMessage}`,
               details: {
                 projectRef: project.ref,
-                postgresVersion: project.postgres_version,
+                postgresVersion: project.postgres_major_version,
                 errorMessage,
               },
             },
@@ -136,14 +146,17 @@ class RealProjectRoundtripTester {
     const issues: Issue[] = [];
 
     // Connect to remote project
-    const remoteSql = postgres(project.connection_string, postgresConfig);
+    const remoteSql = postgres(
+      project.connection_strings.postgres,
+      postgresConfig,
+    );
 
     try {
       // Extract remote catalog
       const remoteCatalog = await extractCatalog(remoteSql);
 
       // Start fresh Supabase container with matching version
-      const supabaseImage = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[project.postgres_version as PostgresVersion]}`;
+      const supabaseImage = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[project.postgres_major_version as PostgresVersion]}`;
       const container = new SupabasePostgreSqlContainer(supabaseImage);
       const startedContainer = await container.start();
 
@@ -183,7 +196,7 @@ class RealProjectRoundtripTester {
               description: `Failed to resolve dependencies: ${sortedChangesResult.error.message}`,
               details: {
                 projectRef: project.ref,
-                postgresVersion: project.postgres_version,
+                postgresVersion: project.postgres_major_version,
                 errorMessage: sortedChangesResult.error.message,
               },
             });
@@ -218,7 +231,7 @@ class RealProjectRoundtripTester {
               description: `Generated SQL failed to execute: ${errorMessage}`,
               details: {
                 projectRef: project.ref,
-                postgresVersion: project.postgres_version,
+                postgresVersion: project.postgres_major_version,
                 sqlScript: migrationScript,
                 errorMessage,
               },
@@ -247,7 +260,7 @@ class RealProjectRoundtripTester {
               description: `After applying migration, ${remainingChanges.length} differences remain`,
               details: {
                 projectRef: project.ref,
-                postgresVersion: project.postgres_version,
+                postgresVersion: project.postgres_major_version,
                 sqlScript: migrationScript,
                 remainingChanges: remainingChanges.map((change) =>
                   change.serialize(),
@@ -276,7 +289,7 @@ class RealProjectRoundtripTester {
         description: `Failed to extract catalog: ${errorMessage}`,
         details: {
           projectRef: project.ref,
-          postgresVersion: project.postgres_version,
+          postgresVersion: project.postgres_major_version,
           errorMessage,
         },
       });
@@ -298,7 +311,7 @@ class RealProjectRoundtripTester {
     const issues: Issue[] = [];
 
     // Start two fresh Supabase containers
-    const supabaseImage = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[project.postgres_version as PostgresVersion]}`;
+    const supabaseImage = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[project.postgres_major_version as PostgresVersion]}`;
     const [sourceContainer, testContainer] = await Promise.all([
       new SupabasePostgreSqlContainer(supabaseImage).start(),
       new SupabasePostgreSqlContainer(supabaseImage).start(),
@@ -331,7 +344,7 @@ class RealProjectRoundtripTester {
               description: `Migration ${migration.name} failed to apply: ${errorMessage}`,
               details: {
                 projectRef: project.ref,
-                postgresVersion: project.postgres_version,
+                postgresVersion: project.postgres_major_version,
                 migrationName: migration.name,
                 allMigrations: project.migrations.map((m) => m.name),
                 sqlScript: migrationSql,
@@ -374,7 +387,7 @@ class RealProjectRoundtripTester {
               description: `Failed to resolve dependencies for migration ${migration.name}: ${sortedChangesResult.error.message}`,
               details: {
                 projectRef: project.ref,
-                postgresVersion: project.postgres_version,
+                postgresVersion: project.postgres_major_version,
                 migrationName: migration.name,
                 allMigrations: project.migrations.map((m) => m.name),
                 errorMessage: sortedChangesResult.error.message,
@@ -410,7 +423,7 @@ class RealProjectRoundtripTester {
               description: `Generated diff for migration ${migration.name} failed to execute: ${errorMessage}`,
               details: {
                 projectRef: project.ref,
-                postgresVersion: project.postgres_version,
+                postgresVersion: project.postgres_major_version,
                 migrationName: migration.name,
                 allMigrations: project.migrations.map((m) => m.name),
                 sqlScript: diffScript,
@@ -439,7 +452,7 @@ class RealProjectRoundtripTester {
               description: `After applying diff for migration ${migration.name}, ${remainingChanges.length} differences remain`,
               details: {
                 projectRef: project.ref,
-                postgresVersion: project.postgres_version,
+                postgresVersion: project.postgres_major_version,
                 migrationName: migration.name,
                 allMigrations: project.migrations.map((m) => m.name),
                 sqlScript: diffScript,
@@ -452,7 +465,10 @@ class RealProjectRoundtripTester {
         }
 
         // Final check against remote database
-        const remoteSql = postgres(project.connection_string, postgresConfig);
+        const remoteSql = postgres(
+          project.connection_strings.postgres,
+          postgresConfig,
+        );
 
         try {
           const [finalSourceCatalog, remoteCatalog] = await Promise.all([
@@ -476,7 +492,7 @@ class RealProjectRoundtripTester {
                 description: `Failed to resolve dependencies for final diff: ${sortedChangesResult.error.message}`,
                 details: {
                   projectRef: project.ref,
-                  postgresVersion: project.postgres_version,
+                  postgresVersion: project.postgres_major_version,
                   allMigrations: project.migrations.map((m) => m.name),
                   errorMessage: sortedChangesResult.error.message,
                 },
@@ -510,7 +526,7 @@ class RealProjectRoundtripTester {
                 description: `Final diff script failed to execute: ${errorMessage}`,
                 details: {
                   projectRef: project.ref,
-                  postgresVersion: project.postgres_version,
+                  postgresVersion: project.postgres_major_version,
                   allMigrations: project.migrations.map((m) => m.name),
                   sqlScript: finalDiffScript,
                   errorMessage,
@@ -538,7 +554,7 @@ class RealProjectRoundtripTester {
                 description: `After applying final diff, ${finalRemainingChanges.length} differences remain`,
                 details: {
                   projectRef: project.ref,
-                  postgresVersion: project.postgres_version,
+                  postgresVersion: project.postgres_major_version,
                   allMigrations: project.migrations.map((m) => m.name),
                   sqlScript: finalDiffScript,
                   remainingChanges: finalRemainingChanges.map((change) =>
