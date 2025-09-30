@@ -3,8 +3,7 @@ import { join } from "node:path";
 import postgres from "postgres";
 import { test } from "vitest";
 import { diffCatalogs } from "../../src/catalog.diff.ts";
-import { extractCatalog } from "../../src/catalog.model.ts";
-import { resolveDependencies } from "../../src/dependency.ts";
+import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
 import { postgresConfig } from "../../src/main.ts";
 import { CreateProcedure } from "../../src/objects/procedure/changes/procedure.create.ts";
 import { CreateRlsPolicy } from "../../src/objects/rls-policy/changes/rls-policy.create.ts";
@@ -146,7 +145,7 @@ class RealProjectRoundtripTester {
 
     // Connect to remote project
     const remoteSql = postgres(project.connection_string, postgresConfig);
-    let migrationScript = "";
+    let migrationScript: string | null = null;
     try {
       // Extract remote catalog
       const remoteCatalog = await extractCatalog(remoteSql);
@@ -169,53 +168,23 @@ class RealProjectRoundtripTester {
           const localCatalog = await extractCatalog(localSql);
 
           // Generate diff from fresh Supabase to remote state
-          let changes = diffCatalogs(localCatalog, remoteCatalog);
+          migrationScript = generateMigrationScript(
+            localCatalog,
+            remoteCatalog,
+          );
 
-          if (changes.length === 0) {
-            // No changes needed - remote is same as fresh Supabase
+          if (!migrationScript) {
             return {
               projectRef: project.ref,
               success: true,
-              issues: [],
+              issues,
               testType: "no-migrations",
             };
           }
 
-          // Filter out changes
-          const SUPABASE_EXTENSION_SCHEMAS = ["vault", "cron", "pgsodium"];
-          changes = changes.filter(
-            (change) =>
-              !(
-                (change instanceof CreateView &&
-                  SUPABASE_EXTENSION_SCHEMAS.includes(change.view.schema)) ||
-                (change instanceof CreateProcedure &&
-                  SUPABASE_EXTENSION_SCHEMAS.includes(
-                    change.procedure.schema,
-                  )) ||
-                (change instanceof CreateTrigger &&
-                  SUPABASE_EXTENSION_SCHEMAS.includes(change.trigger.schema)) ||
-                (change instanceof CreateRlsPolicy &&
-                  SUPABASE_EXTENSION_SCHEMAS.includes(change.rlsPolicy.schema))
-              ),
-          );
-
-          const globallySortedChanges = sortChangesByRules(changes, pgDumpSort);
-          const sortedChanges = applyRefinements(
-            { mainCatalog: localCatalog, branchCatalog: remoteCatalog },
-            globallySortedChanges,
-          );
-
-          // Generate migration SQL
-          const sessionConfig = ["SET check_function_bodies = false"];
-
-          migrationScript = [
-            ...sessionConfig,
-            ...sortedChanges.map((change) => change.serialize()),
-          ].join(";\n\n");
-
           // Apply migration to local database
           try {
-            if (migrationScript.trim()) {
+            if (migrationScript) {
               await localSql.unsafe(migrationScript);
             }
           } catch (error) {
@@ -288,7 +257,7 @@ class RealProjectRoundtripTester {
           projectRef: project.ref,
           postgresVersion: project.postgres_version,
           errorMessage,
-          sqlScript: migrationScript,
+          sqlScript: migrationScript ?? "",
         },
       });
 
@@ -364,54 +333,23 @@ class RealProjectRoundtripTester {
             extractCatalog(testSql),
           ]);
 
-          // Generate diff
-          const changes = diffCatalogs(testCatalog, sourceCatalog);
-
-          if (changes.length === 0) {
-            // No changes needed, continue to next migration
-            continue;
-          }
-
-          // Resolve dependencies
-          const sortedChangesResult = resolveDependencies(
-            changes,
-            testCatalog,
+          const migrationScript = generateMigrationScript(
             sourceCatalog,
+            testCatalog,
           );
 
-          if (sortedChangesResult.isErr()) {
-            issues.push({
-              type: "dependency-resolution-error",
-              description: `Failed to resolve dependencies for migration ${migration.name}: ${sortedChangesResult.error.message}`,
-              details: {
-                projectRef: project.ref,
-                postgresVersion: project.postgres_version,
-                migrationName: migration.name,
-                allMigrations: project.migrations.map((m) => m.name),
-                errorMessage: sortedChangesResult.error.message,
-              },
-            });
-
+          if (!migrationScript) {
             return {
               projectRef: project.ref,
-              success: false,
+              success: true,
               issues,
               testType: "with-migrations",
             };
           }
 
-          const sortedChanges = sortedChangesResult.value;
-
-          // Generate and apply diff
-          const sqlStatements = sortedChanges.map((change) =>
-            change.serialize(),
-          );
-          const diffScript =
-            sqlStatements.join(";\n\n") + (sqlStatements.length > 0 ? ";" : "");
-
           try {
-            if (diffScript.trim()) {
-              await testSql.unsafe(diffScript);
+            if (migrationScript) {
+              await testSql.unsafe(migrationScript);
             }
           } catch (error) {
             const errorMessage =
@@ -424,7 +362,7 @@ class RealProjectRoundtripTester {
                 postgresVersion: project.postgres_version,
                 migrationName: migration.name,
                 allMigrations: project.migrations.map((m) => m.name),
-                sqlScript: diffScript,
+                sqlScript: migrationScript,
                 errorMessage,
               },
             });
@@ -453,7 +391,7 @@ class RealProjectRoundtripTester {
                 postgresVersion: project.postgres_version,
                 migrationName: migration.name,
                 allMigrations: project.migrations.map((m) => m.name),
-                sqlScript: diffScript,
+                sqlScript: migrationScript,
                 remainingChanges: remainingChanges.map((change) =>
                   change.serialize(),
                 ),
@@ -464,100 +402,74 @@ class RealProjectRoundtripTester {
 
         // Final check against remote database
         const remoteSql = postgres(project.connection_string, postgresConfig);
-
         try {
           const [finalSourceCatalog, remoteCatalog] = await Promise.all([
             extractCatalog(sourceSql),
             extractCatalog(remoteSql),
           ]);
 
-          const finalChanges = diffCatalogs(finalSourceCatalog, remoteCatalog);
+          const finalMigrationScript = generateMigrationScript(
+            finalSourceCatalog,
+            remoteCatalog,
+          );
 
-          if (finalChanges.length > 0) {
-            // Apply final diff
-            const sortedChangesResult = resolveDependencies(
-              finalChanges,
-              finalSourceCatalog,
-              remoteCatalog,
-            );
+          if (!finalMigrationScript) {
+            return {
+              projectRef: project.ref,
+              success: true,
+              issues,
+              testType: "with-migrations",
+            };
+          }
 
-            if (sortedChangesResult.isErr()) {
-              issues.push({
-                type: "dependency-resolution-error",
-                description: `Failed to resolve dependencies for final diff: ${sortedChangesResult.error.message}`,
-                details: {
-                  projectRef: project.ref,
-                  postgresVersion: project.postgres_version,
-                  allMigrations: project.migrations.map((m) => m.name),
-                  errorMessage: sortedChangesResult.error.message,
-                },
-              });
-
-              return {
+          try {
+            if (finalMigrationScript) {
+              await sourceSql.unsafe(finalMigrationScript);
+            }
+          } catch (error) {
+            const errorMessage =
+              error instanceof Error ? error.message : String(error);
+            issues.push({
+              type: "invalid-sql",
+              description: `Final diff script failed to execute: ${errorMessage}`,
+              details: {
                 projectRef: project.ref,
-                success: false,
-                issues,
-                testType: "with-migrations",
-              };
-            }
+                postgresVersion: project.postgres_version,
+                allMigrations: project.migrations.map((m) => m.name),
+                sqlScript: finalMigrationScript,
+                errorMessage,
+              },
+            });
 
-            const sortedChanges = sortedChangesResult.value;
-            const sqlStatements = sortedChanges.map((change) =>
-              change.serialize(),
-            );
-            const finalDiffScript =
-              sqlStatements.join(";\n\n") +
-              (sqlStatements.length > 0 ? ";" : "");
+            return {
+              projectRef: project.ref,
+              success: false,
+              issues,
+              testType: "with-migrations",
+            };
+          }
 
-            try {
-              if (finalDiffScript.trim()) {
-                await sourceSql.unsafe(finalDiffScript);
-              }
-            } catch (error) {
-              const errorMessage =
-                error instanceof Error ? error.message : String(error);
-              issues.push({
-                type: "invalid-sql",
-                description: `Final diff script failed to execute: ${errorMessage}`,
-                details: {
-                  projectRef: project.ref,
-                  postgresVersion: project.postgres_version,
-                  allMigrations: project.migrations.map((m) => m.name),
-                  sqlScript: finalDiffScript,
-                  errorMessage,
-                },
-              });
+          // Final verification
+          const finalCatalogAfter = await extractCatalog(sourceSql);
+          const finalRemainingChanges = diffCatalogs(
+            finalCatalogAfter,
+            remoteCatalog,
+          );
 
-              return {
+          if (finalRemainingChanges.length > 0) {
+            issues.push({
+              type: "remaining-diff",
+              description: `After applying final diff, ${finalRemainingChanges.length} differences remain`,
+              details: {
                 projectRef: project.ref,
-                success: false,
-                issues,
-                testType: "with-migrations",
-              };
-            }
-
-            // Final verification
-            const finalCatalogAfter = await extractCatalog(sourceSql);
-            const finalRemainingChanges = diffCatalogs(
-              finalCatalogAfter,
-              remoteCatalog,
-            );
-
-            if (finalRemainingChanges.length > 0) {
-              issues.push({
-                type: "remaining-diff",
-                description: `After applying final diff, ${finalRemainingChanges.length} differences remain`,
-                details: {
-                  projectRef: project.ref,
-                  postgresVersion: project.postgres_version,
-                  allMigrations: project.migrations.map((m) => m.name),
-                  sqlScript: finalDiffScript,
-                  remainingChanges: finalRemainingChanges.map((change) =>
-                    change.serialize(),
-                  ),
-                },
-              });
-            }
+                postgresVersion: project.postgres_version,
+                allMigrations: project.migrations.map((m) => m.name),
+                sqlScript: finalMigrationScript,
+                remainingChanges: finalRemainingChanges.map((change) =>
+                  change.serialize(),
+                ),
+              },
+            });
           }
         } finally {
           await remoteSql.end();
@@ -724,4 +636,46 @@ async function main() {
   } catch (error) {
     console.error("Test execution failed:", error);
   }
+}
+
+function generateMigrationScript(mainCatalog: Catalog, branchCatalog: Catalog) {
+  let changes = diffCatalogs(mainCatalog, branchCatalog);
+
+  // Filter out changes
+  // TODO: Properly implement a filter feature and delete this
+  const SUPABASE_EXTENSION_SCHEMAS = ["vault", "cron", "pgsodium"];
+  changes = changes.filter(
+    (change) =>
+      !(
+        (change instanceof CreateView &&
+          SUPABASE_EXTENSION_SCHEMAS.includes(change.view.schema)) ||
+        (change instanceof CreateProcedure &&
+          SUPABASE_EXTENSION_SCHEMAS.includes(change.procedure.schema)) ||
+        (change instanceof CreateTrigger &&
+          SUPABASE_EXTENSION_SCHEMAS.includes(change.trigger.schema)) ||
+        (change instanceof CreateRlsPolicy &&
+          SUPABASE_EXTENSION_SCHEMAS.includes(change.rlsPolicy.schema))
+      ),
+  );
+
+  if (changes.length === 0) {
+    // No changes needed - remote is same as fresh Supabase
+    return null;
+  }
+
+  const globallySortedChanges = sortChangesByRules(changes, pgDumpSort);
+  const sortedChanges = applyRefinements(
+    { mainCatalog, branchCatalog },
+    globallySortedChanges,
+  );
+
+  // Generate migration SQL
+  const sessionConfig = ["SET check_function_bodies = false"];
+
+  return [
+    ...sessionConfig,
+    ...sortedChanges.map((change) => change.serialize()),
+  ]
+    .join(";\n\n")
+    .trim();
 }

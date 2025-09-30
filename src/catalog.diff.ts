@@ -88,9 +88,10 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
     }
   }
   const filtered = changes.filter((ch) => {
-    if (ch instanceof RevokeObjectPrivileges)
-      return !droppedObjectStableIds.has(ch.objectId);
-    if (ch instanceof RevokeGrantOptionObjectPrivileges)
+    if (
+      ch instanceof RevokeObjectPrivileges ||
+      ch instanceof RevokeGrantOptionObjectPrivileges
+    )
       return !droppedObjectStableIds.has(ch.objectId);
     if (ch instanceof RevokeColumnPrivileges)
       return !droppedObjectStableIds.has(ch.tableId);

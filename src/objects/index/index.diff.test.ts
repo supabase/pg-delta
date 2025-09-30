@@ -90,4 +90,21 @@ describe.concurrent("index.diff", () => {
       "Index requires an indexableObject with columns when key_columns are used",
     );
   });
+
+  test("drop and create when non-alterable property changes", () => {
+    const main = new Index(base);
+    const branch = new Index({
+      ...base,
+      index_type: "hash",
+      is_unique: true,
+    });
+    const changes = diffIndexes(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+      {},
+    );
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(DropIndex);
+    expect(changes[1]).toBeInstanceOf(CreateIndex);
+  });
 });
