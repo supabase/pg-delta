@@ -1,9 +1,5 @@
-import { AlterChange, ReplaceChange } from "../../base.change.ts";
-import type { TableLikeObject } from "../../base.model.ts";
+import { Change } from "../../base.change.ts";
 import type { Index } from "../index.model.ts";
-import { CreateIndex } from "./index.create.ts";
-import { DropIndex } from "./index.drop.ts";
-import { checkIsSerializable } from "./utils.ts";
 
 /**
  * Alter an index.
@@ -23,9 +19,12 @@ import { checkIsSerializable } from "./utils.ts";
 /**
  * ALTER INDEX ... SET ( storage_parameter = value [, ... ] )
  */
-export class AlterIndexSetStorageParams extends AlterChange {
+export class AlterIndexSetStorageParams extends Change {
   public readonly main: Index;
   public readonly branch: Index;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "index" as const;
 
   constructor(props: { main: Index; branch: Index }) {
     super();
@@ -87,9 +86,12 @@ export class AlterIndexSetStorageParams extends AlterChange {
 /**
  * ALTER INDEX ... SET STATISTICS ...
  */
-export class AlterIndexSetStatistics extends AlterChange {
+export class AlterIndexSetStatistics extends Change {
   public readonly main: Index;
   public readonly branch: Index;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "index" as const;
 
   constructor(props: { main: Index; branch: Index }) {
     super();
@@ -129,9 +131,12 @@ export class AlterIndexSetStatistics extends AlterChange {
 /**
  * ALTER INDEX ... SET TABLESPACE ...
  */
-export class AlterIndexSetTablespace extends AlterChange {
+export class AlterIndexSetTablespace extends Change {
   public readonly main: Index;
   public readonly branch: Index;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "index" as const;
 
   constructor(props: { main: Index; branch: Index }) {
     super();
@@ -158,34 +163,4 @@ export class AlterIndexSetTablespace extends AlterChange {
  * Replace an index by dropping and recreating it.
  * This is used when properties that cannot be altered via ALTER INDEX change.
  */
-export class ReplaceIndex extends ReplaceChange {
-  public readonly main: Index;
-  public readonly branch: Index;
-  public readonly indexableObject?: TableLikeObject;
-
-  constructor(props: {
-    main: Index;
-    branch: Index;
-    indexableObject?: TableLikeObject;
-  }) {
-    super();
-    checkIsSerializable(props.branch, props.indexableObject);
-    this.main = props.main;
-    this.branch = props.branch;
-    this.indexableObject = props.indexableObject;
-  }
-
-  get dependencies() {
-    return [this.main.stableId];
-  }
-
-  serialize(): string {
-    const dropChange = new DropIndex({ index: this.main });
-    const createChange = new CreateIndex({
-      index: this.branch,
-      indexableObject: this.indexableObject,
-    });
-
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
-  }
-}
+// NOTE: ReplaceIndex removed. Non-alterable changes are emitted as DropIndex + CreateIndex in index.diff.ts.

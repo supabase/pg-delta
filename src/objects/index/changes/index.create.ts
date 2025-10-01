@@ -1,4 +1,4 @@
-import { CreateChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { TableLikeObject } from "../../base.model.ts";
 import type { Index } from "../index.model.ts";
 import { checkIsSerializable } from "./utils.ts";
@@ -19,9 +19,12 @@ import { checkIsSerializable } from "./utils.ts";
  * ```
  */
 
-export class CreateIndex extends CreateChange {
+export class CreateIndex extends Change {
   public readonly index: Index;
   public readonly indexableObject?: TableLikeObject;
+  public readonly operation = "create" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "index" as const;
 
   constructor(props: { index: Index; indexableObject?: TableLikeObject }) {
     super();

@@ -1,4 +1,3 @@
-import { DEBUG } from "../../../tests/constants.ts";
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import type { TableLikeObject } from "../base.model.ts";
@@ -7,7 +6,6 @@ import {
   AlterIndexSetStatistics,
   AlterIndexSetStorageParams,
   AlterIndexSetTablespace,
-  ReplaceIndex,
 } from "./changes/index.alter.ts";
 import {
   CreateCommentOnIndex,
@@ -37,10 +35,6 @@ export function diffIndexes(
     const index = branch[indexId];
     // Skip primary and unique indexes - they are automatically created by AlterTableAddConstraint
     if (!index.is_constraint) {
-      if (DEBUG) {
-        console.log(Object.keys(branchIndexableObjects));
-        console.log(index.tableStableId);
-      }
       changes.push(
         new CreateIndex({
           index,
@@ -100,9 +94,9 @@ export function diffIndexes(
     if (nonAlterablePropsChanged) {
       // Replace the entire index (drop + create)
       changes.push(
-        new ReplaceIndex({
-          main: mainIndex,
-          branch: branchIndex,
+        new DropIndex({ index: mainIndex }),
+        new CreateIndex({
+          index: branchIndex,
           indexableObject: branchIndexableObjects[branchIndex.tableStableId],
         }),
       );

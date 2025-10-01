@@ -1,8 +1,11 @@
-import { CreateChange, DropChange, quoteLiteral } from "../../base.change.ts";
+import { Change, quoteLiteral } from "../../base.change.ts";
 import type { Role } from "../role.model.ts";
 
-export class CreateCommentOnRole extends CreateChange {
+export class CreateCommentOnRole extends Change {
   public readonly role: Role;
+  public readonly operation = "create" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "role" as const;
 
   constructor(props: { role: Role }) {
     super();
@@ -23,8 +26,11 @@ export class CreateCommentOnRole extends CreateChange {
   }
 }
 
-export class DropCommentOnRole extends DropChange {
+export class DropCommentOnRole extends Change {
   public readonly role: Role;
+  public readonly operation = "drop" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "role" as const;
 
   constructor(props: { role: Role }) {
     super();

@@ -1,8 +1,11 @@
-import { DropChange } from "../../../base.change.ts";
+import { Change } from "../../../base.change.ts";
 
-export class RevokeRoleMembership extends DropChange {
+export class RevokeRoleMembership extends Change {
   public readonly role: string;
   public readonly member: string;
+  public readonly operation = "drop" as const;
+  public readonly scope = "membership" as const;
+  public readonly objectType = "role" as const;
 
   constructor(props: { role: string; member: string }) {
     super();
@@ -20,12 +23,15 @@ export class RevokeRoleMembership extends DropChange {
   }
 }
 
-export class RevokeMembershipOptions extends DropChange {
+export class RevokeMembershipOptions extends Change {
   public readonly role: string;
   public readonly member: string;
   public readonly admin?: boolean;
   public readonly inherit?: boolean;
   public readonly set?: boolean;
+  public readonly operation = "drop" as const;
+  public readonly scope = "membership" as const;
+  public readonly objectType = "role" as const;
 
   constructor(props: {
     role: string;

@@ -9,7 +9,6 @@ import {
   AlterProcedureSetSecurity,
   AlterProcedureSetStrictness,
   AlterProcedureSetVolatility,
-  ReplaceProcedure,
 } from "./changes/procedure.alter.ts";
 import {
   CreateCommentOnProcedure,
@@ -93,9 +92,9 @@ export function diffProcedures(
     );
 
     if (nonAlterablePropsChanged) {
-      // Replace the entire procedure (drop + create)
+      // Replace the entire procedure
       changes.push(
-        new ReplaceProcedure({ main: mainProcedure, branch: branchProcedure }),
+        new CreateProcedure({ procedure: branchProcedure, orReplace: true }),
       );
     } else {
       // Only alterable properties changed - check each one

@@ -1,7 +1,5 @@
-import { AlterChange, ReplaceChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { Schema } from "../schema.model.ts";
-import { CreateSchema } from "./schema.create.ts";
-import { DropSchema } from "./schema.drop.ts";
 
 /**
  * Alter a schema.
@@ -18,9 +16,12 @@ import { DropSchema } from "./schema.drop.ts";
 /**
  * ALTER SCHEMA ... OWNER TO ...
  */
-export class AlterSchemaChangeOwner extends AlterChange {
+export class AlterSchemaChangeOwner extends Change {
   public readonly main: Schema;
   public readonly branch: Schema;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "schema" as const;
 
   constructor(props: { main: Schema; branch: Schema }) {
     super();
@@ -46,24 +47,4 @@ export class AlterSchemaChangeOwner extends AlterChange {
  * Replace a schema by dropping and recreating it.
  * This is used when properties that cannot be altered via ALTER SCHEMA change.
  */
-export class ReplaceSchema extends ReplaceChange {
-  public readonly main: Schema;
-  public readonly branch: Schema;
-
-  constructor(props: { main: Schema; branch: Schema }) {
-    super();
-    this.main = props.main;
-    this.branch = props.branch;
-  }
-
-  get dependencies() {
-    return [this.main.stableId];
-  }
-
-  serialize(): string {
-    const dropChange = new DropSchema({ schema: this.main });
-    const createChange = new CreateSchema({ schema: this.branch });
-
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
-  }
-}
+// NOTE: ReplaceSchema removed. Non-alterable changes would be emitted via Drop + Create in schema.diff.ts if needed.

@@ -115,7 +115,7 @@ export async function extractCompositeTypes(
           pg_depend d
         where
           d.refclassid = 'pg_extension'::regclass
-          and d.classid = 'pg_class'::regclass
+          and d.classid = 'pg_type'::regclass
       ), composite_types as (
         select
           c.relnamespace::regnamespace::text as schema,
@@ -136,7 +136,7 @@ export async function extractCompositeTypes(
           c.oid as oid
         from
           pg_catalog.pg_class c
-          left outer join extension_oids e on c.oid = e.objid
+          left outer join extension_oids e on c.reltype = e.objid
         where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
           and e.objid is null
           and c.relkind = 'c'

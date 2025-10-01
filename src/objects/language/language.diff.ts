@@ -1,10 +1,7 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
-import {
-  AlterLanguageChangeOwner,
-  ReplaceLanguage,
-} from "./changes/language.alter.ts";
+import { AlterLanguageChangeOwner } from "./changes/language.alter.ts";
 import {
   CreateCommentOnLanguage,
   DropCommentOnLanguage,
@@ -62,7 +59,8 @@ export function diffLanguages(
     if (nonAlterablePropsChanged) {
       // Replace the entire language (drop + create)
       changes.push(
-        new ReplaceLanguage({ main: mainLanguage, branch: branchLanguage }),
+        new DropLanguage({ language: mainLanguage }),
+        new CreateLanguage({ language: branchLanguage }),
       );
     } else {
       // Only alterable properties changed - check each one

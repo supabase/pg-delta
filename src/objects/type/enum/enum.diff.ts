@@ -3,7 +3,6 @@ import { diffObjects } from "../../base.diff.ts";
 import {
   AlterEnumAddValue,
   AlterEnumChangeOwner,
-  ReplaceEnum,
 } from "./changes/enum.alter.ts";
 import {
   CreateCommentOnEnum,
@@ -117,30 +116,8 @@ function diffEnumLabels(mainEnum: Enum, branchEnum: Enum): Change[] {
     );
   }
 
-  // Check if there are any removed values or other complex changes
-  // Since we cannot reliably detect renames, we fall back to replace for any complex changes
-  const removedValues = Array.from(mainLabelMap.keys()).filter(
-    (label) => !branchLabelMap.has(label),
-  );
-
-  // Also check if sort orders have changed (which would require reordering)
-  const hasSortOrderChanges = mainEnum.labels.some((mainLabel) => {
-    const branchLabel = branchEnum.labels.find(
-      (bl) => bl.label === mainLabel.label,
-    );
-    return branchLabel && branchLabel.sort_order !== mainLabel.sort_order;
-  });
-
-  const hasComplexChanges =
-    removedValues.length > 0 ||
-    hasSortOrderChanges ||
-    mainEnum.labels.length !== branchEnum.labels.length;
-
-  if (hasComplexChanges && addedValues.length === 0) {
-    // If there are complex changes that can't be handled by simple ADD VALUE,
-    // fall back to replace
-    changes.push(new ReplaceEnum({ main: mainEnum, branch: branchEnum }));
-  }
+  // Complex changes (removals, resorting) are currently not auto-handled.
+  // We intentionally avoid emitting drop+create to prevent data loss.
 
   return changes;
 }

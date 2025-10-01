@@ -11,9 +11,6 @@ importers:
       graph-data-structure:
         specifier: ^4.5.0
         version: 4.5.0
-      neverthrow:
-        specifier: ^8.2.0
-        version: 8.2.0
       zod:
         specifier: ^4.1.5
         version: 4.1.5
@@ -1121,10 +1118,6 @@ packages:
     resolution: {integrity: sha512-uTp172LLXSxuSYHv/kou+f6KW3SMppU9ivthaVTXian9sOt3XM/zHYHpRZiLgQoxeWfYUnslNWQHF1+G71xcow==}
     engines: {node: ^12.20.0 || ^14.18.0 || >=16.0.0}
     hasBin: true
-
-  neverthrow@8.2.0:
-    resolution: {integrity: sha512-kOCT/1MCPAxY5iUV3wytNFUMUolzuwd/VF/1KCx7kf6CutrOsTie+84zTGTpgQycjvfLdBBdvBvFLqFD2c0wkQ==}
-    engines: {node: '>=18'}
 
   normalize-path@3.0.0:
     resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
@@ -2472,10 +2465,6 @@ snapshots:
   nanoid@3.3.11: {}
 
   napi-postinstall@0.3.3: {}
-
-  neverthrow@8.2.0:
-    optionalDependencies:
-      '@rollup/rollup-linux-x64-gnu': 4.50.1
 
   normalize-path@3.0.0: {}
 

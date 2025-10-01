@@ -7,3 +7,10 @@ export async function extractVersion(sql: Sql) {
 
   return version;
 }
+
+export async function extractCurrentUser(sql: Sql) {
+  const [{ current_user }] = await sql<{ current_user: string }[]>`
+    select quote_ident(current_user) as current_user;
+  `;
+  return current_user;
+}

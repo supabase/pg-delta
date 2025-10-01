@@ -1,4 +1,4 @@
-import { CreateChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { View } from "../view.model.ts";
 
 /**
@@ -14,9 +14,12 @@ import type { View } from "../view.model.ts";
  *     [ WITH [ CASCADE | LOCAL ] CHECK OPTION ]
  * ```
  */
-export class CreateView extends CreateChange {
+export class CreateView extends Change {
   public readonly view: View;
   public readonly orReplace?: boolean;
+  public readonly operation = "create" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "view" as const;
 
   constructor(props: { view: View; orReplace?: boolean }) {
     super();

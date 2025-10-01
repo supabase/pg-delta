@@ -1,6 +1,6 @@
 import type { Sql } from "postgres";
 import z from "zod";
-import { extractVersion } from "../../version.ts";
+import { extractVersion } from "../../context.ts";
 import { BasePgModel } from "../base.model.ts";
 
 /**

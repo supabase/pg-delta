@@ -1,7 +1,5 @@
-import { AlterChange, ReplaceChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
-import { CreateRlsPolicy } from "./rls-policy.create.ts";
-import { DropRlsPolicy } from "./rls-policy.drop.ts";
 
 /**
  * Alter an RLS policy.
@@ -20,9 +18,12 @@ import { DropRlsPolicy } from "./rls-policy.drop.ts";
 /**
  * ALTER POLICY ... TO roles ...
  */
-export class AlterRlsPolicySetRoles extends AlterChange {
+export class AlterRlsPolicySetRoles extends Change {
   public readonly main: RlsPolicy;
   public readonly branch: RlsPolicy;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "rls_policy" as const;
 
   constructor(props: { main: RlsPolicy; branch: RlsPolicy }) {
     super();
@@ -55,9 +56,12 @@ export class AlterRlsPolicySetRoles extends AlterChange {
 /**
  * ALTER POLICY ... USING (...)
  */
-export class AlterRlsPolicySetUsingExpression extends AlterChange {
+export class AlterRlsPolicySetUsingExpression extends Change {
   public readonly main: RlsPolicy;
   public readonly branch: RlsPolicy;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "rls_policy" as const;
 
   constructor(props: { main: RlsPolicy; branch: RlsPolicy }) {
     super();
@@ -85,9 +89,12 @@ export class AlterRlsPolicySetUsingExpression extends AlterChange {
 /**
  * ALTER POLICY ... WITH CHECK (...)
  */
-export class AlterRlsPolicySetWithCheckExpression extends AlterChange {
+export class AlterRlsPolicySetWithCheckExpression extends Change {
   public readonly main: RlsPolicy;
   public readonly branch: RlsPolicy;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "rls_policy" as const;
 
   constructor(props: { main: RlsPolicy; branch: RlsPolicy }) {
     super();
@@ -116,24 +123,4 @@ export class AlterRlsPolicySetWithCheckExpression extends AlterChange {
  * Replace an RLS policy by dropping and recreating it.
  * This is used when properties that cannot be altered via ALTER POLICY change.
  */
-export class ReplaceRlsPolicy extends ReplaceChange {
-  public readonly main: RlsPolicy;
-  public readonly branch: RlsPolicy;
-
-  constructor(props: { main: RlsPolicy; branch: RlsPolicy }) {
-    super();
-    this.main = props.main;
-    this.branch = props.branch;
-  }
-
-  get dependencies() {
-    return [this.main.stableId];
-  }
-
-  serialize(): string {
-    const dropChange = new DropRlsPolicy({ rlsPolicy: this.main });
-    const createChange = new CreateRlsPolicy({ rlsPolicy: this.branch });
-
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
-  }
-}
+// NOTE: ReplaceRlsPolicy removed. Non-alterable changes are emitted as Drop + Create in rls-policy.diff.ts.

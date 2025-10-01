@@ -4,7 +4,6 @@ import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterCollationChangeOwner,
   AlterCollationRefreshVersion,
-  ReplaceCollation,
 } from "./changes/collation.alter.ts";
 import {
   CreateCommentOnCollation,
@@ -65,7 +64,8 @@ export function diffCollations(
     if (nonAlterablePropsChanged) {
       // Replace the entire collation (drop + create)
       changes.push(
-        new ReplaceCollation({ main: mainCollation, branch: branchCollation }),
+        new DropCollation({ collation: mainCollation }),
+        new CreateCollation({ collation: branchCollation }),
       );
     } else {
       // Only alterable properties changed - check each one

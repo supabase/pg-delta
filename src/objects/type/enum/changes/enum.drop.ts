@@ -1,4 +1,4 @@
-import { DropChange } from "../../../base.change.ts";
+import { Change } from "../../../base.change.ts";
 import type { Enum } from "../enum.model.ts";
 
 /**
@@ -11,8 +11,11 @@ import type { Enum } from "../enum.model.ts";
  * DROP TYPE [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropEnum extends DropChange {
+export class DropEnum extends Change {
   public readonly enum: Enum;
+  public readonly operation = "drop" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "enum" as const;
 
   constructor(props: { enum: Enum }) {
     super();

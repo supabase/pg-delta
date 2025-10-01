@@ -24,6 +24,7 @@ function sqlQualifiedName(
 }
 
 export function diffObjectPrivileges(
+  ctx: { version: number },
   main: Record<string, ObjectPrivilegeSet>,
   branch: Record<string, ObjectPrivilegeSet>,
 ): Change[] {
@@ -33,39 +34,65 @@ export function diffObjectPrivileges(
   for (const id of created) {
     const s = branch[id];
     if (s.privileges.length === 0) continue;
-    changes.push(
-      new GrantObjectPrivileges({
-        objectId: s.target_stable_id,
-        objectNameSql: sqlQualifiedName(
-          s.target_kind,
-          s.schema,
-          s.name,
-          s.arg_types,
-        ),
-        objectKind: s.target_kind,
-        grantee: s.grantee,
-        privileges: s.privileges,
-      }),
-    );
+    const grantGroups = new Map<
+      boolean,
+      { privilege: string; grantable: boolean }[]
+    >();
+    for (const p of s.privileges) {
+      const arr = grantGroups.get(p.grantable) ?? [];
+      arr.push(p);
+      grantGroups.set(p.grantable, arr);
+    }
+    for (const [grantable, list] of grantGroups) {
+      void grantable;
+      changes.push(
+        new GrantObjectPrivileges({
+          objectId: s.target_stable_id,
+          objectNameSql: sqlQualifiedName(
+            s.target_kind,
+            s.schema,
+            s.name,
+            s.arg_types,
+          ),
+          objectKind: s.target_kind,
+          grantee: s.grantee,
+          privileges: list,
+          version: ctx.version,
+        }),
+      );
+    }
   }
 
   for (const id of dropped) {
     const s = main[id];
     if (s.privileges.length === 0) continue;
-    changes.push(
-      new RevokeObjectPrivileges({
-        objectId: s.target_stable_id,
-        objectNameSql: sqlQualifiedName(
-          s.target_kind,
-          s.schema,
-          s.name,
-          s.arg_types,
-        ),
-        objectKind: s.target_kind,
-        grantee: s.grantee,
-        privileges: s.privileges,
-      }),
-    );
+    const revokeGroups = new Map<
+      boolean,
+      { privilege: string; grantable: boolean }[]
+    >();
+    for (const p of s.privileges) {
+      const arr = revokeGroups.get(p.grantable) ?? [];
+      arr.push(p);
+      revokeGroups.set(p.grantable, arr);
+    }
+    for (const [grantable, list] of revokeGroups) {
+      void grantable;
+      changes.push(
+        new RevokeObjectPrivileges({
+          objectId: s.target_stable_id,
+          objectNameSql: sqlQualifiedName(
+            s.target_kind,
+            s.schema,
+            s.name,
+            s.arg_types,
+          ),
+          objectKind: s.target_kind,
+          grantee: s.grantee,
+          privileges: list,
+          version: ctx.version,
+        }),
+      );
+    }
   }
 
   for (const id of altered) {
@@ -107,36 +134,62 @@ export function diffObjectPrivileges(
     }
 
     if (grants.length > 0) {
-      changes.push(
-        new GrantObjectPrivileges({
-          objectId: b.target_stable_id,
-          objectNameSql: sqlQualifiedName(
-            b.target_kind,
-            b.schema,
-            b.name,
-            b.arg_types,
-          ),
-          objectKind: b.target_kind,
-          grantee: b.grantee,
-          privileges: grants,
-        }),
-      );
+      const grantGroups = new Map<
+        boolean,
+        { privilege: string; grantable: boolean }[]
+      >();
+      for (const p of grants) {
+        const arr = grantGroups.get(p.grantable) ?? [];
+        arr.push(p);
+        grantGroups.set(p.grantable, arr);
+      }
+      for (const [grantable, list] of grantGroups) {
+        void grantable;
+        changes.push(
+          new GrantObjectPrivileges({
+            objectId: b.target_stable_id,
+            objectNameSql: sqlQualifiedName(
+              b.target_kind,
+              b.schema,
+              b.name,
+              b.arg_types,
+            ),
+            objectKind: b.target_kind,
+            grantee: b.grantee,
+            privileges: list,
+            version: ctx.version,
+          }),
+        );
+      }
     }
     if (revokes.length > 0) {
-      changes.push(
-        new RevokeObjectPrivileges({
-          objectId: a.target_stable_id,
-          objectNameSql: sqlQualifiedName(
-            a.target_kind,
-            a.schema,
-            a.name,
-            a.arg_types,
-          ),
-          objectKind: a.target_kind,
-          grantee: a.grantee,
-          privileges: revokes,
-        }),
-      );
+      const revokeGroups = new Map<
+        boolean,
+        { privilege: string; grantable: boolean }[]
+      >();
+      for (const p of revokes) {
+        const arr = revokeGroups.get(p.grantable) ?? [];
+        arr.push(p);
+        revokeGroups.set(p.grantable, arr);
+      }
+      for (const [grantable, list] of revokeGroups) {
+        void grantable;
+        changes.push(
+          new RevokeObjectPrivileges({
+            objectId: a.target_stable_id,
+            objectNameSql: sqlQualifiedName(
+              a.target_kind,
+              a.schema,
+              a.name,
+              a.arg_types,
+            ),
+            objectKind: a.target_kind,
+            grantee: a.grantee,
+            privileges: list,
+            version: ctx.version,
+          }),
+        );
+      }
     }
     if (revokeGrantOption.length > 0) {
       changes.push(
@@ -151,6 +204,7 @@ export function diffObjectPrivileges(
           objectKind: a.target_kind,
           grantee: a.grantee,
           privilegeNames: revokeGrantOption,
+          version: ctx.version,
         }),
       );
     }

@@ -1,4 +1,4 @@
-import { CreateChange, DropChange, quoteLiteral } from "../../base.change.ts";
+import { Change, quoteLiteral } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 
@@ -8,8 +8,11 @@ import type { MaterializedView } from "../materialized-view.model.ts";
  * @see https://www.postgresql.org/docs/17/sql-comment.html
  */
 
-export class CreateCommentOnMaterializedView extends CreateChange {
+export class CreateCommentOnMaterializedView extends Change {
   public readonly materializedView: MaterializedView;
+  public readonly operation = "create" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "materialized_view" as const;
 
   constructor(props: { materializedView: MaterializedView }) {
     super();
@@ -33,8 +36,11 @@ export class CreateCommentOnMaterializedView extends CreateChange {
   }
 }
 
-export class DropCommentOnMaterializedView extends DropChange {
+export class DropCommentOnMaterializedView extends Change {
   public readonly materializedView: MaterializedView;
+  public readonly operation = "drop" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "materialized_view" as const;
 
   constructor(props: { materializedView: MaterializedView }) {
     super();
@@ -56,9 +62,12 @@ export class DropCommentOnMaterializedView extends DropChange {
   }
 }
 
-export class CreateCommentOnMaterializedViewColumn extends CreateChange {
+export class CreateCommentOnMaterializedViewColumn extends Change {
   public readonly materializedView: MaterializedView;
   public readonly column: ColumnProps;
+  public readonly operation = "create" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "materialized_view" as const;
 
   constructor(props: {
     materializedView: MaterializedView;
@@ -86,9 +95,12 @@ export class CreateCommentOnMaterializedViewColumn extends CreateChange {
   }
 }
 
-export class DropCommentOnMaterializedViewColumn extends DropChange {
+export class DropCommentOnMaterializedViewColumn extends Change {
   public readonly materializedView: MaterializedView;
   public readonly column: ColumnProps;
+  public readonly operation = "drop" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "materialized_view" as const;
 
   constructor(props: {
     materializedView: MaterializedView;

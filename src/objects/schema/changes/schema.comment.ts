@@ -1,8 +1,11 @@
-import { CreateChange, DropChange, quoteLiteral } from "../../base.change.ts";
+import { Change, quoteLiteral } from "../../base.change.ts";
 import type { Schema } from "../schema.model.ts";
 
-export class CreateCommentOnSchema extends CreateChange {
+export class CreateCommentOnSchema extends Change {
   public readonly schemaObj: Schema;
+  public readonly operation = "create" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "schema" as const;
 
   constructor(props: { schemaObj: Schema }) {
     super();
@@ -24,8 +27,11 @@ export class CreateCommentOnSchema extends CreateChange {
   }
 }
 
-export class DropCommentOnSchema extends DropChange {
+export class DropCommentOnSchema extends Change {
   public readonly schemaObj: Schema;
+  public readonly operation = "drop" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "schema" as const;
 
   constructor(props: { schemaObj: Schema }) {
     super();

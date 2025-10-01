@@ -4,7 +4,6 @@ import {
   AlterViewChangeOwner,
   AlterViewResetOptions,
   AlterViewSetOptions,
-  ReplaceView,
 } from "./view.alter.ts";
 
 describe.concurrent("view", () => {
@@ -43,43 +42,6 @@ describe.concurrent("view", () => {
 
       expect(change.serialize()).toBe(
         "ALTER VIEW public.test_view OWNER TO new_owner",
-      );
-    });
-
-    test("replace view", () => {
-      const props: Omit<ViewProps, "definition"> = {
-        schema: "public",
-        name: "test_view",
-        row_security: false,
-        force_row_security: false,
-        has_indexes: false,
-        has_rules: false,
-        has_triggers: false,
-        has_subclasses: false,
-        is_populated: false,
-        replica_identity: "d",
-        is_partition: false,
-        options: null,
-        partition_bound: null,
-        owner: "test",
-        comment: null,
-      };
-      const main = new View({
-        ...props,
-        definition: "SELECT * FROM test_table",
-      });
-      const branch = new View({
-        ...props,
-        definition: "SELECT id, name FROM test_table",
-      });
-
-      const change = new ReplaceView({
-        main,
-        branch,
-      });
-
-      expect(change.serialize()).toBe(
-        "CREATE OR REPLACE VIEW public.test_view AS SELECT id, name FROM test_table",
       );
     });
   });

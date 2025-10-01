@@ -1,7 +1,5 @@
-import { AlterChange, ReplaceChange } from "../../../base.change.ts";
+import { Change } from "../../../base.change.ts";
 import type { CompositeType } from "../composite-type.model.ts";
-import { CreateCompositeType } from "./composite-type.create.ts";
-import { DropCompositeType } from "./composite-type.drop.ts";
 
 /**
  * Alter a composite type.
@@ -23,9 +21,12 @@ import { DropCompositeType } from "./composite-type.drop.ts";
 /**
  * ALTER TYPE ... OWNER TO ...
  */
-export class AlterCompositeTypeChangeOwner extends AlterChange {
+export class AlterCompositeTypeChangeOwner extends Change {
   public readonly main: CompositeType;
   public readonly branch: CompositeType;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "composite_type" as const;
 
   constructor(props: { main: CompositeType; branch: CompositeType }) {
     super();
@@ -50,9 +51,12 @@ export class AlterCompositeTypeChangeOwner extends AlterChange {
 /**
  * ALTER TYPE ... ADD ATTRIBUTE ...
  */
-export class AlterCompositeTypeAddAttribute extends AlterChange {
+export class AlterCompositeTypeAddAttribute extends Change {
   public readonly compositeType: CompositeType;
   public readonly attribute: CompositeType["columns"][number];
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "composite_type" as const;
 
   constructor(props: {
     compositeType: CompositeType;
@@ -85,9 +89,12 @@ export class AlterCompositeTypeAddAttribute extends AlterChange {
 /**
  * ALTER TYPE ... DROP ATTRIBUTE ...
  */
-export class AlterCompositeTypeDropAttribute extends AlterChange {
+export class AlterCompositeTypeDropAttribute extends Change {
   public readonly compositeType: CompositeType;
   public readonly attribute: CompositeType["columns"][number];
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "composite_type" as const;
 
   constructor(props: {
     compositeType: CompositeType;
@@ -115,9 +122,12 @@ export class AlterCompositeTypeDropAttribute extends AlterChange {
 /**
  * ALTER TYPE ... ALTER ATTRIBUTE ... TYPE ... [ COLLATE ... ]
  */
-export class AlterCompositeTypeAlterAttributeType extends AlterChange {
+export class AlterCompositeTypeAlterAttributeType extends Change {
   public readonly compositeType: CompositeType;
   public readonly attribute: CompositeType["columns"][number];
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "composite_type" as const;
 
   constructor(props: {
     compositeType: CompositeType;
@@ -153,26 +163,4 @@ export class AlterCompositeTypeAlterAttributeType extends AlterChange {
  * This is used when properties that cannot be altered via ALTER TYPE change.
  * Note: Attribute list changes are modeled as drop+create via diff.
  */
-export class ReplaceCompositeType extends ReplaceChange {
-  public readonly main: CompositeType;
-  public readonly branch: CompositeType;
-
-  constructor(props: { main: CompositeType; branch: CompositeType }) {
-    super();
-    this.main = props.main;
-    this.branch = props.branch;
-  }
-
-  get dependencies() {
-    return [this.main.stableId];
-  }
-
-  serialize(): string {
-    const dropChange = new DropCompositeType({ compositeType: this.main });
-    const createChange = new CreateCompositeType({
-      compositeType: this.branch,
-    });
-
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
-  }
-}
+// NOTE: ReplaceCompositeType removed. Non-alterable changes are emitted as Drop + Create in composite-type.diff.ts.

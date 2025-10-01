@@ -3,7 +3,6 @@ import {
   AlterViewChangeOwner,
   AlterViewResetOptions,
   AlterViewSetOptions,
-  ReplaceView,
 } from "./changes/view.alter.ts";
 import { CreateView } from "./changes/view.create.ts";
 import { DropView } from "./changes/view.drop.ts";
@@ -48,16 +47,6 @@ describe.concurrent("view.diff", () => {
     expect(changes[0]).toBeInstanceOf(AlterViewChangeOwner);
   });
 
-  test("replace on non-alterable change", () => {
-    const main = new View(base);
-    const branch = new View({ ...base, definition: "select 2" });
-    const changes = diffViews(
-      { [main.stableId]: main },
-      { [branch.stableId]: branch },
-    );
-    expect(changes[0]).toBeInstanceOf(ReplaceView);
-  });
-
   test("alter: set and reset options", () => {
     const main = new View({
       ...base,
@@ -70,5 +59,20 @@ describe.concurrent("view.diff", () => {
     );
     expect(changes.some((c) => c instanceof AlterViewSetOptions)).toBe(true);
     expect(changes.some((c) => c instanceof AlterViewResetOptions)).toBe(true);
+  });
+
+  test("create or replace when non-alterable property changes", () => {
+    const main = new View(base);
+    const branch = new View({
+      ...base,
+      definition: "select 2",
+      row_security: true,
+    });
+    const changes = diffViews(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toBeInstanceOf(CreateView);
   });
 });

@@ -1,6 +1,5 @@
-import { AlterChange, ReplaceChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { View } from "../view.model.ts";
-import { CreateView } from "./view.create.ts";
 
 /**
  * Alter a view.
@@ -23,9 +22,12 @@ import { CreateView } from "./view.create.ts";
 /**
  * ALTER VIEW ... OWNER TO ...
  */
-export class AlterViewChangeOwner extends AlterChange {
+export class AlterViewChangeOwner extends Change {
   public readonly main: View;
   public readonly branch: View;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "view" as const;
 
   constructor(props: { main: View; branch: View }) {
     super();
@@ -47,37 +49,17 @@ export class AlterViewChangeOwner extends AlterChange {
   }
 }
 
-/**
- * Replace a view.
- * This is used when properties that cannot be altered via ALTER VIEW change.
- */
-export class ReplaceView extends ReplaceChange {
-  public readonly main: View;
-  public readonly branch: View;
-
-  constructor(props: { main: View; branch: View }) {
-    super();
-    this.main = props.main;
-    this.branch = props.branch;
-  }
-
-  get dependencies() {
-    return [this.main.stableId];
-  }
-
-  serialize(): string {
-    const createChange = new CreateView({ view: this.branch, orReplace: true });
-
-    return createChange.serialize();
-  }
-}
+// NOTE: ReplaceView removed. Non-alterable changes are emitted as CREATE OR REPLACE in view.diff.ts.
 
 /**
  * ALTER VIEW ... SET ( ... )
  */
-export class AlterViewSetOptions extends AlterChange {
+export class AlterViewSetOptions extends Change {
   public readonly main: View;
   public readonly branch: View;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "view" as const;
 
   constructor(props: { main: View; branch: View }) {
     super();
@@ -103,9 +85,12 @@ export class AlterViewSetOptions extends AlterChange {
 /**
  * ALTER VIEW ... RESET ( ... )
  */
-export class AlterViewResetOptions extends AlterChange {
+export class AlterViewResetOptions extends Change {
   public readonly view: View;
   public readonly params: string[];
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "view" as const;
 
   constructor(props: { view: View; params: string[] }) {
     super();

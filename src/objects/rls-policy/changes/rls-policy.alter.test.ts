@@ -1,11 +1,13 @@
 import { describe, expect, test } from "vitest";
+import { diffRlsPolicies } from "../rls-policy.diff.ts";
 import { RlsPolicy, type RlsPolicyProps } from "../rls-policy.model.ts";
 import {
   AlterRlsPolicySetRoles,
   AlterRlsPolicySetUsingExpression,
   AlterRlsPolicySetWithCheckExpression,
-  ReplaceRlsPolicy,
 } from "./rls-policy.alter.ts";
+import { CreateRlsPolicy } from "./rls-policy.create.ts";
+import { DropRlsPolicy } from "./rls-policy.drop.ts";
 
 describe.concurrent("rls-policy", () => {
   describe("alter", () => {
@@ -71,7 +73,44 @@ describe.concurrent("rls-policy", () => {
       );
     });
 
-    test("replace rls policy", () => {
+    test("drop + create rls policy when command changes", () => {
+      const props: Omit<RlsPolicyProps, "command"> = {
+        schema: "public",
+        name: "test_policy",
+        table_name: "test_table",
+        permissive: true,
+        roles: ["public"],
+        using_expression: "user_id = current_user_id()",
+        with_check_expression: null,
+        owner: "owner",
+        comment: null,
+      };
+      const main = new RlsPolicy({
+        ...props,
+        command: "r", // SELECT
+      });
+      const branch = new RlsPolicy({
+        ...props,
+        command: "w", // UPDATE
+      });
+
+      const changes = diffRlsPolicies(
+        { [main.stableId]: main },
+        { [branch.stableId]: branch },
+      );
+
+      expect(changes).toHaveLength(2);
+      expect(changes[0]).toBeInstanceOf(DropRlsPolicy);
+      expect(changes[1]).toBeInstanceOf(CreateRlsPolicy);
+      expect(changes[0].serialize()).toBe(
+        "DROP POLICY test_policy ON public.test_table",
+      );
+      expect(changes[1].serialize()).toBe(
+        "CREATE POLICY test_policy ON public.test_table FOR UPDATE USING (user_id = current_user_id())",
+      );
+    });
+
+    test("drop + create rls policy when permissive changes", () => {
       const props: Omit<RlsPolicyProps, "permissive"> = {
         schema: "public",
         name: "test_policy",
@@ -80,7 +119,7 @@ describe.concurrent("rls-policy", () => {
         roles: ["public"],
         using_expression: "user_id = current_user_id()",
         with_check_expression: null,
-        owner: "test",
+        owner: "owner",
         comment: null,
       };
       const main = new RlsPolicy({
@@ -92,13 +131,19 @@ describe.concurrent("rls-policy", () => {
         permissive: false,
       });
 
-      const change = new ReplaceRlsPolicy({
-        main,
-        branch,
-      });
+      const changes = diffRlsPolicies(
+        { [main.stableId]: main },
+        { [branch.stableId]: branch },
+      );
 
-      expect(change.serialize()).toBe(
-        "DROP POLICY test_policy ON public.test_table;\nCREATE POLICY test_policy ON public.test_table AS RESTRICTIVE FOR SELECT USING (user_id = current_user_id())",
+      expect(changes).toHaveLength(2);
+      expect(changes[0]).toBeInstanceOf(DropRlsPolicy);
+      expect(changes[1]).toBeInstanceOf(CreateRlsPolicy);
+      expect(changes[0].serialize()).toBe(
+        "DROP POLICY test_policy ON public.test_table",
+      );
+      expect(changes[1].serialize()).toBe(
+        "CREATE POLICY test_policy ON public.test_table AS RESTRICTIVE FOR SELECT USING (user_id = current_user_id())",
       );
     });
 

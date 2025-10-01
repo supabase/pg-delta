@@ -6,7 +6,6 @@ import {
 import {
   AlterMaterializedViewChangeOwner,
   AlterMaterializedViewSetStorageParams,
-  ReplaceMaterializedView,
 } from "./materialized-view.alter.ts";
 
 describe.concurrent("materialized-view", () => {
@@ -46,44 +45,6 @@ describe.concurrent("materialized-view", () => {
 
       expect(change.serialize()).toBe(
         "ALTER MATERIALIZED VIEW public.test_mv OWNER TO new_owner",
-      );
-    });
-
-    test("replace materialized view", () => {
-      const props: Omit<MaterializedViewProps, "definition"> = {
-        schema: "public",
-        name: "test_mv",
-        row_security: false,
-        force_row_security: false,
-        has_indexes: false,
-        has_rules: false,
-        has_triggers: false,
-        has_subclasses: false,
-        is_populated: true,
-        replica_identity: "d",
-        is_partition: false,
-        options: null,
-        partition_bound: null,
-        owner: "test",
-        comment: null,
-        columns: [],
-      };
-      const main = new MaterializedView({
-        ...props,
-        definition: "SELECT * FROM test_table",
-      });
-      const branch = new MaterializedView({
-        ...props,
-        definition: "SELECT id, name FROM test_table",
-      });
-
-      const change = new ReplaceMaterializedView({
-        main,
-        branch,
-      });
-
-      expect(change.serialize()).toBe(
-        "DROP MATERIALIZED VIEW public.test_mv;\nCREATE MATERIALIZED VIEW public.test_mv AS SELECT id, name FROM test_table WITH DATA",
       );
     });
 

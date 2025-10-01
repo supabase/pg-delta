@@ -1,11 +1,14 @@
-import { CreateChange, DropChange, quoteLiteral } from "../../base.change.ts";
+import { Change, quoteLiteral } from "../../base.change.ts";
 import type { Index } from "../index.model.ts";
 
 /**
  * Create/drop comments on indexes.
  */
-export class CreateCommentOnIndex extends CreateChange {
+export class CreateCommentOnIndex extends Change {
   public readonly index: Index;
+  public readonly operation = "create" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "index" as const;
 
   constructor(props: { index: Index }) {
     super();
@@ -29,8 +32,11 @@ export class CreateCommentOnIndex extends CreateChange {
   }
 }
 
-export class DropCommentOnIndex extends DropChange {
+export class DropCommentOnIndex extends Change {
   public readonly index: Index;
+  public readonly operation = "drop" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "index" as const;
 
   constructor(props: { index: Index }) {
     super();

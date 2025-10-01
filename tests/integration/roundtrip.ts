@@ -7,8 +7,10 @@ import { expect } from "vitest";
 import { diffCatalogs } from "../../src/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
 import type { PgDepend } from "../../src/depend.ts";
-import { resolveDependencies } from "../../src/dependency.ts";
 import type { Change } from "../../src/objects/base.change.ts";
+import { pgDumpSort } from "../../src/sort/global-sort.ts";
+import { applyRefinements } from "../../src/sort/refined-sort.ts";
+import { sortChangesByRules } from "../../src/sort/sort-utils.ts";
 import { DEBUG } from "../constants.ts";
 
 interface RoundtripTestOptions {
@@ -112,16 +114,14 @@ export async function roundtripFidelityTest(
     changes = changes.sort(sortChangesCallback);
   }
 
-  // Resolve dependencies to get the proper order
-  const sortedChangesResult = resolveDependencies(
-    changes,
-    mainCatalog,
-    branchCatalog,
+  const globallySortedChanges = sortChangesByRules(changes, pgDumpSort);
+  const sortedChanges = applyRefinements(
+    {
+      mainCatalog,
+      branchCatalog,
+    },
+    globallySortedChanges,
   );
-  if (sortedChangesResult.isErr()) {
-    throw sortedChangesResult.error;
-  }
-  const sortedChanges = sortedChangesResult.value;
 
   if (expectedOperationOrder) {
     validateOperationOrder(sortedChanges, expectedOperationOrder);
@@ -169,7 +169,7 @@ export async function roundtripFidelityTest(
  * This is a simplified version - in a real implementation you would
  * need more sophisticated equality checking.
  */
-function catalogsSemanticalyEqual(catalog1: Catalog, catalog2: Catalog) {
+export function catalogsSemanticalyEqual(catalog1: Catalog, catalog2: Catalog) {
   // For now, we'll do a basic check by comparing the serialized forms
   // of all objects in the catalog. In a real implementation, this would
   // be more sophisticated.
@@ -177,6 +177,11 @@ function catalogsSemanticalyEqual(catalog1: Catalog, catalog2: Catalog) {
   const getObjectKeys = (cat: Catalog) => {
     const keys = new Set<string>();
     for (const key of Object.keys(cat)) {
+      // Skip depends introspection results
+      if (key === "depends") {
+        continue;
+      }
+
       for (const subKey of Object.keys(cat[key as keyof Catalog] || {})) {
         keys.add(`${key}:${subKey}`);
       }
@@ -186,6 +191,10 @@ function catalogsSemanticalyEqual(catalog1: Catalog, catalog2: Catalog) {
 
   const keys1 = getObjectKeys(catalog1);
   const keys2 = getObjectKeys(catalog2);
+
+  if (process.env.DEBUG) {
+    console.log(keys1.difference(keys2));
+  }
 
   // Check if both catalogs have the same set of keys
   expect(keys2).toEqual(keys1);

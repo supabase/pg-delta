@@ -7,6 +7,7 @@ import {
 import type { DefaultPrivilegeSet } from "./default-privilege.model.ts";
 
 export function diffDefaultPrivileges(
+  ctx: { version: number },
   main: Record<string, DefaultPrivilegeSet>,
   branch: Record<string, DefaultPrivilegeSet>,
 ): Change[] {
@@ -16,29 +17,55 @@ export function diffDefaultPrivileges(
   for (const id of created) {
     const s = branch[id];
     if (s.privileges.length === 0) continue;
-    changes.push(
-      new AlterDefaultPrivilegesGrant({
-        grantor: s.grantor,
-        inSchema: s.in_schema,
-        objtype: s.objtype,
-        grantee: s.grantee,
-        privileges: s.privileges,
-      }),
-    );
+    const grantGroups = new Map<
+      boolean,
+      { privilege: string; grantable: boolean }[]
+    >();
+    for (const p of s.privileges) {
+      const arr = grantGroups.get(p.grantable) ?? [];
+      arr.push(p);
+      grantGroups.set(p.grantable, arr);
+    }
+    for (const [grantable, list] of grantGroups) {
+      void grantable;
+      changes.push(
+        new AlterDefaultPrivilegesGrant({
+          grantor: s.grantor,
+          inSchema: s.in_schema,
+          objtype: s.objtype,
+          grantee: s.grantee,
+          privileges: list,
+          version: ctx.version,
+        }),
+      );
+    }
   }
 
   for (const id of dropped) {
     const s = main[id];
     if (s.privileges.length === 0) continue;
-    changes.push(
-      new AlterDefaultPrivilegesRevoke({
-        grantor: s.grantor,
-        inSchema: s.in_schema,
-        objtype: s.objtype,
-        grantee: s.grantee,
-        privileges: s.privileges,
-      }),
-    );
+    const revokeGroups = new Map<
+      boolean,
+      { privilege: string; grantable: boolean }[]
+    >();
+    for (const p of s.privileges) {
+      const arr = revokeGroups.get(p.grantable) ?? [];
+      arr.push(p);
+      revokeGroups.set(p.grantable, arr);
+    }
+    for (const [grantable, list] of revokeGroups) {
+      void grantable;
+      changes.push(
+        new AlterDefaultPrivilegesRevoke({
+          grantor: s.grantor,
+          inSchema: s.in_schema,
+          objtype: s.objtype,
+          grantee: s.grantee,
+          privileges: list,
+          version: ctx.version,
+        }),
+      );
+    }
   }
 
   for (const id of altered) {
@@ -80,26 +107,52 @@ export function diffDefaultPrivileges(
     }
 
     if (grants.length > 0) {
-      changes.push(
-        new AlterDefaultPrivilegesGrant({
-          grantor: b.grantor,
-          inSchema: b.in_schema,
-          objtype: b.objtype,
-          grantee: b.grantee,
-          privileges: grants,
-        }),
-      );
+      const grantGroups = new Map<
+        boolean,
+        { privilege: string; grantable: boolean }[]
+      >();
+      for (const p of grants) {
+        const arr = grantGroups.get(p.grantable) ?? [];
+        arr.push(p);
+        grantGroups.set(p.grantable, arr);
+      }
+      for (const [grantable, list] of grantGroups) {
+        void grantable;
+        changes.push(
+          new AlterDefaultPrivilegesGrant({
+            grantor: b.grantor,
+            inSchema: b.in_schema,
+            objtype: b.objtype,
+            grantee: b.grantee,
+            privileges: list,
+            version: ctx.version,
+          }),
+        );
+      }
     }
     if (revokes.length > 0) {
-      changes.push(
-        new AlterDefaultPrivilegesRevoke({
-          grantor: a.grantor,
-          inSchema: a.in_schema,
-          objtype: a.objtype,
-          grantee: a.grantee,
-          privileges: revokes,
-        }),
-      );
+      const revokeGroups = new Map<
+        boolean,
+        { privilege: string; grantable: boolean }[]
+      >();
+      for (const p of revokes) {
+        const arr = revokeGroups.get(p.grantable) ?? [];
+        arr.push(p);
+        revokeGroups.set(p.grantable, arr);
+      }
+      for (const [grantable, list] of revokeGroups) {
+        void grantable;
+        changes.push(
+          new AlterDefaultPrivilegesRevoke({
+            grantor: a.grantor,
+            inSchema: a.in_schema,
+            objtype: a.objtype,
+            grantee: a.grantee,
+            privileges: list,
+            version: ctx.version,
+          }),
+        );
+      }
     }
     if (revokeGrantOption.length > 0) {
       // Encode as GRANT OPTION revocation by marking grantable true
@@ -113,6 +166,7 @@ export function diffDefaultPrivileges(
             privilege: p,
             grantable: true,
           })),
+          version: ctx.version,
         }),
       );
     }

@@ -24,14 +24,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             compositeType: expect.objectContaining({
               name: "address",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             schema: expect.objectContaining({
               schema: "test_schema",
             }),
@@ -59,20 +59,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect.arrayContaining([
           // Remove the two index expectations - unique constraints are handled as table constraints
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             schema: expect.objectContaining({
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "alter",
+            operation: "alter",
             branch: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
@@ -82,14 +82,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "alter",
+            operation: "alter",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -99,7 +99,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             }),
           }),
           expect.objectContaining({
-            kind: "alter",
+            operation: "alter",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -109,7 +109,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             }),
           }),
           expect.objectContaining({
-            kind: "alter",
+            operation: "alter",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -140,27 +140,27 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             schema: expect.objectContaining({
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "alter",
+            operation: "alter",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -170,14 +170,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             view: expect.objectContaining({
               name: "active_users",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "alter",
+            operation: "alter",
             branch: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
@@ -208,13 +208,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             schema: expect.objectContaining({
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             sequence: expect.objectContaining({
               name: "user_id_seq",
               schema: "test_schema",
@@ -237,14 +237,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             enum: expect.objectContaining({
               name: "user_status",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             schema: expect.objectContaining({
               schema: "test_schema",
             }),
@@ -267,14 +267,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             domain: expect.objectContaining({
               name: "email_address",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             schema: expect.objectContaining({
               schema: "test_schema",
             }),
@@ -305,14 +305,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             procedure: expect.objectContaining({
               name: "create_user",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             schema: expect.objectContaining({
               schema: "test_schema",
             }),
@@ -344,34 +344,34 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             materializedView: expect.objectContaining({
               name: "user_stats",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             schema: expect.objectContaining({
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "alter",
+            operation: "alter",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -381,7 +381,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             }),
           }),
           expect.objectContaining({
-            kind: "alter",
+            operation: "alter",
             branch: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
@@ -423,34 +423,34 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             procedure: expect.objectContaining({
               name: "update_updated_at",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             schema: expect.objectContaining({
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "alter",
+            operation: "alter",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -460,14 +460,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             trigger: expect.objectContaining({
               name: "users_updated_at_trigger",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "alter",
+            operation: "alter",
             branch: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
@@ -503,34 +503,34 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             rlsPolicy: expect.objectContaining({
               name: "tenant_isolation_policy",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             schema: expect.objectContaining({
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "alter",
+            operation: "alter",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -540,7 +540,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             }),
           }),
           expect.objectContaining({
-            kind: "alter",
+            operation: "alter",
             branch: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
@@ -598,14 +598,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             domain: expect.objectContaining({
               name: "positive_integer",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             enum: expect.objectContaining({
               name: "user_role",
               schema: "test_schema",
@@ -613,34 +613,34 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           // Remove the index expectation - unique constraints are handled as table constraints
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             procedure: expect.objectContaining({
               name: "create_admin_user",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             schema: expect.objectContaining({
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             sequence: expect.objectContaining({
               name: "global_id_seq",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "alter",
+            operation: "alter",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -650,7 +650,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             }),
           }),
           expect.objectContaining({
-            kind: "alter",
+            operation: "alter",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -660,7 +660,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             }),
           }),
           expect.objectContaining({
-            kind: "create",
+            operation: "create",
             view: expect.objectContaining({
               name: "admin_users",
               schema: "test_schema",
@@ -722,14 +722,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            kind: "drop",
+            operation: "drop",
             domain: expect.objectContaining({
               name: "positive_integer",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "drop",
+            operation: "drop",
             enum: expect.objectContaining({
               name: "user_role",
               schema: "test_schema",
@@ -737,34 +737,34 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
 
           expect.objectContaining({
-            kind: "drop",
+            operation: "drop",
             procedure: expect.objectContaining({
               name: "create_admin_user",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "drop",
+            operation: "drop",
             schema: expect.objectContaining({
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "drop",
+            operation: "drop",
             sequence: expect.objectContaining({
               name: "global_id_seq",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "drop",
+            operation: "drop",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
-            kind: "drop",
+            operation: "drop",
             view: expect.objectContaining({
               name: "admin_users",
               schema: "test_schema",
@@ -859,14 +859,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       // Check that we have alter operations for different entity types
       const alterChanges = changes.filter(
-        (change) => change.kind === "alter" || change.kind === "replace",
+        (change) => change.operation === "alter",
       );
       expect(alterChanges.length).toBeGreaterThan(0);
 
       // Verify specific alter operations
       expect(changes).toEqual([
         expect.objectContaining({
-          kind: "alter",
+          operation: "alter",
           domain: expect.objectContaining({
             name: "positive_integer",
             schema: "test_schema",
@@ -877,7 +877,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         }),
         expect.objectContaining({
-          kind: "alter",
+          operation: "alter",
           main: expect.objectContaining({
             name: "user_role",
             schema: "test_schema",
@@ -890,18 +890,15 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           position: { after: "user" },
         }),
         expect.objectContaining({
-          kind: "replace",
-          main: expect.objectContaining({
-            name: "create_admin_user",
-            schema: "test_schema",
-          }),
-          branch: expect.objectContaining({
+          operation: "create",
+          orReplace: true,
+          procedure: expect.objectContaining({
             name: "create_admin_user",
             schema: "test_schema",
           }),
         }),
         expect.objectContaining({
-          kind: "alter",
+          operation: "alter",
           main: expect.objectContaining({
             name: "global_id_seq",
             schema: "test_schema",
@@ -912,7 +909,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         }),
         expect.objectContaining({
-          kind: "alter",
+          operation: "alter",
           table: expect.objectContaining({
             name: "users",
             schema: "test_schema",
@@ -922,7 +919,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         }),
         expect.objectContaining({
-          kind: "alter",
+          operation: "alter",
           table: expect.objectContaining({
             name: "users",
             schema: "test_schema",
@@ -932,12 +929,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         }),
         expect.objectContaining({
-          kind: "replace",
-          main: expect.objectContaining({
-            name: "admin_users",
-            schema: "test_schema",
-          }),
-          branch: expect.objectContaining({
+          operation: "create",
+          orReplace: true,
+          view: expect.objectContaining({
             name: "admin_users",
             schema: "test_schema",
           }),
@@ -965,7 +959,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       expect(changes).toEqual([
         expect.objectContaining({
-          kind: "alter",
+          operation: "alter",
           newValue: "pending",
           position: { after: "inactive" },
         }),
@@ -993,7 +987,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       expect(changes).toEqual([
         expect.objectContaining({
-          kind: "alter",
+          operation: "alter",
           domain: expect.objectContaining({
             name: "age",
             schema: "test_schema",
@@ -1033,7 +1027,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       expect(changes).toEqual([
         expect.objectContaining({
-          kind: "alter",
+          operation: "alter",
           table: expect.objectContaining({
             name: "users",
             schema: "test_schema",
@@ -1077,16 +1071,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       expect(changes).toEqual([
         expect.objectContaining({
-          kind: "replace",
-          main: expect.objectContaining({
-            name: "user_list",
-            schema: "test_schema",
-            definition:
-              pgVersion === 15
-                ? " SELECT users.id,\n    users.username\n   FROM test_schema.users"
-                : " SELECT id,\n    username\n   FROM test_schema.users",
-          }),
-          branch: expect.objectContaining({
+          operation: "create",
+          orReplace: true,
+          view: expect.objectContaining({
             name: "user_list",
             schema: "test_schema",
             definition:

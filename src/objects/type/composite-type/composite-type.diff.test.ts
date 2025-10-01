@@ -4,7 +4,6 @@ import {
   AlterCompositeTypeAlterAttributeType,
   AlterCompositeTypeChangeOwner,
   AlterCompositeTypeDropAttribute,
-  ReplaceCompositeType,
 } from "./changes/composite-type.alter.ts";
 import { CreateCompositeType } from "./changes/composite-type.create.ts";
 import { DropCompositeType } from "./changes/composite-type.drop.ts";
@@ -50,16 +49,6 @@ describe.concurrent("composite-type.diff", () => {
       { [branch.stableId]: branch },
     );
     expect(changes[0]).toBeInstanceOf(AlterCompositeTypeChangeOwner);
-  });
-
-  test("replace on non-alterable change", () => {
-    const main = new CompositeType(base);
-    const branch = new CompositeType({ ...base, options: ["fillfactor=90"] });
-    const changes = diffCompositeTypes(
-      { [main.stableId]: main },
-      { [branch.stableId]: branch },
-    );
-    expect(changes[0]).toBeInstanceOf(ReplaceCompositeType);
   });
 
   test("add attribute", () => {

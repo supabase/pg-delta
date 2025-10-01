@@ -127,6 +127,15 @@ from
   where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   and e.objid is null
   and c.relkind = 'S'
+  -- exclude sequences that are tied to an IDENTITY column
+  and not exists (
+    select 1
+    from pg_depend di
+    where di.classid = 'pg_class'::regclass
+      and di.objid = c.oid
+      and di.refclassid = 'pg_class'::regclass
+      and di.deptype = 'i'
+  )
 order by
   1, 2;
   `;

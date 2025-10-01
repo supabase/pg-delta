@@ -1,4 +1,4 @@
-import { AlterChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import type { Table, TableConstraintProps } from "../table.model.ts";
 
@@ -61,9 +61,12 @@ import type { Table, TableConstraintProps } from "../table.model.ts";
 /**
  * ALTER TABLE ... OWNER TO ...
  */
-export class AlterTableChangeOwner extends AlterChange {
+export class AlterTableChangeOwner extends Change {
   public readonly main: Table;
   public readonly branch: Table;
+  public readonly operation = "alter" as const;
+  public readonly scope = "owner" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { main: Table; branch: Table }) {
     super();
@@ -88,9 +91,12 @@ export class AlterTableChangeOwner extends AlterChange {
 /**
  * ALTER TABLE ... SET LOGGED
  */
-export class AlterTableSetLogged extends AlterChange {
+export class AlterTableSetLogged extends Change {
   public readonly main: Table;
   public readonly branch: Table;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { main: Table; branch: Table }) {
     super();
@@ -114,9 +120,12 @@ export class AlterTableSetLogged extends AlterChange {
 /**
  * ALTER TABLE ... SET UNLOGGED
  */
-export class AlterTableSetUnlogged extends AlterChange {
+export class AlterTableSetUnlogged extends Change {
   public readonly main: Table;
   public readonly branch: Table;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { main: Table; branch: Table }) {
     super();
@@ -140,9 +149,12 @@ export class AlterTableSetUnlogged extends AlterChange {
 /**
  * ALTER TABLE ... ENABLE ROW LEVEL SECURITY
  */
-export class AlterTableEnableRowLevelSecurity extends AlterChange {
+export class AlterTableEnableRowLevelSecurity extends Change {
   public readonly main: Table;
   public readonly branch: Table;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { main: Table; branch: Table }) {
     super();
@@ -166,9 +178,12 @@ export class AlterTableEnableRowLevelSecurity extends AlterChange {
 /**
  * ALTER TABLE ... DISABLE ROW LEVEL SECURITY
  */
-export class AlterTableDisableRowLevelSecurity extends AlterChange {
+export class AlterTableDisableRowLevelSecurity extends Change {
   public readonly main: Table;
   public readonly branch: Table;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { main: Table; branch: Table }) {
     super();
@@ -192,9 +207,12 @@ export class AlterTableDisableRowLevelSecurity extends AlterChange {
 /**
  * ALTER TABLE ... FORCE ROW LEVEL SECURITY
  */
-export class AlterTableForceRowLevelSecurity extends AlterChange {
+export class AlterTableForceRowLevelSecurity extends Change {
   public readonly main: Table;
   public readonly branch: Table;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { main: Table; branch: Table }) {
     super();
@@ -218,9 +236,12 @@ export class AlterTableForceRowLevelSecurity extends AlterChange {
 /**
  * ALTER TABLE ... NO FORCE ROW LEVEL SECURITY
  */
-export class AlterTableNoForceRowLevelSecurity extends AlterChange {
+export class AlterTableNoForceRowLevelSecurity extends Change {
   public readonly main: Table;
   public readonly branch: Table;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { main: Table; branch: Table }) {
     super();
@@ -244,9 +265,12 @@ export class AlterTableNoForceRowLevelSecurity extends AlterChange {
 /**
  * ALTER TABLE ... SET ( storage_parameter = value [, ... ] )
  */
-export class AlterTableSetStorageParams extends AlterChange {
+export class AlterTableSetStorageParams extends Change {
   public readonly main: Table;
   public readonly branch: Table;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { main: Table; branch: Table }) {
     super();
@@ -271,9 +295,12 @@ export class AlterTableSetStorageParams extends AlterChange {
 /**
  * ALTER TABLE ... RESET ( storage_parameter [, ... ] )
  */
-export class AlterTableResetStorageParams extends AlterChange {
+export class AlterTableResetStorageParams extends Change {
   public readonly table: Table;
   public readonly params: string[];
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; params: string[] }) {
     super();
@@ -300,10 +327,13 @@ export class AlterTableResetStorageParams extends AlterChange {
 /**
  * ALTER TABLE ... ADD CONSTRAINT ...
  */
-export class AlterTableAddConstraint extends AlterChange {
+export class AlterTableAddConstraint extends Change {
   public readonly table: Table;
   public readonly foreignKeyTable?: Table;
   public readonly constraint: TableConstraintProps;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: {
     table: Table;
@@ -344,9 +374,12 @@ export class AlterTableAddConstraint extends AlterChange {
 /**
  * ALTER TABLE ... DROP CONSTRAINT ...
  */
-export class AlterTableDropConstraint extends AlterChange {
+export class AlterTableDropConstraint extends Change {
   public readonly table: Table;
   public readonly constraint: TableConstraintProps;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; constraint: TableConstraintProps }) {
     super();
@@ -371,9 +404,12 @@ export class AlterTableDropConstraint extends AlterChange {
 /**
  * ALTER TABLE ... VALIDATE CONSTRAINT ...
  */
-export class AlterTableValidateConstraint extends AlterChange {
+export class AlterTableValidateConstraint extends Change {
   public readonly table: Table;
   public readonly constraint: TableConstraintProps;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; constraint: TableConstraintProps }) {
     super();
@@ -398,9 +434,12 @@ export class AlterTableValidateConstraint extends AlterChange {
 /**
  * ALTER TABLE ... REPLICA IDENTITY ...
  */
-export class AlterTableSetReplicaIdentity extends AlterChange {
+export class AlterTableSetReplicaIdentity extends Change {
   public readonly main: Table;
   public readonly branch: Table;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { main: Table; branch: Table }) {
     super();
@@ -434,9 +473,12 @@ export class AlterTableSetReplicaIdentity extends AlterChange {
 /**
  * ALTER TABLE ... ADD COLUMN ...
  */
-export class AlterTableAddColumn extends AlterChange {
+export class AlterTableAddColumn extends Change {
   public readonly table: Table;
   public readonly column: ColumnProps;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -480,9 +522,12 @@ export class AlterTableAddColumn extends AlterChange {
 /**
  * ALTER TABLE ... DROP COLUMN ...
  */
-export class AlterTableDropColumn extends AlterChange {
+export class AlterTableDropColumn extends Change {
   public readonly table: Table;
   public readonly column: ColumnProps;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -507,9 +552,12 @@ export class AlterTableDropColumn extends AlterChange {
 /**
  * ALTER TABLE ... ALTER COLUMN ... TYPE ...
  */
-export class AlterTableAlterColumnType extends AlterChange {
+export class AlterTableAlterColumnType extends Change {
   public readonly table: Table;
   public readonly column: ColumnProps;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -540,9 +588,12 @@ export class AlterTableAlterColumnType extends AlterChange {
 /**
  * ALTER TABLE ... ALTER COLUMN ... SET DEFAULT ...
  */
-export class AlterTableAlterColumnSetDefault extends AlterChange {
+export class AlterTableAlterColumnSetDefault extends Change {
   public readonly table: Table;
   public readonly column: ColumnProps;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -571,9 +622,12 @@ export class AlterTableAlterColumnSetDefault extends AlterChange {
 /**
  * ALTER TABLE ... ALTER COLUMN ... DROP DEFAULT
  */
-export class AlterTableAlterColumnDropDefault extends AlterChange {
+export class AlterTableAlterColumnDropDefault extends Change {
   public readonly table: Table;
   public readonly column: ColumnProps;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -599,9 +653,12 @@ export class AlterTableAlterColumnDropDefault extends AlterChange {
 /**
  * ALTER TABLE ... ALTER COLUMN ... SET NOT NULL
  */
-export class AlterTableAlterColumnSetNotNull extends AlterChange {
+export class AlterTableAlterColumnSetNotNull extends Change {
   public readonly table: Table;
   public readonly column: ColumnProps;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -627,9 +684,12 @@ export class AlterTableAlterColumnSetNotNull extends AlterChange {
 /**
  * ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL
  */
-export class AlterTableAlterColumnDropNotNull extends AlterChange {
+export class AlterTableAlterColumnDropNotNull extends Change {
   public readonly table: Table;
   public readonly column: ColumnProps;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -655,9 +715,12 @@ export class AlterTableAlterColumnDropNotNull extends AlterChange {
 /**
  * ALTER TABLE ... ATTACH PARTITION ...
  */
-export class AlterTableAttachPartition extends AlterChange {
+export class AlterTableAttachPartition extends Change {
   public readonly parent: Table;
   public readonly partition: Table;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { parent: Table; partition: Table }) {
     super();
@@ -685,9 +748,12 @@ export class AlterTableAttachPartition extends AlterChange {
 /**
  * ALTER TABLE ... DETACH PARTITION ...
  */
-export class AlterTableDetachPartition extends AlterChange {
+export class AlterTableDetachPartition extends Change {
   public readonly parent: Table;
   public readonly partition: Table;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { parent: Table; partition: Table }) {
     super();

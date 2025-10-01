@@ -1,7 +1,5 @@
-import { AlterChange, quoteLiteral, ReplaceChange } from "../../base.change.ts";
+import { Change, quoteLiteral } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
-import { CreateExtension } from "./extension.create.ts";
-import { DropExtension } from "./extension.drop.ts";
 
 /**
  * Alter an extension.
@@ -20,9 +18,12 @@ import { DropExtension } from "./extension.drop.ts";
 /**
  * ALTER EXTENSION ... UPDATE TO ...
  */
-export class AlterExtensionUpdateVersion extends AlterChange {
+export class AlterExtensionUpdateVersion extends Change {
   public readonly main: Extension;
   public readonly branch: Extension;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "extension" as const;
 
   constructor(props: { main: Extension; branch: Extension }) {
     super();
@@ -47,9 +48,12 @@ export class AlterExtensionUpdateVersion extends AlterChange {
 /**
  * ALTER EXTENSION ... SET SCHEMA ...
  */
-export class AlterExtensionSetSchema extends AlterChange {
+export class AlterExtensionSetSchema extends Change {
   public readonly main: Extension;
   public readonly branch: Extension;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "extension" as const;
 
   constructor(props: { main: Extension; branch: Extension }) {
     super();
@@ -74,9 +78,12 @@ export class AlterExtensionSetSchema extends AlterChange {
 /**
  * ALTER EXTENSION ... OWNER TO ...
  */
-export class AlterExtensionChangeOwner extends AlterChange {
+export class AlterExtensionChangeOwner extends Change {
   public readonly main: Extension;
   public readonly branch: Extension;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "extension" as const;
 
   constructor(props: { main: Extension; branch: Extension }) {
     super();
@@ -95,31 +102,5 @@ export class AlterExtensionChangeOwner extends AlterChange {
       "OWNER TO",
       this.branch.owner,
     ].join(" ");
-  }
-}
-
-/**
- * Replace an extension by dropping and recreating it.
- * This is used when properties that cannot be altered via ALTER EXTENSION change.
- */
-export class ReplaceExtension extends ReplaceChange {
-  public readonly main: Extension;
-  public readonly branch: Extension;
-
-  constructor(props: { main: Extension; branch: Extension }) {
-    super();
-    this.main = props.main;
-    this.branch = props.branch;
-  }
-
-  get dependencies() {
-    return [this.main.stableId];
-  }
-
-  serialize(): string {
-    const dropChange = new DropExtension({ extension: this.main });
-    const createChange = new CreateExtension({ extension: this.branch });
-
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
   }
 }

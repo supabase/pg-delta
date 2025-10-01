@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { Schema, type SchemaProps } from "../schema.model.ts";
-import { AlterSchemaChangeOwner, ReplaceSchema } from "./schema.alter.ts";
+import { AlterSchemaChangeOwner } from "./schema.alter.ts";
 
 describe.concurrent("schema", () => {
   describe("alter", () => {
@@ -25,25 +25,6 @@ describe.concurrent("schema", () => {
 
       expect(change.serialize()).toBe(
         "ALTER SCHEMA test_schema OWNER TO new_owner",
-      );
-    });
-
-    test("replace schema", () => {
-      const props: SchemaProps = {
-        schema: "test_schema",
-        owner: "test",
-        comment: null,
-      };
-      const main = new Schema(props);
-      const branch = new Schema(props);
-
-      const change = new ReplaceSchema({
-        main,
-        branch,
-      });
-
-      expect(change.serialize()).toBe(
-        "DROP SCHEMA test_schema;\nCREATE SCHEMA test_schema AUTHORIZATION test",
       );
     });
   });

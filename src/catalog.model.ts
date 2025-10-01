@@ -1,4 +1,5 @@
 import type { Sql } from "postgres";
+import { extractCurrentUser, extractVersion } from "./context.ts";
 import { extractDepends, type PgDepend } from "./depend.ts";
 import type { BasePgModel, TableLikeObject } from "./objects/base.model.ts";
 import {
@@ -58,7 +59,6 @@ import {
 import { type Enum, extractEnums } from "./objects/type/enum/enum.model.ts";
 import { extractRanges, type Range } from "./objects/type/range/range.model.ts";
 import { extractViews, type View } from "./objects/view/view.model.ts";
-import { extractVersion } from "./version.ts";
 
 interface CatalogProps {
   collations: Record<string, Collation>;
@@ -84,6 +84,7 @@ interface CatalogProps {
   depends: PgDepend[];
   indexableObjects: Record<string, TableLikeObject>;
   version: number;
+  currentUser: string;
 }
 
 export class Catalog {
@@ -110,6 +111,7 @@ export class Catalog {
   public readonly depends: CatalogProps["depends"];
   public readonly indexableObjects: CatalogProps["indexableObjects"];
   public readonly version: CatalogProps["version"];
+  public readonly currentUser: CatalogProps["currentUser"];
 
   constructor(props: CatalogProps) {
     this.collations = props.collations;
@@ -135,6 +137,7 @@ export class Catalog {
     this.depends = props.depends;
     this.indexableObjects = props.indexableObjects;
     this.version = props.version;
+    this.currentUser = props.currentUser;
   }
 }
 
@@ -162,6 +165,7 @@ export async function extractCatalog(sql: Sql) {
     views,
     depends,
     version,
+    currentUser,
   ] = await Promise.all([
     extractCollations(sql).then(listToRecord),
     extractCompositeTypes(sql).then(listToRecord),
@@ -185,6 +189,7 @@ export async function extractCatalog(sql: Sql) {
     extractViews(sql).then(listToRecord),
     extractDepends(sql),
     extractVersion(sql),
+    extractCurrentUser(sql),
   ]);
 
   const indexableObjects = {
@@ -233,37 +238,10 @@ export async function extractCatalog(sql: Sql) {
     depends,
     indexableObjects,
     version,
+    currentUser,
   });
 }
 
 function listToRecord<T extends BasePgModel>(list: T[]) {
   return Object.fromEntries(list.map((item) => [item.stableId, item]));
-}
-
-export function emptyCatalog() {
-  return new Catalog({
-    collations: {},
-    compositeTypes: {},
-    domains: {},
-    enums: {},
-    extensions: {},
-    procedures: {},
-    indexes: {},
-    materializedViews: {},
-    objectPrivileges: {},
-    columnPrivileges: {},
-    defaultPrivileges: {},
-    rlsPolicies: {},
-    roles: {},
-    roleMemberships: {},
-    schemas: {},
-    sequences: {},
-    tables: {},
-    triggers: {},
-    ranges: {},
-    views: {},
-    depends: [],
-    indexableObjects: {},
-    version: 150014, // Default to PostgreSQL 15
-  });
 }

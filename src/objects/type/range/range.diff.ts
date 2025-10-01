@@ -1,7 +1,7 @@
 import type { Change } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
 import { hasNonAlterableChanges } from "../../utils.ts";
-import { AlterRangeChangeOwner, ReplaceRange } from "./changes/range.alter.ts";
+import { AlterRangeChangeOwner } from "./changes/range.alter.ts";
 import {
   CreateCommentOnRange,
   DropCommentOnRange,
@@ -61,7 +61,10 @@ export function diffRanges(
     );
 
     if (nonAlterablePropsChanged) {
-      changes.push(new ReplaceRange({ main: mainRange, branch: branchRange }));
+      changes.push(
+        new DropRange({ range: mainRange }),
+        new CreateRange({ range: branchRange }),
+      );
     } else {
       if (mainRange.owner !== branchRange.owner) {
         changes.push(

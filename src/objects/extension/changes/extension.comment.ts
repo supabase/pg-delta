@@ -1,11 +1,14 @@
-import { CreateChange, DropChange, quoteLiteral } from "../../base.change.ts";
+import { Change, quoteLiteral } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
 
 /**
  * Create/drop comments on extensions.
  */
-export class CreateCommentOnExtension extends CreateChange {
+export class CreateCommentOnExtension extends Change {
   public readonly extension: Extension;
+  public readonly operation = "create" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "extension" as const;
 
   constructor(props: { extension: Extension }) {
     super();
@@ -27,8 +30,11 @@ export class CreateCommentOnExtension extends CreateChange {
   }
 }
 
-export class DropCommentOnExtension extends DropChange {
+export class DropCommentOnExtension extends Change {
   public readonly extension: Extension;
+  public readonly operation = "drop" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "extension" as const;
 
   constructor(props: { extension: Extension }) {
     super();

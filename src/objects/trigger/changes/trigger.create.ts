@@ -1,4 +1,4 @@
-import { CreateChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { TableLikeObject } from "../../base.model.ts";
 import type { Trigger } from "../trigger.model.ts";
 
@@ -26,10 +26,13 @@ import type { Trigger } from "../trigger.model.ts";
  *     TRUNCATE
  * ```
  */
-export class CreateTrigger extends CreateChange {
+export class CreateTrigger extends Change {
   public readonly trigger: Trigger;
   public readonly indexableObject?: TableLikeObject;
   public readonly orReplace?: boolean;
+  public readonly operation = "create" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "trigger" as const;
 
   constructor(props: {
     trigger: Trigger;

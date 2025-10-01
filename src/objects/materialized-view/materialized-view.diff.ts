@@ -4,7 +4,6 @@ import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterMaterializedViewChangeOwner,
   AlterMaterializedViewSetStorageParams,
-  ReplaceMaterializedView,
 } from "./changes/materialized-view.alter.ts";
 import {
   CreateCommentOnMaterializedView,
@@ -93,9 +92,9 @@ export function diffMaterializedViews(
     if (nonAlterablePropsChanged) {
       // Replace the entire materialized view (drop + create)
       changes.push(
-        new ReplaceMaterializedView({
-          main: mainMaterializedView,
-          branch: branchMaterializedView,
+        new DropMaterializedView({ materializedView: mainMaterializedView }),
+        new CreateMaterializedView({
+          materializedView: branchMaterializedView,
         }),
       );
     } else {

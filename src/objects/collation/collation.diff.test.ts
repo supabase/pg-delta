@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
   AlterCollationChangeOwner,
   AlterCollationRefreshVersion,
-  ReplaceCollation,
 } from "./changes/collation.alter.ts";
 import { CreateCollation } from "./changes/collation.create.ts";
 import { DropCollation } from "./changes/collation.drop.ts";
@@ -64,7 +63,7 @@ describe.concurrent("collation.diff", () => {
     );
   });
 
-  test("replace when non-alterable changes", () => {
+  test("drop + create when non-alterable changes", () => {
     const base: Omit<CollationProps, "provider"> = {
       schema: "public",
       name: "c1",
@@ -84,7 +83,8 @@ describe.concurrent("collation.diff", () => {
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
-    expect(changes).toHaveLength(1);
-    expect(changes[0]).toBeInstanceOf(ReplaceCollation);
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(DropCollation);
+    expect(changes[1]).toBeInstanceOf(CreateCollation);
   });
 });

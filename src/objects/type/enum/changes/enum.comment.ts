@@ -1,15 +1,14 @@
-import {
-  CreateChange,
-  DropChange,
-  quoteLiteral,
-} from "../../../base.change.ts";
+import { Change, quoteLiteral } from "../../../base.change.ts";
 import type { Enum } from "../enum.model.ts";
 
 /**
  * Create/drop comments on enum types.
  */
-export class CreateCommentOnEnum extends CreateChange {
+export class CreateCommentOnEnum extends Change {
   public readonly enum: Enum;
+  public readonly operation = "create" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "enum" as const;
 
   constructor(props: { enum: Enum }) {
     super();
@@ -31,7 +30,10 @@ export class CreateCommentOnEnum extends CreateChange {
   }
 }
 
-export class DropCommentOnEnum extends DropChange {
+export class DropCommentOnEnum extends Change {
+  public readonly operation = "drop" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "enum" as const;
   public readonly enum: Enum;
 
   constructor(props: { enum: Enum }) {

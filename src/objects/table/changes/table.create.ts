@@ -1,4 +1,4 @@
-import { CreateChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { Table } from "../table.model.ts";
 
 /**
@@ -22,8 +22,11 @@ import type { Table } from "../table.model.ts";
  * [ TABLESPACE tablespace_name ]
  * ```
  */
-export class CreateTable extends CreateChange {
+export class CreateTable extends Change {
   public readonly table: Table;
+  public readonly operation = "create" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table }) {
     super();

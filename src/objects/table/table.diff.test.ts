@@ -51,9 +51,9 @@ const base: TableProps = {
 describe.concurrent("table.diff", () => {
   test("create and drop", () => {
     const t = new Table(base);
-    const created = diffTables({}, { [t.stableId]: t }, 150014);
+    const created = diffTables({ version: 150014 }, {}, { [t.stableId]: t });
     expect(created[0]).toBeInstanceOf(CreateTable);
-    const dropped = diffTables({ [t.stableId]: t }, {}, 150014);
+    const dropped = diffTables({ version: 150014 }, { [t.stableId]: t }, {});
     expect(dropped[0]).toBeInstanceOf(DropTable);
   });
 
@@ -108,9 +108,9 @@ describe.concurrent("table.diff", () => {
       ],
     });
     const changes = diffTables(
+      { version: 150014 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-      150014,
     );
     expect(changes.some((c) => c instanceof AlterTableAddConstraint)).toBe(
       true,
@@ -124,9 +124,9 @@ describe.concurrent("table.diff", () => {
     const main = new Table(base);
     const branch = new Table({ ...base, owner: "o2" });
     const changes = diffTables(
+      { version: 150014 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-      150014,
     );
     expect(changes[0]).toBeInstanceOf(AlterTableChangeOwner);
   });
@@ -135,9 +135,9 @@ describe.concurrent("table.diff", () => {
     const main = new Table(base);
     const branch = new Table({ ...base, options: ["fillfactor=90"] });
     const changes = diffTables(
+      { version: 150014 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-      150014,
     );
     expect(changes[0]).toBeInstanceOf(AlterTableSetStorageParams);
   });
@@ -152,9 +152,9 @@ describe.concurrent("table.diff", () => {
       options: ["autovacuum_enabled=true"],
     });
     const changes = diffTables(
+      { version: 150014 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-      150014,
     );
     expect(changes.some((c) => c instanceof AlterTableSetStorageParams)).toBe(
       true,
@@ -168,9 +168,9 @@ describe.concurrent("table.diff", () => {
     const main = new Table(base);
     const branch = new Table({ ...base, persistence: "u" });
     const changes = diffTables(
+      { version: 150014 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-      150014,
     );
     expect(changes.some((c) => c instanceof AlterTableSetUnlogged)).toBe(true);
   });
@@ -179,15 +179,16 @@ describe.concurrent("table.diff", () => {
     const main = new Table({ ...base, persistence: "u" });
     const branch = new Table({ ...base, persistence: "p" });
     const changes = diffTables(
+      { version: 150014 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-      150014,
     );
     expect(changes.some((c) => c instanceof AlterTableSetLogged)).toBe(true);
   });
 
   test("row level security toggles", () => {
     const enable = diffTables(
+      { version: 150014 },
       {
         "table:public.t1": new Table({
           ...base,
@@ -202,12 +203,12 @@ describe.concurrent("table.diff", () => {
           row_security: true,
         }),
       },
-      150014,
     );
     expect(
       enable.some((c) => c instanceof AlterTableEnableRowLevelSecurity),
     ).toBe(true);
     const disable = diffTables(
+      { version: 150014 },
       {
         "table:public.t2": new Table({
           ...base,
@@ -222,7 +223,6 @@ describe.concurrent("table.diff", () => {
           row_security: false,
         }),
       },
-      150014,
     );
     expect(
       disable.some((c) => c instanceof AlterTableDisableRowLevelSecurity),
@@ -231,6 +231,7 @@ describe.concurrent("table.diff", () => {
 
   test("force row level security toggles", () => {
     const force = diffTables(
+      { version: 150014 },
       {
         "table:public.t3": new Table({
           ...base,
@@ -247,13 +248,13 @@ describe.concurrent("table.diff", () => {
           force_row_security: true,
         }),
       },
-      150014,
     );
     expect(
       force.some((c) => c instanceof AlterTableForceRowLevelSecurity),
     ).toBe(true);
 
     const noforce = diffTables(
+      { version: 150014 },
       {
         "table:public.t4": new Table({
           ...base,
@@ -270,7 +271,6 @@ describe.concurrent("table.diff", () => {
           force_row_security: false,
         }),
       },
-      150014,
     );
     expect(
       noforce.some((c) => c instanceof AlterTableNoForceRowLevelSecurity),
@@ -281,9 +281,9 @@ describe.concurrent("table.diff", () => {
     const main = new Table(base);
     const branch = new Table({ ...base, replica_identity: "n" });
     const changes = diffTables(
+      { version: 150014 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-      150014,
     );
     expect(changes.some((c) => c instanceof AlterTableSetReplicaIdentity)).toBe(
       true,
@@ -312,11 +312,11 @@ describe.concurrent("table.diff", () => {
       definition: "PRIMARY KEY (a)",
     };
     const created = diffTables(
+      { version: 150014 },
       { [t1.stableId]: t1 },
       {
         [t1.stableId]: new Table({ ...base, name: "t1", constraints: [pkey] }),
       },
-      150014,
     );
     expect(created.some((c) => c instanceof AlterTableAddConstraint)).toBe(
       true,
@@ -326,17 +326,18 @@ describe.concurrent("table.diff", () => {
     );
 
     const dropped = diffTables(
+      { version: 150014 },
       {
         [t1.stableId]: new Table({ ...base, name: "t1", constraints: [pkey] }),
       },
       { [t1.stableId]: t1 },
-      150014,
     );
     expect(dropped.some((c) => c instanceof AlterTableDropConstraint)).toBe(
       true,
     );
 
     const altered = diffTables(
+      { version: 150014 },
       {
         [t1.stableId]: new Table({ ...base, name: "t1", constraints: [pkey] }),
       },
@@ -354,7 +355,6 @@ describe.concurrent("table.diff", () => {
           ],
         }),
       },
-      150014,
     );
     expect(altered.some((c) => c instanceof AlterTableDropConstraint)).toBe(
       true,
@@ -438,9 +438,9 @@ describe.concurrent("table.diff", () => {
       ],
     });
     const changes = diffTables(
+      { version: 150014 },
       { [tMain.stableId]: tMain },
       { [tBranch.stableId]: tBranch },
-      150014,
     );
     expect(changes.some((c) => c instanceof AlterTableDropConstraint)).toBe(
       true,
@@ -507,6 +507,7 @@ describe.concurrent("table.diff", () => {
       ],
     });
     const changes = diffTables(
+      { version: 150014 },
       { [tMain.stableId]: tMain },
       {
         [tBranch.stableId]: tBranch,
@@ -535,7 +536,6 @@ describe.concurrent("table.diff", () => {
           ],
         }),
       },
-      150014,
     );
     expect(changes.some((c) => c instanceof AlterTableDropConstraint)).toBe(
       true,
@@ -575,16 +575,16 @@ describe.concurrent("table.diff", () => {
       ],
     });
     const added = diffTables(
+      { version: 150014 },
       { [main.stableId]: main },
       { [withCol.stableId]: withCol },
-      150014,
     );
     expect(added.some((c) => c instanceof AlterTableAddColumn)).toBe(true);
 
     const dropped = diffTables(
+      { version: 150014 },
       { [withCol.stableId]: withCol },
       { [main.stableId]: main },
-      150014,
     );
     expect(dropped.some((c) => c instanceof AlterTableDropColumn)).toBe(true);
 
@@ -600,9 +600,9 @@ describe.concurrent("table.diff", () => {
       ],
     });
     const typeChanges = diffTables(
+      { version: 150014 },
       { [withCol.stableId]: withCol },
       { [typeChanged.stableId]: typeChanged },
-      150014,
     );
     expect(
       typeChanges.some((c) => c instanceof AlterTableAlterColumnType),
@@ -614,9 +614,9 @@ describe.concurrent("table.diff", () => {
       columns: [{ ...withCol.columns[0], default: "0" }],
     });
     const defaultAddedChanges = diffTables(
+      { version: 150014 },
       { [withCol.stableId]: withCol },
       { [defaultAdded.stableId]: defaultAdded },
-      150014,
     );
     expect(
       defaultAddedChanges.some(
@@ -625,9 +625,9 @@ describe.concurrent("table.diff", () => {
     ).toBe(true);
 
     const defaultDropped = diffTables(
+      { version: 150014 },
       { [defaultAdded.stableId]: defaultAdded },
       { [withCol.stableId]: withCol },
-      150014,
     );
     expect(
       defaultDropped.some((c) => c instanceof AlterTableAlterColumnDropDefault),
@@ -639,9 +639,9 @@ describe.concurrent("table.diff", () => {
       columns: [{ ...withCol.columns[0], not_null: true }],
     });
     const notNullSetChanges = diffTables(
+      { version: 150014 },
       { [withCol.stableId]: withCol },
       { [notNullSet.stableId]: notNullSet },
-      150014,
     );
     expect(
       notNullSetChanges.some(
@@ -650,9 +650,9 @@ describe.concurrent("table.diff", () => {
     ).toBe(true);
 
     const notNullDropped = diffTables(
+      { version: 150014 },
       { [notNullSet.stableId]: notNullSet },
       { [withCol.stableId]: withCol },
-      150014,
     );
     expect(
       notNullDropped.some((c) => c instanceof AlterTableAlterColumnDropNotNull),

@@ -1,4 +1,4 @@
-import { DropChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { Trigger } from "../trigger.model.ts";
 
 /**
@@ -11,8 +11,11 @@ import type { Trigger } from "../trigger.model.ts";
  * DROP TRIGGER [ IF EXISTS ] name ON table_name [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropTrigger extends DropChange {
+export class DropTrigger extends Change {
   public readonly trigger: Trigger;
+  public readonly operation = "drop" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "trigger" as const;
 
   constructor(props: { trigger: Trigger }) {
     super();

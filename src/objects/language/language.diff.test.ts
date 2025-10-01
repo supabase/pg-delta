@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  AlterLanguageChangeOwner,
-  ReplaceLanguage,
-} from "./changes/language.alter.ts";
+import { AlterLanguageChangeOwner } from "./changes/language.alter.ts";
 import { CreateLanguage } from "./changes/language.create.ts";
 import { DropLanguage } from "./changes/language.drop.ts";
 import { diffLanguages } from "./language.diff.ts";
@@ -39,13 +36,15 @@ describe.concurrent("language.diff", () => {
     expect(changes[0]).toBeInstanceOf(AlterLanguageChangeOwner);
   });
 
-  test("replace on non-alterable change", () => {
+  test("drop + create on non-alterable change", () => {
     const main = new Language(base);
     const branch = new Language({ ...base, call_handler: "handler()" });
     const changes = diffLanguages(
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
-    expect(changes[0]).toBeInstanceOf(ReplaceLanguage);
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(DropLanguage);
+    expect(changes[1]).toBeInstanceOf(CreateLanguage);
   });
 });

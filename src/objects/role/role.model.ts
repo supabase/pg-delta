@@ -80,21 +80,65 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
     const roleRows = await sql`
+with extension_role_oids as (
+  select objid
+  from pg_shdepend d
+  where d.refclassid = 'pg_extension'::regclass
+    and d.classid   = 'pg_authid'::regclass
+),
+extension_object_oids as (
+  select classid, objid
+  from pg_depend d
+  where d.refclassid = 'pg_extension'::regclass
+    and d.deptype    = 'e'
+),
+extension_grantee_roles as (
+  select distinct g.grantee as role_oid
+  from pg_init_privs p
+  join extension_object_oids eo
+    on eo.classid = p.classoid and eo.objid = p.objoid
+  join lateral aclexplode(p.initprivs) as g on true
+),
+role_owned_objects as (
+  select
+    d.refobjid as role_oid,
+    d.classid  as object_classid,
+    d.objid    as object_oid,
+    (ed.objid is not null) as is_extension_owned
+  from pg_shdepend d
+  left join pg_depend ed
+    on ed.classid = d.classid
+   and ed.objid   = d.objid
+   and ed.refclassid = 'pg_extension'::regclass
+   and ed.deptype    = 'e'
+  where d.deptype    = 'o'  -- ownership dependency
+    and d.refclassid = 'pg_authid'::regclass
+),
+roles_only_owning_extension_objects as (
+  select role_oid
+  from role_owned_objects
+  group by role_oid
+  having count(*) > 0 and bool_and(is_extension_owned)
+)
 select
-  quote_ident(rolname) as role_name,
-  rolsuper as is_superuser,
-  rolinherit as can_inherit,
-  rolcreaterole as can_create_roles,
-  rolcreatedb as can_create_databases,
-  rolcanlogin as can_login,
-  rolreplication as can_replicate,
-  rolconnlimit as connection_limit,
-  rolbypassrls as can_bypass_rls,
-  rolconfig as config,
-  obj_description(oid, 'pg_authid') as comment
+  quote_ident(r.rolname) as role_name,
+  r.rolsuper as is_superuser,
+  r.rolinherit as can_inherit,
+  r.rolcreaterole as can_create_roles,
+  r.rolcreatedb as can_create_databases,
+  r.rolcanlogin as can_login,
+  r.rolreplication as can_replicate,
+  r.rolconnlimit as connection_limit,
+  r.rolbypassrls as can_bypass_rls,
+  r.rolconfig as config,
+  obj_description(r.oid, 'pg_authid') as comment
 from
-  pg_catalog.pg_roles
-  where rolname not in ('postgres', 'pg_signal_backend', 'pg_read_all_settings', 'pg_read_all_stats', 'pg_stat_scan_tables', 'pg_monitor', 'pg_read_server_files', 'pg_write_server_files', 'pg_execute_server_program')
+  pg_catalog.pg_roles r
+  left outer join extension_role_oids e on r.oid = e.objid
+where r.rolname not in ('postgres', 'pg_signal_backend', 'pg_read_all_settings', 'pg_read_all_stats', 'pg_stat_scan_tables', 'pg_monitor', 'pg_read_server_files', 'pg_write_server_files', 'pg_execute_server_program')
+  and e.objid is null
+  and r.oid not in (select role_oid from roles_only_owning_extension_objects)
+  and r.oid not in (select role_oid from extension_grantee_roles)
 order by
   1;
   `;

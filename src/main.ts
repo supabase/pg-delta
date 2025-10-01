@@ -1,7 +1,9 @@
 import postgres from "postgres";
 import { diffCatalogs } from "./catalog.diff.ts";
 import { extractCatalog } from "./catalog.model.ts";
-import { resolveDependencies } from "./dependency.ts";
+import { pgDumpSort } from "./sort/global-sort.ts";
+import { applyRefinements } from "./sort/refined-sort.ts";
+import { sortChangesByRules } from "./sort/sort-utils.ts";
 
 // Custom type handler for specifics corner cases
 export const postgresConfig: postgres.Options<
@@ -59,19 +61,28 @@ export async function main(mainDatabaseUrl: string, branchDatabaseUrl: string) {
   const changes = diffCatalogs(mainCatalog, branchCatalog);
 
   // Order the changes to satisfy dependencies constraints between objects
-  const sortedChanges = resolveDependencies(
-    changes,
-    mainCatalog,
-    branchCatalog,
+  // const sortedChanges = resolveDependencies(
+  //   changes,
+  //   mainCatalog,
+  //   branchCatalog,
+  // );
+
+  // if (sortedChanges.isErr()) {
+  //   throw sortedChanges.error;
+  // }
+
+  const globallySortedChanges = sortChangesByRules(changes, pgDumpSort);
+  const refinedChanges = applyRefinements(
+    { mainCatalog, branchCatalog },
+    globallySortedChanges,
   );
 
-  if (sortedChanges.isErr()) {
-    throw sortedChanges.error;
-  }
+  const sessionConfig = ["SET check_function_bodies = false"];
 
-  const migrationScript = sortedChanges.value
-    .map((change) => change.serialize())
-    .join("\n\n");
+  const migrationScript = [
+    ...sessionConfig,
+    ...refinedChanges.map((change) => change.serialize()),
+  ].join(";\n\n");
 
   console.log(migrationScript);
 

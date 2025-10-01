@@ -5,7 +5,6 @@ import {
   AlterViewChangeOwner,
   AlterViewResetOptions,
   AlterViewSetOptions,
-  ReplaceView,
 } from "./changes/view.alter.ts";
 import {
   CreateCommentOnView,
@@ -69,8 +68,8 @@ export function diffViews(
     );
 
     if (nonAlterablePropsChanged) {
-      // Replace the entire view (drop + create)
-      changes.push(new ReplaceView({ main: mainView, branch: branchView }));
+      // Replace the entire view using CREATE OR REPLACE to avoid drop when possible
+      changes.push(new CreateView({ view: branchView, orReplace: true }));
     } else {
       // Only alterable properties changed - check each one
 

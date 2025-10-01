@@ -58,6 +58,17 @@ function createAlterConstraintChange(
 
   // Created constraints
   for (const [name, c] of branchByName) {
+    // Skip primary key creation on partitions if parent_table already has one
+    if (branchTable.is_partition && c.constraint_type === "p") {
+      const parent =
+        branchCatalog[
+          `table:${branchTable.parent_schema}.${branchTable.parent_name}`
+        ];
+      const parentHasPrimaryKey = Boolean(
+        parent?.constraints?.some((pc) => pc.constraint_type === "p"),
+      );
+      if (parentHasPrimaryKey) continue;
+    }
     const branchForeignKeyTable =
       c.constraint_type === "f"
         ? branchCatalog[`table:${c.foreign_key_schema}.${c.foreign_key_table}`]
@@ -93,6 +104,17 @@ function createAlterConstraintChange(
 
   // Dropped constraints
   for (const [name, c] of mainByName) {
+    // Skip primary key drop on partitions if parent_table already has one
+    if (branchTable.is_partition && c.constraint_type === "p") {
+      const parent =
+        branchCatalog[
+          `table:${branchTable.parent_schema}.${branchTable.parent_name}`
+        ];
+      const parentHasPrimaryKey = Boolean(
+        parent?.constraints?.some((pc) => pc.constraint_type === "p"),
+      );
+      if (parentHasPrimaryKey) continue;
+    }
     if (!branchByName.has(name)) {
       changes.push(
         new AlterTableDropConstraint({ table: mainTable, constraint: c }),
@@ -110,6 +132,17 @@ function createAlterConstraintChange(
           ]
         : undefined;
     if (!branchC) continue;
+    // Skip any primary key alterations on partitions
+    if (branchTable.is_partition && branchC.constraint_type === "p") {
+      const parent =
+        branchCatalog[
+          `table:${branchTable.parent_schema}.${branchTable.parent_name}`
+        ];
+      const parentHasPrimaryKey = Boolean(
+        parent?.constraints?.some((pc) => pc.constraint_type === "p"),
+      );
+      if (parentHasPrimaryKey) continue;
+    }
     const changed =
       mainC.constraint_type !== branchC.constraint_type ||
       mainC.deferrable !== branchC.deferrable ||
@@ -191,9 +224,9 @@ function createAlterConstraintChange(
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffTables(
+  ctx: { version: number },
   main: Record<string, Table>,
   branch: Record<string, Table>,
-  version: number,
 ): Change[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
@@ -496,7 +529,7 @@ export function diffTables(
         } else {
           // Set new default value
           const isGeneratedColumn = branchCol.is_generated;
-          const isPostgresLowerThan17 = version < 170000;
+          const isPostgresLowerThan17 = ctx.version < 170000;
 
           if (isGeneratedColumn && isPostgresLowerThan17) {
             // For generated columns in < PostgreSQL 17, we need to drop and recreate

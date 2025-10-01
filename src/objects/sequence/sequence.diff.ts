@@ -4,7 +4,6 @@ import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
-  ReplaceSequence,
 } from "./changes/sequence.alter.ts";
 import {
   CreateCommentOnSequence,
@@ -70,7 +69,8 @@ export function diffSequences(
     if (nonAlterablePropsChanged) {
       // Replace the entire sequence (drop + create)
       changes.push(
-        new ReplaceSequence({ main: mainSequence, branch: branchSequence }),
+        new DropSequence({ sequence: mainSequence }),
+        new CreateSequence({ sequence: branchSequence }),
       );
       // Re-apply OWNED BY if present on branch
       if (

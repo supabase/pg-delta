@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
   AlterEnumAddValue,
   AlterEnumChangeOwner,
-  ReplaceEnum,
 } from "./changes/enum.alter.ts";
 import { CreateEnum } from "./changes/enum.create.ts";
 import { DropEnum } from "./changes/enum.drop.ts";
@@ -167,31 +166,5 @@ describe.concurrent("enum.diff", () => {
     expect(add).toBeDefined();
     expect(add?.position?.after).toBe("b");
     expect(add?.position?.before).toBeUndefined();
-  });
-
-  test("replace for complex label changes (removal)", () => {
-    const main = new Enum({
-      schema: "public",
-      name: "e1",
-      owner: "o1",
-      labels: [
-        { label: "a", sort_order: 1 },
-        { label: "b", sort_order: 2 },
-      ],
-      comment: null,
-    });
-    const branch = new Enum({
-      schema: "public",
-      name: "e1",
-      owner: "o1",
-      labels: [{ label: "a", sort_order: 1 }],
-      comment: null,
-    });
-
-    const changes = diffEnums(
-      { [main.stableId]: main },
-      { [branch.stableId]: branch },
-    );
-    expect(changes.some((c) => c instanceof ReplaceEnum)).toBe(true);
   });
 });

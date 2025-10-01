@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
   AlterMaterializedViewChangeOwner,
   AlterMaterializedViewSetStorageParams,
-  ReplaceMaterializedView,
 } from "./changes/materialized-view.alter.ts";
 import { CreateMaterializedView } from "./changes/materialized-view.create.ts";
 import { DropMaterializedView } from "./changes/materialized-view.drop.ts";
@@ -51,14 +50,16 @@ describe.concurrent("materialized-view.diff", () => {
     expect(changes[0]).toBeInstanceOf(AlterMaterializedViewChangeOwner);
   });
 
-  test("replace on non-alterable change", () => {
+  test("drop + create on non-alterable change", () => {
     const main = new MaterializedView(base);
     const branch = new MaterializedView({ ...base, definition: "select 2" });
     const changes = diffMaterializedViews(
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
-    expect(changes[0]).toBeInstanceOf(ReplaceMaterializedView);
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(DropMaterializedView);
+    expect(changes[1]).toBeInstanceOf(CreateMaterializedView);
   });
 
   test("alter storage parameters: set and reset", () => {

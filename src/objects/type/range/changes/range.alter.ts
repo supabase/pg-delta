@@ -1,7 +1,5 @@
-import { AlterChange, ReplaceChange } from "../../../base.change.ts";
+import { Change } from "../../../base.change.ts";
 import type { Range } from "../range.model.ts";
-import { CreateRange } from "./range.create.ts";
-import { DropRange } from "./range.drop.ts";
 
 /**
  * Alter a range type.
@@ -19,9 +17,12 @@ import { DropRange } from "./range.drop.ts";
 /**
  * ALTER TYPE ... OWNER TO ...
  */
-export class AlterRangeChangeOwner extends AlterChange {
+export class AlterRangeChangeOwner extends Change {
   public readonly main: Range;
   public readonly branch: Range;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "range" as const;
 
   constructor(props: { main: Range; branch: Range }) {
     super();
@@ -47,23 +48,4 @@ export class AlterRangeChangeOwner extends AlterChange {
  * Replace a range type by dropping and recreating it.
  * This is used when properties that cannot be altered via ALTER TYPE change.
  */
-export class ReplaceRange extends ReplaceChange {
-  public readonly main: Range;
-  public readonly branch: Range;
-
-  constructor(props: { main: Range; branch: Range }) {
-    super();
-    this.main = props.main;
-    this.branch = props.branch;
-  }
-
-  get dependencies() {
-    return [this.main.stableId];
-  }
-
-  serialize(): string {
-    const dropChange = new DropRange({ range: this.main });
-    const createChange = new CreateRange({ range: this.branch });
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
-  }
-}
+// NOTE: ReplaceRange removed. Non-alterable changes are emitted as Drop + Create in range.diff.ts.

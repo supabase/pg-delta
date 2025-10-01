@@ -3,8 +3,6 @@ import { diffObjects } from "../base.diff.ts";
 import {
   AlterExtensionChangeOwner,
   AlterExtensionSetSchema,
-  AlterExtensionUpdateVersion,
-  ReplaceExtension,
 } from "./changes/extension.alter.ts";
 import {
   CreateCommentOnExtension,
@@ -49,20 +47,22 @@ export function diffExtensions(
     if (schemaChanged && !mainExtension.relocatable) {
       // Cannot ALTER schema if not relocatable: must replace
       changes.push(
-        new ReplaceExtension({ main: mainExtension, branch: branchExtension }),
+        new DropExtension({ extension: mainExtension }),
+        new CreateExtension({ extension: branchExtension }),
       );
       continue;
     }
 
     // VERSION
-    if (mainExtension.version !== branchExtension.version) {
-      changes.push(
-        new AlterExtensionUpdateVersion({
-          main: mainExtension,
-          branch: branchExtension,
-        }),
-      );
-    }
+    // TODO: Omit version for now as versions can differ between main and branch
+    // if (mainExtension.version !== branchExtension.version) {
+    //   changes.push(
+    //     new AlterExtensionUpdateVersion({
+    //       main: mainExtension,
+    //       branch: branchExtension,
+    //     }),
+    //   );
+    // }
 
     // SCHEMA (only if relocatable)
     if (schemaChanged && mainExtension.relocatable) {

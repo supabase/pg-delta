@@ -1,4 +1,4 @@
-import { CreateChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { Domain } from "../domain.model.ts";
 
 /**
@@ -19,8 +19,11 @@ import type { Domain } from "../domain.model.ts";
  * { NOT NULL | NULL | CHECK (expression) }
  * ```
  */
-export class CreateDomain extends CreateChange {
+export class CreateDomain extends Change {
   public readonly domain: Domain;
+  public readonly operation = "create" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "domain" as const;
 
   constructor(props: { domain: Domain }) {
     super();

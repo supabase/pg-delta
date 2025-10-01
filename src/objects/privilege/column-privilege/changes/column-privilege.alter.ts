@@ -1,6 +1,6 @@
-import { AlterChange } from "../../../base.change.ts";
+import { Change } from "../../../base.change.ts";
 
-export class GrantColumnPrivileges extends AlterChange {
+export class GrantColumnPrivileges extends Change {
   public readonly tableId: string;
   public readonly tableNameSql: string;
   public readonly grantee: string;
@@ -9,6 +9,9 @@ export class GrantColumnPrivileges extends AlterChange {
     grantable: boolean;
     columns: string[];
   }[];
+  public readonly operation = "create" as const;
+  public readonly scope = "privilege" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: {
     tableId: string;
@@ -52,7 +55,7 @@ export class GrantColumnPrivileges extends AlterChange {
   }
 }
 
-export class RevokeColumnPrivileges extends AlterChange {
+export class RevokeColumnPrivileges extends Change {
   public readonly tableId: string;
   public readonly tableNameSql: string;
   public readonly grantee: string;
@@ -61,6 +64,9 @@ export class RevokeColumnPrivileges extends AlterChange {
     grantable: boolean;
     columns: string[];
   }[];
+  public readonly operation = "drop" as const;
+  public readonly scope = "privilege" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: {
     tableId: string;
@@ -98,11 +104,14 @@ export class RevokeColumnPrivileges extends AlterChange {
   }
 }
 
-export class RevokeGrantOptionColumnPrivileges extends AlterChange {
+export class RevokeGrantOptionColumnPrivileges extends Change {
   public readonly tableId: string;
   public readonly tableNameSql: string;
   public readonly grantee: string;
   public readonly items: { privilege: string; columns: string[] }[];
+  public readonly operation = "drop" as const;
+  public readonly scope = "privilege" as const;
+  public readonly objectType = "table" as const;
 
   constructor(props: {
     tableId: string;

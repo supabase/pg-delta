@@ -1,4 +1,4 @@
-import { DropChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { Sequence } from "../sequence.model.ts";
 
 /**
@@ -11,8 +11,11 @@ import type { Sequence } from "../sequence.model.ts";
  * DROP SEQUENCE [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropSequence extends DropChange {
+export class DropSequence extends Change {
   public readonly sequence: Sequence;
+  public readonly operation = "drop" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "sequence" as const;
 
   constructor(props: { sequence: Sequence }) {
     super();

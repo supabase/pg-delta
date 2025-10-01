@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
-  ReplaceSequence,
 } from "./changes/sequence.alter.ts";
 import { CreateSequence } from "./changes/sequence.create.ts";
 import { DropSequence } from "./changes/sequence.drop.ts";
@@ -70,13 +69,18 @@ describe.concurrent("sequence.diff", () => {
     );
   });
 
-  test("replace on non-alterable change", () => {
+  test("drop and create when non-alterable property changes", () => {
     const main = new Sequence(base);
-    const branch = new Sequence({ ...base, data_type: "integer" });
+    const branch = new Sequence({
+      ...base,
+      data_type: "integer",
+      persistence: "u",
+    });
     const changes = diffSequences(
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
-    expect(changes[0]).toBeInstanceOf(ReplaceSequence);
+    expect(changes[0]).toBeInstanceOf(DropSequence);
+    expect(changes[1]).toBeInstanceOf(CreateSequence);
   });
 });

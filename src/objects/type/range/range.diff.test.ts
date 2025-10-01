@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { AlterRangeChangeOwner, ReplaceRange } from "./changes/range.alter.ts";
+import { AlterRangeChangeOwner } from "./changes/range.alter.ts";
 import { CreateRange } from "./changes/range.create.ts";
 import { DropRange } from "./changes/range.drop.ts";
 import { diffRanges } from "./range.diff.ts";
@@ -40,13 +40,20 @@ describe.concurrent("range.diff", () => {
     expect(changes[0]).toBeInstanceOf(AlterRangeChangeOwner);
   });
 
-  test("replace on non-alterable change", () => {
+  test("drop and create when non-alterable property changes", () => {
     const main = new Range(base);
-    const branch = new Range({ ...base, subtype_str: "int8" });
+    const branch = new Range({
+      ...base,
+      subtype_schema: "pg_catalog",
+      subtype_str: "text",
+      collation: "en_US",
+    });
     const changes = diffRanges(
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
-    expect(changes[0]).toBeInstanceOf(ReplaceRange);
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(DropRange);
+    expect(changes[1]).toBeInstanceOf(CreateRange);
   });
 });

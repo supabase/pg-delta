@@ -1,6 +1,5 @@
-import { AlterChange, ReplaceChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { Language } from "../language.model.ts";
-import { CreateLanguage } from "./language.create.ts";
 
 /**
  * Alter a language.
@@ -17,9 +16,12 @@ import { CreateLanguage } from "./language.create.ts";
 /**
  * ALTER LANGUAGE ... OWNER TO ...
  */
-export class AlterLanguageChangeOwner extends AlterChange {
+export class AlterLanguageChangeOwner extends Change {
   public readonly main: Language;
   public readonly branch: Language;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "language" as const;
 
   constructor(props: { main: Language; branch: Language }) {
     super();
@@ -48,26 +50,4 @@ export class AlterLanguageChangeOwner extends AlterChange {
  * Replace a language.
  * This is used when properties that cannot be altered via ALTER LANGUAGE change.
  */
-export class ReplaceLanguage extends ReplaceChange {
-  public readonly main: Language;
-  public readonly branch: Language;
-
-  constructor(props: { main: Language; branch: Language }) {
-    super();
-    this.main = props.main;
-    this.branch = props.branch;
-  }
-
-  get dependencies() {
-    return [this.main.stableId];
-  }
-
-  serialize(): string {
-    const createChange = new CreateLanguage({
-      language: this.branch,
-      orReplace: true,
-    });
-
-    return createChange.serialize();
-  }
-}
+// NOTE: ReplaceLanguage removed. Non-alterable changes are emitted as Drop + Create in language.diff.ts.

@@ -1,7 +1,5 @@
-import { AlterChange, ReplaceChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { Collation } from "../collation.model.ts";
-import { CreateCollation } from "./collation.create.ts";
-import { DropCollation } from "./collation.drop.ts";
 
 /**
  * Alter a collation.
@@ -19,9 +17,12 @@ import { DropCollation } from "./collation.drop.ts";
 /**
  * ALTER COLLATION ... OWNER TO ...
  */
-export class AlterCollationChangeOwner extends AlterChange {
+export class AlterCollationChangeOwner extends Change {
   public readonly main: Collation;
   public readonly branch: Collation;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "collation" as const;
 
   constructor(props: { main: Collation; branch: Collation }) {
     super();
@@ -46,9 +47,12 @@ export class AlterCollationChangeOwner extends AlterChange {
 /**
  * ALTER COLLATION ... REFRESH VERSION
  */
-export class AlterCollationRefreshVersion extends AlterChange {
+export class AlterCollationRefreshVersion extends Change {
   public readonly main: Collation;
   public readonly branch: Collation;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "collation" as const;
 
   constructor(props: { main: Collation; branch: Collation }) {
     super();
@@ -73,24 +77,5 @@ export class AlterCollationRefreshVersion extends AlterChange {
  * Replace a collation by dropping and recreating it.
  * This is used when properties that cannot be altered via ALTER COLLATION change.
  */
-export class ReplaceCollation extends ReplaceChange {
-  public readonly main: Collation;
-  public readonly branch: Collation;
-
-  constructor(props: { main: Collation; branch: Collation }) {
-    super();
-    this.main = props.main;
-    this.branch = props.branch;
-  }
-
-  get dependencies() {
-    return [this.main.stableId];
-  }
-
-  serialize(): string {
-    const dropChange = new DropCollation({ collation: this.main });
-    const createChange = new CreateCollation({ collation: this.branch });
-
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
-  }
-}
+// NOTE: ReplaceCollation has been removed. Non-alterable property changes
+// are modeled as separate DropCollation + CreateCollation changes in collation.diff.ts.

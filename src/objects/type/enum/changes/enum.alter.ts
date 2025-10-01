@@ -1,11 +1,5 @@
-import {
-  AlterChange,
-  quoteLiteral,
-  ReplaceChange,
-} from "../../../base.change.ts";
+import { Change, quoteLiteral } from "../../../base.change.ts";
 import type { Enum } from "../enum.model.ts";
-import { CreateEnum } from "./enum.create.ts";
-import { DropEnum } from "./enum.drop.ts";
 
 /**
  * Alter an enum.
@@ -24,9 +18,12 @@ import { DropEnum } from "./enum.drop.ts";
 /**
  * ALTER TYPE ... OWNER TO ...
  */
-export class AlterEnumChangeOwner extends AlterChange {
+export class AlterEnumChangeOwner extends Change {
   public readonly main: Enum;
   public readonly branch: Enum;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "enum" as const;
 
   constructor(props: { main: Enum; branch: Enum }) {
     super();
@@ -51,11 +48,14 @@ export class AlterEnumChangeOwner extends AlterChange {
 /**
  * ALTER TYPE ... ADD VALUE ...
  */
-export class AlterEnumAddValue extends AlterChange {
+export class AlterEnumAddValue extends Change {
   public readonly main: Enum;
   public readonly branch: Enum;
   public readonly newValue: string;
   public readonly position?: { before?: string; after?: string };
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "enum" as const;
 
   constructor(props: {
     main: Enum;
@@ -92,28 +92,4 @@ export class AlterEnumAddValue extends AlterChange {
   }
 }
 
-/**
- * Replace an enum by dropping and recreating it.
- * This is used when properties that cannot be altered via ALTER TYPE change.
- */
-export class ReplaceEnum extends ReplaceChange {
-  public readonly main: Enum;
-  public readonly branch: Enum;
-
-  constructor(props: { main: Enum; branch: Enum }) {
-    super();
-    this.main = props.main;
-    this.branch = props.branch;
-  }
-
-  get dependencies() {
-    return [this.main.stableId];
-  }
-
-  serialize(): string {
-    const dropChange = new DropEnum({ enum: this.main });
-    const createChange = new CreateEnum({ enum: this.branch });
-
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
-  }
-}
+// NOTE: ReplaceEnum removed. Complex enum changes should be handled in diff with Drop + Create when needed.

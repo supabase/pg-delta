@@ -1,4 +1,4 @@
-import { CreateChange, quoteLiteral } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
 
 /**
@@ -14,8 +14,11 @@ import type { Extension } from "../extension.model.ts";
  *     [ FROM old_version ]
  * ```
  */
-export class CreateExtension extends CreateChange {
+export class CreateExtension extends Change {
   public readonly extension: Extension;
+  public readonly operation = "create" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "extension" as const;
 
   constructor(props: { extension: Extension }) {
     super();
@@ -36,9 +39,10 @@ export class CreateExtension extends CreateChange {
     parts.push("WITH SCHEMA", this.extension.schema);
 
     // Add version
-    if (this.extension.version) {
-      parts.push("VERSION", quoteLiteral(this.extension.version));
-    }
+    // TODO: Omit version for now as versions can differ between main and branch
+    // if (this.extension.version) {
+    //   parts.push("VERSION", quoteLiteral(this.extension.version));
+    // }
 
     return parts.join(" ");
   }

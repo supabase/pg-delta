@@ -1,7 +1,5 @@
-import { AlterChange, ReplaceChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
-import { CreateMaterializedView } from "./materialized-view.create.ts";
-import { DropMaterializedView } from "./materialized-view.drop.ts";
 
 /**
  * Alter a materialized view.
@@ -36,9 +34,12 @@ import { DropMaterializedView } from "./materialized-view.drop.ts";
 /**
  * ALTER MATERIALIZED VIEW ... OWNER TO ...
  */
-export class AlterMaterializedViewChangeOwner extends AlterChange {
+export class AlterMaterializedViewChangeOwner extends Change {
   public readonly main: MaterializedView;
   public readonly branch: MaterializedView;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "materialized_view" as const;
 
   constructor(props: { main: MaterializedView; branch: MaterializedView }) {
     super();
@@ -64,9 +65,12 @@ export class AlterMaterializedViewChangeOwner extends AlterChange {
  * ALTER MATERIALIZED VIEW ... SET/RESET ( storage_parameter ... )
  * Accepts main and branch, computes differences, and emits RESET then SET statements.
  */
-export class AlterMaterializedViewSetStorageParams extends AlterChange {
+export class AlterMaterializedViewSetStorageParams extends Change {
   public readonly main: MaterializedView;
   public readonly branch: MaterializedView;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "materialized_view" as const;
 
   constructor(props: { main: MaterializedView; branch: MaterializedView }) {
     super();
@@ -131,28 +135,4 @@ export class AlterMaterializedViewSetStorageParams extends AlterChange {
  * Replace a materialized view by dropping and recreating it.
  * This is used when properties that cannot be altered via ALTER MATERIALIZED VIEW change.
  */
-export class ReplaceMaterializedView extends ReplaceChange {
-  public readonly main: MaterializedView;
-  public readonly branch: MaterializedView;
-
-  constructor(props: { main: MaterializedView; branch: MaterializedView }) {
-    super();
-    this.main = props.main;
-    this.branch = props.branch;
-  }
-
-  get dependencies() {
-    return [this.main.stableId];
-  }
-
-  serialize(): string {
-    const dropChange = new DropMaterializedView({
-      materializedView: this.main,
-    });
-    const createChange = new CreateMaterializedView({
-      materializedView: this.branch,
-    });
-
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
-  }
-}
+// NOTE: ReplaceMaterializedView removed. Non-alterable changes are emitted as Drop + Create in materialized-view.diff.ts.

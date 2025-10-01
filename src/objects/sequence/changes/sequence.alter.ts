@@ -1,7 +1,5 @@
-import { AlterChange, ReplaceChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { Sequence } from "../sequence.model.ts";
-import { CreateSequence } from "./sequence.create.ts";
-import { DropSequence } from "./sequence.drop.ts";
 
 /**
  * Alter a sequence.
@@ -20,9 +18,12 @@ import { DropSequence } from "./sequence.drop.ts";
 /**
  * ALTER SEQUENCE ... OWNED BY ... | OWNED BY NONE
  */
-export class AlterSequenceSetOwnedBy extends AlterChange {
+export class AlterSequenceSetOwnedBy extends Change {
   public readonly main: Sequence;
   public readonly branch: Sequence;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "sequence" as const;
 
   constructor(props: { main: Sequence; branch: Sequence }) {
     super();
@@ -58,9 +59,12 @@ export class AlterSequenceSetOwnedBy extends AlterChange {
  * ALTER SEQUENCE ... set options ...
  * Emits only changed options, in a stable order.
  */
-export class AlterSequenceSetOptions extends AlterChange {
+export class AlterSequenceSetOptions extends Change {
   public readonly main: Sequence;
   public readonly branch: Sequence;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "sequence" as const;
 
   constructor(props: { main: Sequence; branch: Sequence }) {
     super();
@@ -133,24 +137,4 @@ export class AlterSequenceSetOptions extends AlterChange {
  * Replace a sequence by dropping and recreating it.
  * This is used when properties that cannot be altered via ALTER SEQUENCE change.
  */
-export class ReplaceSequence extends ReplaceChange {
-  public readonly main: Sequence;
-  public readonly branch: Sequence;
-
-  constructor(props: { main: Sequence; branch: Sequence }) {
-    super();
-    this.main = props.main;
-    this.branch = props.branch;
-  }
-
-  get dependencies() {
-    return [this.main.stableId];
-  }
-
-  serialize(): string {
-    const dropChange = new DropSequence({ sequence: this.main });
-    const createChange = new CreateSequence({ sequence: this.branch });
-
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
-  }
-}
+// NOTE: ReplaceSequence removed. Non-alterable changes are emitted as Drop + Create in sequence.diff.ts.

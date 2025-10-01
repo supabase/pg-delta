@@ -4,7 +4,6 @@ import {
   AlterExtensionChangeOwner,
   AlterExtensionSetSchema,
   AlterExtensionUpdateVersion,
-  ReplaceExtension,
 } from "./extension.alter.ts";
 
 describe.concurrent("extension", () => {
@@ -87,33 +86,6 @@ describe.concurrent("extension", () => {
 
       expect(change.serialize()).toBe(
         "ALTER EXTENSION test_extension OWNER TO new_owner",
-      );
-    });
-
-    test("replace extension", () => {
-      const props: Omit<ExtensionProps, "relocatable"> = {
-        name: "test_extension",
-        schema: "public",
-        version: "1.0",
-        owner: "test",
-        comment: null,
-      };
-      const main = new Extension({
-        ...props,
-        relocatable: false,
-      });
-      const branch = new Extension({
-        ...props,
-        relocatable: true,
-      });
-
-      const change = new ReplaceExtension({
-        main,
-        branch,
-      });
-
-      expect(change.serialize()).toBe(
-        "DROP EXTENSION test_extension;\nCREATE EXTENSION test_extension WITH SCHEMA public VERSION '1.0'",
       );
     });
   });

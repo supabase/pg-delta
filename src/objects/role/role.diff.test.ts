@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { AlterRoleSetOptions, ReplaceRole } from "./changes/role.alter.ts";
+import { AlterRoleSetOptions } from "./changes/role.alter.ts";
 import { CreateRole } from "./changes/role.create.ts";
 import { DropRole } from "./changes/role.drop.ts";
 import { diffRoles } from "./role.diff.ts";
@@ -37,15 +37,5 @@ describe.concurrent("role.diff", () => {
       { [branch.stableId]: branch },
     );
     expect(changes[0]).toBeInstanceOf(AlterRoleSetOptions);
-  });
-
-  test("replace on config change", () => {
-    const main = new Role(base);
-    const branch = new Role({ ...base, config: ["search_path=schema1"] });
-    const changes = diffRoles(
-      { [main.stableId]: main },
-      { [branch.stableId]: branch },
-    );
-    expect(changes[0]).toBeInstanceOf(ReplaceRole);
   });
 });

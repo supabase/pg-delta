@@ -935,22 +935,42 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "index:pg_toast.pg_toast_13454_index",
-      "referenced_stable_id": "systemObject:pg_toast.pg_toast_13454:t",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13454.chunk_id",
+      "deptype": "a"
+    },
+    {
+      "dependent_stable_id": "index:pg_toast.pg_toast_13454_index",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13454.chunk_seq",
       "deptype": "a"
     },
     {
       "dependent_stable_id": "index:pg_toast.pg_toast_13459_index",
-      "referenced_stable_id": "systemObject:pg_toast.pg_toast_13459:t",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13459.chunk_id",
+      "deptype": "a"
+    },
+    {
+      "dependent_stable_id": "index:pg_toast.pg_toast_13459_index",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13459.chunk_seq",
       "deptype": "a"
     },
     {
       "dependent_stable_id": "index:pg_toast.pg_toast_13464_index",
-      "referenced_stable_id": "systemObject:pg_toast.pg_toast_13464:t",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13464.chunk_id",
+      "deptype": "a"
+    },
+    {
+      "dependent_stable_id": "index:pg_toast.pg_toast_13464_index",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13464.chunk_seq",
       "deptype": "a"
     },
     {
       "dependent_stable_id": "index:pg_toast.pg_toast_13469_index",
-      "referenced_stable_id": "systemObject:pg_toast.pg_toast_13469:t",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13469.chunk_id",
+      "deptype": "a"
+    },
+    {
+      "dependent_stable_id": "index:pg_toast.pg_toast_13469_index",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13469.chunk_seq",
       "deptype": "a"
     },
     {
@@ -1135,16 +1155,31 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema._pg_user_mappings.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.authorization_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema._pg_user_mappings.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema._pg_user_mappings.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema._pg_user_mappings.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.oid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema._pg_user_mappings.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema._pg_user_mappings.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_servers",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema._pg_user_mappings.\\"_RETURN\\"",
       "referenced_stable_id": "view:information_schema._pg_user_mappings",
       "deptype": "i"
     },
@@ -1155,17 +1190,27 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.administrable_role_authorizations.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.applicable_roles.grantee",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.administrable_role_authorizations.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.applicable_roles.is_grantable",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.administrable_role_authorizations.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.applicable_roles.role_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.administrable_role_authorizations.\\"_RETURN\\"",
       "referenced_stable_id": "view:information_schema.administrable_role_authorizations",
       "deptype": "i"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.administrable_role_authorizations.\\"_RETURN\\"",
       "referenced_stable_id": "view:information_schema.administrable_role_authorizations",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.administrable_role_authorizations.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.applicable_roles",
       "deptype": "n"
     },
     {
@@ -1380,17 +1425,32 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.column_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_table_columns.attfdwoptions",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.column_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_table_columns.attname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.column_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_table_columns.nspname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.column_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_table_columns.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.column_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.character_data",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.column_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.column_options.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_table_columns",
       "deptype": "n"
     },
     {
@@ -1550,6 +1610,81 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.attributes.dtd_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.attributes.udt_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.attributes.udt_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.columns.dtd_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.columns.table_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.columns.table_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.domains.domain_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.domains.domain_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.domains.dtd_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.parameters.dtd_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.parameters.specific_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.parameters.specific_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routines.dtd_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routines.specific_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routines.specific_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.character_data",
       "deptype": "n"
     },
@@ -1560,37 +1695,12 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.attributes",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.columns",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
       "referenced_stable_id": "view:information_schema.data_type_privileges",
       "deptype": "i"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
       "referenced_stable_id": "view:information_schema.data_type_privileges",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.domains",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.parameters",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.routines",
       "deptype": "n"
     },
     {
@@ -1686,6 +1796,26 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     {
       "dependent_stable_id": "rewriteRule:information_schema.domains.\\"_RETURN\\"",
       "referenced_stable_id": "view:information_schema.domains",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.element_types.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.data_type_privileges.dtd_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.element_types.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.data_type_privileges.object_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.element_types.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.data_type_privileges.object_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.element_types.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.data_type_privileges.object_type",
       "deptype": "n"
     },
     {
@@ -1710,11 +1840,6 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.element_types.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.data_type_privileges",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.element_types.\\"_RETURN\\"",
       "referenced_stable_id": "view:information_schema.element_types",
       "deptype": "i"
     },
@@ -1740,17 +1865,27 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrapper_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_data_wrappers.fdwoptions",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrapper_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_data_wrappers.foreign_data_wrapper_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrapper_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_data_wrappers.foreign_data_wrapper_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrapper_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.character_data",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrapper_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrapper_options.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_data_wrappers",
       "deptype": "n"
     },
     {
@@ -1765,12 +1900,27 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrappers.\\"_RETURN\\"",
-      "referenced_stable_id": "domain:information_schema.character_data",
+      "referenced_stable_id": "column:information_schema._pg_foreign_data_wrappers.authorization_identifier",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrappers.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_data_wrappers",
+      "referenced_stable_id": "column:information_schema._pg_foreign_data_wrappers.foreign_data_wrapper_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrappers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_data_wrappers.foreign_data_wrapper_language",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrappers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_data_wrappers.foreign_data_wrapper_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrappers.\\"_RETURN\\"",
+      "referenced_stable_id": "domain:information_schema.character_data",
       "deptype": "n"
     },
     {
@@ -1785,17 +1935,27 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_server_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_server_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_server_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.srvoptions",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_server_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.character_data",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_server_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.foreign_server_options.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_servers",
       "deptype": "n"
     },
     {
@@ -1810,7 +1970,37 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_servers",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.authorization_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_data_wrapper_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_data_wrapper_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_type",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_version",
       "deptype": "n"
     },
     {
@@ -1825,17 +2015,32 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_table_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_table_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_table_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_table_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_table_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_table_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_table_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.ftoptions",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_table_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.character_data",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_table_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.foreign_table_options.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_tables",
       "deptype": "n"
     },
     {
@@ -1850,7 +2055,27 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_tables.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_tables",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_server_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_server_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_table_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_table_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_table_schema",
       "deptype": "n"
     },
     {
@@ -1965,17 +2190,52 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.column_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.grantee",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.grantor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.is_grantable",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.privilege_type",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.table_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.table_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.table_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.enabled_roles.role_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.column_privileges",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.enabled_roles",
       "deptype": "n"
     },
     {
@@ -1990,12 +2250,62 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "domain:information_schema.sql_identifier",
+      "referenced_stable_id": "column:information_schema.enabled_roles.role_name",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.enabled_roles",
+      "referenced_stable_id": "column:information_schema.routine_privileges.grantee",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.grantor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.is_grantable",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.privilege_type",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.routine_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.routine_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.routine_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.specific_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.specific_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.specific_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "domain:information_schema.sql_identifier",
       "deptype": "n"
     },
     {
@@ -2009,18 +2319,53 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "deptype": "n"
     },
     {
-      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.routine_privileges",
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.enabled_roles.role_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.grantee",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.grantor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.is_grantable",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.privilege_type",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.table_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.table_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.table_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.with_hierarchy",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.enabled_roles",
       "deptype": "n"
     },
     {
@@ -2034,18 +2379,48 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "deptype": "n"
     },
     {
-      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.table_privileges",
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.enabled_roles.role_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.udt_privileges.grantee",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.udt_privileges.grantor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.udt_privileges.is_grantable",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.udt_privileges.privilege_type",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.udt_privileges.udt_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.udt_privileges.udt_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.udt_privileges.udt_schema",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.enabled_roles",
       "deptype": "n"
     },
     {
@@ -2059,18 +2434,53 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "deptype": "n"
     },
     {
-      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.udt_privileges",
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.enabled_roles.role_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.grantee",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.grantor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.is_grantable",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.object_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.object_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.object_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.object_type",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.privilege_type",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.enabled_roles",
       "deptype": "n"
     },
     {
@@ -2081,11 +2491,6 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     {
       "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
       "referenced_stable_id": "view:information_schema.role_usage_grants",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.usage_privileges",
       "deptype": "n"
     },
     {
@@ -2490,17 +2895,42 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.authorization_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.foreign_server_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.foreign_server_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.srvowner",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.umoptions",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.umuser",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.character_data",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_user_mappings",
       "deptype": "n"
     },
     {
@@ -2515,7 +2945,17 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.user_mappings.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_user_mappings",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.authorization_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mappings.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.foreign_server_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mappings.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.foreign_server_name",
       "deptype": "n"
     },
     {
@@ -2840,13 +3280,18 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_settings.pg_settings_u",
-      "referenced_stable_id": "view:pg_catalog.pg_settings",
-      "deptype": "a"
+      "referenced_stable_id": "column:pg_catalog.pg_settings.name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_settings.pg_settings_u",
+      "referenced_stable_id": "column:pg_catalog.pg_settings.setting",
+      "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_settings.pg_settings_u",
       "referenced_stable_id": "view:pg_catalog.pg_settings",
-      "deptype": "n"
+      "deptype": "a"
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_shadow.\\"_RETURN\\"",
@@ -3020,7 +3465,12 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_replication_slots.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_replication_slots",
+      "referenced_stable_id": "column:pg_catalog.pg_replication_slots.datoid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_replication_slots.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_replication_slots.slot_name",
       "deptype": "n"
     },
     {
@@ -3085,7 +3535,42 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_stat_all_indexes",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.idx_tup_fetch",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.idx_tup_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.indexrelid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.indexrelname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.schemaname",
       "deptype": "n"
     },
     {
@@ -3100,7 +3585,117 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_stat_all_tables",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.analyze_count",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.autoanalyze_count",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.autovacuum_count",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.idx_tup_fetch",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_analyze",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_autoanalyze",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_autovacuum",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_vacuum",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_dead_tup",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_ins_since_vacuum",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_live_tup",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_mod_since_analyze",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_del",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_hot_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_ins",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.schemaname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.seq_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.seq_tup_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.vacuum_count",
       "deptype": "n"
     },
     {
@@ -3125,7 +3720,42 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_stat_all_indexes",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.idx_tup_fetch",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.idx_tup_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.indexrelid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.indexrelname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.schemaname",
       "deptype": "n"
     },
     {
@@ -3140,7 +3770,117 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_stat_all_tables",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.analyze_count",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.autoanalyze_count",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.autovacuum_count",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.idx_tup_fetch",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_analyze",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_autoanalyze",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_autovacuum",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_vacuum",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_dead_tup",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_ins_since_vacuum",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_live_tup",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_mod_since_analyze",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_del",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_hot_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_ins",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.schemaname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.seq_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.seq_tup_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.vacuum_count",
       "deptype": "n"
     },
     {
@@ -3185,7 +3925,57 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_stat_xact_all_tables",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.idx_tup_fetch",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_del",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_hot_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_ins",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.schemaname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.seq_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.seq_tup_read",
       "deptype": "n"
     },
     {
@@ -3210,7 +4000,57 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_stat_xact_all_tables",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.idx_tup_fetch",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_del",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_hot_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_ins",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.schemaname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.seq_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.seq_tup_read",
       "deptype": "n"
     },
     {
@@ -3255,7 +4095,37 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_indexes.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_statio_all_indexes",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.idx_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.idx_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.indexrelid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.indexrelname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.schemaname",
       "deptype": "n"
     },
     {
@@ -3270,7 +4140,27 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_sequences.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_statio_all_sequences",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.schemaname",
       "deptype": "n"
     },
     {
@@ -3285,7 +4175,57 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_statio_all_tables",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.heap_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.heap_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.idx_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.idx_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.schemaname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.tidx_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.tidx_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.toast_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.toast_blks_read",
       "deptype": "n"
     },
     {
@@ -3300,7 +4240,37 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_indexes.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_statio_all_indexes",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.idx_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.idx_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.indexrelid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.indexrelname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.schemaname",
       "deptype": "n"
     },
     {
@@ -3315,7 +4285,27 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_sequences.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_statio_all_sequences",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.schemaname",
       "deptype": "n"
     },
     {
@@ -3330,7 +4320,57 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_statio_all_tables",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.heap_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.heap_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.idx_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.idx_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.schemaname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.tidx_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.tidx_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.toast_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.toast_blks_read",
       "deptype": "n"
     },
     {
@@ -3415,7 +4455,42 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_shadow",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.usebypassrls",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.useconfig",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.usecreatedb",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.usename",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.userepl",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.usesuper",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.usesysid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.valuntil",
       "deptype": "n"
     },
     {
@@ -5930,7 +7005,8 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     }
   ],
   "indexableObjects": {},
-  "version": 150014
+  "version": 150014,
+  "currentUser": "postgres"
 }"
 `;
 
@@ -6929,22 +8005,42 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "index:pg_toast.pg_toast_13463_index",
-      "referenced_stable_id": "systemObject:pg_toast.pg_toast_13463:t",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13463.chunk_id",
+      "deptype": "a"
+    },
+    {
+      "dependent_stable_id": "index:pg_toast.pg_toast_13463_index",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13463.chunk_seq",
       "deptype": "a"
     },
     {
       "dependent_stable_id": "index:pg_toast.pg_toast_13468_index",
-      "referenced_stable_id": "systemObject:pg_toast.pg_toast_13468:t",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13468.chunk_id",
+      "deptype": "a"
+    },
+    {
+      "dependent_stable_id": "index:pg_toast.pg_toast_13468_index",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13468.chunk_seq",
       "deptype": "a"
     },
     {
       "dependent_stable_id": "index:pg_toast.pg_toast_13473_index",
-      "referenced_stable_id": "systemObject:pg_toast.pg_toast_13473:t",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13473.chunk_id",
+      "deptype": "a"
+    },
+    {
+      "dependent_stable_id": "index:pg_toast.pg_toast_13473_index",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13473.chunk_seq",
       "deptype": "a"
     },
     {
       "dependent_stable_id": "index:pg_toast.pg_toast_13478_index",
-      "referenced_stable_id": "systemObject:pg_toast.pg_toast_13478:t",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13478.chunk_id",
+      "deptype": "a"
+    },
+    {
+      "dependent_stable_id": "index:pg_toast.pg_toast_13478_index",
+      "referenced_stable_id": "column:pg_toast.pg_toast_13478.chunk_seq",
       "deptype": "a"
     },
     {
@@ -7109,12 +8205,27 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema._pg_user_mappings.\\"_RETURN\\"",
-      "referenced_stable_id": "domain:information_schema.sql_identifier",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.authorization_identifier",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema._pg_user_mappings.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_servers",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema._pg_user_mappings.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema._pg_user_mappings.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.oid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema._pg_user_mappings.\\"_RETURN\\"",
+      "referenced_stable_id": "domain:information_schema.sql_identifier",
       "deptype": "n"
     },
     {
@@ -7124,13 +8235,23 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.administrable_role_authorizations.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.administrable_role_authorizations",
-      "deptype": "i"
+      "referenced_stable_id": "column:information_schema.applicable_roles.grantee",
+      "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.administrable_role_authorizations.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.applicable_roles",
+      "referenced_stable_id": "column:information_schema.applicable_roles.is_grantable",
       "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.administrable_role_authorizations.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.applicable_roles.role_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.administrable_role_authorizations.\\"_RETURN\\"",
+      "referenced_stable_id": "view:information_schema.administrable_role_authorizations",
+      "deptype": "i"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.applicable_roles.\\"_RETURN\\"",
@@ -7299,17 +8420,32 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.column_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_table_columns.attfdwoptions",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.column_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_table_columns.attname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.column_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_table_columns.nspname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.column_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_table_columns.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.column_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.character_data",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.column_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.column_options.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_table_columns",
       "deptype": "n"
     },
     {
@@ -7439,6 +8575,81 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.attributes.dtd_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.attributes.udt_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.attributes.udt_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.columns.dtd_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.columns.table_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.columns.table_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.domains.domain_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.domains.domain_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.domains.dtd_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.parameters.dtd_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.parameters.specific_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.parameters.specific_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routines.dtd_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routines.specific_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routines.specific_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.character_data",
       "deptype": "n"
     },
@@ -7449,33 +8660,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.attributes",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.columns",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
       "referenced_stable_id": "view:information_schema.data_type_privileges",
       "deptype": "i"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.domains",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.parameters",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.data_type_privileges.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.routines",
-      "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.domain_constraints.\\"_RETURN\\"",
@@ -7559,6 +8745,26 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.element_types.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.data_type_privileges.dtd_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.element_types.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.data_type_privileges.object_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.element_types.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.data_type_privileges.object_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.element_types.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.data_type_privileges.object_type",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.element_types.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.cardinal_number",
       "deptype": "n"
     },
@@ -7579,11 +8785,6 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.element_types.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.data_type_privileges",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.element_types.\\"_RETURN\\"",
       "referenced_stable_id": "view:information_schema.element_types",
       "deptype": "i"
     },
@@ -7599,17 +8800,27 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrapper_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_data_wrappers.fdwoptions",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrapper_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_data_wrappers.foreign_data_wrapper_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrapper_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_data_wrappers.foreign_data_wrapper_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrapper_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.character_data",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrapper_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrapper_options.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_data_wrappers",
       "deptype": "n"
     },
     {
@@ -7619,12 +8830,27 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrappers.\\"_RETURN\\"",
-      "referenced_stable_id": "domain:information_schema.character_data",
+      "referenced_stable_id": "column:information_schema._pg_foreign_data_wrappers.authorization_identifier",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrappers.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_data_wrappers",
+      "referenced_stable_id": "column:information_schema._pg_foreign_data_wrappers.foreign_data_wrapper_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrappers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_data_wrappers.foreign_data_wrapper_language",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrappers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_data_wrappers.foreign_data_wrapper_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_data_wrappers.\\"_RETURN\\"",
+      "referenced_stable_id": "domain:information_schema.character_data",
       "deptype": "n"
     },
     {
@@ -7634,17 +8860,27 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_server_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_server_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_server_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.srvoptions",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_server_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.character_data",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_server_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.foreign_server_options.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_servers",
       "deptype": "n"
     },
     {
@@ -7654,13 +8890,63 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_servers",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.authorization_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_data_wrapper_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_data_wrapper_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_type",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_servers.foreign_server_version",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_servers.\\"_RETURN\\"",
       "referenced_stable_id": "view:information_schema.foreign_servers",
       "deptype": "i"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_table_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_table_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_table_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_table_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_table_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_table_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_table_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.ftoptions",
+      "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_table_options.\\"_RETURN\\"",
@@ -7674,17 +8960,32 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_table_options.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_tables",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.foreign_table_options.\\"_RETURN\\"",
       "referenced_stable_id": "view:information_schema.foreign_table_options",
       "deptype": "i"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.foreign_tables.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_foreign_tables",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_server_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_server_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_table_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_table_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.foreign_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_foreign_tables.foreign_table_schema",
       "deptype": "n"
     },
     {
@@ -7774,17 +9075,52 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.column_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.grantee",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.grantor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.is_grantable",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.privilege_type",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.table_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.table_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.column_privileges.table_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.enabled_roles.role_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.column_privileges",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.role_column_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.enabled_roles",
       "deptype": "n"
     },
     {
@@ -7794,12 +9130,62 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "domain:information_schema.sql_identifier",
+      "referenced_stable_id": "column:information_schema.enabled_roles.role_name",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.enabled_roles",
+      "referenced_stable_id": "column:information_schema.routine_privileges.grantee",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.grantor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.is_grantable",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.privilege_type",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.routine_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.routine_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.routine_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.specific_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.specific_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.routine_privileges.specific_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "domain:information_schema.sql_identifier",
       "deptype": "n"
     },
     {
@@ -7808,18 +9194,53 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "deptype": "i"
     },
     {
-      "dependent_stable_id": "rewriteRule:information_schema.role_routine_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.routine_privileges",
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.enabled_roles.role_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.grantee",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.grantor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.is_grantable",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.privilege_type",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.table_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.table_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.table_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.table_privileges.with_hierarchy",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.enabled_roles",
       "deptype": "n"
     },
     {
@@ -7828,18 +9249,48 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "deptype": "i"
     },
     {
-      "dependent_stable_id": "rewriteRule:information_schema.role_table_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.table_privileges",
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.enabled_roles.role_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.udt_privileges.grantee",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.udt_privileges.grantor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.udt_privileges.is_grantable",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.udt_privileges.privilege_type",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.udt_privileges.udt_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.udt_privileges.udt_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.udt_privileges.udt_schema",
       "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.sql_identifier",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.enabled_roles",
       "deptype": "n"
     },
     {
@@ -7848,8 +9299,48 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "deptype": "i"
     },
     {
-      "dependent_stable_id": "rewriteRule:information_schema.role_udt_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.udt_privileges",
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.enabled_roles.role_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.grantee",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.grantor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.is_grantable",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.object_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.object_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.object_schema",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.object_type",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema.usage_privileges.privilege_type",
       "deptype": "n"
     },
     {
@@ -7859,18 +9350,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.enabled_roles",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
       "referenced_stable_id": "view:information_schema.role_usage_grants",
       "deptype": "i"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.role_usage_grants.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema.usage_privileges",
-      "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.routine_column_usage.\\"_RETURN\\"",
@@ -8189,6 +9670,36 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.authorization_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.foreign_server_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.foreign_server_name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.srvowner",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.umoptions",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.umuser",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
       "referenced_stable_id": "domain:information_schema.character_data",
       "deptype": "n"
     },
@@ -8199,17 +9710,22 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_user_mappings",
-      "deptype": "n"
-    },
-    {
-      "dependent_stable_id": "rewriteRule:information_schema.user_mapping_options.\\"_RETURN\\"",
       "referenced_stable_id": "view:information_schema.user_mapping_options",
       "deptype": "i"
     },
     {
       "dependent_stable_id": "rewriteRule:information_schema.user_mappings.\\"_RETURN\\"",
-      "referenced_stable_id": "view:information_schema._pg_user_mappings",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.authorization_identifier",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mappings.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.foreign_server_catalog",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:information_schema.user_mappings.\\"_RETURN\\"",
+      "referenced_stable_id": "column:information_schema._pg_user_mappings.foreign_server_name",
       "deptype": "n"
     },
     {
@@ -8394,13 +9910,18 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_settings.pg_settings_u",
-      "referenced_stable_id": "view:pg_catalog.pg_settings",
-      "deptype": "a"
+      "referenced_stable_id": "column:pg_catalog.pg_settings.name",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_settings.pg_settings_u",
+      "referenced_stable_id": "column:pg_catalog.pg_settings.setting",
+      "deptype": "n"
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_settings.pg_settings_u",
       "referenced_stable_id": "view:pg_catalog.pg_settings",
-      "deptype": "n"
+      "deptype": "a"
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_shadow.\\"_RETURN\\"",
@@ -8499,7 +10020,12 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_replication_slots.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_replication_slots",
+      "referenced_stable_id": "column:pg_catalog.pg_replication_slots.datoid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_replication_slots.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_replication_slots.slot_name",
       "deptype": "n"
     },
     {
@@ -8534,7 +10060,47 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_stat_all_indexes",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.idx_tup_fetch",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.idx_tup_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.indexrelid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.indexrelname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.last_idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.schemaname",
       "deptype": "n"
     },
     {
@@ -8544,7 +10110,132 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_stat_all_tables",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.analyze_count",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.autoanalyze_count",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.autovacuum_count",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.idx_tup_fetch",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_analyze",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_autoanalyze",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_autovacuum",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_seq_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_vacuum",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_dead_tup",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_ins_since_vacuum",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_live_tup",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_mod_since_analyze",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_del",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_hot_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_ins",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_newpage_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.schemaname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.seq_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.seq_tup_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.vacuum_count",
       "deptype": "n"
     },
     {
@@ -8559,7 +10250,47 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_stat_all_indexes",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.idx_tup_fetch",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.idx_tup_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.indexrelid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.indexrelname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.last_idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_indexes.schemaname",
       "deptype": "n"
     },
     {
@@ -8569,7 +10300,132 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_stat_all_tables",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.analyze_count",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.autoanalyze_count",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.autovacuum_count",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.idx_tup_fetch",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_analyze",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_autoanalyze",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_autovacuum",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_seq_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.last_vacuum",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_dead_tup",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_ins_since_vacuum",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_live_tup",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_mod_since_analyze",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_del",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_hot_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_ins",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_newpage_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.n_tup_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.schemaname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.seq_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.seq_tup_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_all_tables.vacuum_count",
       "deptype": "n"
     },
     {
@@ -8594,7 +10450,62 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_stat_xact_all_tables",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.idx_tup_fetch",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_del",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_hot_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_ins",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_newpage_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.schemaname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.seq_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.seq_tup_read",
       "deptype": "n"
     },
     {
@@ -8609,7 +10520,62 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_stat_xact_all_tables",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.idx_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.idx_tup_fetch",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_del",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_hot_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_ins",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_newpage_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.n_tup_upd",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.schemaname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.seq_scan",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_stat_xact_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_stat_xact_all_tables.seq_tup_read",
       "deptype": "n"
     },
     {
@@ -8634,7 +10600,37 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_indexes.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_statio_all_indexes",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.idx_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.idx_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.indexrelid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.indexrelname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.schemaname",
       "deptype": "n"
     },
     {
@@ -8644,7 +10640,27 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_sequences.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_statio_all_sequences",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.schemaname",
       "deptype": "n"
     },
     {
@@ -8654,7 +10670,57 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_statio_all_tables",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.heap_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.heap_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.idx_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.idx_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.schemaname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.tidx_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.tidx_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.toast_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_sys_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.toast_blks_read",
       "deptype": "n"
     },
     {
@@ -8664,7 +10730,37 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_indexes.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_statio_all_indexes",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.idx_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.idx_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.indexrelid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.indexrelname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_indexes.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_indexes.schemaname",
       "deptype": "n"
     },
     {
@@ -8674,7 +10770,27 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_sequences.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_statio_all_sequences",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_sequences.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_sequences.schemaname",
       "deptype": "n"
     },
     {
@@ -8684,7 +10800,57 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_statio_all_tables",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.heap_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.heap_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.idx_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.idx_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.relid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.relname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.schemaname",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.tidx_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.tidx_blks_read",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.toast_blks_hit",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_statio_user_tables.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_statio_all_tables.toast_blks_read",
       "deptype": "n"
     },
     {
@@ -8729,7 +10895,42 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     },
     {
       "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
-      "referenced_stable_id": "view:pg_catalog.pg_shadow",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.usebypassrls",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.useconfig",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.usecreatedb",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.usename",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.userepl",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.usesuper",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.usesysid",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "rewriteRule:pg_catalog.pg_user.\\"_RETURN\\"",
+      "referenced_stable_id": "column:pg_catalog.pg_shadow.valuntil",
       "deptype": "n"
     },
     {
@@ -11254,6 +13455,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     }
   ],
   "indexableObjects": {},
-  "version": 170006
+  "version": 170006,
+  "currentUser": "postgres"
 }"
 `;

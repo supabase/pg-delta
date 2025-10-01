@@ -2,8 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
   AlterExtensionChangeOwner,
   AlterExtensionSetSchema,
-  AlterExtensionUpdateVersion,
-  ReplaceExtension,
 } from "./changes/extension.alter.ts";
 import { CreateExtension } from "./changes/extension.create.ts";
 import { DropExtension } from "./changes/extension.drop.ts";
@@ -40,28 +38,11 @@ describe.concurrent("extension.diff", () => {
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
-    expect(changes.some((c) => c instanceof AlterExtensionUpdateVersion)).toBe(
-      true,
-    );
     expect(changes.some((c) => c instanceof AlterExtensionSetSchema)).toBe(
       true,
     );
     expect(changes.some((c) => c instanceof AlterExtensionChangeOwner)).toBe(
       true,
     );
-  });
-
-  test("replace when not relocatable", () => {
-    const main = new Extension({ ...base, relocatable: false });
-    const branch = new Extension({
-      ...base,
-      relocatable: false,
-      schema: "utils",
-    });
-    const changes = diffExtensions(
-      { [main.stableId]: main },
-      { [branch.stableId]: branch },
-    );
-    expect(changes[0]).toBeInstanceOf(ReplaceExtension);
   });
 });

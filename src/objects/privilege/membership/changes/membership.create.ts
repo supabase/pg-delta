@@ -1,6 +1,6 @@
-import { CreateChange } from "../../../base.change.ts";
+import { Change } from "../../../base.change.ts";
 
-export class GrantRoleMembership extends CreateChange {
+export class GrantRoleMembership extends Change {
   public readonly role: string;
   public readonly member: string;
   public readonly options: {
@@ -8,6 +8,9 @@ export class GrantRoleMembership extends CreateChange {
     inherit?: boolean | null;
     set?: boolean | null;
   };
+  public readonly operation = "create" as const;
+  public readonly scope = "membership" as const;
+  public readonly objectType = "role" as const;
 
   constructor(props: {
     role: string;

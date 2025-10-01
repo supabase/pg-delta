@@ -1,15 +1,14 @@
-import {
-  CreateChange,
-  DropChange,
-  quoteLiteral,
-} from "../../../base.change.ts";
+import { Change, quoteLiteral } from "../../../base.change.ts";
 import type { Range } from "../range.model.ts";
 
 /**
  * Create/drop comments on range types.
  */
-export class CreateCommentOnRange extends CreateChange {
+export class CreateCommentOnRange extends Change {
   public readonly range: Range;
+  public readonly operation = "create" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "range" as const;
 
   constructor(props: { range: Range }) {
     super();
@@ -31,8 +30,11 @@ export class CreateCommentOnRange extends CreateChange {
   }
 }
 
-export class DropCommentOnRange extends DropChange {
+export class DropCommentOnRange extends Change {
   public readonly range: Range;
+  public readonly operation = "drop" as const;
+  public readonly scope = "comment" as const;
+  public readonly objectType = "range" as const;
 
   constructor(props: { range: Range }) {
     super();

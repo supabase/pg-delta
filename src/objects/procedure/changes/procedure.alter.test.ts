@@ -8,7 +8,6 @@ import {
   AlterProcedureSetSecurity,
   AlterProcedureSetStrictness,
   AlterProcedureSetVolatility,
-  ReplaceProcedure,
 } from "./procedure.alter.ts";
 
 describe.concurrent("procedure", () => {
@@ -110,56 +109,6 @@ describe.concurrent("procedure", () => {
 
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function OWNER TO new_owner",
-      );
-    });
-
-    test("replace procedure", () => {
-      const props: Omit<ProcedureProps, "security_definer"> = {
-        schema: "public",
-        name: "test_procedure",
-        kind: "p",
-        return_type: "void",
-        return_type_schema: "pg_catalog",
-        language: "plpgsql",
-        volatility: "v",
-        parallel_safety: "u",
-        is_strict: false,
-        leakproof: false,
-        returns_set: false,
-        argument_count: 0,
-        argument_default_count: 0,
-        argument_names: null,
-        argument_types: null,
-        all_argument_types: null,
-        argument_modes: null,
-        argument_defaults: null,
-        source_code: "BEGIN RETURN; END;",
-        binary_path: null,
-        sql_body: null,
-        definition:
-          "CREATE OR REPLACE PROCEDURE public.test_procedure() LANGUAGE plpgsql SECURITY DEFINER AS $$BEGIN RETURN; END;$$",
-        config: null,
-        owner: "test",
-        execution_cost: 0,
-        result_rows: 0,
-        comment: null,
-      };
-      const main = new Procedure({
-        ...props,
-        security_definer: false,
-      });
-      const branch = new Procedure({
-        ...props,
-        security_definer: true,
-      });
-
-      const change = new ReplaceProcedure({
-        main,
-        branch,
-      });
-
-      expect(change.serialize()).toBe(
-        "CREATE OR REPLACE PROCEDURE public.test_procedure() LANGUAGE plpgsql SECURITY DEFINER AS $$BEGIN RETURN; END;$$",
       );
     });
 

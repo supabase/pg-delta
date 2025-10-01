@@ -3,7 +3,6 @@ import {
   AlterIndexSetStatistics,
   AlterIndexSetStorageParams,
   AlterIndexSetTablespace,
-  ReplaceIndex,
 } from "./changes/index.alter.ts";
 import { CreateIndex } from "./changes/index.create.ts";
 import { DropIndex } from "./changes/index.drop.ts";
@@ -78,17 +77,6 @@ describe.concurrent("index.diff", () => {
     );
   });
 
-  test("replace on non-alterable change", () => {
-    const main = new Index(base);
-    const branch = new Index({ ...base, index_type: "hash" });
-    const changes = diffIndexes(
-      { [main.stableId]: main },
-      { [branch.stableId]: branch },
-      {},
-    );
-    expect(changes[0]).toBeInstanceOf(ReplaceIndex);
-  });
-
   test("create index with key columns and no index_expressions should fail if no indexableObject is provided", () => {
     const main = new Index(base);
     const branch = new Index({
@@ -102,24 +90,25 @@ describe.concurrent("index.diff", () => {
       "Index requires an indexableObject with columns when key_columns are used",
     );
   });
+
   test("create index with key columns and valid indexableObject should work", () => {
-    const main = new Index(base);
     const branch = new Index({
       ...base,
       key_columns: [1],
       index_expressions: null,
+      definition: "CREATE INDEX ix ON t (col1)",
     });
     const changes = diffIndexes(
-      { [main.stableId]: main },
+      {},
       { [branch.stableId]: branch },
       {
         [branch.tableStableId]: {
           columns: [
             {
-              name: "a",
+              name: "col1",
               position: 1,
-              data_type: "int",
-              data_type_str: "integer",
+              data_type: "text",
+              data_type_str: "text",
               is_custom_type: false,
               custom_type_type: null,
               custom_type_category: null,
@@ -137,6 +126,24 @@ describe.concurrent("index.diff", () => {
         },
       },
     );
-    expect(changes[0]).toBeInstanceOf(ReplaceIndex);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toBeInstanceOf(CreateIndex);
+  });
+
+  test("drop and create when non-alterable property changes", () => {
+    const main = new Index(base);
+    const branch = new Index({
+      ...base,
+      index_type: "hash",
+      is_unique: true,
+    });
+    const changes = diffIndexes(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+      {},
+    );
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(DropIndex);
+    expect(changes[1]).toBeInstanceOf(CreateIndex);
   });
 });

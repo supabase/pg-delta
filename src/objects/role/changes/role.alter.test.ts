@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { Role, type RoleProps } from "../role.model.ts";
-import { AlterRoleSetOptions, ReplaceRole } from "./role.alter.ts";
+import { AlterRoleSetOptions } from "./role.alter.ts";
 
 describe.concurrent("role", () => {
   describe("alter", () => {
@@ -310,38 +310,6 @@ describe.concurrent("role", () => {
       const change = new AlterRoleSetOptions({ main, branch });
       expect(change.serialize()).toBe(
         "ALTER ROLE r WITH CREATEDB CONNECTION LIMIT 3",
-      );
-    });
-    test("replace role (config change)", () => {
-      const props: Omit<RoleProps, "can_create_roles"> = {
-        role_name: "test_role",
-        is_superuser: false,
-        can_inherit: true,
-        can_create_databases: false,
-        can_login: true,
-        can_replicate: false,
-        connection_limit: null,
-        can_bypass_rls: false,
-        config: null,
-        comment: null,
-      };
-      const main = new Role({
-        ...props,
-        can_create_roles: false,
-      });
-      const branch = new Role({
-        ...props,
-        can_create_roles: false,
-        config: ["search_path=schema1"],
-      });
-
-      const change = new ReplaceRole({
-        main,
-        branch,
-      });
-
-      expect(change.serialize()).toBe(
-        "DROP ROLE test_role;\nCREATE ROLE test_role WITH LOGIN",
       );
     });
   });

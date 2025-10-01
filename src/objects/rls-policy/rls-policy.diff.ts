@@ -5,7 +5,6 @@ import {
   AlterRlsPolicySetRoles,
   AlterRlsPolicySetUsingExpression,
   AlterRlsPolicySetWithCheckExpression,
-  ReplaceRlsPolicy,
 } from "./changes/rls-policy.alter.ts";
 import {
   CreateCommentOnRlsPolicy,
@@ -63,7 +62,8 @@ export function diffRlsPolicies(
     if (nonAlterablePropsChanged) {
       // Replace the entire RLS policy (drop + create)
       changes.push(
-        new ReplaceRlsPolicy({ main: mainRlsPolicy, branch: branchRlsPolicy }),
+        new DropRlsPolicy({ rlsPolicy: mainRlsPolicy }),
+        new CreateRlsPolicy({ rlsPolicy: branchRlsPolicy }),
       );
     } else {
       // Only alterable properties changed - check each one

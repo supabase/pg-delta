@@ -1,4 +1,4 @@
-import { DropChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { Schema } from "../schema.model.ts";
 
 /**
@@ -11,8 +11,11 @@ import type { Schema } from "../schema.model.ts";
  * DROP SCHEMA [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropSchema extends DropChange {
+export class DropSchema extends Change {
   public readonly schema: Schema;
+  public readonly operation = "drop" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "schema" as const;
 
   constructor(props: { schema: Schema }) {
     super();

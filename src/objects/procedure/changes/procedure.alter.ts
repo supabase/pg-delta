@@ -1,7 +1,6 @@
-import { AlterChange, ReplaceChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { formatConfigValue } from "../utils.ts";
-import { CreateProcedure } from "./procedure.create.ts";
 
 /**
  * Alter a procedure.
@@ -31,9 +30,12 @@ import { CreateProcedure } from "./procedure.create.ts";
 /**
  * ALTER FUNCTION/PROCEDURE ... OWNER TO ...
  */
-export class AlterProcedureChangeOwner extends AlterChange {
+export class AlterProcedureChangeOwner extends Change {
   public readonly main: Procedure;
   public readonly branch: Procedure;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "procedure" as const;
 
   constructor(props: { main: Procedure; branch: Procedure }) {
     super();
@@ -61,9 +63,12 @@ export class AlterProcedureChangeOwner extends AlterChange {
 /**
  * ALTER FUNCTION/PROCEDURE ... SECURITY { INVOKER | DEFINER }
  */
-export class AlterProcedureSetSecurity extends AlterChange {
+export class AlterProcedureSetSecurity extends Change {
   public readonly main: Procedure;
   public readonly branch: Procedure;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "procedure" as const;
 
   constructor(props: { main: Procedure; branch: Procedure }) {
     super();
@@ -94,9 +99,12 @@ export class AlterProcedureSetSecurity extends AlterChange {
  * ALTER FUNCTION/PROCEDURE ... SET/RESET configuration_parameter
  * Emits individual RESET for removed keys and SET for added/changed keys.
  */
-export class AlterProcedureSetConfig extends AlterChange {
+export class AlterProcedureSetConfig extends Change {
   public readonly main: Procedure;
   public readonly branch: Procedure;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "procedure" as const;
 
   constructor(props: { main: Procedure; branch: Procedure }) {
     super();
@@ -158,9 +166,12 @@ export class AlterProcedureSetConfig extends AlterChange {
 /**
  * ALTER FUNCTION/PROCEDURE ... { IMMUTABLE | STABLE | VOLATILE }
  */
-export class AlterProcedureSetVolatility extends AlterChange {
+export class AlterProcedureSetVolatility extends Change {
   public readonly main: Procedure;
   public readonly branch: Procedure;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "procedure" as const;
 
   constructor(props: { main: Procedure; branch: Procedure }) {
     super();
@@ -191,9 +202,12 @@ export class AlterProcedureSetVolatility extends AlterChange {
 /**
  * ALTER FUNCTION/PROCEDURE ... { STRICT | CALLED ON NULL INPUT }
  */
-export class AlterProcedureSetStrictness extends AlterChange {
+export class AlterProcedureSetStrictness extends Change {
   public readonly main: Procedure;
   public readonly branch: Procedure;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "procedure" as const;
 
   constructor(props: { main: Procedure; branch: Procedure }) {
     super();
@@ -222,9 +236,12 @@ export class AlterProcedureSetStrictness extends AlterChange {
 /**
  * ALTER FUNCTION/PROCEDURE ... { LEAKPROOF | NOT LEAKPROOF }
  */
-export class AlterProcedureSetLeakproof extends AlterChange {
+export class AlterProcedureSetLeakproof extends Change {
   public readonly main: Procedure;
   public readonly branch: Procedure;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "procedure" as const;
 
   constructor(props: { main: Procedure; branch: Procedure }) {
     super();
@@ -251,9 +268,12 @@ export class AlterProcedureSetLeakproof extends AlterChange {
 /**
  * ALTER FUNCTION/PROCEDURE ... PARALLEL { UNSAFE | RESTRICTED | SAFE }
  */
-export class AlterProcedureSetParallel extends AlterChange {
+export class AlterProcedureSetParallel extends Change {
   public readonly main: Procedure;
   public readonly branch: Procedure;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "procedure" as const;
 
   constructor(props: { main: Procedure; branch: Procedure }) {
     super();
@@ -285,25 +305,4 @@ export class AlterProcedureSetParallel extends AlterChange {
  * Replace a procedure by dropping and recreating it.
  * This is used when properties that cannot be altered via ALTER FUNCTION/PROCEDURE change.
  */
-export class ReplaceProcedure extends ReplaceChange {
-  public readonly main: Procedure;
-  public readonly branch: Procedure;
-
-  constructor(props: { main: Procedure; branch: Procedure }) {
-    super();
-    this.main = props.main;
-    this.branch = props.branch;
-  }
-
-  get dependencies() {
-    return [this.main.stableId];
-  }
-
-  serialize(): string {
-    const createChange = new CreateProcedure({
-      procedure: this.branch,
-      orReplace: true,
-    });
-    return createChange.serialize();
-  }
-}
+// NOTE: ReplaceProcedure removed. Non-alterable changes are emitted as Drop + Create in procedure.diff.ts.

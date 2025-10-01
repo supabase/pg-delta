@@ -6,7 +6,6 @@ import {
   AlterCompositeTypeAlterAttributeType,
   AlterCompositeTypeChangeOwner,
   AlterCompositeTypeDropAttribute,
-  ReplaceCompositeType,
 } from "./changes/composite-type.alter.ts";
 import {
   CreateCommentOnCompositeType,
@@ -86,13 +85,8 @@ export function diffCompositeTypes(
     );
 
     if (nonAlterablePropsChanged) {
-      // Replace the entire composite type (drop + create)
-      changes.push(
-        new ReplaceCompositeType({
-          main: mainCompositeType,
-          branch: branchCompositeType,
-        }),
-      );
+      // Replacement is not performed automatically for composite types
+      // to avoid destructive operations; keep changes minimal.
     } else {
       // Only alterable properties changed - check each one
 
