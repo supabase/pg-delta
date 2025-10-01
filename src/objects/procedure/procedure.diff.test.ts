@@ -126,4 +126,19 @@ describe.concurrent("procedure.diff", () => {
     );
     expect(changes[0]).toBeInstanceOf(AlterProcedureSetParallel);
   });
+
+  test("create or replace when non-alterable property changes", () => {
+    const main = new Procedure(base);
+    const branch = new Procedure({
+      ...base,
+      return_type: "text",
+      language: "plpgsql",
+    });
+    const changes = diffProcedures(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toBeInstanceOf(CreateProcedure);
+  });
 });

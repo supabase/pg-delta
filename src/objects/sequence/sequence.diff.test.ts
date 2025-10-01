@@ -68,4 +68,19 @@ describe.concurrent("sequence.diff", () => {
       true,
     );
   });
+
+  test("drop and create when non-alterable property changes", () => {
+    const main = new Sequence(base);
+    const branch = new Sequence({
+      ...base,
+      data_type: "integer",
+      persistence: "u",
+    });
+    const changes = diffSequences(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes[0]).toBeInstanceOf(DropSequence);
+    expect(changes[1]).toBeInstanceOf(CreateSequence);
+  });
 });

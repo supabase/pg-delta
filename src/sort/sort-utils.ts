@@ -1,7 +1,22 @@
 import type { Change } from "../objects/base.change.ts";
 
+/**
+ * A sorting rule that matches changes based on their operation, objectType, and/or scope.
+ * Rules with undefined fields act as wildcards that match any value for that field.
+ * For example, { operation: "drop" } matches all drop operations regardless of objectType or scope.
+ */
 export type Rule = Partial<Pick<Change, "operation" | "objectType" | "scope">>;
 
+/**
+ * Creates a comparator function that orders changes according to a prioritized list of rules.
+ *
+ * Each rule matches changes with specific combinations of operation/objectType/scope.
+ * Rules are evaluated in order, and a change receives the priority of the first matching rule.
+ * Changes that don't match any rule are sorted last, maintaining their relative input order.
+ *
+ * @param rules - Ordered list of rules, where earlier rules have higher priority
+ * @returns A comparator function that can be used with Array.sort()
+ */
 function createComparatorFromRules(rules: Rule[]) {
   const matchIndex = (change: Change): number => {
     for (let i = 0; i < rules.length; i++) {
@@ -27,6 +42,40 @@ function createComparatorFromRules(rules: Rule[]) {
   };
 }
 
+/**
+ * Performs a stable sort of changes according to an ordered list of rules.
+ *
+ * This implements the **first pass** of the two-pass sorting strategy, providing a
+ * coarse-grained global ordering based on change attributes (operation, objectType, scope)
+ * without analyzing individual object dependencies.
+ *
+ * The sort is **stable**, meaning changes that match the same rule (or no rule) maintain
+ * their relative order from the input array. This preserves any meaningful ordering from
+ * the diff phase.
+ *
+ * **Why this is needed:**
+ * - Establishes a dependency-safe baseline order (e.g., CREATE SCHEMA before CREATE TABLE)
+ * - Prevents the majority of dependency conflicts before fine-grained analysis
+ * - Fast: O(n log n) with no graph construction or dependency resolution
+ * - Predictable: same input always produces same output regardless of dependency graphs
+ *
+ * After this global sort, a refinement pass handles fine-grained dependencies within
+ * specific windows (e.g., ordering ALTER TABLE operations on the same table).
+ *
+ * @param changes - Array of changes to sort
+ * @param rules - Ordered list of rules defining the desired sort order
+ * @returns A new array with changes sorted according to the rules
+ *
+ * @example
+ * ```ts
+ * const sorted = sortChangesByRules(changes, [
+ *   { operation: "drop", objectType: "table" },
+ *   { operation: "create", objectType: "schema" },
+ *   { operation: "create", objectType: "table" },
+ * ]);
+ * // Result: all DROP TABLE, then CREATE SCHEMA, then CREATE TABLE, then unmatched changes
+ * ```
+ */
 export function sortChangesByRules<T extends Change>(
   changes: T[],
   rules: Rule[],

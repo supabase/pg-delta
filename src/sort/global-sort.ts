@@ -1,8 +1,26 @@
 import type { Rule } from "./sort-utils.ts";
 
-// Ordered rules derived from FINAL__unified_schema-diff_execution_order__all_operations_.csv
-// Only includes object types and scopes supported in this codebase.
-// First-match-wins. Items not matching any rule keep their relative order.
+/**
+ * Global ordering rules for database schema changes, mirroring pg_dump's execution order.
+ *
+ * This rule set provides a coarse-grained, dependency-safe ordering based purely on
+ * operation type (create/alter/drop), object type (table/view/etc), and scope (object/privilege/etc).
+ * No graph analysis or fine-grained dependency resolution is performed at this level.
+ *
+ * Key principles:
+ * - DROP operations come first (reverse dependency order: dependents before dependencies)
+ * - CREATE/ALTER operations follow (dependency order: dependencies before dependents)
+ * - Within each operation, objects are ordered by their typical dependency relationships
+ *   (e.g., schemas before tables, tables before indexes)
+ * - First-match-wins: a change matches the earliest rule that fits its attributes
+ * - Changes not matching any rule maintain their relative input order
+ *
+ * This ordering resolves the vast majority of dependency issues without needing to analyze
+ * individual object dependencies, making it fast and predictable. Fine-grained conflicts
+ * (e.g., between ALTER TABLE operations) are resolved in a second refinement pass.
+ *
+ * Derived from PostgreSQL's pg_dump ordering and real-world migration execution patterns.
+ */
 export const pgDumpSort: Rule[] = [
   // PRE_DROP — place destructive changes first (high to low impact)
   { operation: "drop", objectType: "rls_policy", scope: "object" },

@@ -10,11 +10,39 @@ import {
   type TopoWindowSpec,
 } from "./topo-refine.ts";
 
-// 2) Build pairwise from depends (referenced -> dependent)
+/**
+ * A row from PostgreSQL's dependency catalog (pg_depend), representing one dependency edge.
+ */
 type PgDependRow = {
+  /** The stable ID of the object that depends on another object */
   dependent_stable_id: string;
+  /** The stable ID of the object being depended upon */
   referenced_stable_id: string;
 };
+
+/**
+ * Creates a pairwise ordering function based on PostgreSQL dependency information.
+ *
+ * Given the pg_depend data, this function returns a comparator that determines whether
+ * two changes have a dependency relationship. The comparator can be used with
+ * `refineByTopologicalWindows` to order changes according to their actual database dependencies.
+ *
+ * @param depends - Array of dependency rows from pg_depend
+ * @param options - Configuration options
+ * @param options.invert - If true, reverse the dependency order (for DROP operations)
+ * @returns A pairwise comparison function
+ *
+ * @example
+ * ```ts
+ * // For CREATE operations: referenced object before dependent object
+ * const createOrder = makePairwiseFromDepends(catalog.depends);
+ * // createOrder(viewA, viewB) returns "a_before_b" if viewB depends on viewA
+ *
+ * // For DROP operations: dependent object before referenced object (reverse)
+ * const dropOrder = makePairwiseFromDepends(catalog.depends, { invert: true });
+ * // dropOrder(viewA, viewB) returns "b_before_a" if viewB depends on viewA
+ * ```
+ */
 function makePairwiseFromDepends(
   depends: PgDependRow[],
   options: { invert?: boolean } = {},
@@ -46,6 +74,14 @@ function makePairwiseFromDepends(
   };
 }
 
+/**
+ * Checks whether a specific dependency edge exists in the pg_depend data.
+ *
+ * @param depends - Array of dependency rows
+ * @param dependentStableId - The stable ID of the dependent object
+ * @param referencedStableId - The stable ID of the referenced object
+ * @returns true if the edge exists
+ */
 function hasEdge(
   depends: PgDependRow[],
   dependentStableId: string,
@@ -62,11 +98,51 @@ function hasEdge(
   return false;
 }
 
+/**
+ * Context object providing access to both database catalogs for dependency resolution.
+ */
 interface RefinementContext {
+  /** Catalog extracted from the main/base database (before changes) */
   mainCatalog: Catalog;
+  /** Catalog extracted from the branch database (after changes) */
   branchCatalog: Catalog;
 }
 
+/**
+ * Applies multiple refinement passes to a list of changes using window-based topological sorting.
+ *
+ * This is the main entry point for the **second pass** of change ordering. It takes a list
+ * of changes (typically already globally sorted) and applies several specialized refinement
+ * passes to resolve fine-grained dependencies.
+ *
+ * **Current refinement passes:**
+ *
+ * 1. **ALTER TABLE refinement**: Orders table alterations within the same table
+ *    - DROP COLUMN before ADD COLUMN
+ *    - ADD COLUMN before ADD CONSTRAINT
+ *    - ADD COLUMN dependency order (for generated columns)
+ *    - Primary/unique keys before foreign keys that reference them
+ *
+ * 2. **View/materialized view CREATE/ALTER**: Orders by dependency graph
+ *    - Views are sorted so dependencies come before dependents
+ *
+ * 3. **View/materialized view DROP**: Orders by reverse dependency graph
+ *    - Views are sorted so dependents are dropped before dependencies
+ *
+ * Each refinement pass operates only on specific windows of changes (e.g., consecutive
+ * ALTER TABLE operations), leaving other changes untouched. Passes are applied sequentially,
+ * with each pass refining the result of the previous pass.
+ *
+ * **Why this is needed:**
+ * The global sort establishes a safe baseline order, but can't handle:
+ * - Ordering multiple operations on the same table
+ * - Circular dependencies at the same global sort level
+ * - Fine-grained dependencies that require looking at actual object relationships
+ *
+ * @param ctx - Context with both database catalogs for dependency lookups
+ * @param list - Array of changes (typically from global sort)
+ * @returns Array of changes with refined ordering
+ */
 export function applyRefinements(
   ctx: RefinementContext,
   list: Change[],

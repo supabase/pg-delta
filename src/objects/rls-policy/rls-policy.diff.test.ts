@@ -60,4 +60,20 @@ describe.concurrent("rls-policy.diff", () => {
     );
     expect(changes[0]).toBeInstanceOf(AlterRlsPolicySetWithCheckExpression);
   });
+
+  test("drop and create when non-alterable property changes", () => {
+    const main = new RlsPolicy(base);
+    const branch = new RlsPolicy({
+      ...base,
+      command: "w",
+      permissive: false,
+    });
+    const changes = diffRlsPolicies(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(DropRlsPolicy);
+    expect(changes[1]).toBeInstanceOf(CreateRlsPolicy);
+  });
 });

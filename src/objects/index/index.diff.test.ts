@@ -90,4 +90,60 @@ describe.concurrent("index.diff", () => {
       "Index requires an indexableObject with columns when key_columns are used",
     );
   });
+
+  test("create index with key columns and valid indexableObject should work", () => {
+    const branch = new Index({
+      ...base,
+      key_columns: [1],
+      index_expressions: null,
+      definition: "CREATE INDEX ix ON t (col1)",
+    });
+    const changes = diffIndexes(
+      {},
+      { [branch.stableId]: branch },
+      {
+        [branch.tableStableId]: {
+          columns: [
+            {
+              name: "col1",
+              position: 1,
+              data_type: "text",
+              data_type_str: "text",
+              is_custom_type: false,
+              custom_type_type: null,
+              custom_type_category: null,
+              custom_type_schema: null,
+              custom_type_name: null,
+              not_null: false,
+              is_identity: false,
+              is_identity_always: false,
+              is_generated: false,
+              collation: null,
+              default: null,
+              comment: null,
+            },
+          ],
+        },
+      },
+    );
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toBeInstanceOf(CreateIndex);
+  });
+
+  test("drop and create when non-alterable property changes", () => {
+    const main = new Index(base);
+    const branch = new Index({
+      ...base,
+      index_type: "hash",
+      is_unique: true,
+    });
+    const changes = diffIndexes(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+      {},
+    );
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(DropIndex);
+    expect(changes[1]).toBeInstanceOf(CreateIndex);
+  });
 });

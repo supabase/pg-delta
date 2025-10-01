@@ -39,4 +39,21 @@ describe.concurrent("range.diff", () => {
     );
     expect(changes[0]).toBeInstanceOf(AlterRangeChangeOwner);
   });
+
+  test("drop and create when non-alterable property changes", () => {
+    const main = new Range(base);
+    const branch = new Range({
+      ...base,
+      subtype_schema: "pg_catalog",
+      subtype_str: "text",
+      collation: "en_US",
+    });
+    const changes = diffRanges(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(DropRange);
+    expect(changes[1]).toBeInstanceOf(CreateRange);
+  });
 });

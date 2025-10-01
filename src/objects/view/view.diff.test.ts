@@ -60,4 +60,19 @@ describe.concurrent("view.diff", () => {
     expect(changes.some((c) => c instanceof AlterViewSetOptions)).toBe(true);
     expect(changes.some((c) => c instanceof AlterViewResetOptions)).toBe(true);
   });
+
+  test("create or replace when non-alterable property changes", () => {
+    const main = new View(base);
+    const branch = new View({
+      ...base,
+      definition: "select 2",
+      row_security: true,
+    });
+    const changes = diffViews(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toBeInstanceOf(CreateView);
+  });
 });

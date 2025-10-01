@@ -1,28 +1,110 @@
 import { Graph, topologicalSort } from "graph-data-structure";
 import type { Change } from "../objects/base.change.ts";
 
+/**
+ * A filter that selects which changes belong to a window for refinement.
+ * Can be either an object matching change attributes or a custom predicate function.
+ */
 type ChangeFilter =
   | Partial<Pick<Change, "operation" | "objectType" | "scope">>
   | ((c: Change) => boolean);
 
-type EdgeIndices = [number, number]; // from -> to (local indices in window)
+/**
+ * An edge represented as local indices within a window: [from_index, to_index].
+ */
+type EdgeIndices = [number, number];
+
+/**
+ * An edge represented as references to the actual change objects.
+ */
 type EdgeObjects<T> = { from: T; to: T };
+
+/**
+ * An edge in a dependency graph, either as indices or object references.
+ */
 type Edge<T> = EdgeIndices | EdgeObjects<T>;
 
+/**
+ * Configuration for a single topological refinement pass over a window of changes.
+ *
+ * A "window" is a consecutive sequence of changes matching the filter. This spec defines:
+ * - How to identify windows (via filter)
+ * - How to determine ordering constraints within a window (via buildEdges or pairwise)
+ * - How to optionally subdivide windows into smaller groups (via groupBy)
+ */
 export interface TopoWindowSpec<T extends Change> {
-  filter: ChangeFilter; // selects consecutive windows to refine
-  buildEdges?: (windowItems: T[]) => Edge<T>[]; // optional: construct edges within a window
-  pairwise?: (a: T, b: T) => PairwiseOrder | undefined; // optional: per-pair ordering
-  groupBy?: (item: T) => string | null | undefined; // optional: further split window by key (e.g., per-table)
+  /** Selects which consecutive changes form a window to be refined */
+  filter: ChangeFilter;
+
+  /** Explicitly construct dependency edges within the window */
+  buildEdges?: (windowItems: T[]) => Edge<T>[];
+
+  /** Determine ordering between each pair of changes in the window */
+  pairwise?: (a: T, b: T) => PairwiseOrder | undefined;
+
+  /** Subdivide the window into smaller consecutive groups (e.g., per-table changes) */
+  groupBy?: (item: T) => string | null | undefined;
 }
 
+/**
+ * Ordering constraint between two changes in a pair.
+ */
 type PairwiseOrder = "a_before_b" | "b_before_a";
 
+/**
+ * Refines the order of changes within windows using topological sorting.
+ *
+ * This implements the **second pass** of the two-pass sorting strategy, applying
+ * fine-grained dependency resolution within specific windows of changes that were
+ * already coarsely sorted in the first pass.
+ *
+ * **How it works:**
+ * 1. Scans the input array to find consecutive "windows" of changes matching the filter
+ * 2. Within each window, constructs a dependency graph using buildEdges and/or pairwise
+ * 3. Topologically sorts the window to satisfy all dependency constraints
+ * 4. Replaces the window in-place with the sorted result
+ * 5. Moves to the next window and repeats
+ *
+ * **Why this is needed:**
+ * After the global sort establishes a baseline order, there are still fine-grained
+ * dependency conflicts that require analyzing actual object relationships:
+ * - ALTER TABLE operations on the same table (e.g., DROP COLUMN before ADD COLUMN)
+ * - ALTER TABLE ADD COLUMN with dependencies between columns (generated columns)
+ * - Views/materialized views with inter-view dependencies
+ * - Any other case where changes of the same type need ordering based on their content
+ *
+ * **Cycle handling:**
+ * If a window contains a dependency cycle, the topological sort fails and the window
+ * is left in its original order. This is intentional: we preserve the global sort's
+ * order rather than arbitrarily breaking cycles.
+ *
+ * **Performance:**
+ * This is more expensive than the first pass (requires graph construction and topo sort),
+ * but operates only on small windows rather than the full change list, making it practical.
+ *
+ * @param changes - Array of changes (typically already globally sorted)
+ * @param spec - Configuration defining windows and their ordering constraints
+ * @returns A new array with refined ordering within each window
+ *
+ * @example
+ * ```ts
+ * // Refine ALTER TABLE operations within the same table
+ * const refined = refineByTopologicalWindows(changes, {
+ *   filter: { operation: "alter", objectType: "table" },
+ *   pairwise: (a, b) => {
+ *     if (a.tableId === b.tableId && a.isDropColumn && b.isAddColumn) {
+ *       return "a_before_b"; // drop columns before adding new ones
+ *     }
+ *     return undefined;
+ *   }
+ * });
+ * ```
+ */
 export function refineByTopologicalWindows<T extends Change>(
   changes: T[],
   spec: TopoWindowSpec<T>,
 ): T[] {
-  const result = changes.slice();
+  const result = Array.from(changes);
 
   let i = 0;
   while (i < result.length) {
@@ -58,6 +140,23 @@ export function refineByTopologicalWindows<T extends Change>(
   return result;
 }
 
+/**
+ * Refines a single slice (window) of the array by topologically sorting it.
+ *
+ * This function:
+ * 1. Extracts the window slice from the array
+ * 2. Builds a dependency graph using edges from buildEdges and/or pairwise
+ * 3. Performs topological sort on the graph
+ * 4. Replaces the slice in the original array with the sorted result
+ *
+ * If topological sort fails (cycle detected) or returns an invalid result,
+ * the slice is left unchanged in its original order.
+ *
+ * @param arr - The full array being refined (modified in-place)
+ * @param from - Start index of the window (inclusive)
+ * @param to - End index of the window (exclusive)
+ * @param spec - Specification defining how to order items in the window
+ */
 function refineSlice<T extends Change>(
   arr: T[],
   from: number,
@@ -110,6 +209,16 @@ function refineSlice<T extends Change>(
   for (let k = 0; k < ordered.length; k++) arr[from + k] = ordered[k];
 }
 
+/**
+ * Tests whether a change matches the given filter.
+ *
+ * If the filter is a function, it's called directly.
+ * If the filter is an object, the change must match all defined fields.
+ *
+ * @param change - The change to test
+ * @param filter - The filter to match against
+ * @returns true if the change matches the filter
+ */
 function matchesFilter(change: Change, filter: ChangeFilter): boolean {
   if (typeof filter === "function") return filter(change);
   if (filter.operation !== undefined && change.operation !== filter.operation)
@@ -123,6 +232,17 @@ function matchesFilter(change: Change, filter: ChangeFilter): boolean {
   return true;
 }
 
+/**
+ * Converts edges from object references to local indices within the window.
+ *
+ * Edges can be specified either as index pairs [from, to] or as object references
+ * { from, to }. This function normalizes both formats into index pairs so they can
+ * be added to the graph.
+ *
+ * @param items - The items in the window (used to map objects to indices)
+ * @param input - Array of edges in either format
+ * @returns Array of edges as index pairs
+ */
 function normalizeEdges<T>(items: T[], input: Edge<T>[]): EdgeIndices[] {
   const indexOf = new Map<T, number>();
   for (let i = 0; i < items.length; i++) {
@@ -141,6 +261,16 @@ function normalizeEdges<T>(items: T[], input: Edge<T>[]): EdgeIndices[] {
   return out;
 }
 
+/**
+ * Removes duplicate edges from an edge list.
+ *
+ * Multiple sources might produce the same edge (e.g., both buildEdges and pairwise
+ * might say "A depends on B"). This function deduplicates them to avoid redundant
+ * graph edges.
+ *
+ * @param edges - Array of edges that may contain duplicates
+ * @returns Array of unique edges
+ */
 function dedupeEdges(edges: EdgeIndices[]): EdgeIndices[] {
   const seen = new Set<string>();
   const out: EdgeIndices[] = [];

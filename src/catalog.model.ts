@@ -245,32 +245,3 @@ export async function extractCatalog(sql: Sql) {
 function listToRecord<T extends BasePgModel>(list: T[]) {
   return Object.fromEntries(list.map((item) => [item.stableId, item]));
 }
-
-export function emptyCatalog() {
-  return new Catalog({
-    collations: {},
-    compositeTypes: {},
-    domains: {},
-    enums: {},
-    extensions: {},
-    procedures: {},
-    indexes: {},
-    materializedViews: {},
-    objectPrivileges: {},
-    columnPrivileges: {},
-    defaultPrivileges: {},
-    rlsPolicies: {},
-    roles: {},
-    roleMemberships: {},
-    schemas: {},
-    sequences: {},
-    tables: {},
-    triggers: {},
-    ranges: {},
-    views: {},
-    depends: [],
-    indexableObjects: {},
-    version: 150014, // Default to PostgreSQL 15
-    currentUser: "postgres", // Default to postgres
-  });
-}
