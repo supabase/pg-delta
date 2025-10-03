@@ -2,6 +2,14 @@ import type { Sql } from "postgres";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
+const membershipInfoSchema = z.object({
+  member: z.string(),
+  grantor: z.string(),
+  admin_option: z.boolean(),
+  inherit_option: z.boolean().optional(),
+  set_option: z.boolean().optional(),
+});
+
 const rolePropsSchema = z.object({
   role_name: z.string(),
   is_superuser: z.boolean(),
@@ -14,9 +22,11 @@ const rolePropsSchema = z.object({
   can_bypass_rls: z.boolean(),
   config: z.array(z.string()).nullable(),
   comment: z.string().nullable(),
+  members: z.array(membershipInfoSchema),
 });
 
 export type RoleProps = z.infer<typeof rolePropsSchema>;
+export type MembershipInfo = z.infer<typeof membershipInfoSchema>;
 
 export class Role extends BasePgModel {
   public readonly role_name: RoleProps["role_name"];
@@ -30,6 +40,7 @@ export class Role extends BasePgModel {
   public readonly can_bypass_rls: RoleProps["can_bypass_rls"];
   public readonly config: RoleProps["config"];
   public readonly comment: RoleProps["comment"];
+  public readonly members: RoleProps["members"];
 
   constructor(props: RoleProps) {
     super();
@@ -48,6 +59,7 @@ export class Role extends BasePgModel {
     this.can_bypass_rls = props.can_bypass_rls;
     this.config = props.config;
     this.comment = props.comment;
+    this.members = props.members;
   }
 
   get stableId(): `role:${string}` {
@@ -72,6 +84,7 @@ export class Role extends BasePgModel {
       can_bypass_rls: this.can_bypass_rls,
       config: this.config,
       comment: this.comment,
+      members: this.members,
     };
   }
 }
@@ -79,7 +92,29 @@ export class Role extends BasePgModel {
 export async function extractRoles(sql: Sql): Promise<Role[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
-    const roleRows = await sql`
+
+    // Check PostgreSQL version capabilities for membership options
+    const [capabilities] = await sql<
+      { has_inherit: boolean; has_set: boolean }[]
+    >`
+      select
+        exists (
+          select 1
+          from pg_attribute
+          where attrelid = 'pg_auth_members'::regclass
+            and attname = 'inherit_option'
+        ) as has_inherit,
+        exists (
+          select 1
+          from pg_attribute
+          where attrelid = 'pg_auth_members'::regclass
+            and attname = 'set_option'
+        ) as has_set
+    `;
+
+    const roleRows =
+      capabilities?.has_inherit && capabilities?.has_set
+        ? await sql`
 with extension_role_oids as (
   select objid
   from pg_shdepend d
@@ -119,6 +154,24 @@ roles_only_owning_extension_objects as (
   from role_owned_objects
   group by role_oid
   having count(*) > 0 and bool_and(is_extension_owned)
+),
+role_memberships as (
+  select 
+    r.rolname as role_name,
+    json_agg(
+      json_build_object(
+        'member', m.rolname,
+        'grantor', g.rolname,
+        'admin_option', am.admin_option,
+        'inherit_option', am.inherit_option,   -- PG16+
+        'set_option', am.set_option            -- PG16+
+      )
+    ) filter (where m.rolname is not null) as members
+  from pg_catalog.pg_roles r
+  left join pg_auth_members am on am.roleid = r.oid  -- roles that are members of this role
+  left join pg_roles m on m.oid = am.member
+  left join pg_roles g on g.oid = am.grantor
+  group by r.rolname
 )
 select
   quote_ident(r.rolname) as role_name,
@@ -131,17 +184,101 @@ select
   r.rolconnlimit as connection_limit,
   r.rolbypassrls as can_bypass_rls,
   r.rolconfig as config,
-  obj_description(r.oid, 'pg_authid') as comment
+  obj_description(r.oid, 'pg_authid') as comment,
+  coalesce(rm.members, '[]') as members
 from
   pg_catalog.pg_roles r
   left outer join extension_role_oids e on r.oid = e.objid
+  left join role_memberships rm on rm.role_name = r.rolname
 where r.rolname not in ('postgres', 'pg_signal_backend', 'pg_read_all_settings', 'pg_read_all_stats', 'pg_stat_scan_tables', 'pg_monitor', 'pg_read_server_files', 'pg_write_server_files', 'pg_execute_server_program')
   and e.objid is null
   and r.oid not in (select role_oid from roles_only_owning_extension_objects)
   and r.oid not in (select role_oid from extension_grantee_roles)
 order by
   1;
-  `;
+      `
+        : await sql`
+-- PG15: columns inherit_option and set_option do not exist
+with extension_role_oids as (
+  select objid
+  from pg_shdepend d
+  where d.refclassid = 'pg_extension'::regclass
+    and d.classid   = 'pg_authid'::regclass
+),
+extension_object_oids as (
+  select classid, objid
+  from pg_depend d
+  where d.refclassid = 'pg_extension'::regclass
+    and d.deptype    = 'e'
+),
+extension_grantee_roles as (
+  select distinct g.grantee as role_oid
+  from pg_init_privs p
+  join extension_object_oids eo
+    on eo.classid = p.classoid and eo.objid = p.objoid
+  join lateral aclexplode(p.initprivs) as g on true
+),
+role_owned_objects as (
+  select
+    d.refobjid as role_oid,
+    d.classid  as object_classid,
+    d.objid    as object_oid,
+    (ed.objid is not null) as is_extension_owned
+  from pg_shdepend d
+  left join pg_depend ed
+    on ed.classid = d.classid
+   and ed.objid   = d.objid
+   and ed.refclassid = 'pg_extension'::regclass
+   and ed.deptype    = 'e'
+  where d.deptype    = 'o'  -- ownership dependency
+    and d.refclassid = 'pg_authid'::regclass
+),
+roles_only_owning_extension_objects as (
+  select role_oid
+  from role_owned_objects
+  group by role_oid
+  having count(*) > 0 and bool_and(is_extension_owned)
+),
+role_memberships as (
+  select 
+    r.rolname as role_name,
+    json_agg(
+      json_build_object(
+        'member', m.rolname,
+        'grantor', g.rolname,
+        'admin_option', am.admin_option
+      )
+    ) filter (where m.rolname is not null) as members
+  from pg_catalog.pg_roles r
+  left join pg_auth_members am on am.roleid = r.oid  -- roles that are members of this role
+  left join pg_roles m on m.oid = am.member
+  left join pg_roles g on g.oid = am.grantor
+  group by r.rolname
+)
+select
+  quote_ident(r.rolname) as role_name,
+  r.rolsuper as is_superuser,
+  r.rolinherit as can_inherit,
+  r.rolcreaterole as can_create_roles,
+  r.rolcreatedb as can_create_databases,
+  r.rolcanlogin as can_login,
+  r.rolreplication as can_replicate,
+  r.rolconnlimit as connection_limit,
+  r.rolbypassrls as can_bypass_rls,
+  r.rolconfig as config,
+  obj_description(r.oid, 'pg_authid') as comment,
+  coalesce(rm.members, '[]') as members
+from
+  pg_catalog.pg_roles r
+  left outer join extension_role_oids e on r.oid = e.objid
+  left join role_memberships rm on rm.role_name = r.rolname
+where r.rolname not in ('postgres', 'pg_signal_backend', 'pg_read_all_settings', 'pg_read_all_stats', 'pg_stat_scan_tables', 'pg_monitor', 'pg_read_server_files', 'pg_write_server_files', 'pg_execute_server_program')
+  and e.objid is null
+  and r.oid not in (select role_oid from roles_only_owning_extension_objects)
+  and r.oid not in (select role_oid from extension_grantee_roles)
+order by
+  1;
+      `;
     // Validate and parse each row using the Zod schema
     const validatedRows = roleRows.map((row: unknown) =>
       rolePropsSchema.parse(row),

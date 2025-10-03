@@ -7,7 +7,6 @@ import { diffExtensions } from "./objects/extension/extension.diff.ts";
 import { diffIndexes } from "./objects/index/index.diff.ts";
 import { diffMaterializedViews } from "./objects/materialized-view/materialized-view.diff.ts";
 import { diffDefaultPrivileges } from "./objects/privilege/default-privilege/default-privilege.diff.ts";
-import { diffRoleMemberships } from "./objects/privilege/membership/membership.diff.ts";
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
 import { diffRlsPolicies } from "./objects/rls-policy/rls-policy.diff.ts";
 import { diffRoles } from "./objects/role/role.diff.ts";
@@ -81,9 +80,6 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   );
 
   // Privileges depend on objects and roles
-  changes.push(
-    ...diffRoleMemberships(main.roleMemberships, branch.roleMemberships),
-  );
   changes.push(
     ...diffDefaultPrivileges(
       { version: main.version },

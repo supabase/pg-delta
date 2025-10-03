@@ -22,10 +22,6 @@ import {
   extractDefaultPrivileges,
 } from "./objects/privilege/default-privilege/default-privilege.model.ts";
 import {
-  extractRoleMemberships,
-  type RoleMembership,
-} from "./objects/privilege/membership/membership.model.ts";
-import {
   extractProcedures,
   type Procedure,
 } from "./objects/procedure/procedure.model.ts";
@@ -64,7 +60,6 @@ interface CatalogProps {
   defaultPrivileges: Record<string, DefaultPrivilegeSet>;
   rlsPolicies: Record<string, RlsPolicy>;
   roles: Record<string, Role>;
-  roleMemberships: Record<string, RoleMembership>;
   schemas: Record<string, Schema>;
   sequences: Record<string, Sequence>;
   tables: Record<string, Table>;
@@ -89,7 +84,6 @@ export class Catalog {
   public readonly defaultPrivileges: CatalogProps["defaultPrivileges"];
   public readonly rlsPolicies: CatalogProps["rlsPolicies"];
   public readonly roles: CatalogProps["roles"];
-  public readonly roleMemberships: CatalogProps["roleMemberships"];
   public readonly schemas: CatalogProps["schemas"];
   public readonly sequences: CatalogProps["sequences"];
   public readonly tables: CatalogProps["tables"];
@@ -113,7 +107,6 @@ export class Catalog {
     this.defaultPrivileges = props.defaultPrivileges;
     this.rlsPolicies = props.rlsPolicies;
     this.roles = props.roles;
-    this.roleMemberships = props.roleMemberships;
     this.schemas = props.schemas;
     this.sequences = props.sequences;
     this.tables = props.tables;
@@ -140,7 +133,6 @@ export async function extractCatalog(sql: Sql) {
     procedures,
     rlsPolicies,
     roles,
-    roleMemberships,
     schemas,
     sequences,
     tables,
@@ -162,7 +154,6 @@ export async function extractCatalog(sql: Sql) {
     extractProcedures(sql).then(listToRecord),
     extractRlsPolicies(sql).then(listToRecord),
     extractRoles(sql).then(listToRecord),
-    extractRoleMemberships(sql).then(listToRecord),
     extractSchemas(sql).then(listToRecord),
     extractSequences(sql).then(listToRecord),
     extractTables(sql).then(listToRecord),
@@ -208,7 +199,6 @@ export async function extractCatalog(sql: Sql) {
     defaultPrivileges,
     rlsPolicies,
     roles,
-    roleMemberships,
     schemas,
     sequences,
     tables,

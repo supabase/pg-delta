@@ -9,6 +9,11 @@ import {
 } from "./changes/role.comment.ts";
 import { CreateRole } from "./changes/role.create.ts";
 import { DropRole } from "./changes/role.drop.ts";
+import {
+  GrantRoleMembership,
+  RevokeMembershipOptions,
+  RevokeRoleMembership,
+} from "./changes/role.privilege.ts";
 import type { RoleChange } from "./changes/role.types.ts";
 import type { Role } from "./role.model.ts";
 
@@ -155,6 +160,94 @@ export function diffRoles(
         changes.push(new DropCommentOnRole({ role: mainRole }));
       } else {
         changes.push(new CreateCommentOnRole({ role: branchRole }));
+      }
+    }
+
+    // MEMBERSHIPS
+    const mainMembers = new Map(mainRole.members.map((m) => [m.member, m]));
+    const branchMembers = new Map(branchRole.members.map((m) => [m.member, m]));
+
+    // Find new members to grant
+    for (const [member, membership] of branchMembers) {
+      if (!mainMembers.has(member)) {
+        changes.push(
+          new GrantRoleMembership({
+            role: branchRole,
+            member: membership.member,
+            options: {
+              admin: membership.admin_option,
+              inherit: membership.inherit_option ?? null,
+              set: membership.set_option ?? null,
+            },
+          }),
+        );
+      }
+    }
+
+    // Find members to revoke
+    for (const [member, membership] of mainMembers) {
+      if (!branchMembers.has(member)) {
+        changes.push(
+          new RevokeRoleMembership({
+            role: mainRole,
+            member: membership.member,
+          }),
+        );
+      }
+    }
+
+    // Find membership option changes
+    for (const [member, branchMembership] of branchMembers) {
+      const mainMembership = mainMembers.get(member);
+      if (mainMembership) {
+        const toRevoke: { admin?: boolean; inherit?: boolean; set?: boolean } =
+          {};
+        const toGrant: { admin?: boolean; inherit?: boolean; set?: boolean } =
+          {};
+
+        if (mainMembership.admin_option !== branchMembership.admin_option) {
+          if (branchMembership.admin_option) toGrant.admin = true;
+          else toRevoke.admin = true;
+        }
+        if (
+          (mainMembership.inherit_option ?? null) !==
+          (branchMembership.inherit_option ?? null)
+        ) {
+          if (branchMembership.inherit_option) toGrant.inherit = true;
+          else toRevoke.inherit = true;
+        }
+        if (
+          (mainMembership.set_option ?? null) !==
+          (branchMembership.set_option ?? null)
+        ) {
+          if (branchMembership.set_option) toGrant.set = true;
+          else toRevoke.set = true;
+        }
+
+        if (toRevoke.admin || toRevoke.inherit || toRevoke.set) {
+          changes.push(
+            new RevokeMembershipOptions({
+              role: mainRole,
+              member: mainMembership.member,
+              admin: toRevoke.admin,
+              inherit: toRevoke.inherit,
+              set: toRevoke.set,
+            }),
+          );
+        }
+        if (toGrant.admin || toGrant.inherit || toGrant.set) {
+          changes.push(
+            new GrantRoleMembership({
+              role: branchRole,
+              member: branchMembership.member,
+              options: {
+                admin: !!toGrant.admin,
+                inherit: toGrant.inherit ?? null,
+                set: toGrant.set ?? null,
+              },
+            }),
+          );
+        }
       }
     }
   }

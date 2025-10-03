@@ -17,6 +17,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: false,
         config: null,
         comment: null,
+        members: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["SUPERUSER"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH SUPERUSER");
@@ -35,6 +36,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: false,
         config: null,
         comment: null,
+        members: [],
       });
       const change = new AlterRoleSetOptions({
         role,
@@ -56,6 +58,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: false,
         config: null,
         comment: null,
+        members: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["NOCREATEDB"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH NOCREATEDB");
@@ -74,6 +77,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: false,
         config: null,
         comment: null,
+        members: [],
       });
       const change = new AlterRoleSetOptions({
         role,
@@ -95,6 +99,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: false,
         config: null,
         comment: null,
+        members: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["INHERIT"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH INHERIT");
@@ -113,6 +118,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: false,
         config: null,
         comment: null,
+        members: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["LOGIN"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH LOGIN");
@@ -131,6 +137,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: false,
         config: null,
         comment: null,
+        members: [],
       });
       const change = new AlterRoleSetOptions({
         role,
@@ -152,6 +159,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: true,
         config: null,
         comment: null,
+        members: [],
       });
       const change = new AlterRoleSetOptions({
         role,
@@ -173,6 +181,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: false,
         config: null,
         comment: null,
+        members: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["CREATEROLE"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH CREATEROLE");
@@ -191,6 +200,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: false,
         config: null,
         comment: null,
+        members: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["NOINHERIT"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH NOINHERIT");
@@ -209,6 +219,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: false,
         config: null,
         comment: null,
+        members: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["NOLOGIN"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH NOLOGIN");
@@ -227,6 +238,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: false,
         config: null,
         comment: null,
+        members: [],
       });
       const change = new AlterRoleSetOptions({
         role,
@@ -248,6 +260,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: false,
         config: null,
         comment: null,
+        members: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["BYPASSRLS"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH BYPASSRLS");
@@ -266,6 +279,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: false,
         config: null,
         comment: null,
+        members: [],
       });
       const change = new AlterRoleSetOptions({
         role,
@@ -298,6 +312,7 @@ describe.concurrent("role", () => {
         can_bypass_rls: false,
         config: null,
         comment: null,
+        members: [],
       };
       const role = new Role({
         ...props,

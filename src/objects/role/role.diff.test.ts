@@ -17,6 +17,7 @@ const base: RoleProps = {
   can_bypass_rls: false,
   config: null,
   comment: null,
+  members: [],
 };
 
 describe.concurrent("role.diff", () => {

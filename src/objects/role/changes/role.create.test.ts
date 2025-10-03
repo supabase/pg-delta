@@ -16,6 +16,7 @@ describe("role", () => {
       can_bypass_rls: false,
       config: null,
       comment: null,
+      members: [],
     });
 
     const change = new CreateRole({
@@ -38,6 +39,7 @@ describe("role", () => {
       can_bypass_rls: true,
       config: null,
       comment: null,
+      members: [],
     });
 
     const change = new CreateRole({ role });
