@@ -152,11 +152,12 @@ class RealProjectRoundtripTester {
 
     // Connect to remote project
     let migrationScript: string | null = null;
+    console.log(project.connection_strings);
     const remoteSql = postgres(
       project.connection_strings.postgres,
       postgresConfig,
     );
-
+    console.log("ALIVE");
     try {
       // Extract remote catalog
       const remoteCatalog = await extractCatalog(remoteSql);
@@ -609,9 +610,11 @@ test("real-project-roundtrip-test", async () => {
 
 async function main() {
   try {
-    const projectsData = JSON.parse(
+    let projectsData = JSON.parse(
       await readFile("database-extraction-results.json", "utf-8"),
     ) as ProjectData[];
+
+    projectsData = projectsData.filter((p) => p.ref === "firmdujfeupgocnckibm");
 
     const tester = new RealProjectRoundtripTester();
     const results = await tester.runTests(projectsData, 1);
