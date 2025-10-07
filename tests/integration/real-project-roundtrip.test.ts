@@ -10,10 +10,6 @@ import { pgDumpSort } from "../../src/sort/global-sort.ts";
 import { applyRefinements } from "../../src/sort/refined-sort.ts";
 import { sortChangesByRules } from "../../src/sort/sort-utils.ts";
 import {
-  POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
-  type PostgresVersion,
-} from "../constants.ts";
-import {
   type StartedSupabasePostgreSqlContainer,
   SupabasePostgreSqlContainer,
 } from "../supabase-postgres.ts";
@@ -64,7 +60,7 @@ interface Issue {
   description: string;
   details: {
     projectRef: string;
-    postgresVersion: number;
+    postgresVersion: string;
     migrationName?: string;
     allMigrations?: string[];
     sqlScript?: string;
@@ -82,7 +78,7 @@ class RealProjectRoundtripTester {
     const testType = hasMigrations ? "with-migrations" : "no-migrations";
 
     // Setup containers based on test type
-    const supabaseImage = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[project.postgres_major_version as PostgresVersion]}`;
+    const supabaseImage = `supabase/postgres:${project.postgres_image_version}`;
 
     let sourceContainer: StartedSupabasePostgreSqlContainer | null = null;
     let testContainer: StartedSupabasePostgreSqlContainer | null = null;
@@ -230,7 +226,7 @@ class RealProjectRoundtripTester {
               description: `After applying diff for migration ${migration.name}, ${remainingChangesFiltered.length} differences remain`,
               details: {
                 projectRef: project.ref,
-                postgresVersion: project.postgres_major_version,
+                postgresVersion: project.postgres_image_version,
                 migrationName: migration.name,
                 allMigrations: project.migrations.map((m) => m.name),
                 sqlScript: migrationScript,
@@ -336,7 +332,7 @@ class RealProjectRoundtripTester {
             description: `After applying migration, ${remainingChangesFiltered.length} differences remain`,
             details: {
               projectRef: project.ref,
-              postgresVersion: project.postgres_major_version,
+              postgresVersion: project.postgres_image_version,
               sqlScript: migrationScript,
               remainingChanges: remainingChangesFiltered.map((change) =>
                 change.serialize(),
@@ -360,7 +356,7 @@ class RealProjectRoundtripTester {
         description: `Failed to extract catalog: ${errorMessage}`,
         details: {
           projectRef: project.ref,
-          postgresVersion: project.postgres_major_version,
+          postgresVersion: project.postgres_image_version,
           errorMessage,
           sqlScript: migrationScript ?? "",
         },
@@ -393,7 +389,7 @@ class RealProjectRoundtripTester {
         description: `${errorDescription}: ${errorMessage}`,
         details: {
           projectRef: project.ref,
-          postgresVersion: project.postgres_major_version,
+          postgresVersion: project.postgres_image_version,
           migrationName,
           allMigrations: project.migrations.map((m) => m.name),
           sqlScript: script,
