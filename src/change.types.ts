@@ -4,7 +4,6 @@ import type { ExtensionChange } from "./objects/extension/changes/extension.type
 import type { IndexChange } from "./objects/index/changes/index.types.ts";
 import type { LanguageChange } from "./objects/language/changes/language.types.ts";
 import type { MaterializedViewChange } from "./objects/materialized-view/changes/materialized-view.types.ts";
-import type { PrivilegeChange } from "./objects/privilege/privilege.types.ts";
 import type { ProcedureChange } from "./objects/procedure/changes/procedure.types.ts";
 import type { RlsPolicyChange } from "./objects/rls-policy/changes/rls-policy.types.ts";
 import type { RoleChange } from "./objects/role/changes/role.types.ts";
@@ -23,7 +22,6 @@ export type Change =
   | LanguageChange
   | MaterializedViewChange
   | ProcedureChange
-  | PrivilegeChange
   | RlsPolicyChange
   | RoleChange
   | SchemaChange

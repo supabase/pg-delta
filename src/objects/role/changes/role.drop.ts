@@ -27,6 +27,6 @@ export class DropRole extends BaseChange {
   }
 
   serialize(): string {
-    return ["DROP ROLE", this.role.role_name].join(" ");
+    return ["DROP ROLE", this.role.name].join(" ");
   }
 }

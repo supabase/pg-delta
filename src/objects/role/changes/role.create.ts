@@ -47,7 +47,7 @@ export class CreateRole extends BaseChange {
     const parts: string[] = ["CREATE ROLE"];
 
     // Add role name
-    parts.push(this.role.role_name);
+    parts.push(this.role.name);
 
     // Add options (only non-default values)
     const options: string[] = [];

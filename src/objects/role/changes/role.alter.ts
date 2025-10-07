@@ -59,7 +59,7 @@ export class AlterRoleSetOptions extends BaseChange {
   }
 
   serialize(): string {
-    const parts: string[] = ["ALTER ROLE", this.role.role_name];
+    const parts: string[] = ["ALTER ROLE", this.role.name];
     return [...parts, "WITH", this.options.join(" ")].join(" ");
   }
 }
@@ -98,7 +98,7 @@ export class AlterRoleSetConfig extends BaseChange {
   }
 
   serialize(): string {
-    const head = ["ALTER ROLE", this.role.role_name].join(" ");
+    const head = ["ALTER ROLE", this.role.name].join(" ");
     if (this.action === "reset_all") {
       return `${head} RESET ALL`;
     }

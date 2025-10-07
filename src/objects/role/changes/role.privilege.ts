@@ -4,7 +4,9 @@ import type { Role } from "../role.model.ts";
 export type RolePrivilege =
   | GrantRoleMembership
   | RevokeRoleMembership
-  | RevokeMembershipOptions;
+  | RevokeRoleMembershipOptions
+  | GrantRoleDefaultPrivileges
+  | RevokeRoleDefaultPrivileges;
 
 /**
  * Grant role membership.
@@ -42,7 +44,7 @@ export class GrantRoleMembership extends BaseChange {
   }
 
   get dependencies() {
-    const membershipStableId = `membership:${this.role.role_name}->${this.member}`;
+    const membershipStableId = `membership:${this.role.name}->${this.member}`;
     return [membershipStableId];
   }
 
@@ -51,7 +53,7 @@ export class GrantRoleMembership extends BaseChange {
     const opts: string[] = [];
     if (this.options.admin) opts.push("ADMIN OPTION");
     const withClause = opts.length > 0 ? ` WITH ${opts.join(" ")}` : "";
-    return `GRANT ${this.role.role_name} TO ${this.member}${withClause}`;
+    return `GRANT ${this.role.name} TO ${this.member}${withClause}`;
   }
 }
 
@@ -81,12 +83,12 @@ export class RevokeRoleMembership extends BaseChange {
   }
 
   get dependencies() {
-    const membershipStableId = `membership:${this.role.role_name}->${this.member}`;
+    const membershipStableId = `membership:${this.role.name}->${this.member}`;
     return [membershipStableId];
   }
 
   serialize(): string {
-    return `REVOKE ${this.role.role_name} FROM ${this.member}`;
+    return `REVOKE ${this.role.name} FROM ${this.member}`;
   }
 }
 
@@ -98,7 +100,7 @@ export class RevokeRoleMembership extends BaseChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeMembershipOptions extends BaseChange {
+export class RevokeRoleMembershipOptions extends BaseChange {
   public readonly role: Role;
   public readonly member: string;
   public readonly admin?: boolean;
@@ -124,7 +126,7 @@ export class RevokeMembershipOptions extends BaseChange {
   }
 
   get dependencies() {
-    const membershipStableId = `membership:${this.role.role_name}->${this.member}`;
+    const membershipStableId = `membership:${this.role.name}->${this.member}`;
     return [membershipStableId];
   }
 
@@ -133,6 +135,206 @@ export class RevokeMembershipOptions extends BaseChange {
     if (this.admin) parts.push("ADMIN OPTION");
     if (this.inherit) parts.push("INHERIT OPTION");
     if (this.set) parts.push("SET OPTION");
-    return `REVOKE ${parts.join(" ")} FOR ${this.role.role_name} FROM ${this.member}`;
+    return `REVOKE ${parts.join(" ")} FOR ${this.role.name} FROM ${this.member}`;
   }
+}
+
+/**
+ * Grant default privileges for a role.
+ *
+ * @see https://www.postgresql.org/docs/17/sql-alterdefaultprivileges.html
+ */
+export class GrantRoleDefaultPrivileges extends BaseChange {
+  public readonly role: Role;
+  public readonly inSchema: string | null;
+  public readonly objtype: string;
+  public readonly grantee: string;
+  public readonly privileges: { privilege: string; grantable: boolean }[];
+  public readonly version: number;
+  public readonly operation = "create" as const;
+  public readonly scope = "privilege" as const;
+  public readonly objectType = "role" as const;
+
+  constructor(props: {
+    role: Role;
+    inSchema: string | null;
+    objtype: string;
+    grantee: string;
+    privileges: { privilege: string; grantable: boolean }[];
+    version: number;
+  }) {
+    super();
+    this.role = props.role;
+    this.inSchema = props.inSchema;
+    this.objtype = props.objtype;
+    this.grantee = props.grantee;
+    this.privileges = props.privileges;
+    this.version = props.version;
+  }
+
+  get dependencies() {
+    const scope = this.inSchema ? `schema:${this.inSchema}` : "global";
+    const defaclStableId = `defacl:${this.role.name}:${this.objtype}:${scope}:grantee:${this.grantee}`;
+    return [defaclStableId];
+  }
+
+  serialize(): string {
+    const scope = this.inSchema ? ` IN SCHEMA ${this.inSchema}` : "";
+    const hasGrantable = this.privileges.some((p) => p.grantable);
+    const hasBase = this.privileges.some((p) => !p.grantable);
+    if (hasGrantable && hasBase) {
+      throw new Error(
+        "GrantRoleDefaultPrivileges expects privileges with uniform grantable flag",
+      );
+    }
+    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
+    const privSql = formatPrivilegeList(
+      this.objtype,
+      this.privileges.map((p) => p.privilege),
+      this.version,
+    );
+    return `ALTER DEFAULT PRIVILEGES FOR ROLE ${this.role.name}${scope} GRANT ${privSql} ON ${objtypeToKeyword(this.objtype)} TO ${this.grantee}${withGrant}`;
+  }
+}
+
+/**
+ * Revoke default privileges for a role.
+ *
+ * @see https://www.postgresql.org/docs/17/sql-alterdefaultprivileges.html
+ */
+export class RevokeRoleDefaultPrivileges extends BaseChange {
+  public readonly role: Role;
+  public readonly inSchema: string | null;
+  public readonly objtype: string;
+  public readonly grantee: string;
+  public readonly privileges: { privilege: string; grantable: boolean }[];
+  public readonly version: number;
+  public readonly operation = "drop" as const;
+  public readonly scope = "privilege" as const;
+  public readonly objectType = "role" as const;
+
+  constructor(props: {
+    role: Role;
+    inSchema: string | null;
+    objtype: string;
+    grantee: string;
+    privileges: { privilege: string; grantable: boolean }[];
+    version: number;
+  }) {
+    super();
+    this.role = props.role;
+    this.inSchema = props.inSchema;
+    this.objtype = props.objtype;
+    this.grantee = props.grantee;
+    this.privileges = props.privileges;
+    this.version = props.version;
+  }
+
+  get dependencies() {
+    const scope = this.inSchema ? `schema:${this.inSchema}` : "global";
+    const defaclStableId = `defacl:${this.role.name}:${this.objtype}:${scope}:grantee:${this.grantee}`;
+    return [defaclStableId];
+  }
+
+  serialize(): string {
+    const scope = this.inSchema ? ` IN SCHEMA ${this.inSchema}` : "";
+    const grantOptionPrivs = this.privileges
+      .filter((p) => p.grantable)
+      .map((p) => p.privilege);
+    const basePrivs = this.privileges
+      .filter((p) => !p.grantable)
+      .map((p) => p.privilege);
+    const hasGrantOption = grantOptionPrivs.length > 0;
+    const hasBase = basePrivs.length > 0;
+    if (hasGrantOption && hasBase) {
+      throw new Error(
+        "AlterDefaultPrivilegesRevoke expects privileges from a single revoke kind",
+      );
+    }
+    if (hasGrantOption) {
+      const privSql = formatPrivilegeList(
+        this.objtype,
+        grantOptionPrivs,
+        this.version,
+      );
+      return `ALTER DEFAULT PRIVILEGES FOR ROLE ${this.role.name}${scope} REVOKE GRANT OPTION FOR ${privSql} ON ${objtypeToKeyword(this.objtype)} FROM ${this.grantee}`;
+    }
+    const privSql = formatPrivilegeList(this.objtype, basePrivs, this.version);
+    return `ALTER DEFAULT PRIVILEGES FOR ROLE ${this.role.name}${scope} REVOKE ${privSql} ON ${objtypeToKeyword(this.objtype)} FROM ${this.grantee}`;
+  }
+}
+
+// Helper functions for default privileges
+function objtypeToKeyword(objtype: string): string {
+  switch (objtype) {
+    case "r":
+      return "TABLES";
+    case "S":
+      return "SEQUENCES";
+    case "f":
+      return "ROUTINES";
+    case "T":
+      return "TYPES";
+    case "n":
+      return "SCHEMAS";
+    default:
+      return objtype;
+  }
+}
+
+function defaultPrivilegeUniverse(objtype: string, version: number): string[] {
+  // Full privilege sets per object kind for ALTER DEFAULT PRIVILEGES
+  // Keep names aligned with pg_catalog privilege_type values
+  switch (objtype) {
+    case "r": {
+      // TABLES
+      // MAINTAIN exists on PostgreSQL >= 17
+      const includesMaintain = version >= 170000;
+      return [
+        "DELETE",
+        "INSERT",
+        ...(includesMaintain ? (["MAINTAIN"] as const) : []),
+        "REFERENCES",
+        "SELECT",
+        "TRIGGER",
+        "TRUNCATE",
+        "UPDATE",
+      ];
+    }
+    case "S": // SEQUENCES
+      return ["SELECT", "UPDATE", "USAGE"].sort();
+    case "f": // ROUTINES (FUNCTIONS)
+      return ["EXECUTE"];
+    case "T": // TYPES
+      return ["USAGE"];
+    case "n": // SCHEMAS
+      return ["CREATE", "USAGE"].sort();
+    default:
+      return [];
+  }
+}
+
+function isFullPrivilegeSet(
+  objtype: string,
+  list: string[],
+  version: number,
+): boolean {
+  const uniqSorted = [...new Set(list)].sort();
+  const fullSorted = [...defaultPrivilegeUniverse(objtype, version)].sort();
+  if (uniqSorted.length !== fullSorted.length) return false;
+  for (let i = 0; i < uniqSorted.length; i++) {
+    if (uniqSorted[i] !== fullSorted[i]) return false;
+  }
+  return true;
+}
+
+function formatPrivilegeList(
+  objtype: string,
+  list: string[],
+  version: number,
+): string {
+  const uniqSorted = [...new Set(list)].sort();
+  return isFullPrivilegeSet(objtype, uniqSorted, version)
+    ? "ALL"
+    : uniqSorted.join(", ");
 }

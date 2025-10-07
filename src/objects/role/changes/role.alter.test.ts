@@ -6,7 +6,7 @@ describe.concurrent("role", () => {
   describe("alter", () => {
     test("alter SUPERUSER", () => {
       const role = new Role({
-        role_name: "r",
+        name: "r",
         is_superuser: false,
         can_inherit: true,
         can_create_roles: false,
@@ -18,6 +18,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["SUPERUSER"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH SUPERUSER");
@@ -25,7 +26,7 @@ describe.concurrent("role", () => {
 
     test("alter NOSUPERUSER", () => {
       const role = new Role({
-        role_name: "r",
+        name: "r",
         is_superuser: true,
         can_inherit: true,
         can_create_roles: false,
@@ -37,6 +38,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       });
       const change = new AlterRoleSetOptions({
         role,
@@ -47,7 +49,7 @@ describe.concurrent("role", () => {
 
     test("alter NOCREATEDB", () => {
       const role = new Role({
-        role_name: "r",
+        name: "r",
         is_superuser: false,
         can_inherit: true,
         can_create_roles: false,
@@ -59,6 +61,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["NOCREATEDB"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH NOCREATEDB");
@@ -66,7 +69,7 @@ describe.concurrent("role", () => {
 
     test("alter NOCREATEROLE", () => {
       const role = new Role({
-        role_name: "r",
+        name: "r",
         is_superuser: false,
         can_inherit: true,
         can_create_roles: true,
@@ -78,6 +81,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       });
       const change = new AlterRoleSetOptions({
         role,
@@ -88,7 +92,7 @@ describe.concurrent("role", () => {
 
     test("alter INHERIT", () => {
       const role = new Role({
-        role_name: "r",
+        name: "r",
         is_superuser: false,
         can_inherit: false,
         can_create_roles: false,
@@ -100,6 +104,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["INHERIT"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH INHERIT");
@@ -107,7 +112,7 @@ describe.concurrent("role", () => {
 
     test("alter LOGIN", () => {
       const role = new Role({
-        role_name: "r",
+        name: "r",
         is_superuser: false,
         can_inherit: true,
         can_create_roles: false,
@@ -119,6 +124,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["LOGIN"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH LOGIN");
@@ -126,7 +132,7 @@ describe.concurrent("role", () => {
 
     test("alter NOREPLICATION", () => {
       const role = new Role({
-        role_name: "r",
+        name: "r",
         is_superuser: false,
         can_inherit: true,
         can_create_roles: false,
@@ -138,6 +144,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       });
       const change = new AlterRoleSetOptions({
         role,
@@ -148,7 +155,7 @@ describe.concurrent("role", () => {
 
     test("alter NOBYPASSRLS", () => {
       const role = new Role({
-        role_name: "r",
+        name: "r",
         is_superuser: false,
         can_inherit: true,
         can_create_roles: false,
@@ -160,6 +167,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       });
       const change = new AlterRoleSetOptions({
         role,
@@ -170,7 +178,7 @@ describe.concurrent("role", () => {
 
     test("alter CREATEROLE", () => {
       const role = new Role({
-        role_name: "r",
+        name: "r",
         is_superuser: false,
         can_inherit: true,
         can_create_roles: false,
@@ -182,6 +190,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["CREATEROLE"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH CREATEROLE");
@@ -189,7 +198,7 @@ describe.concurrent("role", () => {
 
     test("alter NOINHERIT", () => {
       const role = new Role({
-        role_name: "r",
+        name: "r",
         is_superuser: false,
         can_inherit: true,
         can_create_roles: false,
@@ -201,6 +210,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["NOINHERIT"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH NOINHERIT");
@@ -208,7 +218,7 @@ describe.concurrent("role", () => {
 
     test("alter NOLOGIN", () => {
       const role = new Role({
-        role_name: "r",
+        name: "r",
         is_superuser: false,
         can_inherit: true,
         can_create_roles: false,
@@ -220,6 +230,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["NOLOGIN"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH NOLOGIN");
@@ -227,7 +238,7 @@ describe.concurrent("role", () => {
 
     test("alter REPLICATION", () => {
       const role = new Role({
-        role_name: "r",
+        name: "r",
         is_superuser: false,
         can_inherit: true,
         can_create_roles: false,
@@ -239,6 +250,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       });
       const change = new AlterRoleSetOptions({
         role,
@@ -249,7 +261,7 @@ describe.concurrent("role", () => {
 
     test("alter BYPASSRLS", () => {
       const role = new Role({
-        role_name: "r",
+        name: "r",
         is_superuser: false,
         can_inherit: true,
         can_create_roles: false,
@@ -261,6 +273,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["BYPASSRLS"] });
       expect(change.serialize()).toBe("ALTER ROLE r WITH BYPASSRLS");
@@ -268,7 +281,7 @@ describe.concurrent("role", () => {
 
     test("alter multiple options ordering", () => {
       const role = new Role({
-        role_name: "r",
+        name: "r",
         is_superuser: false,
         can_inherit: true,
         can_create_roles: false,
@@ -280,6 +293,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       });
       const change = new AlterRoleSetOptions({
         role,
@@ -303,7 +317,7 @@ describe.concurrent("role", () => {
         RoleProps,
         "can_create_databases" | "connection_limit"
       > = {
-        role_name: "r",
+        name: "r",
         is_superuser: false,
         can_inherit: true,
         can_create_roles: false,
@@ -313,6 +327,7 @@ describe.concurrent("role", () => {
         config: null,
         comment: null,
         members: [],
+        default_privileges: [],
       };
       const role = new Role({
         ...props,

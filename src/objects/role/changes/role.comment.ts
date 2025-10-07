@@ -15,13 +15,13 @@ export class CreateCommentOnRole extends BaseChange {
   }
 
   get dependencies() {
-    return [`comment:${this.role.role_name}`];
+    return [`comment:${this.role.name}`];
   }
 
   serialize(): string {
     return [
       "COMMENT ON ROLE",
-      this.role.role_name,
+      this.role.name,
       "IS",
       quoteLiteral(this.role.comment as string),
     ].join(" ");
@@ -40,10 +40,10 @@ export class DropCommentOnRole extends BaseChange {
   }
 
   get dependencies() {
-    return [`comment:${this.role.role_name}`];
+    return [`comment:${this.role.name}`];
   }
 
   serialize(): string {
-    return ["COMMENT ON ROLE", this.role.role_name, "IS NULL"].join(" ");
+    return ["COMMENT ON ROLE", this.role.name, "IS NULL"].join(" ");
   }
 }

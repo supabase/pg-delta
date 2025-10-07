@@ -10,9 +10,11 @@ import {
 import { CreateRole } from "./changes/role.create.ts";
 import { DropRole } from "./changes/role.drop.ts";
 import {
+  GrantRoleDefaultPrivileges,
   GrantRoleMembership,
-  RevokeMembershipOptions,
+  RevokeRoleDefaultPrivileges,
   RevokeRoleMembership,
+  RevokeRoleMembershipOptions,
 } from "./changes/role.privilege.ts";
 import type { RoleChange } from "./changes/role.types.ts";
 import type { Role } from "./role.model.ts";
@@ -20,11 +22,13 @@ import type { Role } from "./role.model.ts";
 /**
  * Diff two sets of roles from main and branch catalogs.
  *
+ * @param ctx - Context containing version information.
  * @param main - The roles in the main catalog.
  * @param branch - The roles in the branch catalog.
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffRoles(
+  ctx: { version: number },
   main: Record<string, Role>,
   branch: Record<string, Role>,
 ): RoleChange[] {
@@ -226,7 +230,7 @@ export function diffRoles(
 
         if (toRevoke.admin || toRevoke.inherit || toRevoke.set) {
           changes.push(
-            new RevokeMembershipOptions({
+            new RevokeRoleMembershipOptions({
               role: mainRole,
               member: mainMembership.member,
               admin: toRevoke.admin,
@@ -245,6 +249,185 @@ export function diffRoles(
                 inherit: toGrant.inherit ?? null,
                 set: toGrant.set ?? null,
               },
+            }),
+          );
+        }
+      }
+    }
+
+    // DEFAULT PRIVILEGES
+    const mainDefaultPrivs = new Map(
+      mainRole.default_privileges.map((dp) => [
+        `${dp.in_schema ?? ""}:${dp.objtype}:${dp.grantee}`,
+        dp,
+      ]),
+    );
+    const branchDefaultPrivs = new Map(
+      branchRole.default_privileges.map((dp) => [
+        `${dp.in_schema ?? ""}:${dp.objtype}:${dp.grantee}`,
+        dp,
+      ]),
+    );
+
+    // Find new default privileges to grant
+    for (const [key, defaultPriv] of branchDefaultPrivs) {
+      if (!mainDefaultPrivs.has(key)) {
+        if (defaultPriv.privileges.length === 0) continue;
+        const grantGroups = new Map<
+          boolean,
+          { privilege: string; grantable: boolean }[]
+        >();
+        for (const p of defaultPriv.privileges) {
+          const arr = grantGroups.get(p.grantable) ?? [];
+          arr.push(p);
+          grantGroups.set(p.grantable, arr);
+        }
+        for (const [grantable, list] of grantGroups) {
+          void grantable;
+          changes.push(
+            new GrantRoleDefaultPrivileges({
+              role: branchRole,
+              inSchema: defaultPriv.in_schema,
+              objtype: defaultPriv.objtype,
+              grantee: defaultPriv.grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+    }
+
+    // Find default privileges to revoke
+    for (const [key, defaultPriv] of mainDefaultPrivs) {
+      if (!branchDefaultPrivs.has(key)) {
+        if (defaultPriv.privileges.length === 0) continue;
+        const revokeGroups = new Map<
+          boolean,
+          { privilege: string; grantable: boolean }[]
+        >();
+        for (const p of defaultPriv.privileges) {
+          const arr = revokeGroups.get(p.grantable) ?? [];
+          arr.push(p);
+          revokeGroups.set(p.grantable, arr);
+        }
+        for (const [grantable, list] of revokeGroups) {
+          void grantable;
+          changes.push(
+            new RevokeRoleDefaultPrivileges({
+              role: mainRole,
+              inSchema: defaultPriv.in_schema,
+              objtype: defaultPriv.objtype,
+              grantee: defaultPriv.grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+    }
+
+    // Find default privilege changes
+    for (const [key, branchDefaultPriv] of branchDefaultPrivs) {
+      const mainDefaultPriv = mainDefaultPrivs.get(key);
+      if (mainDefaultPriv) {
+        const toKey = (p: { privilege: string; grantable: boolean }) =>
+          `${p.privilege}:${p.grantable}`;
+        const mainSet = new Set(mainDefaultPriv.privileges.map(toKey));
+        const branchSet = new Set(branchDefaultPriv.privileges.map(toKey));
+
+        const grants: { privilege: string; grantable: boolean }[] = [];
+        const revokes: { privilege: string; grantable: boolean }[] = [];
+        const revokeGrantOption: string[] = [];
+
+        for (const key of branchSet) {
+          if (!mainSet.has(key)) {
+            const [privilege, grantableStr] = key.split(":");
+            grants.push({ privilege, grantable: grantableStr === "true" });
+          }
+        }
+        for (const key of mainSet) {
+          if (!branchSet.has(key)) {
+            const [privilege, grantableStr] = key.split(":");
+            const wasGrantable = grantableStr === "true";
+            const stillHasBase = branchDefaultPriv.privileges.some(
+              (p) => p.privilege === privilege,
+            );
+            const upgraded =
+              !wasGrantable && branchSet.has(`${privilege}:true`);
+            if (upgraded) {
+              // base -> with grant option; do not revoke base
+              continue;
+            }
+            if (wasGrantable && stillHasBase) {
+              revokeGrantOption.push(privilege);
+            } else {
+              revokes.push({ privilege, grantable: wasGrantable });
+            }
+          }
+        }
+
+        if (grants.length > 0) {
+          const grantGroups = new Map<
+            boolean,
+            { privilege: string; grantable: boolean }[]
+          >();
+          for (const p of grants) {
+            const arr = grantGroups.get(p.grantable) ?? [];
+            arr.push(p);
+            grantGroups.set(p.grantable, arr);
+          }
+          for (const [grantable, list] of grantGroups) {
+            void grantable;
+            changes.push(
+              new GrantRoleDefaultPrivileges({
+                role: branchRole,
+                inSchema: branchDefaultPriv.in_schema,
+                objtype: branchDefaultPriv.objtype,
+                grantee: branchDefaultPriv.grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+        if (revokes.length > 0) {
+          const revokeGroups = new Map<
+            boolean,
+            { privilege: string; grantable: boolean }[]
+          >();
+          for (const p of revokes) {
+            const arr = revokeGroups.get(p.grantable) ?? [];
+            arr.push(p);
+            revokeGroups.set(p.grantable, arr);
+          }
+          for (const [grantable, list] of revokeGroups) {
+            void grantable;
+            changes.push(
+              new RevokeRoleDefaultPrivileges({
+                role: mainRole,
+                inSchema: mainDefaultPriv.in_schema,
+                objtype: mainDefaultPriv.objtype,
+                grantee: mainDefaultPriv.grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+        if (revokeGrantOption.length > 0) {
+          // Encode as GRANT OPTION revocation by marking grantable true
+          changes.push(
+            new RevokeRoleDefaultPrivileges({
+              role: mainRole,
+              inSchema: mainDefaultPriv.in_schema,
+              objtype: mainDefaultPriv.objtype,
+              grantee: mainDefaultPriv.grantee,
+              privileges: revokeGrantOption.map((p) => ({
+                privilege: p,
+                grantable: true,
+              })),
+              version: ctx.version,
             }),
           );
         }

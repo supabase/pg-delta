@@ -6,7 +6,6 @@ import { diffDomains } from "./objects/domain/domain.diff.ts";
 import { diffExtensions } from "./objects/extension/extension.diff.ts";
 import { diffIndexes } from "./objects/index/index.diff.ts";
 import { diffMaterializedViews } from "./objects/materialized-view/materialized-view.diff.ts";
-import { diffDefaultPrivileges } from "./objects/privilege/default-privilege/default-privilege.diff.ts";
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
 import { diffRlsPolicies } from "./objects/rls-policy/rls-policy.diff.ts";
 import { diffRoles } from "./objects/role/role.diff.ts";
@@ -55,7 +54,9 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
     ),
   );
   changes.push(...diffRlsPolicies(main.rlsPolicies, branch.rlsPolicies));
-  changes.push(...diffRoles(main.roles, branch.roles));
+  changes.push(
+    ...diffRoles({ version: main.version }, main.roles, branch.roles),
+  );
   changes.push(
     ...diffSchemas({ version: main.version }, main.schemas, branch.schemas),
   );
@@ -77,15 +78,6 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   );
   changes.push(
     ...diffViews({ version: main.version }, main.views, branch.views),
-  );
-
-  // Privileges depend on objects and roles
-  changes.push(
-    ...diffDefaultPrivileges(
-      { version: main.version },
-      main.defaultPrivileges,
-      branch.defaultPrivileges,
-    ),
   );
 
   // Filter privilege REVOKEs for objects that are being dropped

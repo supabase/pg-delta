@@ -6,7 +6,7 @@ import { diffRoles } from "./role.diff.ts";
 import { Role, type RoleProps } from "./role.model.ts";
 
 const base: RoleProps = {
-  role_name: "r1",
+  name: "r1",
   is_superuser: false,
   can_inherit: true,
   can_create_roles: false,
@@ -18,15 +18,16 @@ const base: RoleProps = {
   config: null,
   comment: null,
   members: [],
+  default_privileges: [],
 };
 
 describe.concurrent("role.diff", () => {
   test("create and drop", () => {
     const r = new Role(base);
-    const created = diffRoles({}, { [r.stableId]: r });
+    const created = diffRoles({ version: 170000 }, {}, { [r.stableId]: r });
     expect(created[0]).toBeInstanceOf(CreateRole);
 
-    const dropped = diffRoles({ [r.stableId]: r }, {});
+    const dropped = diffRoles({ version: 170000 }, { [r.stableId]: r }, {});
     expect(dropped[0]).toBeInstanceOf(DropRole);
   });
 
@@ -34,6 +35,7 @@ describe.concurrent("role.diff", () => {
     const main = new Role(base);
     const branch = new Role({ ...base, can_login: false });
     const changes = diffRoles(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
