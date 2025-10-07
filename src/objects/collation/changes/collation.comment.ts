@@ -1,5 +1,9 @@
-import { BaseChange, quoteLiteral } from "../../base.change.ts";
+import { quoteLiteral } from "../../base.change.ts";
 import type { Collation } from "../collation.model.ts";
+import {
+  CreateCollationChange,
+  DropCollationChange,
+} from "./collation.base.ts";
 
 export type CommentCollation =
   | CreateCommentOnCollation
@@ -8,11 +12,9 @@ export type CommentCollation =
 /**
  * Create/drop comments on collations.
  */
-export class CreateCommentOnCollation extends BaseChange {
+export class CreateCommentOnCollation extends CreateCollationChange {
   public readonly collation: Collation;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "collation" as const;
 
   constructor(props: { collation: Collation }) {
     super();
@@ -34,11 +36,9 @@ export class CreateCommentOnCollation extends BaseChange {
   }
 }
 
-export class DropCommentOnCollation extends BaseChange {
+export class DropCommentOnCollation extends DropCollationChange {
   public readonly collation: Collation;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "collation" as const;
 
   constructor(props: { collation: Collation }) {
     super();

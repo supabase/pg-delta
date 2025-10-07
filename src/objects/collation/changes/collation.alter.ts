@@ -1,5 +1,5 @@
-import { BaseChange } from "../../base.change.ts";
 import type { Collation } from "../collation.model.ts";
+import { AlterCollationChange } from "./collation.base.ts";
 
 /**
  * Alter a collation.
@@ -21,12 +21,10 @@ export type AlterCollation =
 /**
  * ALTER COLLATION ... OWNER TO ...
  */
-export class AlterCollationChangeOwner extends BaseChange {
+export class AlterCollationChangeOwner extends AlterCollationChange {
   public readonly collation: Collation;
   public readonly owner: string;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "collation" as const;
 
   constructor(props: { collation: Collation; owner: string }) {
     super();
@@ -51,11 +49,9 @@ export class AlterCollationChangeOwner extends BaseChange {
 /**
  * ALTER COLLATION ... REFRESH VERSION
  */
-export class AlterCollationRefreshVersion extends BaseChange {
+export class AlterCollationRefreshVersion extends AlterCollationChange {
   public readonly collation: Collation;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "collation" as const;
 
   constructor(props: { collation: Collation }) {
     super();

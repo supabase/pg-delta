@@ -1,5 +1,5 @@
-import { BaseChange } from "../../base.change.ts";
 import type { Collation } from "../collation.model.ts";
+import { DropCollationChange } from "./collation.base.ts";
 
 /**
  * Drop a collation.
@@ -11,11 +11,9 @@ import type { Collation } from "../collation.model.ts";
  * DROP COLLATION [ IF EXISTS ] name [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropCollation extends BaseChange {
+export class DropCollation extends DropCollationChange {
   public readonly collation: Collation;
-  public readonly operation = "drop" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "collation" as const;
 
   constructor(props: { collation: Collation }) {
     super();
