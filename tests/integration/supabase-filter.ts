@@ -7,6 +7,8 @@ const SUPABASE_SCHEMAS = [
   "graphql",
   "graphql_public",
   "pgbouncer",
+  "pgmq",
+  "pgmq_public",
   "realtime",
   "storage",
   "supabase_functions",
@@ -126,12 +128,20 @@ export function supabaseFilter(
     const schema = getSchema(change);
 
     // if new extensions are enabled, we need to include them
-    if (change.objectType === "extension" && change.operation === "create") {
+    if (
+      change.objectType === "extension" &&
+      change.operation === "create" &&
+      change.scope === "object"
+    ) {
       return true;
     }
 
     // if new schemas are created and they are used by extensions, we need to include them
-    if (change.objectType === "schema" && change.operation === "create") {
+    if (
+      change.objectType === "schema" &&
+      change.operation === "create" &&
+      change.scope === "object"
+    ) {
       return true;
     }
 
