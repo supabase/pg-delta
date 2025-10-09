@@ -1,12 +1,13 @@
 import postgres from "postgres";
+import { supabaseFilter } from "../tests/integration/supabase-filter.ts";
 import { diffCatalogs } from "./catalog.diff.ts";
 import type { Catalog } from "./catalog.model.ts";
 import { extractCatalog } from "./catalog.model.ts";
-import type { BaseChange } from "./objects/base.change.ts";
+import type { Change } from "./change.types.ts";
+// import type { BaseChange } from "./objects/base.change.ts";
 import { pgDumpSort } from "./sort/global-sort.ts";
 import { applyRefinements } from "./sort/refined-sort.ts";
 import { sortChangesByRules } from "./sort/sort-utils.ts";
-
 // Custom type handler for specifics corner cases
 export const postgresConfig: postgres.Options<
   Record<string, postgres.PostgresType>
@@ -55,7 +56,7 @@ export interface DiffContext {
 }
 
 export interface MainOptions {
-  filter?: (ctx: DiffContext, changes: BaseChange[]) => BaseChange[];
+  filter?: (ctx: DiffContext, changes: Change[]) => Change[];
 }
 
 export async function main(
@@ -96,3 +97,7 @@ export async function main(
 
   return migrationScript;
 }
+
+await main(process.env.MAIN_DATABASE_URL!, process.env.BRANCH_DATABASE_URL!, {
+  filter: supabaseFilter,
+});
