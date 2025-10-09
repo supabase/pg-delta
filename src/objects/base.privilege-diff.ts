@@ -15,7 +15,7 @@ export type PrivilegeProps = z.infer<typeof privilegePropsSchema>;
 /**
  * Result of privilege diffing for a single grantee
  */
-export interface PrivilegeDiffResult<T extends PrivilegeProps> {
+interface PrivilegeDiffResult<T extends PrivilegeProps> {
   grants: T[];
   revokes: T[];
   revokeGrantOption: string[];
@@ -24,7 +24,7 @@ export interface PrivilegeDiffResult<T extends PrivilegeProps> {
 /**
  * Groups privileges by grantee for efficient diffing
  */
-export function groupPrivilegesByGrantee<T extends PrivilegeProps>(
+function groupPrivilegesByGrantee<T extends PrivilegeProps>(
   privileges: T[],
 ): Map<string, T[]> {
   const byGrantee = new Map<string, T[]>();
@@ -41,7 +41,7 @@ export function groupPrivilegesByGrantee<T extends PrivilegeProps>(
 /**
  * Diffs privileges for a single grantee between main and branch
  */
-export function diffPrivilegesForGrantee<T extends PrivilegeProps>(
+function diffPrivilegesForGrantee<T extends PrivilegeProps>(
   mainPrivs: T[],
   branchPrivs: T[],
 ): PrivilegeDiffResult<T> {

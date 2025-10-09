@@ -1,7 +1,7 @@
 import { BaseChange } from "../../base.change.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 
-export abstract class BaseRlsPolicyChange extends BaseChange {
+abstract class BaseRlsPolicyChange extends BaseChange {
   abstract readonly policy: RlsPolicy;
   abstract readonly scope: "object" | "comment";
   readonly objectType: "rls_policy" = "rls_policy";

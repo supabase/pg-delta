@@ -28,7 +28,7 @@ const languagePropsSchema = z.object({
   privileges: z.array(privilegePropsSchema),
 });
 
-export type LanguagePrivilegeProps = PrivilegeProps;
+type LanguagePrivilegeProps = PrivilegeProps;
 export type LanguageProps = z.infer<typeof languagePropsSchema>;
 
 export class Language extends BasePgModel {

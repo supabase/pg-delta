@@ -1,7 +1,7 @@
 import { BaseChange } from "../../base.change.ts";
 import type { Trigger } from "../trigger.model.ts";
 
-export abstract class BaseTriggerChange extends BaseChange {
+abstract class BaseTriggerChange extends BaseChange {
   abstract readonly trigger: Trigger;
   abstract readonly scope: "object" | "comment";
   readonly objectType: "trigger" = "trigger";

@@ -20,7 +20,7 @@ const schemaPropsSchema = z.object({
   privileges: z.array(privilegePropsSchema),
 });
 
-export type SchemaPrivilegeProps = PrivilegeProps;
+type SchemaPrivilegeProps = PrivilegeProps;
 export type SchemaProps = z.infer<typeof schemaPropsSchema>;
 
 export class Schema extends BasePgModel {

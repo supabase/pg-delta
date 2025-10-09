@@ -25,7 +25,7 @@ const sequencePropsSchema = z.object({
   owner: z.string(),
 });
 
-export type SequencePrivilegeProps = PrivilegeProps;
+type SequencePrivilegeProps = PrivilegeProps;
 export type SequenceProps = z.infer<typeof sequencePropsSchema>;
 
 export class Sequence extends BasePgModel {

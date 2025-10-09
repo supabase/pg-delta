@@ -1,7 +1,7 @@
 import { BaseChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
 
-export abstract class BaseProcedureChange extends BaseChange {
+abstract class BaseProcedureChange extends BaseChange {
   abstract readonly procedure: Procedure;
   abstract readonly scope: "object" | "comment" | "privilege";
   readonly objectType: "procedure" = "procedure";

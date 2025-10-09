@@ -1,7 +1,7 @@
 import { BaseChange } from "../../base.change.ts";
 import type { Role } from "../role.model.ts";
 
-export abstract class BaseRoleChange extends BaseChange {
+abstract class BaseRoleChange extends BaseChange {
   abstract readonly role: Role;
   abstract readonly scope:
     | "object"

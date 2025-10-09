@@ -32,7 +32,7 @@ const viewPropsSchema = z.object({
   privileges: z.array(privilegePropsSchema),
 });
 
-export type ViewPrivilegeProps = PrivilegeProps;
+type ViewPrivilegeProps = PrivilegeProps;
 export type ViewProps = z.infer<typeof viewPropsSchema>;
 
 export class View extends BasePgModel implements TableLikeObject {

@@ -1,7 +1,7 @@
 import { BaseChange } from "../../base.change.ts";
 import type { Schema } from "../schema.model.ts";
 
-export abstract class BaseSchemaChange extends BaseChange {
+abstract class BaseSchemaChange extends BaseChange {
   abstract readonly schema: Schema;
   abstract readonly scope: "object" | "comment" | "privilege";
   readonly objectType: "schema" = "schema";

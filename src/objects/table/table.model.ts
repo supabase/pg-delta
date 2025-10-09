@@ -92,7 +92,7 @@ const tablePropsSchema = z.object({
   privileges: z.array(privilegePropsSchema),
 });
 
-export type TablePrivilegeProps = PrivilegeProps;
+type TablePrivilegeProps = PrivilegeProps;
 export type TableProps = z.infer<typeof tablePropsSchema>;
 
 export class Table extends BasePgModel implements TableLikeObject {

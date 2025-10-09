@@ -1,7 +1,7 @@
 import { BaseChange } from "../../base.change.ts";
 import type { Domain } from "../domain.model.ts";
 
-export abstract class BaseDomainChange extends BaseChange {
+abstract class BaseDomainChange extends BaseChange {
   abstract readonly domain: Domain;
   abstract readonly scope: "object" | "comment" | "privilege";
   readonly objectType: "domain" = "domain";

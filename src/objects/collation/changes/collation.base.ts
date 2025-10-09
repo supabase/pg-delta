@@ -1,7 +1,7 @@
 import { BaseChange } from "../../base.change.ts";
 import type { Collation } from "../collation.model.ts";
 
-export abstract class BaseCollationChange extends BaseChange {
+abstract class BaseCollationChange extends BaseChange {
   abstract readonly collation: Collation;
   abstract readonly scope: "object" | "comment";
   readonly objectType: "collation" = "collation";

@@ -34,7 +34,7 @@ const enumPropsSchema = z.object({
   privileges: z.array(privilegePropsSchema),
 });
 
-export type EnumPrivilegeProps = PrivilegeProps;
+type EnumPrivilegeProps = PrivilegeProps;
 export type EnumProps = z.infer<typeof enumPropsSchema>;
 
 export class Enum extends BasePgModel {

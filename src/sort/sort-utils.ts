@@ -1,3 +1,4 @@
+import type { Change } from "../change.types.ts";
 import type { BaseChange } from "../objects/base.change.ts";
 
 /**
@@ -20,7 +21,7 @@ export type Rule = Partial<
  * @returns A comparator function that can be used with Array.sort()
  */
 function createComparatorFromRules(rules: Rule[]) {
-  const matchIndex = (change: BaseChange): number => {
+  const matchIndex = (change: Change): number => {
     for (let i = 0; i < rules.length; i++) {
       const rule = rules[i];
       if (
@@ -35,7 +36,7 @@ function createComparatorFromRules(rules: Rule[]) {
     return Number.POSITIVE_INFINITY; // no rule matched
   };
 
-  return (a: BaseChange, b: BaseChange): number => {
+  return (a: Change, b: Change): number => {
     const ra = matchIndex(a);
     const rb = matchIndex(b);
     if (ra !== rb) return ra - rb;
@@ -78,7 +79,7 @@ function createComparatorFromRules(rules: Rule[]) {
  * // Result: all DROP TABLE, then CREATE SCHEMA, then CREATE TABLE, then unmatched changes
  * ```
  */
-export function sortChangesByRules<T extends BaseChange>(
+export function sortChangesByRules<T extends Change>(
   changes: T[],
   rules: Rule[],
 ): T[] {

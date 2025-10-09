@@ -1,4 +1,4 @@
-import type { BaseChange } from "../base.change.ts";
+import type { Change } from "../../change.types.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
@@ -31,10 +31,10 @@ export function diffLanguages(
   ctx: { version: number },
   main: Record<string, Language>,
   branch: Record<string, Language>,
-): BaseChange[] {
+): Change[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: BaseChange[] = [];
+  const changes: Change[] = [];
 
   for (const languageId of created) {
     const lang = branch[languageId];

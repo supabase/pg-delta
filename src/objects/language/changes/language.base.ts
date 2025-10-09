@@ -1,7 +1,7 @@
 import { BaseChange } from "../../base.change.ts";
 import type { Language } from "../language.model.ts";
 
-export abstract class BaseLanguageChange extends BaseChange {
+abstract class BaseLanguageChange extends BaseChange {
   abstract readonly language: Language;
   abstract readonly scope: "object" | "comment" | "privilege";
   readonly objectType: "language" = "language";

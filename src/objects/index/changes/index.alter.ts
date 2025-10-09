@@ -1,5 +1,6 @@
 import { BaseChange } from "../../base.change.ts";
 import type { Index } from "../index.model.ts";
+import { AlterIndexChange } from "./index.base.ts";
 
 /**
  * Alter an index.
@@ -24,13 +25,11 @@ export type AlterIndex =
 /**
  * ALTER INDEX ... SET ( storage_parameter = value [, ... ] )
  */
-export class AlterIndexSetStorageParams extends BaseChange {
+export class AlterIndexSetStorageParams extends AlterIndexChange {
   public readonly index: Index;
   public readonly paramsToSet: string[];
   public readonly keysToReset: string[];
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "index" as const;
 
   constructor(props: {
     index: Index;

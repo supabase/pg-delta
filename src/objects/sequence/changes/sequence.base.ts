@@ -1,7 +1,7 @@
 import { BaseChange } from "../../base.change.ts";
 import type { Sequence } from "../sequence.model.ts";
 
-export abstract class BaseSequenceChange extends BaseChange {
+abstract class BaseSequenceChange extends BaseChange {
   abstract readonly sequence: Sequence;
   abstract readonly scope: "object" | "comment" | "privilege";
   readonly objectType: "sequence" = "sequence";

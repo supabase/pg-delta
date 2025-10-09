@@ -65,7 +65,7 @@ const procedurePropsSchema = z.object({
   privileges: z.array(privilegePropsSchema),
 });
 
-export type ProcedurePrivilegeProps = PrivilegeProps;
+type ProcedurePrivilegeProps = PrivilegeProps;
 export type ProcedureProps = z.infer<typeof procedurePropsSchema>;
 
 export class Procedure extends BasePgModel {

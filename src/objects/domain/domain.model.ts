@@ -33,7 +33,7 @@ const domainPropsSchema = z.object({
 });
 
 export type DomainConstraintProps = z.infer<typeof domainConstraintPropsSchema>;
-export type DomainPrivilegeProps = PrivilegeProps;
+type DomainPrivilegeProps = PrivilegeProps;
 export type DomainProps = z.infer<typeof domainPropsSchema>;
 
 /**

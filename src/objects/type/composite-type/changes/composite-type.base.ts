@@ -1,7 +1,7 @@
 import { BaseChange } from "../../../base.change.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 
-export abstract class BaseCompositeTypeChange extends BaseChange {
+abstract class BaseCompositeTypeChange extends BaseChange {
   abstract readonly compositeType: CompositeType;
   abstract readonly scope: "object" | "comment" | "privilege";
   readonly objectType: "composite_type" = "composite_type";

@@ -80,6 +80,9 @@ class RealProjectRoundtripTester {
     // Setup containers based on test type
     const supabaseImage = `supabase/postgres:${project.postgres_image_version}`;
 
+    // Get Auth and Storage services versions and spawn their containers
+    // https://nbdempqvzblcekohnjnp.supabase.red/auth/v1/health
+
     let sourceContainer: StartedSupabasePostgreSqlContainer | null = null;
     let testContainer: StartedSupabasePostgreSqlContainer | null = null;
     let remoteSql: postgres.Sql | null = null;
@@ -515,10 +518,7 @@ async function loadProjectsData(): Promise<ProjectData[]> {
 describe("Real Project Roundtrip Tests", async () => {
   let projects = await loadProjectsData();
 
-  // Take only the first 10 projects
-  projects = projects.slice(0, 1);
-
-  // projects = projects.filter((p) => p.ref === "firmdujfeupgocnckibm");
+  projects = projects.filter((p) => p.ref === "firmdujfeupgocnckibm");
 
   for (const project of projects) {
     const testName = `project-${project.ref}-roundtrip`;

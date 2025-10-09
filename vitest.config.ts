@@ -1,13 +1,7 @@
 import { defineConfig } from "vitest/config";
 
-const testIntegrationsInclude = [
-  "**/*.integration.test.ts",
-  "tests/integration/**/*.test.ts",
-];
-
 export default defineConfig({
   test: {
-    globalSetup: ["./tests/global-setup.ts"],
     testTimeout: 60_000,
     slowTestThreshold: 10_000,
     coverage: {
@@ -21,8 +15,8 @@ export default defineConfig({
         test: {
           // Unit tests - run with full parallelism for maximum speed
           name: "unit",
-          include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
-          exclude: ["**/*.integration.test.ts", "tests/integration/**"],
+          include: ["src/**/*.test.ts"],
+          exclude: ["**/*.integration.test.ts"],
           pool: "threads", // Full parallelism for unit tests
         },
       },
@@ -31,8 +25,12 @@ export default defineConfig({
         test: {
           // Integration tests - run with single fork to share containers
           name: "integration",
+          globalSetup: ["./tests/global-setup.ts"],
+          include: [
+            "tests/integration/**/*.test.ts",
+            "**/*.integration.test.ts",
+          ],
           retry: process.env.CI ? 1 : 0,
-          include: testIntegrationsInclude,
           pool: "forks",
           poolOptions: {
             forks: {

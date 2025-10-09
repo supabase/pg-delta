@@ -1,6 +1,6 @@
 export const POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG = {
-  15: "15.8.1.111",
-  17: "17.4.1.054",
+  15: "15.14.1.018",
+  17: "17.6.1.018",
 };
 
 export const POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG = {

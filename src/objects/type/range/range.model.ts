@@ -31,7 +31,7 @@ const rangePropsSchema = z.object({
   privileges: z.array(privilegePropsSchema),
 });
 
-export type RangePrivilegeProps = PrivilegeProps;
+type RangePrivilegeProps = PrivilegeProps;
 export type RangeProps = z.infer<typeof rangePropsSchema>;
 
 export class Range extends BasePgModel {

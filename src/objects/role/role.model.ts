@@ -36,8 +36,6 @@ const rolePropsSchema = z.object({
 });
 
 export type RoleProps = z.infer<typeof rolePropsSchema>;
-export type MembershipInfo = z.infer<typeof membershipInfoSchema>;
-export type DefaultPrivilege = z.infer<typeof defaultPrivilegeSchema>;
 
 export class Role extends BasePgModel {
   public readonly name: RoleProps["name"];

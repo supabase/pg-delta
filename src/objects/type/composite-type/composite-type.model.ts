@@ -31,7 +31,7 @@ const compositeTypePropsSchema = z.object({
   privileges: z.array(privilegePropsSchema),
 });
 
-export type CompositeTypePrivilegeProps = PrivilegeProps;
+type CompositeTypePrivilegeProps = PrivilegeProps;
 export type CompositeTypeProps = z.infer<typeof compositeTypePropsSchema>;
 
 export class CompositeType extends BasePgModel implements TableLikeObject {

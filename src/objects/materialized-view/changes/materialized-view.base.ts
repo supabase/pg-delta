@@ -1,7 +1,7 @@
 import { BaseChange } from "../../base.change.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 
-export abstract class BaseMaterializedViewChange extends BaseChange {
+abstract class BaseMaterializedViewChange extends BaseChange {
   abstract readonly materializedView: MaterializedView;
   abstract readonly scope: "object" | "comment" | "privilege";
   readonly objectType: "materialized_view" = "materialized_view";

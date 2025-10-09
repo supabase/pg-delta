@@ -1,4 +1,5 @@
 import { Graph, topologicalSort } from "graph-data-structure";
+import type { Change } from "../change.types.ts";
 import type { BaseChange } from "../objects/base.change.ts";
 
 /**
@@ -6,8 +7,8 @@ import type { BaseChange } from "../objects/base.change.ts";
  * Can be either an object matching change attributes or a custom predicate function.
  */
 type ChangeFilter =
-  | Partial<Pick<BaseChange, "operation" | "objectType" | "scope">>
-  | ((c: BaseChange) => boolean);
+  | Partial<Pick<Change, "operation" | "objectType" | "scope">>
+  | ((c: Change) => boolean);
 
 /**
  * An edge represented as local indices within a window: [from_index, to_index].
@@ -100,7 +101,7 @@ type PairwiseOrder = "a_before_b" | "b_before_a";
  * });
  * ```
  */
-export function refineByTopologicalWindows<T extends BaseChange>(
+export function refineByTopologicalWindows<T extends Change>(
   changes: T[],
   spec: TopoWindowSpec<T>,
 ): T[] {
@@ -219,7 +220,7 @@ function refineSlice<T extends BaseChange>(
  * @param filter - The filter to match against
  * @returns true if the change matches the filter
  */
-function matchesFilter(change: BaseChange, filter: ChangeFilter): boolean {
+function matchesFilter(change: Change, filter: ChangeFilter): boolean {
   if (typeof filter === "function") return filter(change);
   if (filter.operation !== undefined && change.operation !== filter.operation)
     return false;

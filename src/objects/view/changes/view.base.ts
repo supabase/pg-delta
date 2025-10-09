@@ -1,7 +1,7 @@
 import { BaseChange } from "../../base.change.ts";
 import type { View } from "../view.model.ts";
 
-export abstract class BaseViewChange extends BaseChange {
+abstract class BaseViewChange extends BaseChange {
   abstract readonly view: View;
   abstract readonly scope: "object" | "comment" | "privilege";
   readonly objectType: "view" = "view";

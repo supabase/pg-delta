@@ -1,7 +1,7 @@
 import { BaseChange } from "../../base.change.ts";
 import type { Index } from "../index.model.ts";
 
-export abstract class BaseIndexChange extends BaseChange {
+abstract class BaseIndexChange extends BaseChange {
   abstract readonly index: Index;
   abstract readonly scope: "object" | "comment";
   readonly objectType: "index" = "index";

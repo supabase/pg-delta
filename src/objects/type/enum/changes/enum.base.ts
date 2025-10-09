@@ -1,7 +1,7 @@
 import { BaseChange } from "../../../base.change.ts";
 import type { Enum } from "../enum.model.ts";
 
-export abstract class BaseEnumChange extends BaseChange {
+abstract class BaseEnumChange extends BaseChange {
   abstract readonly enum: Enum;
   abstract readonly scope: "object" | "comment" | "privilege";
   readonly objectType: "enum" = "enum";

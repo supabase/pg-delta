@@ -1,7 +1,7 @@
 import { BaseChange } from "../../base.change.ts";
 import type { Table } from "../table.model.ts";
 
-export abstract class BaseTableChange extends BaseChange {
+abstract class BaseTableChange extends BaseChange {
   abstract readonly table: Table;
   abstract readonly scope: "object" | "comment" | "privilege";
   readonly objectType: "table" = "table";

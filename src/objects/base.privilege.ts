@@ -11,7 +11,7 @@
  * @param version - The PostgreSQL version number (e.g., 170000 for 17.0.0)
  * @returns An array of privilege names available for this object kind
  */
-export function objectPrivilegeUniverse(
+function objectPrivilegeUniverse(
   kind: string,
   version: number | undefined,
 ): string[] {
@@ -74,7 +74,7 @@ export function objectPrivilegeUniverse(
  * @param version - The PostgreSQL version number
  * @returns true if the list contains all available privileges for this object kind
  */
-export function isFullObjectPrivilegeSet(
+function isFullObjectPrivilegeSet(
   kind: string,
   list: string[],
   version: number | undefined,

@@ -32,7 +32,7 @@ const materializedViewPropsSchema = z.object({
   privileges: z.array(privilegePropsSchema),
 });
 
-export type MaterializedViewPrivilegeProps = PrivilegeProps;
+type MaterializedViewPrivilegeProps = PrivilegeProps;
 export type MaterializedViewProps = z.infer<typeof materializedViewPropsSchema>;
 
 export class MaterializedView extends BasePgModel implements TableLikeObject {
