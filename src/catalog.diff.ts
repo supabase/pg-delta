@@ -82,27 +82,55 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
 
   // Filter privilege REVOKEs for objects that are being dropped
   // Avoid emitting redundant REVOKE statements for targets that will no longer exist.
-  // TODO: Refactor using the new privileges within objects approach
-  // const droppedObjectStableIds = new Set<string>();
-  // for (const ch of changes) {
-  //   if (ch.operation === "drop" && ch.scope === "object") {
-  //     for (const dep of ch.dependencies) droppedObjectStableIds.add(dep);
-  //   }
-  // }
-  // const filtered = changes.filter((ch) => {
-  //   if (
-  //     ch instanceof RevokeObjectPrivileges ||
-  //     ch instanceof RevokeGrantOptionObjectPrivileges
-  //   )
-  //     return !droppedObjectStableIds.has(ch.objectId);
-  //   if (ch instanceof RevokeColumnPrivileges)
-  //     return !droppedObjectStableIds.has(ch.tableId);
-  //   return true;
-  // });
+  const droppedObjectStableIds = new Set<string>();
+  for (const change of changes) {
+    if (change.operation === "drop" && change.scope === "object") {
+      for (const dep of change.dependencies) {
+        droppedObjectStableIds.add(dep);
+      }
+    }
+  }
+  const filteredChanges = changes.filter((change) => {
+    if (change.operation === "drop" && change.scope === "privilege") {
+      switch (change.objectType) {
+        case "composite_type":
+          return !droppedObjectStableIds.has(change.compositeType.stableId);
+        case "domain":
+          return !droppedObjectStableIds.has(change.domain.stableId);
+        case "enum":
+          return !droppedObjectStableIds.has(change.enum.stableId);
+        case "language":
+          return !droppedObjectStableIds.has(change.language.stableId);
+        case "materialized_view":
+          return !droppedObjectStableIds.has(change.materializedView.stableId);
+        case "procedure":
+          return !droppedObjectStableIds.has(change.procedure.stableId);
+        case "range":
+          return !droppedObjectStableIds.has(change.range.stableId);
+        case "schema":
+          return !droppedObjectStableIds.has(change.schema.stableId);
+        case "sequence":
+          return !droppedObjectStableIds.has(change.sequence.stableId);
+        case "table":
+          return !droppedObjectStableIds.has(change.table.stableId);
+        case "view":
+          return !droppedObjectStableIds.has(change.view.stableId);
+        default: {
+          // exhaustiveness check
+          const _exhaustive: never = change;
+          return _exhaustive;
+        }
+      }
+    }
+    return true;
+  });
 
   if (DEBUG) {
-    console.log("changes catalog diff: ", stringifyWithBigInt(changes, 2));
+    console.log(
+      "changes catalog diff: ",
+      stringifyWithBigInt(filteredChanges, 2),
+    );
   }
 
-  return changes;
+  return filteredChanges;
 }
