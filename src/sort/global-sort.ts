@@ -1,3 +1,4 @@
+import { AlterTableAddConstraint } from "../objects/table/changes/table.alter.ts";
 import type { Rule } from "./sort-utils.ts";
 
 /**
@@ -73,7 +74,18 @@ export const pgDumpSort: Rule[] = [
   // Relations
   { operation: "create", objectType: "sequence", scope: "object" },
   { operation: "create", objectType: "table", scope: "object" },
-  { operation: "alter", objectType: "table", scope: "object" }, // RELATION-ALTER (columns, types, nullability, defaults)
+  // Any alter table operation that is not an add foreign key constraint
+  (change) => {
+    const isAlterTable =
+      change.operation === "alter" &&
+      change.objectType === "table" &&
+      change.scope === "object";
+    const isAddForeignKeyConstraint =
+      isAlterTable &&
+      change instanceof AlterTableAddConstraint &&
+      change.constraint.constraint_type === "f";
+    return isAlterTable && !isAddForeignKeyConstraint;
+  },
   { operation: "alter", objectType: "sequence", scope: "object" }, // e.g., OWNED BY / SET options — requires table/column to exist
   // Partition attach would be here (ALTER TABLE ... ATTACH PARTITION) — add scope: "partition" to target precisely
   { operation: "create", objectType: "view", scope: "object" },
@@ -85,14 +97,18 @@ export const pgDumpSort: Rule[] = [
   // Non-FK constraints would be ordered here (ALTER TABLE ... ADD CONSTRAINT) — add scope: "constraint" to target precisely
   { operation: "create", objectType: "index", scope: "object" },
   { operation: "alter", objectType: "index", scope: "object" },
+  // Foreign key constraints
+  (change) => {
+    return (
+      change instanceof AlterTableAddConstraint &&
+      change.constraint.constraint_type === "f"
+    );
+  },
   // Partitioned index attachments would be here (ALTER INDEX ... ATTACH PARTITION)
   { operation: "create", objectType: "trigger", scope: "object" },
   { operation: "alter", objectType: "trigger", scope: "object" },
   { operation: "create", objectType: "rls_policy", scope: "object" },
   { operation: "alter", objectType: "rls_policy", scope: "object" },
-
-  // OWNER — requires object to exist
-  { scope: "owner" },
 
   // PRIVILEGES near the end
   { scope: "privilege" },

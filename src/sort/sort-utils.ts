@@ -1,14 +1,16 @@
 import type { Change } from "../change.types.ts";
-import type { BaseChange } from "../objects/base.change.ts";
 
 /**
  * A sorting rule that matches changes based on their operation, objectType, and/or scope.
  * Rules with undefined fields act as wildcards that match any value for that field.
  * For example, { operation: "drop" } matches all drop operations regardless of objectType or scope.
+ *
+ * Alternatively, a rule can provide a predicate function that returns true/false for any change.
+ * This allows for complex matching logic that can't be expressed with static field matches.
  */
-export type Rule = Partial<
-  Pick<BaseChange, "operation" | "objectType" | "scope">
->;
+export type Rule =
+  | Partial<Pick<Change, "operation" | "objectType" | "scope">>
+  | ((change: Change) => boolean);
 
 /**
  * Creates a comparator function that orders changes according to a prioritized list of rules.
@@ -24,6 +26,16 @@ function createComparatorFromRules(rules: Rule[]) {
   const matchIndex = (change: Change): number => {
     for (let i = 0; i < rules.length; i++) {
       const rule = rules[i];
+
+      // Check if rule is a predicate function
+      if (typeof rule === "function") {
+        if (rule(change)) {
+          return i;
+        }
+        continue;
+      }
+
+      // Otherwise, treat as field-based match
       if (
         (rule.operation === undefined || rule.operation === change.operation) &&
         (rule.objectType === undefined ||
@@ -77,6 +89,27 @@ function createComparatorFromRules(rules: Rule[]) {
  *   { operation: "create", objectType: "table" },
  * ]);
  * // Result: all DROP TABLE, then CREATE SCHEMA, then CREATE TABLE, then unmatched changes
+ * ```
+ *
+ * @example
+ * ```ts
+ * // Using predicate functions for complex matching
+ * const sorted = sortChangesByRules(changes, [
+ *   { operation: "create", objectType: "table" },
+ *   (change) => {
+ *     // Match unique indexes created after tables but before foreign keys
+ *     return change.operation === "create" &&
+ *            change.objectType === "index" &&
+ *            change instanceof CreateIndex &&
+ *            change.index.is_unique;
+ *   },
+ *   (change) => {
+ *     // Match foreign key constraints
+ *     return change.operation === "alter" &&
+ *            change instanceof AlterTableAddConstraint &&
+ *            change.constraint.constraint_type === "f";
+ *   },
+ * ]);
  * ```
  */
 export function sortChangesByRules<T extends Change>(
