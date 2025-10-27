@@ -73,6 +73,7 @@ export class Extension extends BasePgModel {
   }
 }
 
+// TODO: fetch extension dependencies so we can determine when to use CASCADE on creation
 export async function extractExtensions(sql: Sql): Promise<Extension[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;

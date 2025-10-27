@@ -10,8 +10,8 @@ import { CreateExtensionChange } from "./extension.base.ts";
  * ```sql
  * CREATE EXTENSION [ IF NOT EXISTS ] extension_name
  *     [ WITH ] [ SCHEMA schema_name ]
- *     [ VERSION version ]
- *     [ FROM old_version ]
+ *              [ VERSION version ]
+ *              [ CASCADE ]
  * ```
  */
 export class CreateExtension extends CreateExtensionChange {
@@ -41,6 +41,9 @@ export class CreateExtension extends CreateExtensionChange {
     // if (this.extension.version) {
     //   parts.push("VERSION", quoteLiteral(this.extension.version));
     // }
+
+    // TODO: Add CASCADE if the extension has dependencies
+    // parts.push("CASCADE");
 
     return parts.join(" ");
   }

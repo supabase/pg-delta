@@ -31,7 +31,7 @@ const base: IndexProps = {
   index_expressions: "expression",
   partial_predicate: null,
   table_relkind: "r",
-  is_constraint: false,
+  is_owned_by_constraint: false,
   definition: "CREATE INDEX ix ON t (expression)",
   comment: null,
   owner: "test",

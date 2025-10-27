@@ -54,9 +54,16 @@ export interface DiffContext {
   branchCatalog: Catalog;
 }
 
+export type ChangeFilter = (ctx: DiffContext, change: Change) => boolean;
+
+export type ChangeSerializer = (
+  ctx: DiffContext,
+  change: Change,
+) => string | undefined;
+
 export interface MainOptions {
-  filter?: (ctx: DiffContext, changes: Change[]) => Change[];
-  serialize?: (ctx: DiffContext, change: Change) => string | undefined;
+  filter?: ChangeFilter;
+  serialize?: ChangeSerializer;
 }
 
 export async function main(
@@ -83,7 +90,10 @@ export async function main(
   );
 
   const filteredChanges = options.filter
-    ? options.filter({ mainCatalog, branchCatalog }, refinedChanges)
+    ? refinedChanges.filter((change) =>
+        // biome-ignore lint/style/noNonNullAssertion: options.filter is guaranteed to be defined
+        options.filter!({ mainCatalog, branchCatalog }, change),
+      )
     : refinedChanges;
 
   if (filteredChanges.length === 0) {
