@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { CreateSequenceChange, DropSequenceChange } from "./sequence.base.ts";
 
@@ -13,8 +14,12 @@ export class CreateCommentOnSequence extends CreateSequenceChange {
     this.sequence = props.sequence;
   }
 
-  get dependencies() {
-    return [`comment:${this.sequence.schema}.${this.sequence.name}`];
+  get creates() {
+    return [stableId.comment(this.sequence.stableId)];
+  }
+
+  get requires() {
+    return [this.sequence.stableId];
   }
 
   serialize(): string {
@@ -37,8 +42,15 @@ export class DropCommentOnSequence extends DropSequenceChange {
     this.sequence = props.sequence;
   }
 
-  get dependencies() {
-    return [`comment:${this.sequence.schema}.${this.sequence.name}`];
+  get drops() {
+    return [stableId.comment(this.sequence.stableId)];
+  }
+
+  get requires() {
+    return [
+      stableId.comment(this.sequence.stableId),
+      this.sequence.stableId,
+    ];
   }
 
   serialize(): string {

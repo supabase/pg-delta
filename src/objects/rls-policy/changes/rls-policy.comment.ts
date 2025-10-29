@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { stableId } from "../../utils.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 import {
   CreateRlsPolicyChange,
@@ -18,10 +19,12 @@ export class CreateCommentOnRlsPolicy extends CreateRlsPolicyChange {
     this.policy = props.policy;
   }
 
-  get dependencies() {
-    return [
-      `comment:${this.policy.schema}.${this.policy.table_name}.${this.policy.name}`,
-    ];
+  get creates() {
+    return [stableId.comment(this.policy.stableId)];
+  }
+
+  get requires() {
+    return [this.policy.stableId];
   }
 
   serialize(): string {
@@ -46,10 +49,12 @@ export class DropCommentOnRlsPolicy extends DropRlsPolicyChange {
     this.policy = props.policy;
   }
 
-  get dependencies() {
-    return [
-      `comment:${this.policy.schema}.${this.policy.table_name}.${this.policy.name}`,
-    ];
+  get drops() {
+    return [stableId.comment(this.policy.stableId)];
+  }
+
+  get requires() {
+    return [stableId.comment(this.policy.stableId), this.policy.stableId];
   }
 
   serialize(): string {

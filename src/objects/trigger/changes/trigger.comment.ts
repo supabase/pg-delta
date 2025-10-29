@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { stableId } from "../../utils.ts";
 import type { Trigger } from "../trigger.model.ts";
 import { CreateTriggerChange, DropTriggerChange } from "./trigger.base.ts";
 
@@ -13,10 +14,12 @@ export class CreateCommentOnTrigger extends CreateTriggerChange {
     this.trigger = props.trigger;
   }
 
-  get dependencies() {
-    return [
-      `comment:${this.trigger.schema}.${this.trigger.table_name}.${this.trigger.name}`,
-    ];
+  get creates() {
+    return [stableId.comment(this.trigger.stableId)];
+  }
+
+  get requires() {
+    return [this.trigger.stableId];
   }
 
   serialize(): string {
@@ -41,9 +44,14 @@ export class DropCommentOnTrigger extends DropTriggerChange {
     this.trigger = props.trigger;
   }
 
-  get dependencies() {
+  get drops() {
+    return [stableId.comment(this.trigger.stableId)];
+  }
+
+  get requires() {
     return [
-      `comment:${this.trigger.schema}.${this.trigger.table_name}.${this.trigger.name}`,
+      stableId.comment(this.trigger.stableId),
+      this.trigger.stableId,
     ];
   }
 

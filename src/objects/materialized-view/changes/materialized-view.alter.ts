@@ -49,7 +49,7 @@ export class AlterMaterializedViewChangeOwner extends AlterMaterializedViewChang
     this.owner = props.owner;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.materializedView.stableId];
   }
 
@@ -84,7 +84,7 @@ export class AlterMaterializedViewSetStorageParams extends AlterMaterializedView
     this.keysToReset = props.keysToReset;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.materializedView.stableId];
   }
 

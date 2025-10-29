@@ -1,3 +1,4 @@
+import { stableId } from "../../utils.ts";
 import type { Table } from "../table.model.ts";
 import { CreateTableChange } from "./table.base.ts";
 
@@ -31,8 +32,13 @@ export class CreateTable extends CreateTableChange {
     this.table = props.table;
   }
 
-  get dependencies() {
-    return [this.table.stableId];
+  get creates() {
+    return [
+      this.table.stableId,
+      ...this.table.columns.map((col) =>
+        stableId.column(this.table.schema, this.table.name, col.name),
+      ),
+    ];
   }
 
   serialize(): string {

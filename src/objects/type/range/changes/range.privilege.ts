@@ -2,6 +2,7 @@ import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../../base.privilege.ts";
+import { stableId } from "../../../utils.ts";
 import type { Range } from "../range.model.ts";
 import { CreateRangeChange, DropRangeChange } from "./range.base.ts";
 
@@ -43,9 +44,12 @@ export class GrantRangePrivileges extends CreateRangeChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.range.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get creates() {
+    return [stableId.acl(this.range.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [this.range.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {
@@ -100,9 +104,16 @@ export class RevokeRangePrivileges extends DropRangeChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.range.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get drops() {
+    return [stableId.acl(this.range.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [
+      stableId.acl(this.range.stableId, this.grantee),
+      this.range.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {
@@ -141,9 +152,12 @@ export class RevokeGrantOptionRangePrivileges extends DropRangeChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.range.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get requires() {
+    return [
+      stableId.acl(this.range.stableId, this.grantee),
+      this.range.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {

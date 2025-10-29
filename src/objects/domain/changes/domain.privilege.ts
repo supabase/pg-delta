@@ -2,6 +2,7 @@ import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { stableId } from "../../utils.ts";
 import type { Domain } from "../domain.model.ts";
 import { CreateDomainChange, DropDomainChange } from "./domain.base.ts";
 
@@ -43,9 +44,12 @@ export class GrantDomainPrivileges extends CreateDomainChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.domain.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get creates() {
+    return [stableId.acl(this.domain.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [this.domain.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {
@@ -100,9 +104,12 @@ export class RevokeDomainPrivileges extends DropDomainChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.domain.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get drops() {
+    return [stableId.acl(this.domain.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [this.domain.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {
@@ -141,9 +148,12 @@ export class RevokeGrantOptionDomainPrivileges extends DropDomainChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.domain.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get requires() {
+    return [
+      this.domain.stableId,
+      stableId.role(this.grantee),
+      stableId.acl(this.domain.stableId, this.grantee),
+    ];
   }
 
   serialize(): string {

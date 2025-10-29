@@ -1,5 +1,6 @@
 import { quoteLiteral } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
+import { stableId } from "../../utils.ts";
 import type { Table, TableConstraintProps } from "../table.model.ts";
 import { CreateTableChange, DropTableChange } from "./table.base.ts";
 
@@ -40,8 +41,12 @@ export class CreateCommentOnTable extends CreateTableChange {
     this.table = props.table;
   }
 
-  get dependencies() {
-    return [`comment:${this.table.schema}.${this.table.name}`];
+  get creates() {
+    return [stableId.comment(this.table.stableId)];
+  }
+
+  get requires() {
+    return [this.table.stableId];
   }
 
   serialize(): string {
@@ -67,8 +72,15 @@ export class DropCommentOnTable extends DropTableChange {
     this.table = props.table;
   }
 
-  get dependencies() {
-    return [`comment:${this.table.schema}.${this.table.name}`];
+  get drops() {
+    return [stableId.comment(this.table.stableId)];
+  }
+
+  get requires() {
+    return [
+      stableId.comment(this.table.stableId),
+      this.table.stableId,
+    ];
   }
 
   serialize(): string {
@@ -94,9 +106,18 @@ export class CreateCommentOnColumn extends CreateTableChange {
     this.column = props.column;
   }
 
-  get dependencies() {
+  get creates() {
+    const columnStableId = stableId.column(
+      this.table.schema,
+      this.table.name,
+      this.column.name,
+    );
+    return [stableId.comment(columnStableId)];
+  }
+
+  get requires() {
     return [
-      `comment:${this.table.schema}.${this.table.name}.${this.column.name}`,
+      stableId.column(this.table.schema, this.table.name, this.column.name),
     ];
   }
 
@@ -125,9 +146,24 @@ export class DropCommentOnColumn extends DropTableChange {
     this.column = props.column;
   }
 
-  get dependencies() {
+  get drops() {
+    const columnStableId = stableId.column(
+      this.table.schema,
+      this.table.name,
+      this.column.name,
+    );
+    return [stableId.comment(columnStableId)];
+  }
+
+  get requires() {
+    const columnStableId = stableId.column(
+      this.table.schema,
+      this.table.name,
+      this.column.name,
+    );
     return [
-      `comment:${this.table.schema}.${this.table.name}.${this.column.name}`,
+      stableId.comment(columnStableId),
+      columnStableId,
     ];
   }
 
@@ -157,9 +193,22 @@ export class CreateCommentOnConstraint extends CreateTableChange {
     this.constraint = props.constraint;
   }
 
-  get dependencies() {
+  get creates() {
+    const constraintStableId = stableId.constraint(
+      this.table.schema,
+      this.table.name,
+      this.constraint.name,
+    );
+    return [stableId.comment(constraintStableId)];
+  }
+
+  get requires() {
     return [
-      `comment:${this.table.schema}.${this.table.name}.${this.constraint.name}`,
+      stableId.constraint(
+        this.table.schema,
+        this.table.name,
+        this.constraint.name,
+      ),
     ];
   }
 
@@ -193,9 +242,24 @@ export class DropCommentOnConstraint extends DropTableChange {
     this.constraint = props.constraint;
   }
 
-  get dependencies() {
+  get drops() {
+    const constraintStableId = stableId.constraint(
+      this.table.schema,
+      this.table.name,
+      this.constraint.name,
+    );
+    return [stableId.comment(constraintStableId)];
+  }
+
+  get requires() {
+    const constraintStableId = stableId.constraint(
+      this.table.schema,
+      this.table.name,
+      this.constraint.name,
+    );
     return [
-      `comment:${this.table.schema}.${this.table.name}.${this.constraint.name}`,
+      stableId.comment(constraintStableId),
+      constraintStableId,
     ];
   }
 

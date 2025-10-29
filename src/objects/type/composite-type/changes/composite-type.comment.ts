@@ -1,5 +1,6 @@
 import { quoteLiteral } from "../../../base.change.ts";
 import type { ColumnProps } from "../../../base.model.ts";
+import { stableId } from "../../../utils.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 import {
   CreateCompositeTypeChange,
@@ -27,8 +28,12 @@ export class CreateCommentOnCompositeType extends CreateCompositeTypeChange {
     this.compositeType = props.compositeType;
   }
 
-  get dependencies() {
-    return [`comment:${this.compositeType.schema}.${this.compositeType.name}`];
+  get creates() {
+    return [stableId.comment(this.compositeType.stableId)];
+  }
+
+  get requires() {
+    return [this.compositeType.stableId];
   }
 
   serialize(): string {
@@ -51,8 +56,15 @@ export class DropCommentOnCompositeType extends DropCompositeTypeChange {
     this.compositeType = props.compositeType;
   }
 
-  get dependencies() {
-    return [`comment:${this.compositeType.schema}.${this.compositeType.name}`];
+  get drops() {
+    return [stableId.comment(this.compositeType.stableId)];
+  }
+
+  get requires() {
+    return [
+      stableId.comment(this.compositeType.stableId),
+      this.compositeType.stableId,
+    ];
   }
 
   serialize(): string {
@@ -75,9 +87,15 @@ export class CreateCommentOnCompositeTypeAttribute extends CreateCompositeTypeCh
     this.attribute = props.attribute;
   }
 
-  get dependencies() {
+  get creates() {
+    const attributeStableId = `${this.compositeType.stableId}:${this.attribute.name}`;
+    return [stableId.comment(attributeStableId)];
+  }
+
+  get requires() {
     return [
-      `comment:${this.compositeType.schema}.${this.compositeType.name}.${this.attribute.name}`,
+      `${this.compositeType.stableId}:${this.attribute.name}`,
+      this.compositeType.stableId,
     ];
   }
 
@@ -103,9 +121,17 @@ export class DropCommentOnCompositeTypeAttribute extends DropCompositeTypeChange
     this.attribute = props.attribute;
   }
 
-  get dependencies() {
+  get drops() {
+    const attributeStableId = `${this.compositeType.stableId}:${this.attribute.name}`;
+    return [stableId.comment(attributeStableId)];
+  }
+
+  get requires() {
+    const attributeStableId = `${this.compositeType.stableId}:${this.attribute.name}`;
     return [
-      `comment:${this.compositeType.schema}.${this.compositeType.name}.${this.attribute.name}`,
+      stableId.comment(attributeStableId),
+      attributeStableId,
+      this.compositeType.stableId,
     ];
   }
 

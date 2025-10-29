@@ -20,7 +20,11 @@ export class DropDomain extends DropDomainChange {
     this.domain = props.domain;
   }
 
-  get dependencies() {
+  get requires() {
+    return [this.domain.stableId];
+  }
+
+  get drops() {
     return [this.domain.stableId];
   }
 

@@ -22,7 +22,11 @@ export class DropProcedure extends DropProcedureChange {
     this.procedure = props.procedure;
   }
 
-  get dependencies() {
+  get drops() {
+    return [this.procedure.stableId];
+  }
+
+  get requires() {
     return [this.procedure.stableId];
   }
 

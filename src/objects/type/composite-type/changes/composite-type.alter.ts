@@ -38,7 +38,7 @@ export class AlterCompositeTypeChangeOwner extends AlterCompositeTypeChange {
     this.owner = props.owner;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.compositeType.stableId];
   }
 
@@ -69,8 +69,12 @@ export class AlterCompositeTypeAddAttribute extends AlterCompositeTypeChange {
     this.attribute = props.attribute;
   }
 
-  get dependencies() {
+  get creates() {
     return [`${this.compositeType.stableId}:${this.attribute.name}`];
+  }
+
+  get requires() {
+    return [this.compositeType.stableId];
   }
 
   serialize(): string {
@@ -105,8 +109,11 @@ export class AlterCompositeTypeDropAttribute extends AlterCompositeTypeChange {
     this.attribute = props.attribute;
   }
 
-  get dependencies() {
-    return [`${this.compositeType.stableId}:${this.attribute.name}`];
+  get requires() {
+    return [
+      `${this.compositeType.stableId}:${this.attribute.name}`,
+      this.compositeType.stableId,
+    ];
   }
 
   serialize(): string {
@@ -136,8 +143,11 @@ export class AlterCompositeTypeAlterAttributeType extends AlterCompositeTypeChan
     this.attribute = props.attribute;
   }
 
-  get dependencies() {
-    return [`${this.compositeType.stableId}:${this.attribute.name}`];
+  get requires() {
+    return [
+      `${this.compositeType.stableId}:${this.attribute.name}`,
+      this.compositeType.stableId,
+    ];
   }
 
   serialize(): string {

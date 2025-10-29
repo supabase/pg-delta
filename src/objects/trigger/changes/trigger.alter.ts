@@ -34,7 +34,7 @@ export class ReplaceTrigger extends AlterTriggerChange {
     this.indexableObject = props.indexableObject;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.trigger.stableId];
   }
 

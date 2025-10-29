@@ -2,6 +2,7 @@ import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
 import { CreateViewChange, DropViewChange } from "./view.base.ts";
 
@@ -48,9 +49,12 @@ export class GrantViewPrivileges extends CreateViewChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.view.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get creates() {
+    return [stableId.acl(this.view.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [this.view.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {
@@ -114,9 +118,16 @@ export class RevokeViewPrivileges extends DropViewChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.view.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get drops() {
+    return [stableId.acl(this.view.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [
+      stableId.acl(this.view.stableId, this.grantee),
+      this.view.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {
@@ -162,9 +173,12 @@ export class RevokeGrantOptionViewPrivileges extends DropViewChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.view.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get requires() {
+    return [
+      stableId.acl(this.view.stableId, this.grantee),
+      this.view.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {

@@ -1,3 +1,4 @@
+import { stableId } from "../../utils.ts";
 import type { Table } from "../table.model.ts";
 import { DropTableChange } from "./table.base.ts";
 
@@ -20,8 +21,22 @@ export class DropTable extends DropTableChange {
     this.table = props.table;
   }
 
-  get dependencies() {
-    return [this.table.stableId];
+  get drops() {
+    return [
+      this.table.stableId,
+      ...this.table.columns.map((column) =>
+        stableId.column(this.table.schema, this.table.name, column.name),
+      ),
+    ];
+  }
+
+  get requires() {
+    return [
+      this.table.stableId,
+      ...this.table.columns.map((col) =>
+        stableId.column(this.table.schema, this.table.name, col.name),
+      ),
+    ];
   }
 
   serialize(): string {

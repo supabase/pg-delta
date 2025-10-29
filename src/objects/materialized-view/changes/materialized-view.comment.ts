@@ -1,5 +1,6 @@
 import { quoteLiteral } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
+import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import {
   CreateMaterializedViewChange,
@@ -27,10 +28,12 @@ export class CreateCommentOnMaterializedView extends CreateMaterializedViewChang
     this.materializedView = props.materializedView;
   }
 
-  get dependencies() {
-    return [
-      `comment:${this.materializedView.schema}.${this.materializedView.name}`,
-    ];
+  get creates() {
+    return [stableId.comment(this.materializedView.stableId)];
+  }
+
+  get requires() {
+    return [this.materializedView.stableId];
   }
 
   serialize(): string {
@@ -53,9 +56,14 @@ export class DropCommentOnMaterializedView extends DropMaterializedViewChange {
     this.materializedView = props.materializedView;
   }
 
-  get dependencies() {
+  get drops() {
+    return [stableId.comment(this.materializedView.stableId)];
+  }
+
+  get requires() {
     return [
-      `comment:${this.materializedView.schema}.${this.materializedView.name}`,
+      stableId.comment(this.materializedView.stableId),
+      this.materializedView.stableId,
     ];
   }
 
@@ -82,9 +90,25 @@ export class CreateCommentOnMaterializedViewColumn extends CreateMaterializedVie
     this.column = props.column;
   }
 
-  get dependencies() {
+  get creates() {
     return [
-      `comment:${this.materializedView.schema}.${this.materializedView.name}.${this.column.name}`,
+      stableId.comment(
+        stableId.column(
+          this.materializedView.schema,
+          this.materializedView.name,
+          this.column.name,
+        ),
+      ),
+    ];
+  }
+
+  get requires() {
+    return [
+      stableId.column(
+        this.materializedView.schema,
+        this.materializedView.name,
+        this.column.name,
+      ),
     ];
   }
 
@@ -113,9 +137,32 @@ export class DropCommentOnMaterializedViewColumn extends DropMaterializedViewCha
     this.column = props.column;
   }
 
-  get dependencies() {
+  get drops() {
     return [
-      `comment:${this.materializedView.schema}.${this.materializedView.name}.${this.column.name}`,
+      stableId.comment(
+        stableId.column(
+          this.materializedView.schema,
+          this.materializedView.name,
+          this.column.name,
+        ),
+      ),
+    ];
+  }
+
+  get requires() {
+    return [
+      stableId.comment(
+        stableId.column(
+          this.materializedView.schema,
+          this.materializedView.name,
+          this.column.name,
+        ),
+      ),
+      stableId.column(
+        this.materializedView.schema,
+        this.materializedView.name,
+        this.column.name,
+      ),
     ];
   }
 

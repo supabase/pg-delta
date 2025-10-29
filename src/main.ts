@@ -3,9 +3,7 @@ import { diffCatalogs } from "./catalog.diff.ts";
 import type { Catalog } from "./catalog.model.ts";
 import { extractCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
-import { pgDumpSort } from "./sort/global-sort.ts";
-import { applyRefinements } from "./sort/refined-sort.ts";
-import { sortChangesByRules } from "./sort/sort-utils.ts";
+import { sortChangesByPhasedGraph } from "./sort/phased-graph-sort.ts";
 
 // Custom type handler for specifics corner cases
 export const postgresConfig: postgres.Options<
@@ -83,18 +81,17 @@ export async function main(
 
   const changes = diffCatalogs(mainCatalog, branchCatalog);
 
-  const globallySortedChanges = sortChangesByRules(changes, pgDumpSort);
-  const refinedChanges = applyRefinements(
+  const sortedChanges = sortChangesByPhasedGraph(
     { mainCatalog, branchCatalog },
-    globallySortedChanges,
+    changes,
   );
 
   const filteredChanges = options.filter
-    ? refinedChanges.filter((change) =>
+    ? sortedChanges.filter((change) =>
         // biome-ignore lint/style/noNonNullAssertion: options.filter is guaranteed to be defined
         options.filter!({ mainCatalog, branchCatalog }, change),
       )
-    : refinedChanges;
+    : sortedChanges;
 
   if (filteredChanges.length === 0) {
     return null;

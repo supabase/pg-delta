@@ -23,7 +23,7 @@ export class CreateLanguage extends CreateLanguageChange {
     this.orReplace = props.orReplace;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.language.stableId];
   }
 

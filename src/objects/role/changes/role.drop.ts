@@ -20,7 +20,11 @@ export class DropRole extends DropRoleChange {
     this.role = props.role;
   }
 
-  get dependencies() {
+  get drops() {
+    return [this.role.stableId];
+  }
+
+  get requires() {
     return [this.role.stableId];
   }
 

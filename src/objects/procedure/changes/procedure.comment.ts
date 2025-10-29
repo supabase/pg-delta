@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { stableId } from "../../utils.ts";
 import type { Procedure } from "../procedure.model.ts";
 import {
   CreateProcedureChange,
@@ -21,10 +22,12 @@ export class CreateCommentOnProcedure extends CreateProcedureChange {
     this.procedure = props.procedure;
   }
 
-  get dependencies() {
-    return [
-      `comment:${this.procedure.schema}.${this.procedure.name}(${(this.procedure.argument_types ?? []).join(",")})`,
-    ];
+  get creates() {
+    return [stableId.comment(this.procedure.stableId)];
+  }
+
+  get requires() {
+    return [this.procedure.stableId];
   }
 
   serialize(): string {
@@ -48,9 +51,14 @@ export class DropCommentOnProcedure extends DropProcedureChange {
     this.procedure = props.procedure;
   }
 
-  get dependencies() {
+  get drops() {
+    return [stableId.comment(this.procedure.stableId)];
+  }
+
+  get requires() {
     return [
-      `comment:${this.procedure.schema}.${this.procedure.name}(${(this.procedure.argument_types ?? []).join(",")})`,
+      stableId.comment(this.procedure.stableId),
+      this.procedure.stableId,
     ];
   }
 

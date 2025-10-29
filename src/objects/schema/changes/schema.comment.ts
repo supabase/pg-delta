@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { stableId } from "../../utils.ts";
 import type { Schema } from "../schema.model.ts";
 import { CreateSchemaChange, DropSchemaChange } from "./schema.base.ts";
 
@@ -13,8 +14,12 @@ export class CreateCommentOnSchema extends CreateSchemaChange {
     this.schema = props.schema;
   }
 
-  get dependencies() {
-    return [`comment:${this.schema.name}`];
+  get creates() {
+    return [stableId.comment(this.schema.stableId)];
+  }
+
+  get requires() {
+    return [this.schema.stableId];
   }
 
   serialize(): string {
@@ -37,8 +42,12 @@ export class DropCommentOnSchema extends DropSchemaChange {
     this.schema = props.schema;
   }
 
-  get dependencies() {
-    return [`comment:${this.schema.name}`];
+  get drops() {
+    return [stableId.comment(this.schema.stableId)];
+  }
+
+  get requires() {
+    return [stableId.comment(this.schema.stableId), this.schema.stableId];
   }
 
   serialize(): string {

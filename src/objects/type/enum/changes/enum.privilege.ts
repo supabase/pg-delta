@@ -2,6 +2,7 @@ import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../../base.privilege.ts";
+import { stableId } from "../../../utils.ts";
 import type { Enum } from "../enum.model.ts";
 import { CreateEnumChange, DropEnumChange } from "./enum.base.ts";
 
@@ -43,9 +44,12 @@ export class GrantEnumPrivileges extends CreateEnumChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.enum.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get creates() {
+    return [stableId.acl(this.enum.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [this.enum.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {
@@ -100,9 +104,16 @@ export class RevokeEnumPrivileges extends DropEnumChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.enum.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get drops() {
+    return [stableId.acl(this.enum.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [
+      stableId.acl(this.enum.stableId, this.grantee),
+      this.enum.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {
@@ -141,9 +152,12 @@ export class RevokeGrantOptionEnumPrivileges extends DropEnumChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.enum.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get requires() {
+    return [
+      stableId.acl(this.enum.stableId, this.grantee),
+      this.enum.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {

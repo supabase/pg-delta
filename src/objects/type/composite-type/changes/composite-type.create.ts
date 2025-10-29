@@ -21,7 +21,7 @@ export class CreateCompositeType extends CreateCompositeTypeChange {
     this.compositeType = props.compositeType;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.compositeType.stableId];
   }
 

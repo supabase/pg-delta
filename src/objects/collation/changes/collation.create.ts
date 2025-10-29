@@ -31,7 +31,7 @@ export class CreateCollation extends CreateCollationChange {
     this.collation = props.collation;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.collation.stableId];
   }
 

@@ -23,8 +23,14 @@ export class CreateSequence extends CreateSequenceChange {
     this.sequence = props.sequence;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.sequence.stableId];
+  }
+
+  acceptsDependency(_dependentId: string, referencedId: string): boolean {
+    // Ignore dependencies column: -> sequence: because they target statements such as ALTER SEQUENCE OWNED BY ...
+    if (referencedId.startsWith("column:")) return false;
+    return true;
   }
 
   serialize(): string {

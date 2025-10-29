@@ -2,6 +2,7 @@ import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { CreateSequenceChange, DropSequenceChange } from "./sequence.base.ts";
 
@@ -45,9 +46,12 @@ export class GrantSequencePrivileges extends CreateSequenceChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.sequence.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get creates() {
+    return [stableId.acl(this.sequence.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [this.sequence.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {
@@ -104,9 +108,16 @@ export class RevokeSequencePrivileges extends DropSequenceChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.sequence.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get drops() {
+    return [stableId.acl(this.sequence.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [
+      stableId.acl(this.sequence.stableId, this.grantee),
+      this.sequence.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {
@@ -145,9 +156,12 @@ export class RevokeGrantOptionSequencePrivileges extends DropSequenceChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.sequence.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get requires() {
+    return [
+      stableId.acl(this.sequence.stableId, this.grantee),
+      this.sequence.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {

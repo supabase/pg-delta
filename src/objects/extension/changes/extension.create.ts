@@ -23,8 +23,8 @@ export class CreateExtension extends CreateExtensionChange {
     this.extension = props.extension;
   }
 
-  get dependencies() {
-    return [this.extension.stableId];
+  get creates() {
+    return [this.extension.stableId, ...this.extension.members];
   }
 
   serialize(): string {

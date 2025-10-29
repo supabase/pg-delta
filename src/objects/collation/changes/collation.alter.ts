@@ -32,7 +32,7 @@ export class AlterCollationChangeOwner extends AlterCollationChange {
     this.owner = props.owner;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.collation.stableId];
   }
 
@@ -58,7 +58,7 @@ export class AlterCollationRefreshVersion extends AlterCollationChange {
     this.collation = props.collation;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.collation.stableId];
   }
 

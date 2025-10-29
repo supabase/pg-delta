@@ -20,7 +20,11 @@ export class DropSequence extends DropSequenceChange {
     this.sequence = props.sequence;
   }
 
-  get dependencies() {
+  get drops() {
+    return [this.sequence.stableId];
+  }
+
+  get requires() {
     return [this.sequence.stableId];
   }
 

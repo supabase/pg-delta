@@ -20,8 +20,12 @@ export class DropExtension extends DropExtensionChange {
     this.extension = props.extension;
   }
 
-  get dependencies() {
-    return [this.extension.stableId];
+  get drops() {
+    return [this.extension.stableId, ...this.extension.members];
+  }
+
+  get requires() {
+    return [this.extension.stableId, ...this.extension.members];
   }
 
   serialize(): string {

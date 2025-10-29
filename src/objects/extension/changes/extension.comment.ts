@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { stableId } from "../../utils.ts";
 import type { Extension } from "../extension.model.ts";
 import {
   CreateExtensionChange,
@@ -21,8 +22,12 @@ export class CreateCommentOnExtension extends CreateExtensionChange {
     this.extension = props.extension;
   }
 
-  get dependencies() {
-    return [`comment:${this.extension.name}`];
+  get creates() {
+    return [stableId.comment(this.extension.stableId)];
+  }
+
+  get requires() {
+    return [this.extension.stableId];
   }
 
   serialize(): string {
@@ -45,8 +50,12 @@ export class DropCommentOnExtension extends DropExtensionChange {
     this.extension = props.extension;
   }
 
-  get dependencies() {
-    return [`comment:${this.extension.name}`];
+  get drops() {
+    return [stableId.comment(this.extension.stableId)];
+  }
+
+  get requires() {
+    return [stableId.comment(this.extension.stableId), this.extension.stableId];
   }
 
   serialize(): string {

@@ -43,7 +43,7 @@ export class CreateTrigger extends CreateTriggerChange {
     this.orReplace = props.orReplace;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.trigger.stableId];
   }
 

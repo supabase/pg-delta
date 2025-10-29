@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { stableId } from "../../utils.ts";
 import type { Language } from "../language.model.ts";
 import { CreateLanguageChange, DropLanguageChange } from "./language.base.ts";
 
@@ -16,8 +17,12 @@ export class CreateCommentOnLanguage extends CreateLanguageChange {
     this.language = props.language;
   }
 
-  get dependencies() {
-    return [`comment:${this.language.name}`];
+  get creates() {
+    return [stableId.comment(this.language.stableId)];
+  }
+
+  get requires() {
+    return [this.language.stableId];
   }
 
   serialize(): string {
@@ -39,8 +44,12 @@ export class DropCommentOnLanguage extends DropLanguageChange {
     this.language = props.language;
   }
 
-  get dependencies() {
-    return [`comment:${this.language.name}`];
+  get drops() {
+    return [stableId.comment(this.language.stableId)];
+  }
+
+  get requires() {
+    return [stableId.comment(this.language.stableId), this.language.stableId];
   }
 
   serialize(): string {

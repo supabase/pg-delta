@@ -22,9 +22,42 @@ export abstract class BaseChange {
   }
 
   /**
-   * A list of stableIds that this change depends on.
+   * Stable identifiers this change creates.
+   *
+   * Defaults to an empty array. Override in subclasses that create objects.
    */
-  abstract get dependencies(): string[];
+  get creates(): string[] {
+    return [];
+  }
+
+  /**
+   * Stable identifiers this change drops.
+   *
+   * Defaults to an empty array. Override in subclasses that remove objects.
+   */
+  get drops(): string[] {
+    return [];
+  }
+
+  /**
+   * Stable identifiers this change requires to exist beforehand.
+   *
+   * Defaults to an empty array. Override in subclasses that have prerequisites.
+   */
+  get requires(): string[] {
+    return [];
+  }
+
+  /**
+   * Whether this change should inherit a dependency edge from a catalog entry
+   * linking {@code dependentId} to {@code referencedId}.
+   *
+   * Subclasses can override to ignore dependencies that are represented by a
+   * separate change (e.g., ALTER statements that wire up ownership).
+   */
+  acceptsDependency(_dependentId: string, _referencedId: string): boolean {
+    return true;
+  }
 
   /**
    * Serialize the change into a single SQL statement.
