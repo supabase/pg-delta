@@ -4,6 +4,13 @@
 
 import dedent from "dedent";
 import { describe } from "vitest";
+import type { Change } from "../../src/change.types.ts";
+import { CreateCommentOnDomain } from "../../src/objects/domain/changes/domain.comment.ts";
+import { CreateDomain } from "../../src/objects/domain/changes/domain.create.ts";
+import { CreateCommentOnCompositeType } from "../../src/objects/type/composite-type/changes/composite-type.comment.ts";
+import { CreateCompositeType } from "../../src/objects/type/composite-type/changes/composite-type.create.ts";
+import { CreateCommentOnEnum } from "../../src/objects/type/enum/changes/enum.comment.ts";
+import { CreateEnum } from "../../src/objects/type/enum/changes/enum.create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -421,6 +428,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         COMMENT ON DOMAIN test_schema.positive_int IS 'positive integer domain';
         COMMENT ON TYPE test_schema.address IS 'address composite type';
       `,
+        sortChangesCallback: (a, b) => {
+          // force create comment before create type or domain to test comment -> type or domain dependency
+          const isCommentChange = (change: Change) =>
+            change instanceof CreateCommentOnDomain ||
+            change instanceof CreateCommentOnEnum ||
+            change instanceof CreateCommentOnCompositeType;
+
+          if (isCommentChange(a) && !isCommentChange(b)) {
+            return -1;
+          }
+          if (!isCommentChange(a) && isCommentChange(b)) {
+            return 1;
+          }
+
+          return 0;
+        },
       });
     });
   });
