@@ -154,8 +154,8 @@ function sortPhaseChanges(
     (changeItem) => {
       const createdIds = new Set<string>(changeItem.creates);
       if (options.invert) {
-        for (const requiredId of changeItem.requires ?? []) {
-          createdIds.add(requiredId);
+        for (const droppedId of changeItem.drops ?? []) {
+          createdIds.add(droppedId);
         }
       }
       return createdIds;
