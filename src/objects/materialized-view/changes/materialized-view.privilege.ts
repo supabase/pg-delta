@@ -58,10 +58,7 @@ export class GrantMaterializedViewPrivileges extends CreateMaterializedViewChang
   }
 
   get requires() {
-    return [
-      this.materializedView.stableId,
-      stableId.role(this.grantee),
-    ];
+    return [this.materializedView.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {

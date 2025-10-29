@@ -1,7 +1,7 @@
 import { getOwner, getSchema } from "../filter/utils.ts";
 import type { Integration } from "./integration.types.ts";
 
-const SUPABASE_EXTENSIONS_SCHEMAS = [
+const _SUPABASE_EXTENSIONS_SCHEMAS = [
   "graphql",
   "pgmq",
   "pgsodium",

@@ -3,9 +3,7 @@
  */
 
 import { describe } from "vitest";
-import type { Change } from "../../src/change.types.ts";
 import { AlterTableAddColumn } from "../../src/objects/table/changes/table.alter.ts";
-import { CreateTable } from "../../src/objects/table/changes/table.create.ts";
 import { CreateView } from "../../src/objects/view/changes/view.create.ts";
 import { DropView } from "../../src/objects/view/changes/view.drop.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";

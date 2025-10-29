@@ -275,9 +275,7 @@ function sortPhaseChanges(
           ? changeInstance.creates.slice(0, 3)
           : [];
         const nodeLabel = `${changeIndex}: ${changeClassName} ${
-          truncatedCreates.length > 0
-            ? "[" + truncatedCreates.join(",") + "]"
-            : ""
+          truncatedCreates.length > 0 ? `[${truncatedCreates.join(",")}]` : ""
         }`.replaceAll('"', "'");
         mermaidLines.push(`  n${changeIndex}["${nodeLabel}"]`);
       }

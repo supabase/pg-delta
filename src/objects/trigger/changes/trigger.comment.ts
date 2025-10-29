@@ -49,10 +49,7 @@ export class DropCommentOnTrigger extends DropTriggerChange {
   }
 
   get requires() {
-    return [
-      stableId.comment(this.trigger.stableId),
-      this.trigger.stableId,
-    ];
+    return [stableId.comment(this.trigger.stableId), this.trigger.stableId];
   }
 
   serialize(): string {

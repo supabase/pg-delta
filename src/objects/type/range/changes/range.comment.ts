@@ -51,10 +51,7 @@ export class DropCommentOnRange extends DropRangeChange {
   }
 
   get requires() {
-    return [
-      stableId.comment(this.range.stableId),
-      this.range.stableId,
-    ];
+    return [stableId.comment(this.range.stableId), this.range.stableId];
   }
 
   serialize(): string {

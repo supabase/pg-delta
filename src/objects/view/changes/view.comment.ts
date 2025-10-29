@@ -46,10 +46,7 @@ export class DropCommentOnView extends DropViewChange {
   }
 
   get requires() {
-    return [
-      stableId.comment(this.view.stableId),
-      this.view.stableId,
-    ];
+    return [stableId.comment(this.view.stableId), this.view.stableId];
   }
 
   serialize(): string {

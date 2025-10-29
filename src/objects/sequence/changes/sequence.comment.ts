@@ -47,10 +47,7 @@ export class DropCommentOnSequence extends DropSequenceChange {
   }
 
   get requires() {
-    return [
-      stableId.comment(this.sequence.stableId),
-      this.sequence.stableId,
-    ];
+    return [stableId.comment(this.sequence.stableId), this.sequence.stableId];
   }
 
   serialize(): string {

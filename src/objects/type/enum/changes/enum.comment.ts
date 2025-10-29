@@ -51,10 +51,7 @@ export class DropCommentOnEnum extends DropEnumChange {
   }
 
   get requires() {
-    return [
-      stableId.comment(this.enum.stableId),
-      this.enum.stableId,
-    ];
+    return [stableId.comment(this.enum.stableId), this.enum.stableId];
   }
 
   serialize(): string {

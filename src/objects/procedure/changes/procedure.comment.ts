@@ -56,10 +56,7 @@ export class DropCommentOnProcedure extends DropProcedureChange {
   }
 
   get requires() {
-    return [
-      stableId.comment(this.procedure.stableId),
-      this.procedure.stableId,
-    ];
+    return [stableId.comment(this.procedure.stableId), this.procedure.stableId];
   }
 
   serialize(): string {

@@ -77,10 +77,7 @@ export class DropCommentOnTable extends DropTableChange {
   }
 
   get requires() {
-    return [
-      stableId.comment(this.table.stableId),
-      this.table.stableId,
-    ];
+    return [stableId.comment(this.table.stableId), this.table.stableId];
   }
 
   serialize(): string {
@@ -161,10 +158,7 @@ export class DropCommentOnColumn extends DropTableChange {
       this.table.name,
       this.column.name,
     );
-    return [
-      stableId.comment(columnStableId),
-      columnStableId,
-    ];
+    return [stableId.comment(columnStableId), columnStableId];
   }
 
   serialize(): string {
@@ -257,10 +251,7 @@ export class DropCommentOnConstraint extends DropTableChange {
       this.table.name,
       this.constraint.name,
     );
-    return [
-      stableId.comment(constraintStableId),
-      constraintStableId,
-    ];
+    return [stableId.comment(constraintStableId), constraintStableId];
   }
 
   serialize(): string {
