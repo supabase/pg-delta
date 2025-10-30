@@ -81,23 +81,23 @@ export async function main(
 
   const changes = diffCatalogs(mainCatalog, branchCatalog);
 
-  const sortedChanges = sortChangesByPhasedGraph(
-    { mainCatalog, branchCatalog },
-    changes,
-  );
-
   const filteredChanges = options.filter
-    ? sortedChanges.filter((change) =>
+    ? changes.filter((change) =>
         // biome-ignore lint/style/noNonNullAssertion: options.filter is guaranteed to be defined
         options.filter!({ mainCatalog, branchCatalog }, change),
       )
-    : sortedChanges;
+    : changes;
 
   if (filteredChanges.length === 0) {
     return null;
   }
 
-  const hasProcedureChanges = filteredChanges.some(
+  const sortedChanges = sortChangesByPhasedGraph(
+    { mainCatalog, branchCatalog },
+    filteredChanges,
+  );
+
+  const hasProcedureChanges = sortedChanges.some(
     (change) => change.objectType === "procedure",
   );
   const sessionConfig = hasProcedureChanges
@@ -106,7 +106,7 @@ export async function main(
 
   const migrationScript = [
     ...sessionConfig,
-    ...filteredChanges.map((change) => {
+    ...sortedChanges.map((change) => {
       return (
         options.serialize?.({ mainCatalog, branchCatalog }, change) ??
         change.serialize()
