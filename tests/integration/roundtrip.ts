@@ -129,9 +129,8 @@ export async function roundtripFidelityTest(
     );
   }
 
-  if (process.env.TEST_RANDOMIZE_CHANGES_ORDER) {
-    changes = changes.sort(() => Math.random() - 0.5);
-  }
+  // Randomize changes order
+  changes = changes.sort(() => Math.random() - 0.5);
 
   // Optional pre-sort to provide deterministic tie-breaking for the phased sort
   if (sortChangesCallback) {
