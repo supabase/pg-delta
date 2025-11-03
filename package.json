@@ -22,7 +22,7 @@
     "test:watch": "vitest",
     "coverage": "vitest run --coverage --project=integration",
     "typecheck": "tsc --noEmit",
-    "test:supabase": "vitest run tests/supabase/real-project-roundtrip.test.ts"
+    "test:supabase": "vitest run tests/supabase/supabase.test.ts"
   },
   "keywords": [
     "pg",
@@ -48,7 +48,6 @@
     "vitest": "3.2.4"
   },
   "dependencies": {
-    "graph-data-structure": "^4.5.0",
     "zod": "^4.1.5"
   }
 }

@@ -56,7 +56,7 @@ type Edge<TChange> = EdgeIndices | EdgeObjects<TChange>;
  * - buildEdges: add explicit edges among items
  * - pairwise: compare two items and produce an ordering decision
  */
-export interface ConstraintSpec<TChange extends Change> {
+interface ConstraintSpec<TChange extends Change> {
   filter?: ChangeFilter; // default: entire phase
   groupBy?: (item: TChange) => string | null | undefined; // optional grouping key
   buildEdges?: (items: TChange[]) => Edge<TChange>[]; // edges within the filtered group(s)
