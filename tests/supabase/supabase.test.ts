@@ -188,7 +188,9 @@ async function loadStoredTestResults(): Promise<StoredTestResult[]> {
   return cachedStoredTestResults;
 }
 
-async function recordStoredTestResult(result: StoredTestResult): Promise<void> {
+async function _recordStoredTestResult(
+  result: StoredTestResult,
+): Promise<void> {
   const existingResults = new Map(
     (await loadStoredTestResults()).map((entry) => [entry.projectId, entry]),
   );
@@ -275,7 +277,7 @@ describe.sequential(
     const remoteProjects = JSON.parse(remoteProjectsFile) as Project[];
 
     const storedResults = await loadStoredTestResults();
-    const testedProjectIds = new Set(
+    const _testedProjectIds = new Set(
       storedResults.map((result) => result.projectId),
     );
 
@@ -345,7 +347,7 @@ describe.sequential(
         let generationTimeMs = 0;
         let migrationScript: string | null = null;
         let sql: postgres.Sql | null = null;
-        let storedResult: StoredTestResult | null = null;
+        let _storedResult: StoredTestResult | null = null;
 
         try {
           migrationScript = await main(db.local, db.remote, supabase);
@@ -357,7 +359,7 @@ describe.sequential(
             console.log(
               `No migrations needed for project ${remoteProject.ref}`,
             );
-            storedResult = {
+            _storedResult = {
               projectId: remoteProject.ref,
               status: "success",
               timestamp: new Date().toISOString(),
@@ -377,7 +379,7 @@ describe.sequential(
             generationTimeMs,
           );
 
-          storedResult = {
+          _storedResult = {
             projectId: remoteProject.ref,
             status: "success",
             timestamp: new Date().toISOString(),
@@ -393,7 +395,7 @@ describe.sequential(
           const errorMessage =
             error instanceof Error ? error.message : String(error);
 
-          storedResult = {
+          _storedResult = {
             projectId: remoteProject.ref,
             status: "error",
             timestamp: new Date().toISOString(),

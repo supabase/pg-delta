@@ -804,35 +804,3 @@ export class AlterTableDetachPartition extends AlterTableChange {
     ].join(" ");
   }
 }
-
-function buildColumnStableIdsFromConstraint(
-  table: Table,
-  constraint: TableConstraintProps,
-): Array<ReturnType<typeof stableId.column>> {
-  const columnNames = constraint.key_columns ?? [];
-  if (columnNames.length === 0) return [];
-  const columnsByName = new Map(
-    table.columns.map((column) => [column.name, column]),
-  );
-  const stableIds: Array<ReturnType<typeof stableId.column>> = [];
-  for (const columnName of columnNames) {
-    const column = columnsByName.get(columnName);
-    if (!column) continue;
-    stableIds.push(stableId.column(table.schema, table.name, column.name));
-  }
-  return stableIds;
-}
-
-function buildReferencedColumnStableIdsFromConstraint(
-  constraint: TableConstraintProps,
-): Array<ReturnType<typeof stableId.column>> {
-  const schema = constraint.foreign_key_schema;
-  const tableName = constraint.foreign_key_table;
-  const columnNames = constraint.foreign_key_columns;
-  if (!schema || !tableName || !columnNames || columnNames.length === 0) {
-    return [];
-  }
-  return columnNames.map((columnName) =>
-    stableId.column(schema, tableName, columnName),
-  );
-}
