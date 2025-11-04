@@ -386,46 +386,11 @@ from (
 ) all_rows
 where dependent_stable_id <> referenced_stable_id
   and NOT (
-    COALESCE(dep_schema, '') LIKE ANY (ARRAY['pg\_%','information\_schema'])
-    OR COALESCE(ref_schema, '') LIKE ANY (ARRAY['pg\_%','information\_schema'])
+    COALESCE(dep_schema, '') LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
   )
   `;
 
   return rows;
-}
-
-/**
- * Extract constraint-to-constraint dependencies between foreign key constraints
- * and their referenced unique/primary key constraints.
- */
-async function extractConstraintDepends(sql: Sql): Promise<PgDepend[]> {
-  const constraintRows = await sql<PgDepend[]>`
--- CONSTRAINT-TO-CONSTRAINT DEPENDENCIES: Foreign key constraints depend on their referenced unique/primary key constraints
-
--- Foreign key constraint dependencies on referenced unique/primary key constraints
-SELECT DISTINCT
-  'constraint:' || quote_ident(fk_ns.nspname) || '.' || quote_ident(fk_table.relname) || '.' || quote_ident(fk_con.conname) as dependent_stable_id,
-  'constraint:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_table.relname) || '.' || quote_ident(ref_con.conname) as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_constraint fk_con
--- Foreign key constraint table and schema
-JOIN pg_class fk_table ON fk_con.conrelid = fk_table.oid
-JOIN pg_namespace fk_ns ON fk_table.relnamespace = fk_ns.oid
--- Referenced table and schema
-JOIN pg_class ref_table ON fk_con.confrelid = ref_table.oid
-JOIN pg_namespace ref_ns ON ref_table.relnamespace = ref_ns.oid
--- Find the referenced unique/primary key constraint
-JOIN pg_constraint ref_con ON (
-  ref_con.conrelid = fk_con.confrelid  -- Same referenced table
-  AND ref_con.contype IN ('p', 'u')    -- Primary key or unique constraint
-  AND ref_con.conkey = fk_con.confkey   -- Same columns
-)
-WHERE fk_con.contype = 'f'  -- Only foreign key constraints
-  AND NOT fk_ns.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-  AND NOT ref_ns.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-  `;
-
-  return constraintRows;
 }
 
 /**
@@ -1107,6 +1072,25 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
       AND v.relkind IN ('v','m')
       AND d.deptype = 'n'
   ),
+  constraint_deps AS (
+    SELECT DISTINCT
+      format('constraint:%I.%I.%I', fk_ns.nspname, fk_table.relname, fk_con.conname) AS dependent_stable_id,
+      format('constraint:%I.%I.%I', ref_ns.nspname, ref_table.relname, ref_con.conname) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      fk_ns.nspname AS dep_schema,
+      ref_ns.nspname AS ref_schema
+    FROM pg_constraint fk_con
+    JOIN pg_class fk_table ON fk_con.conrelid = fk_table.oid
+    JOIN pg_namespace fk_ns ON fk_table.relnamespace = fk_ns.oid
+    JOIN pg_class ref_table ON fk_con.confrelid = ref_table.oid
+    JOIN pg_namespace ref_ns ON ref_table.relnamespace = ref_ns.oid
+    JOIN pg_constraint ref_con ON (
+      ref_con.conrelid = fk_con.confrelid
+      AND ref_con.contype IN ('p', 'u')
+      AND ref_con.conkey = fk_con.confkey
+    )
+    WHERE fk_con.contype = 'f'
+  ),
   index_schema_deps AS (
     -- Indexes depend on their schema (ensure schema exists before indexes)
     SELECT DISTINCT
@@ -1373,6 +1357,8 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     UNION ALL
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM view_rewrite_proc_deps
     UNION ALL
+    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM constraint_deps
+    UNION ALL
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM index_schema_deps
     UNION ALL
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM index_table_deps
@@ -1387,28 +1373,18 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
   -- In some corner case (composite type) we can have the same stable ids in the case where an internal object depends on it's parent type
   -- eg: compositeType contains internal columns but we don't distinct them from the parent type itself in our stable ids
   WHERE dependent_stable_id <> referenced_stable_id
-    -- Drop rows where BOTH sides are system schemas (keep user↔user + cross)
+    -- filter rows where dependent object is part of Postgres internals
     AND NOT (
       COALESCE(dep_schema, '') LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
-      AND COALESCE(ref_schema, '') LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
     )
   ORDER BY dependent_stable_id, referenced_stable_id;
   `;
 
-  // Also extract table -> function dependencies (defaults/constraints)
-  // const tableFuncDepends = await extractTableAndConstraintFunctionDepends(sql);
-  // Extract constraint-to-constraint dependencies (foreign key -> unique/primary key)
-  const constraintDepends = await extractConstraintDepends(sql);
   // Extract privilege and membership dependencies
   const privilegeDepends = await extractPrivilegeAndMembershipDepends(sql);
 
   // Combine all dependency sources and remove duplicates
-  const allDepends = new Set([
-    ...dependsRows,
-    // ...tableFuncDepends,
-    ...constraintDepends,
-    ...privilegeDepends,
-  ]);
+  const allDepends = new Set([...dependsRows, ...privilegeDepends]);
 
   return Array.from(allDepends).sort(
     (a, b) =>
