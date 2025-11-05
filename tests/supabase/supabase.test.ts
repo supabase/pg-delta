@@ -277,34 +277,13 @@ describe.sequential(
     const remoteProjects = JSON.parse(remoteProjectsFile) as Project[];
 
     const storedResults = await loadStoredTestResults();
-    const _testedProjectIds = new Set(
+    const testedProjectIds = new Set(
       storedResults.map((result) => result.projectId),
     );
 
-    let failedProjects = remoteProjects.filter((project) =>
-      [
-        // permission denied for schema public
-        "jjqwaskwktqjmyyuqrix",
-        "kagxangrfmodrgczauhj",
-        "njcpgmaawmgiqzbscalt",
-
-        // must be able to SET ROLE "developer"
-        "qjtyenjjklbtvtmcjzua",
-
-        // must be member of role "developer"
-        "tqymbknzakiqyyoahpid",
-
-        // pgroonga: [option][tokenizer][validate] invalid tokenizer: <TokenMecab>: [info][set][default-tokenizer][(anonymous)] unknown tokenizer: <TokenMecab>
-        "vixakfzznwuowldennig",
-
-        // permission denied to create role
-        "xkbwyxkettxlxrpkkyhd",
-      ].includes(project.ref),
+    let failedProjects = remoteProjects.filter(
+      (project) => !testedProjectIds.has(project.ref),
     );
-
-    // failedProjects = failedProjects.filter(
-    //   (project) => !testedProjectIds.has(project.ref),
-    // );
 
     failedProjects = failedProjects
       .sort((a, b) => a.ref.localeCompare(b.ref))
@@ -316,30 +295,6 @@ describe.sequential(
     }
 
     for (const remoteProject of failedProjects) {
-      // let sql: postgres.Sql | null = null;
-      // // Attempt to connect to remote project first, if it fails, skip the test
-      // try {
-      //   sql = postgres(remoteProject.connection_strings.postgres, {
-      //     connect_timeout: 3,
-      //   });
-      //   await sql`SELECT 1`;
-      // } catch (error) {
-      //   console.error(
-      //     `Failed to connect to remote project ${remoteProject.ref}: ${error}`,
-      //   );
-      //   failedProjects.push(remoteProject.ref);
-      //   continue;
-      // } finally {
-      //   await sql?.end();
-      // }
-
-      // if (!remoteProject.postgres_major_version) {
-      //   console.error(
-      //     `Remote project ${remoteProject.ref} has no postgres major version`,
-      //   );
-      //   continue;
-      // }
-
       const test = getTest(remoteProject);
 
       test(`project ${remoteProject.ref}`, async ({ db }) => {
