@@ -1,6 +1,10 @@
 import type { Sql } from "postgres";
 import { extractCurrentUser, extractVersion } from "./context.ts";
 import { extractDepends, type PgDepend } from "./depend.ts";
+import {
+  type Aggregate,
+  extractAggregates,
+} from "./objects/aggregate/aggregate.model.ts";
 import type { BasePgModel, TableLikeObject } from "./objects/base.model.ts";
 import {
   type Collation,
@@ -45,6 +49,7 @@ import { extractRanges, type Range } from "./objects/type/range/range.model.ts";
 import { extractViews, type View } from "./objects/view/view.model.ts";
 
 interface CatalogProps {
+  aggregates: Record<string, Aggregate>;
   collations: Record<string, Collation>;
   compositeTypes: Record<string, CompositeType>;
   domains: Record<string, Domain>;
@@ -68,6 +73,7 @@ interface CatalogProps {
 }
 
 export class Catalog {
+  public readonly aggregates: CatalogProps["aggregates"];
   public readonly collations: CatalogProps["collations"];
   public readonly compositeTypes: CatalogProps["compositeTypes"];
   public readonly domains: CatalogProps["domains"];
@@ -90,6 +96,7 @@ export class Catalog {
   public readonly currentUser: CatalogProps["currentUser"];
 
   constructor(props: CatalogProps) {
+    this.aggregates = props.aggregates;
     this.collations = props.collations;
     this.compositeTypes = props.compositeTypes;
     this.domains = props.domains;
@@ -115,6 +122,7 @@ export class Catalog {
 
 export async function extractCatalog(sql: Sql) {
   const [
+    aggregates,
     collations,
     compositeTypes,
     domains,
@@ -135,6 +143,7 @@ export async function extractCatalog(sql: Sql) {
     version,
     currentUser,
   ] = await Promise.all([
+    extractAggregates(sql).then(listToRecord),
     extractCollations(sql).then(listToRecord),
     extractCompositeTypes(sql).then(listToRecord),
     extractDomains(sql).then(listToRecord),
@@ -162,6 +171,7 @@ export async function extractCatalog(sql: Sql) {
   };
 
   return new Catalog({
+    aggregates,
     collations,
     compositeTypes,
     domains,
