@@ -21,6 +21,7 @@ const baseRule: RuleProps = {
     'CREATE RULE "my_rule" AS ON INSERT TO public."my_table" DO INSTEAD NOTHING',
   comment: null,
   columns: ["id"],
+  owner: "o1",
 };
 
 describe.concurrent("rule.diff", () => {

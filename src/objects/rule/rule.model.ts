@@ -22,6 +22,7 @@ const rulePropsSchema = z.object({
   event: RuleEventSchema,
   enabled: RuleEnabledStateSchema,
   is_instead: z.boolean(),
+  owner: z.string(),
   definition: z.string(),
   comment: z.string().nullable(),
   columns: z.array(z.string()),
@@ -38,6 +39,7 @@ export class Rule extends BasePgModel {
   public readonly event: RuleProps["event"];
   public readonly enabled: RuleProps["enabled"];
   public readonly is_instead: RuleProps["is_instead"];
+  public readonly owner: RuleProps["owner"];
   public readonly definition: RuleProps["definition"];
   public readonly comment: RuleProps["comment"];
   public readonly columns: RuleProps["columns"];
@@ -52,6 +54,7 @@ export class Rule extends BasePgModel {
     this.event = props.event;
     this.enabled = props.enabled;
     this.is_instead = props.is_instead;
+    this.owner = props.owner;
     this.definition = props.definition;
     this.comment = props.comment;
     this.columns = props.columns;
@@ -74,6 +77,7 @@ export class Rule extends BasePgModel {
       event: this.event,
       enabled: this.enabled,
       is_instead: this.is_instead,
+      owner: this.owner,
       definition: this.definition,
       comment: this.comment,
       columns: this.columns,
@@ -119,6 +123,7 @@ export async function extractRules(sql: Sql): Promise<Rule[]> {
         END AS event,
         r.ev_enabled AS enabled,
         r.is_instead,
+        c.relowner::regrole::text AS owner,
         pg_get_ruledef(r.oid, true) AS definition,
         obj_description(r.oid, 'pg_rewrite') AS comment,
         COALESCE(

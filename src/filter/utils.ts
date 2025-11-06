@@ -26,6 +26,8 @@ export function getSchema(change: Change) {
       return change.policy.schema;
     case "role":
       return null;
+    case "rule":
+      return change.rule.schema;
     case "schema":
       return change.schema.name;
     case "sequence":
@@ -70,6 +72,8 @@ export function getOwner(change: Change) {
       return change.policy.owner;
     case "role":
       return change.role.name;
+    case "rule":
+      return change.rule.owner;
     case "schema":
       return change.schema.owner;
     case "sequence":
