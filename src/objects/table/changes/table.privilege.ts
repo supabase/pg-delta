@@ -2,6 +2,7 @@ import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { stableId } from "../../utils.ts";
 import type { Table } from "../table.model.ts";
 import { CreateTableChange, DropTableChange } from "./table.base.ts";
 
@@ -48,9 +49,12 @@ export class GrantTablePrivileges extends CreateTableChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.table.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get creates() {
+    return [stableId.acl(this.table.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [this.table.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {
@@ -114,9 +118,16 @@ export class RevokeTablePrivileges extends DropTableChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.table.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get drops() {
+    return [stableId.acl(this.table.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [
+      stableId.acl(this.table.stableId, this.grantee),
+      this.table.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {
@@ -162,9 +173,12 @@ export class RevokeGrantOptionTablePrivileges extends DropTableChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.table.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get requires() {
+    return [
+      stableId.acl(this.table.stableId, this.grantee),
+      this.table.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {

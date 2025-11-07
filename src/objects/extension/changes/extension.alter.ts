@@ -34,7 +34,7 @@ export class AlterExtensionUpdateVersion extends AlterExtensionChange {
     this.version = props.version;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.extension.stableId];
   }
 
@@ -62,8 +62,8 @@ export class AlterExtensionSetSchema extends AlterExtensionChange {
     this.schema = props.schema;
   }
 
-  get dependencies() {
-    return [this.extension.stableId];
+  get requires() {
+    return [this.extension.stableId, `schema:${this.schema}`];
   }
 
   serialize(): string {

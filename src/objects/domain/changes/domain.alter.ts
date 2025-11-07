@@ -1,3 +1,4 @@
+import { stableId } from "../../utils.ts";
 import type { Domain, DomainConstraintProps } from "../domain.model.ts";
 import { AlterDomainChange, DropDomainChange } from "./domain.base.ts";
 
@@ -58,7 +59,7 @@ export class AlterDomainSetDefault extends AlterDomainChange {
     this.defaultValue = props.defaultValue;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.domain.stableId];
   }
 
@@ -79,7 +80,7 @@ export class AlterDomainDropDefault extends AlterDomainChange {
     this.domain = props.domain;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.domain.stableId];
   }
 
@@ -100,7 +101,7 @@ export class AlterDomainSetNotNull extends AlterDomainChange {
     this.domain = props.domain;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.domain.stableId];
   }
 
@@ -121,7 +122,7 @@ export class AlterDomainDropNotNull extends AlterDomainChange {
     this.domain = props.domain;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.domain.stableId];
   }
 
@@ -144,8 +145,8 @@ export class AlterDomainChangeOwner extends AlterDomainChange {
     this.owner = props.owner;
   }
 
-  get dependencies() {
-    return [this.domain.stableId];
+  get requires() {
+    return [this.domain.stableId, stableId.role(this.owner)];
   }
 
   serialize(): string {
@@ -167,8 +168,18 @@ export class AlterDomainAddConstraint extends AlterDomainChange {
     this.constraint = props.constraint;
   }
 
-  get dependencies() {
-    return [`${this.domain.stableId}:${this.constraint.name}`];
+  get creates() {
+    return [
+      stableId.constraint(
+        this.domain.schema,
+        this.domain.name,
+        this.constraint.name,
+      ),
+    ];
+  }
+
+  get requires() {
+    return [this.domain.stableId];
   }
 
   serialize(): string {
@@ -203,8 +214,25 @@ export class AlterDomainDropConstraint extends DropDomainChange {
     this.constraint = props.constraint;
   }
 
-  get dependencies() {
-    return [`${this.domain.stableId}:${this.constraint.name}`];
+  get requires() {
+    return [
+      this.domain.stableId,
+      stableId.constraint(
+        this.domain.schema,
+        this.domain.name,
+        this.constraint.name,
+      ),
+    ];
+  }
+
+  get drops() {
+    return [
+      stableId.constraint(
+        this.domain.schema,
+        this.domain.name,
+        this.constraint.name,
+      ),
+    ];
   }
 
   serialize(): string {
@@ -235,8 +263,15 @@ export class AlterDomainValidateConstraint extends AlterDomainChange {
     this.constraint = props.constraint;
   }
 
-  get dependencies() {
-    return [this.domain.stableId];
+  get requires() {
+    return [
+      this.domain.stableId,
+      stableId.constraint(
+        this.domain.schema,
+        this.domain.name,
+        this.constraint.name,
+      ),
+    ];
   }
 
   serialize(): string {

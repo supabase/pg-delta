@@ -34,7 +34,7 @@ export class AlterRlsPolicySetRoles extends AlterRlsPolicyChange {
     this.roles = props.roles;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.policy.stableId];
   }
 
@@ -70,7 +70,7 @@ export class AlterRlsPolicySetUsingExpression extends AlterRlsPolicyChange {
     this.usingExpression = props.usingExpression;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.policy.stableId];
   }
 
@@ -104,7 +104,7 @@ export class AlterRlsPolicySetWithCheckExpression extends AlterRlsPolicyChange {
     this.withCheckExpression = props.withCheckExpression;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.policy.stableId];
   }
 

@@ -40,7 +40,7 @@ export class CreateProcedure extends CreateProcedureChange {
     this.orReplace = props.orReplace ?? false;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.procedure.stableId];
   }
 

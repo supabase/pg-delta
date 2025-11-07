@@ -21,7 +21,7 @@ export class CreateEnum extends CreateEnumChange {
     this.enum = props.enum;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.enum.stableId];
   }
 

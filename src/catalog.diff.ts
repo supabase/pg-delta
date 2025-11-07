@@ -85,7 +85,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   const droppedObjectStableIds = new Set<string>();
   for (const change of changes) {
     if (change.operation === "drop" && change.scope === "object") {
-      for (const dep of change.dependencies) {
+      for (const dep of change.requires) {
         droppedObjectStableIds.add(dep);
       }
     }

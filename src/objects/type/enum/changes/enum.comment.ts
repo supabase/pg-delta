@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../../base.change.ts";
+import { stableId } from "../../../utils.ts";
 import type { Enum } from "../enum.model.ts";
 import { CreateEnumChange, DropEnumChange } from "./enum.base.ts";
 
@@ -17,8 +18,12 @@ export class CreateCommentOnEnum extends CreateEnumChange {
     this.enum = props.enum;
   }
 
-  get dependencies() {
-    return [`comment:${this.enum.schema}.${this.enum.name}`];
+  get creates() {
+    return [stableId.comment(this.enum.stableId)];
+  }
+
+  get requires() {
+    return [this.enum.stableId];
   }
 
   serialize(): string {
@@ -41,8 +46,12 @@ export class DropCommentOnEnum extends DropEnumChange {
     this.enum = props.enum;
   }
 
-  get dependencies() {
-    return [`comment:${this.enum.schema}.${this.enum.name}`];
+  get drops() {
+    return [stableId.comment(this.enum.stableId)];
+  }
+
+  get requires() {
+    return [stableId.comment(this.enum.stableId), this.enum.stableId];
   }
 
   serialize(): string {

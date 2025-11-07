@@ -2,6 +2,7 @@ import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { stableId } from "../../utils.ts";
 import type { Language } from "../language.model.ts";
 import { CreateLanguageChange, DropLanguageChange } from "./language.base.ts";
 
@@ -43,9 +44,12 @@ export class GrantLanguagePrivileges extends CreateLanguageChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.language.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get creates() {
+    return [stableId.acl(this.language.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [this.language.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {
@@ -99,9 +103,16 @@ export class RevokeLanguagePrivileges extends DropLanguageChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.language.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get drops() {
+    return [stableId.acl(this.language.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [
+      stableId.acl(this.language.stableId, this.grantee),
+      this.language.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {
@@ -139,9 +150,12 @@ export class RevokeGrantOptionLanguagePrivileges extends DropLanguageChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.language.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get requires() {
+    return [
+      stableId.acl(this.language.stableId, this.grantee),
+      this.language.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {

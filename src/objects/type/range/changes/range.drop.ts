@@ -20,8 +20,12 @@ export class DropRange extends DropRangeChange {
     this.range = props.range;
   }
 
-  get dependencies() {
-    return [`${this.range.stableId}`];
+  get drops() {
+    return [this.range.stableId];
+  }
+
+  get requires() {
+    return [this.range.stableId];
   }
 
   serialize(): string {

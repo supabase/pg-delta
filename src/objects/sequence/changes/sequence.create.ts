@@ -1,3 +1,4 @@
+import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { CreateSequenceChange } from "./sequence.base.ts";
 
@@ -23,8 +24,35 @@ export class CreateSequence extends CreateSequenceChange {
     this.sequence = props.sequence;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.sequence.stableId];
+  }
+
+  override acceptsDependency(
+    dependentId: string,
+    referencedId: string,
+  ): boolean {
+    if (dependentId === this.sequence.stableId) {
+      const ownedByIds: string[] = [];
+      const {
+        owned_by_schema: schema,
+        owned_by_table: table,
+        owned_by_column: column,
+      } = this.sequence;
+
+      if (schema && table) {
+        ownedByIds.push(`table:${schema}.${table}`);
+        if (column) {
+          ownedByIds.push(stableId.column(schema, table, column));
+        }
+      }
+
+      if (ownedByIds.some((candidateId) => candidateId === referencedId)) {
+        return false;
+      }
+    }
+
+    return super.acceptsDependency(dependentId, referencedId);
   }
 
   serialize(): string {

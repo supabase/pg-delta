@@ -1,3 +1,4 @@
+import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { DropMaterializedViewChange } from "./materialized-view.base.ts";
 
@@ -24,8 +25,30 @@ export class DropMaterializedView extends DropMaterializedViewChange {
     this.materializedView = props.materializedView;
   }
 
-  get dependencies() {
-    return [this.materializedView.stableId];
+  get drops() {
+    return [
+      this.materializedView.stableId,
+      ...this.materializedView.columns.map((column) =>
+        stableId.column(
+          this.materializedView.schema,
+          this.materializedView.name,
+          column.name,
+        ),
+      ),
+    ];
+  }
+
+  get requires() {
+    return [
+      this.materializedView.stableId,
+      ...this.materializedView.columns.map((column) =>
+        stableId.column(
+          this.materializedView.schema,
+          this.materializedView.name,
+          column.name,
+        ),
+      ),
+    ];
   }
 
   serialize(): string {

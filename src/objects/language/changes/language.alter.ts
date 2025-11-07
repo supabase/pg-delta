@@ -29,7 +29,7 @@ export class AlterLanguageChangeOwner extends AlterLanguageChange {
     this.owner = props.owner;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.language.stableId];
   }
 

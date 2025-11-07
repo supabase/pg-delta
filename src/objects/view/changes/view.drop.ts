@@ -1,3 +1,4 @@
+import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
 import { DropViewChange } from "./view.base.ts";
 
@@ -15,8 +16,22 @@ export class DropView extends DropViewChange {
     this.view = props.view;
   }
 
-  get dependencies() {
-    return [this.view.stableId];
+  get drops() {
+    return [
+      this.view.stableId,
+      ...this.view.columns.map((column) =>
+        stableId.column(this.view.schema, this.view.name, column.name),
+      ),
+    ];
+  }
+
+  get requires() {
+    return [
+      this.view.stableId,
+      ...this.view.columns.map((column) =>
+        stableId.column(this.view.schema, this.view.name, column.name),
+      ),
+    ];
   }
 
   serialize(): string {

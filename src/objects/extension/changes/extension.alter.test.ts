@@ -14,6 +14,7 @@ describe.concurrent("extension", () => {
         relocatable: true,
         owner: "test",
         comment: null,
+        members: [],
       };
       const extension = new Extension({
         ...props,
@@ -37,6 +38,7 @@ describe.concurrent("extension", () => {
         version: "1.0",
         owner: "test",
         comment: null,
+        members: [],
       };
       const extension = new Extension({
         ...props,

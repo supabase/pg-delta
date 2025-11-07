@@ -3,9 +3,7 @@ import { diffCatalogs } from "./catalog.diff.ts";
 import type { Catalog } from "./catalog.model.ts";
 import { extractCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
-import { pgDumpSort } from "./sort/global-sort.ts";
-import { applyRefinements } from "./sort/refined-sort.ts";
-import { sortChangesByRules } from "./sort/sort-utils.ts";
+import { sortChangesByPhasedGraph } from "./sort/phased-graph-sort.ts";
 
 // Custom type handler for specifics corner cases
 export const postgresConfig: postgres.Options<
@@ -54,8 +52,16 @@ export interface DiffContext {
   branchCatalog: Catalog;
 }
 
+export type ChangeFilter = (ctx: DiffContext, change: Change) => boolean;
+
+export type ChangeSerializer = (
+  ctx: DiffContext,
+  change: Change,
+) => string | undefined;
+
 export interface MainOptions {
-  filter?: (ctx: DiffContext, changes: Change[]) => Change[];
+  filter?: ChangeFilter;
+  serialize?: ChangeSerializer;
 }
 
 export async function main(
@@ -75,21 +81,37 @@ export async function main(
 
   const changes = diffCatalogs(mainCatalog, branchCatalog);
 
-  const globallySortedChanges = sortChangesByRules(changes, pgDumpSort);
-  const refinedChanges = applyRefinements(
+  const filteredChanges = options.filter
+    ? changes.filter((change) =>
+        // biome-ignore lint/style/noNonNullAssertion: options.filter is guaranteed to be defined
+        options.filter!({ mainCatalog, branchCatalog }, change),
+      )
+    : changes;
+
+  if (filteredChanges.length === 0) {
+    return null;
+  }
+
+  const sortedChanges = sortChangesByPhasedGraph(
     { mainCatalog, branchCatalog },
-    globallySortedChanges,
+    filteredChanges,
   );
 
-  const filteredChanges = options.filter
-    ? options.filter({ mainCatalog, branchCatalog }, refinedChanges)
-    : refinedChanges;
-
-  const sessionConfig = ["SET check_function_bodies = false"];
+  const hasProcedureChanges = sortedChanges.some(
+    (change) => change.objectType === "procedure",
+  );
+  const sessionConfig = hasProcedureChanges
+    ? ["SET check_function_bodies = false"]
+    : [];
 
   const migrationScript = [
     ...sessionConfig,
-    ...filteredChanges.map((change) => change.serialize()),
+    ...sortedChanges.map((change) => {
+      return (
+        options.serialize?.({ mainCatalog, branchCatalog }, change) ??
+        change.serialize()
+      );
+    }),
   ].join(";\n\n");
 
   console.log(migrationScript);

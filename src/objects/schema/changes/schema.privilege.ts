@@ -2,6 +2,7 @@ import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { stableId } from "../../utils.ts";
 import type { Schema } from "../schema.model.ts";
 import { CreateSchemaChange, DropSchemaChange } from "./schema.base.ts";
 
@@ -43,9 +44,12 @@ export class GrantSchemaPrivileges extends CreateSchemaChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.schema.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get creates() {
+    return [stableId.acl(this.schema.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [this.schema.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {
@@ -100,9 +104,16 @@ export class RevokeSchemaPrivileges extends DropSchemaChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.schema.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get drops() {
+    return [stableId.acl(this.schema.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [
+      stableId.acl(this.schema.stableId, this.grantee),
+      this.schema.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {
@@ -141,9 +152,12 @@ export class RevokeGrantOptionSchemaPrivileges extends DropSchemaChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.schema.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get requires() {
+    return [
+      stableId.acl(this.schema.stableId, this.grantee),
+      this.schema.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {

@@ -29,7 +29,7 @@ export class CreateRange extends CreateRangeChange {
     this.range = props.range;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.range.stableId];
   }
 

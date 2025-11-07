@@ -1,0 +1,6 @@
+{
+  "name": "staging",
+  "api_url": "https://api.supabase.green",
+  "dashboard_url": "https://supabase.green/dashboard",
+  "project_host": "supabase.green"
+}

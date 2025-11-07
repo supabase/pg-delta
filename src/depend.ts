@@ -25,526 +25,6 @@ export interface PgDepend {
 }
 
 /**
- * Extract view dependencies from pg_rewrite via pg_depend.
- * Views depend on the objects they reference through their rewrite rules.
- * @param sql - The SQL client.
- * @returns Array of dependency objects for view dependencies.
- */
-async function extractViewAndMaterializedViewDepends(
-  sql: Sql,
-): Promise<PgDepend[]> {
-  const dependsRows = await sql<PgDepend[]>`
-    select * from (
-      -- Views/materialized views depending on tables/views/materialized views
-      select distinct
-        case
-          when v.relkind = 'v' then 'view:' || quote_ident(v_ns.nspname) || '.' || quote_ident(v.relname)
-          when v.relkind = 'm' then 'materializedView:' || quote_ident(v_ns.nspname) || '.' || quote_ident(v.relname)
-          else 'unknown:' || quote_ident(v.relname) || ':' || v.relkind::text
-        end as dependent_stable_id,
-        case
-          when ref_obj.relkind = 'r' then 'table:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname)
-          when ref_obj.relkind = 'v' then 'view:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname)
-          when ref_obj.relkind = 'm' then 'materializedview:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname)
-          else 'unknown:' || quote_ident(ref_obj.relname)
-        end as referenced_stable_id,
-        d.deptype
-      from pg_catalog.pg_depend d
-      join pg_catalog.pg_class c1 on d.classid = c1.oid
-      join pg_catalog.pg_class c2 on d.refclassid = c2.oid
-      join pg_catalog.pg_rewrite r on r.oid = d.objid
-      join pg_catalog.pg_class v on r.ev_class = v.oid
-      join pg_catalog.pg_namespace v_ns on v.relnamespace = v_ns.oid
-      join pg_catalog.pg_class ref_obj on d.refobjid = ref_obj.oid
-      join pg_catalog.pg_namespace ref_ns on ref_obj.relnamespace = ref_ns.oid
-      where quote_ident(c1.relname) = 'pg_rewrite'
-        and quote_ident(c2.relname) = 'pg_class'
-        and d.deptype = 'n'
-        and c1.relnamespace = (select oid from pg_namespace where quote_ident(nspname) = 'pg_catalog')
-        and c2.relnamespace = (select oid from pg_namespace where quote_ident(nspname) = 'pg_catalog')
-      union all
-      -- Views/materialized views depending on functions
-      select distinct
-        case
-          when v.relkind = 'v' then 'view:' || quote_ident(v_ns.nspname) || '.' || quote_ident(v.relname)
-          when v.relkind = 'm' then 'materializedView:' || quote_ident(v_ns.nspname) || '.' || quote_ident(v.relname)
-          else 'unknown:' || quote_ident(v.relname) || ':' || v.relkind::text
-        end as dependent_stable_id,
-        'procedure:' || quote_ident(ref_proc_ns.nspname) || '.' || quote_ident(ref_proc.proname) || '('
-          || coalesce(
-            (
-              select string_agg(format_type(oid, null), ',' order by ord)
-              from unnest(ref_proc.proargtypes) with ordinality as t(oid, ord)
-            ),
-            ''
-          ) || ')' as referenced_stable_id,
-        d.deptype
-      from pg_catalog.pg_depend d
-      join pg_catalog.pg_class c1 on d.classid = c1.oid
-      join pg_catalog.pg_class c2 on d.refclassid = c2.oid
-      join pg_catalog.pg_rewrite r on r.oid = d.objid
-      join pg_catalog.pg_class v on r.ev_class = v.oid
-      join pg_catalog.pg_namespace v_ns on v.relnamespace = v_ns.oid
-      join pg_catalog.pg_proc ref_proc on d.refobjid = ref_proc.oid
-      join pg_catalog.pg_namespace ref_proc_ns on ref_proc.pronamespace = ref_proc_ns.oid
-      where quote_ident(c1.relname) = 'pg_rewrite'
-        and quote_ident(c2.relname) = 'pg_proc'
-        and d.deptype = 'n'
-        and c1.relnamespace = (select oid from pg_namespace where quote_ident(nspname) = 'pg_catalog')
-        and c2.relnamespace = (select oid from pg_namespace where quote_ident(nspname) = 'pg_catalog')
-    ) as view_depends_rows
-    where dependent_stable_id != referenced_stable_id
-  `;
-
-  return dependsRows;
-}
-
-/**
- * Extract ownership dependencies between all database objects and their owner roles.
- * These dependencies ensure that roles are created before objects that depend on them,
- * and objects are dropped before their owner roles.
- */
-async function extractOwnershipDepends(sql: Sql): Promise<PgDepend[]> {
-  const ownershipRows = await sql<PgDepend[]>`
--- OWNERSHIP DEPENDENCIES: All objects depend on their owner roles
-
--- Schema ownership dependencies
-SELECT DISTINCT
-  'schema:' || quote_ident(n.nspname) as dependent_stable_id,
-  'role:' || n.nspowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_namespace n
-WHERE NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Table ownership dependencies  
-SELECT DISTINCT
-  'table:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) as dependent_stable_id,
-  'role:' || c.relowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_class c
-JOIN pg_namespace n ON c.relnamespace = n.oid
-WHERE c.relkind IN ('r', 'p')
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- View ownership dependencies
-SELECT DISTINCT
-  'view:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) as dependent_stable_id,
-  'role:' || c.relowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_class c
-JOIN pg_namespace n ON c.relnamespace = n.oid
-WHERE c.relkind = 'v'
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Materialized view ownership dependencies
-SELECT DISTINCT
-  'materializedView:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) as dependent_stable_id,
-  'role:' || c.relowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_class c
-JOIN pg_namespace n ON c.relnamespace = n.oid
-WHERE c.relkind = 'm'
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Sequence ownership dependencies
-SELECT DISTINCT
-  'sequence:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) as dependent_stable_id,
-  'role:' || c.relowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_class c
-JOIN pg_namespace n ON c.relnamespace = n.oid
-WHERE c.relkind = 'S'
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Composite type ownership dependencies
-SELECT DISTINCT
-  'compositeType:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) as dependent_stable_id,
-  'role:' || c.relowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_class c
-JOIN pg_namespace n ON c.relnamespace = n.oid
-WHERE c.relkind = 'c'
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Function/procedure ownership dependencies
-SELECT DISTINCT
-  'procedure:' || quote_ident(n.nspname) || '.' || quote_ident(p.proname) || '('
-    || COALESCE(
-      (
-        SELECT string_agg(format_type(oid, null), ',' ORDER BY ord)
-        FROM unnest(p.proargtypes) WITH ORDINALITY AS t(oid, ord)
-      ),
-      ''
-    )
-    || ')' as dependent_stable_id,
-  'role:' || p.proowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_proc p
-JOIN pg_namespace n ON p.pronamespace = n.oid
-WHERE NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Domain ownership dependencies
-SELECT DISTINCT
-  'domain:' || quote_ident(n.nspname) || '.' || quote_ident(t.typname) as dependent_stable_id,
-  'role:' || t.typowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_type t
-JOIN pg_namespace n ON t.typnamespace = n.oid
-WHERE t.typtype = 'd'
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Enum ownership dependencies
-SELECT DISTINCT
-  'enum:' || quote_ident(n.nspname) || '.' || quote_ident(t.typname) as dependent_stable_id,
-  'role:' || t.typowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_type t
-JOIN pg_namespace n ON t.typnamespace = n.oid
-WHERE t.typtype = 'e'
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Range type ownership dependencies
-SELECT DISTINCT
-  'range:' || quote_ident(n.nspname) || '.' || quote_ident(t.typname) as dependent_stable_id,
-  'role:' || t.typowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_type t
-JOIN pg_namespace n ON t.typnamespace = n.oid
-WHERE t.typtype = 'r'
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Multirange type ownership dependencies
-SELECT DISTINCT
-  'multirange:' || quote_ident(n.nspname) || '.' || quote_ident(t.typname) as dependent_stable_id,
-  'role:' || t.typowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_type t
-JOIN pg_namespace n ON t.typnamespace = n.oid
-WHERE t.typtype = 'm'
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Base type ownership dependencies
-SELECT DISTINCT
-  'type:' || quote_ident(n.nspname) || '.' || quote_ident(t.typname) as dependent_stable_id,
-  'role:' || t.typowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_type t
-JOIN pg_namespace n ON t.typnamespace = n.oid
-WHERE t.typtype = 'b'
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Trigger ownership dependencies (triggers inherit owner from their table)
-SELECT DISTINCT
-  'trigger:' || quote_ident(tn.nspname) || '.' || quote_ident(tc.relname) || '.' || quote_ident(tg.tgname) as dependent_stable_id,
-  'role:' || tc.relowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_trigger tg
-JOIN pg_class tc ON tg.tgrelid = tc.oid
-JOIN pg_namespace tn ON tc.relnamespace = tn.oid
-WHERE NOT tn.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-  AND NOT tg.tgisinternal
-
-UNION ALL
-
--- RLS Policy ownership dependencies (policies inherit owner from their table)
-SELECT DISTINCT
-  'rlsPolicy:' || quote_ident(tn.nspname) || '.' || quote_ident(tc.relname) || '.' || quote_ident(pol.polname) as dependent_stable_id,
-  'role:' || tc.relowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_policy pol
-JOIN pg_class tc ON pol.polrelid = tc.oid
-JOIN pg_namespace tn ON tc.relnamespace = tn.oid
-WHERE NOT tn.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Language ownership dependencies
-SELECT DISTINCT
-  'language:' || quote_ident(l.lanname) as dependent_stable_id,
-  'role:' || l.lanowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_language l
-WHERE l.lanname NOT IN ('internal', 'c', 'sql')
-
-UNION ALL
-
--- Extension ownership dependencies
-SELECT DISTINCT
-  'extension:' || quote_ident(e.extname) as dependent_stable_id,
-  'role:' || e.extowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_extension e
-WHERE e.extname <> 'plpgsql'  -- Exclude default extensions
-
-UNION ALL
-
--- Collation ownership dependencies
-SELECT DISTINCT
-  'collation:' || quote_ident(n.nspname) || '.' || quote_ident(c.collname) as dependent_stable_id,
-  'role:' || c.collowner::regrole::text as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_collation c
-JOIN pg_namespace n ON c.collnamespace = n.oid
-WHERE NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-  `;
-
-  return ownershipRows;
-}
-
-/**
- * Extract dependencies between comments and the objects they describe.
- * Produces edges like:
- *  - comment:schema.table -> table:schema.table
- *  - comment:schema.table.column -> table:schema.table
- *  - comment:schema.table.constraint -> constraint:schema.table.constraint
- */
-async function extractCommentDepends(sql: Sql): Promise<PgDepend[]> {
-  const rows = await sql<PgDepend[]>`
--- COMMENT DEPENDENCIES: Comments depend on their owning objects
-
--- Table comments
-SELECT DISTINCT
-  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname)           AS dependent_stable_id,
-  'table:'   || quote_ident(n.nspname) || '.' || quote_ident(c.relname)           AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid = 0
-JOIN pg_namespace n ON c.relnamespace = n.oid
-WHERE c.relkind IN ('r','p')
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Materialized view comments
-SELECT DISTINCT
-  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname)           AS dependent_stable_id,
-  'materializedView:'   || quote_ident(n.nspname) || '.' || quote_ident(c.relname)           AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid = 0
-JOIN pg_namespace n ON c.relnamespace = n.oid
-WHERE c.relkind = 'm'
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Composite type comments
-SELECT DISTINCT
-  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(t.relname)           AS dependent_stable_id,
-  'compositeType:'   || quote_ident(n.nspname) || '.' || quote_ident(t.relname)   AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_type ty
-  ON d.classoid = 'pg_type'::regclass
- AND d.objoid   = ty.oid
- AND d.objsubid = 0
-JOIN pg_class t
-  ON t.reltype = ty.oid       -- composite's underlying rowtype
-JOIN pg_namespace n
-  ON n.oid = t.relnamespace
-WHERE t.relkind = 'c'
-  AND NOT n.nspname LIKE ANY (ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Domain comments
-SELECT DISTINCT
-  'comment:' || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS dependent_stable_id,
-  'domain:'   || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_type t ON d.classoid = 'pg_type'::regclass AND d.objoid = t.oid AND t.typtype = 'd' AND d.objsubid = 0
-WHERE NOT t.typnamespace::regnamespace::text LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Collation comments
-SELECT DISTINCT
-  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(c.collname) AS dependent_stable_id,
-  'collation:'   || quote_ident(n.nspname) || '.' || quote_ident(c.collname) AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_collation c ON d.classoid = 'pg_collation'::regclass AND d.objoid = c.oid AND d.objsubid = 0
-JOIN pg_namespace n ON c.collnamespace = n.oid
-WHERE NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Enum type comments
-SELECT DISTINCT
-  'comment:' || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS dependent_stable_id,
-  'enum:'   || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_type t ON d.classoid = 'pg_type'::regclass AND d.objoid = t.oid AND t.typtype = 'e' AND d.objsubid = 0
-WHERE NOT t.typnamespace::regnamespace::text LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Range type comments
-SELECT DISTINCT
-  'comment:' || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS dependent_stable_id,
-  'range:'   || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_type t ON d.classoid = 'pg_type'::regclass AND d.objoid = t.oid AND t.typtype = 'r' AND d.objsubid = 0
-WHERE NOT t.typnamespace::regnamespace::text LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Column comments (reference table as the owning object)
-SELECT DISTINCT
-  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) || '.' || quote_ident(a.attname) AS dependent_stable_id,
-  'table:'   || quote_ident(n.nspname) || '.' || quote_ident(c.relname)                                   AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid > 0
-JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid AND a.attnum > 0 AND NOT a.attisdropped
-JOIN pg_namespace n ON c.relnamespace = n.oid
-WHERE c.relkind IN ('r','p')
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Index comments
-SELECT DISTINCT
-  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS dependent_stable_id,
-  'index:'   || quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid = 0
-JOIN pg_namespace n ON c.relnamespace = n.oid
-WHERE c.relkind = 'i'
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Materialized view column comments (reference materialized view as the owning object)
-SELECT DISTINCT
-  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) || '.' || quote_ident(a.attname) AS dependent_stable_id,
-  'materializedView:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname)                                   AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid > 0
-JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid AND a.attnum > 0 AND NOT a.attisdropped
-JOIN pg_namespace n ON c.relnamespace = n.oid
-WHERE c.relkind = 'm'
-  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Composite type attribute comments
-SELECT DISTINCT
-  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(t.relname) || '.' || quote_ident(a.attname) AS dependent_stable_id,
-  'compositeType:' || quote_ident(n.nspname) || '.' || quote_ident(t.relname)                                   AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_class t ON d.classoid = 'pg_class'::regclass AND d.objoid = t.oid AND t.relkind = 'c'
-JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.objsubid AND a.attnum > 0 AND NOT a.attisdropped
-JOIN pg_namespace n ON t.relnamespace = n.oid
-WHERE NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Language comments
-SELECT DISTINCT
-  'comment:' || quote_ident(l.lanname) AS dependent_stable_id,
-  'language:' || quote_ident(l.lanname) AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_language l ON d.classoid = 'pg_language'::regclass AND d.objoid = l.oid AND d.objsubid = 0
-WHERE l.lanname NOT IN ('internal', 'c')
-
-UNION ALL
-
--- Extension comments
-SELECT DISTINCT
-  'comment:' || quote_ident(e.extname) AS dependent_stable_id,
-  'extension:' || quote_ident(e.extname) AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_extension e ON d.classoid = 'pg_extension'::regclass AND d.objoid = e.oid AND d.objsubid = 0
-
-UNION ALL
-
--- Procedure/function comments
-SELECT DISTINCT
-  'comment:' || p.pronamespace::regnamespace::text || '.' || quote_ident(p.proname) || '('
-    || coalesce((select string_agg(format_type(oid, null), ',' order by ord) from unnest(p.proargtypes) with ordinality as t(oid, ord)), '') || ')'
-    AS dependent_stable_id,
-  'procedure:' || p.pronamespace::regnamespace::text || '.' || quote_ident(p.proname) || '('
-    || coalesce((select string_agg(format_type(oid, null), ',' order by ord) from unnest(p.proargtypes) with ordinality as t(oid, ord)), '') || ')'
-    AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_proc p ON d.classoid = 'pg_proc'::regclass AND d.objoid = p.oid AND d.objsubid = 0
-WHERE NOT p.pronamespace::regnamespace::text LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- RLS policy comments
-SELECT DISTINCT
-  'comment:' || quote_ident(ns.nspname) || '.' || quote_ident(tc.relname) || '.' || quote_ident(pol.polname) AS dependent_stable_id,
-  'rlsPolicy:' || quote_ident(ns.nspname) || '.' || quote_ident(tc.relname) || '.' || quote_ident(pol.polname) AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_policy pol ON d.classoid = 'pg_policy'::regclass AND d.objoid = pol.oid AND d.objsubid = 0
-JOIN pg_class tc ON pol.polrelid = tc.oid
-JOIN pg_namespace ns ON tc.relnamespace = ns.oid
-WHERE NOT ns.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-
-UNION ALL
-
--- Role comments
-SELECT DISTINCT
-  'comment:' || quote_ident(r.rolname) AS dependent_stable_id,
-  'role:' || quote_ident(r.rolname) AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_roles r ON d.classoid = 'pg_authid'::regclass AND d.objoid = r.oid AND d.objsubid = 0
-
-UNION ALL
-
--- Constraint comments
-SELECT DISTINCT
-  'comment:'    || quote_ident(ns.nspname) || '.' || quote_ident(tbl.relname) || '.' || quote_ident(con.conname) AS dependent_stable_id,
-  'constraint:' || quote_ident(ns.nspname) || '.' || quote_ident(tbl.relname) || '.' || quote_ident(con.conname) AS referenced_stable_id,
-  'n'::char AS deptype
-FROM pg_description d
-JOIN pg_constraint con ON d.classoid = 'pg_constraint'::regclass AND d.objoid = con.oid
-JOIN pg_class tbl ON con.conrelid = tbl.oid
-JOIN pg_namespace ns ON tbl.relnamespace = ns.oid
-WHERE NOT ns.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-  AND con.conrelid <> 0  -- only table constraints
-`;
-  return rows;
-}
-
-/**
  * Extract dependencies for privileges and memberships so that GRANT/REVOKE
  * operations are properly ordered with respect to their target objects/roles.
  *
@@ -572,8 +52,8 @@ with
   rel_acls as (
     select
       c.relkind,
-      c.relnamespace::regnamespace::text as schema,
-      quote_ident(c.relname) as name,
+      c.relnamespace::regnamespace::text as schema_name,
+      c.relname as relname,
       case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
     from pg_catalog.pg_class c
     join lateral aclexplode(c.relacl) as x(grantor, grantee, privilege_type, is_grantable) on true
@@ -584,12 +64,14 @@ with
   ),
   rel_targets as (
     select
-      (case
-        when relkind in ('r','p') then 'table:' || schema || '.' || name
-        when relkind = 'v' then 'view:' || schema || '.' || name
-        when relkind = 'm' then 'materializedView:' || schema || '.' || name
-        when relkind = 'S' then 'sequence:' || schema || '.' || name
-      end) as target_stable_id,
+      case
+        when relkind in ('r','p') then format('table:%I.%I', schema_name, relname)
+        when relkind = 'v' then format('view:%I.%I', schema_name, relname)
+        when relkind = 'm' then format('materializedView:%I.%I', schema_name, relname)
+        when relkind = 'S' then format('sequence:%I.%I', schema_name, relname)
+        else null
+      end as target_stable_id,
+      schema_name as target_schema,
       grantee
     from rel_acls
   ),
@@ -601,7 +83,8 @@ with
   ),
   ns_acls as (
     select
-      quote_ident(n.nspname) as name,
+      format('schema:%I', n.nspname) as schema_stable_id,
+      n.nspname as schema_name,
       case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
     from pg_catalog.pg_namespace n
     join lateral aclexplode(n.nspacl) as x(grantor, grantee, privilege_type, is_grantable) on true
@@ -617,7 +100,8 @@ with
   ),
   lang_acls as (
     select
-      quote_ident(l.lanname) as name,
+      format('language:%I', l.lanname) as language_stable_id,
+      NULL::text as language_schema,
       case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
     from pg_catalog.pg_language l
     join lateral aclexplode(l.lanacl) as x(grantor, grantee, privilege_type, is_grantable) on true
@@ -632,8 +116,8 @@ with
   ),
   proc_acls as (
     select
-      p.pronamespace::regnamespace::text as schema,
-      quote_ident(p.proname) as name,
+      p.pronamespace::regnamespace::text as schema_name,
+      p.proname as procname,
       case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee,
       (select coalesce(string_agg(format_type(oid, null), ',' order by ord), '') from unnest(p.proargtypes) with ordinality as t(oid, ord)) as arg_types
     from pg_catalog.pg_proc p
@@ -646,7 +130,8 @@ with
   ),
   proc_targets as (
     select
-      ('procedure:' || schema || '.' || name || '(' || arg_types || ')') as target_stable_id,
+      format('procedure:%I.%I(%s)', schema_name, procname, arg_types) as target_stable_id,
+      schema_name,
       grantee
     from proc_acls
   ),
@@ -659,8 +144,8 @@ with
   type_acls as (
     select
       t.typtype,
-      t.typnamespace::regnamespace::text as schema,
-      quote_ident(t.typname) as name,
+      t.typnamespace::regnamespace::text as schema_name,
+      t.typname as type_name,
       case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
     from pg_catalog.pg_type t
     join lateral aclexplode(t.typacl) as x(grantor, grantee, privilege_type, is_grantable) on true
@@ -672,11 +157,13 @@ with
   type_targets as (
     select
       (case
-        when typtype = 'd' then 'domain:' || schema || '.' || name
-        when typtype = 'e' then 'enum:' || schema || '.' || name
-        when typtype = 'r' then 'range:' || schema || '.' || name
-        when typtype = 'c' then 'compositeType:' || schema || '.' || name
+        when typtype = 'd' then format('domain:%I.%I', schema_name, type_name)
+        when typtype = 'e' then format('enum:%I.%I', schema_name, type_name)
+        when typtype = 'r' then format('range:%I.%I', schema_name, type_name)
+        when typtype = 'c' then format('compositeType:%I.%I', schema_name, type_name)
+        else null
       end) as target_stable_id,
+      schema_name,
       grantee
     from type_acls
   ),
@@ -685,8 +172,8 @@ with
   rels as (
     select c.oid,
            c.relkind,
-           c.relnamespace::regnamespace::text as schema,
-           quote_ident(c.relname) as table_name
+           c.relnamespace::regnamespace::text as schema_name,
+           c.relname as relname
     from pg_catalog.pg_class c
     left join pg_depend de on de.classid='pg_class'::regclass and de.objid=c.oid and de.refclassid='pg_extension'::regclass
     where c.relkind in ('r','p','v','m')
@@ -695,8 +182,8 @@ with
   ),
   col_acls as (
     select
-      r.schema,
-      r.table_name,
+      format('table:%I.%I', r.schema_name, r.relname) as table_stable_id,
+      r.schema_name as table_schema,
       case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
     from rels r
     join pg_attribute a on a.attrelid = r.oid and a.attnum > 0 and not a.attisdropped
@@ -706,235 +193,203 @@ with
   -- DEFAULT PRIVILEGES
   defacls as (
     select
-      d.defaclrole::regrole::text as grantor,
-      case when d.defaclnamespace = 0 then null else d.defaclnamespace::regnamespace::text end as in_schema,
-      d.defaclobjtype::text as objtype,
-      case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
+      format(
+        'defacl:%s:%s:%s:grantee:%s',
+        quote_ident(d.defaclrole::regrole::text),
+        d.defaclobjtype::text,
+        coalesce(format('schema:%s', d.defaclnamespace::regnamespace::text), 'global'),
+        case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end
+      ) as defacl_stable_id,
+      format('role:%s', quote_ident(d.defaclrole::regrole::text)) as grantor_role_stable_id,
+      format('role:%s', case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end) as grantee_role_stable_id,
+      case
+        when d.defaclnamespace = 0 then null
+        else format('schema:%s', d.defaclnamespace::regnamespace::text)
+      end as schema_stable_id,
+      case
+        when d.defaclnamespace = 0 then null
+        else d.defaclnamespace::regnamespace::text
+      end as schema_name
     from pg_default_acl d
     cross join lateral aclexplode(coalesce(d.defaclacl, ARRAY[]::aclitem[])) as x(grantor, grantee, privilege_type, is_grantable)
   ),
 
   -- ROLE MEMBERSHIPS
   memberships as (
-    select r.rolname as role_name, m.rolname as member_name
+    select quote_ident(r.rolname) as role_name, m.rolname as member_name
     from pg_auth_members am
     join pg_roles r on r.oid = am.roleid
     join pg_roles m on m.oid = am.member
   )
 
 select distinct
-  'acl:' || target_stable_id || '::grantee:' || grantee as dependent_stable_id,
-  target_stable_id as referenced_stable_id,
-  'n'::char as deptype
-from rel_targets
-where target_stable_id is not null
+  dependent_stable_id,
+  referenced_stable_id,
+  deptype
+from (
+  select distinct
+    format('acl:%s::grantee:%s', target_stable_id, grantee) as dependent_stable_id,
+    target_stable_id as referenced_stable_id,
+    'n'::char as deptype,
+    target_schema as dep_schema,
+    target_schema as ref_schema
+  from rel_targets
+  where target_stable_id is not null
 
-union all
-select distinct
-  'acl:' || target_stable_id || '::grantee:' || grantee as dependent_stable_id,
-  'role:' || grantee as referenced_stable_id,
-  'n'::char as deptype
-from rel_targets
-where target_stable_id is not null
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', target_stable_id, grantee) as dependent_stable_id,
+    format('role:%s', grantee) as referenced_stable_id,
+    'n'::char as deptype,
+    target_schema as dep_schema,
+    NULL::text as ref_schema
+  from rel_targets
+  where target_stable_id is not null
 
-union all
-select distinct
-  'acl:' || 'schema:' || name || '::grantee:' || grantee as dependent_stable_id,
-  'schema:' || name as referenced_stable_id,
-  'n'::char as deptype
-from ns_acls
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', schema_stable_id, grantee) as dependent_stable_id,
+    schema_stable_id as referenced_stable_id,
+    'n'::char as deptype,
+    schema_name as dep_schema,
+    schema_name as ref_schema
+  from ns_acls
 
-union all
-select distinct
-  'acl:' || 'schema:' || name || '::grantee:' || grantee as dependent_stable_id,
-  'role:' || grantee as referenced_stable_id,
-  'n'::char as deptype
-from ns_acls
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', schema_stable_id, grantee) as dependent_stable_id,
+    format('role:%s', grantee) as referenced_stable_id,
+    'n'::char as deptype,
+    schema_name as dep_schema,
+    NULL::text as ref_schema
+  from ns_acls
 
-union all
-select distinct
-  'acl:' || 'language:' || name || '::grantee:' || grantee as dependent_stable_id,
-  'language:' || name as referenced_stable_id,
-  'n'::char as deptype
-from lang_acls
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', language_stable_id, grantee) as dependent_stable_id,
+    language_stable_id as referenced_stable_id,
+    'n'::char as deptype,
+    NULL::text as dep_schema,
+    NULL::text as ref_schema
+  from lang_acls
 
-union all
-select distinct
-  'acl:' || 'language:' || name || '::grantee:' || grantee as dependent_stable_id,
-  'role:' || grantee as referenced_stable_id,
-  'n'::char as deptype
-from lang_acls
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', language_stable_id, grantee) as dependent_stable_id,
+    format('role:%s', grantee) as referenced_stable_id,
+    'n'::char as deptype,
+    NULL::text as dep_schema,
+    NULL::text as ref_schema
+  from lang_acls
 
-union all
-select distinct
-  'acl:' || target_stable_id || '::grantee:' || grantee as dependent_stable_id,
-  target_stable_id as referenced_stable_id,
-  'n'::char as deptype
-from proc_targets
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', target_stable_id, grantee) as dependent_stable_id,
+    target_stable_id as referenced_stable_id,
+    'n'::char as deptype,
+    schema_name as dep_schema,
+    schema_name as ref_schema
+  from proc_targets
 
-union all
-select distinct
-  'acl:' || target_stable_id || '::grantee:' || grantee as dependent_stable_id,
-  'role:' || grantee as referenced_stable_id,
-  'n'::char as deptype
-from proc_targets
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', target_stable_id, grantee) as dependent_stable_id,
+    format('role:%s', grantee) as referenced_stable_id,
+    'n'::char as deptype,
+    schema_name as dep_schema,
+    NULL::text as ref_schema
+  from proc_targets
 
-union all
-select distinct
-  'acl:' || target_stable_id || '::grantee:' || grantee as dependent_stable_id,
-  target_stable_id as referenced_stable_id,
-  'n'::char as deptype
-from type_targets
-where target_stable_id is not null
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', target_stable_id, grantee) as dependent_stable_id,
+    target_stable_id as referenced_stable_id,
+    'n'::char as deptype,
+    schema_name as dep_schema,
+    schema_name as ref_schema
+  from type_targets
+  where target_stable_id is not null
 
-union all
-select distinct
-  'acl:' || target_stable_id || '::grantee:' || grantee as dependent_stable_id,
-  'role:' || grantee as referenced_stable_id,
-  'n'::char as deptype
-from type_targets
-where target_stable_id is not null
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', target_stable_id, grantee) as dependent_stable_id,
+    format('role:%s', grantee) as referenced_stable_id,
+    'n'::char as deptype,
+    schema_name as dep_schema,
+    NULL::text as ref_schema
+  from type_targets
+  where target_stable_id is not null
 
-union all
-select distinct
-  'aclcol:' || 'table:' || schema || '.' || table_name || '::grantee:' || grantee as dependent_stable_id,
-  'table:' || schema || '.' || table_name as referenced_stable_id,
-  'n'::char as deptype
-from col_acls
+  union all
+  select distinct
+    format('aclcol:%s::grantee:%s', table_stable_id, grantee) as dependent_stable_id,
+    table_stable_id as referenced_stable_id,
+    'n'::char as deptype,
+    table_schema as dep_schema,
+    table_schema as ref_schema
+  from col_acls
 
-union all
-select distinct
-  'aclcol:' || 'table:' || schema || '.' || table_name || '::grantee:' || grantee as dependent_stable_id,
-  'role:' || grantee as referenced_stable_id,
-  'n'::char as deptype
-from col_acls
+  union all
+  select distinct
+    format('aclcol:%s::grantee:%s', table_stable_id, grantee) as dependent_stable_id,
+    format('role:%s', grantee) as referenced_stable_id,
+    'n'::char as deptype,
+    table_schema as dep_schema,
+    NULL::text as ref_schema
+  from col_acls
 
-union all
-select distinct
-  'defacl:' || grantor || ':' || objtype || ':' || coalesce('schema:' || in_schema, 'global') || ':grantee:' || grantee as dependent_stable_id,
-  'role:' || grantor as referenced_stable_id,
-  'n'::char as deptype
-from defacls
+  union all
+  select distinct
+    defacl_stable_id as dependent_stable_id,
+    grantor_role_stable_id as referenced_stable_id,
+    'n'::char as deptype,
+    schema_name as dep_schema,
+    NULL::text as ref_schema
+  from defacls
 
-union all
-select distinct
-  'defacl:' || grantor || ':' || objtype || ':' || coalesce('schema:' || in_schema, 'global') || ':grantee:' || grantee as dependent_stable_id,
-  'role:' || grantee as referenced_stable_id,
-  'n'::char as deptype
-from defacls
+  union all
+  select distinct
+    defacl_stable_id as dependent_stable_id,
+    grantee_role_stable_id as referenced_stable_id,
+    'n'::char as deptype,
+    schema_name as dep_schema,
+    NULL::text as ref_schema
+  from defacls
 
-union all
-select distinct
-  'defacl:' || grantor || ':' || objtype || ':' || coalesce('schema:' || in_schema, 'global') || ':grantee:' || grantee as dependent_stable_id,
-  'schema:' || in_schema as referenced_stable_id,
-  'n'::char as deptype
-from defacls
-where in_schema is not null
+  union all
+  select distinct
+    defacl_stable_id as dependent_stable_id,
+    schema_stable_id as referenced_stable_id,
+    'n'::char as deptype,
+    schema_name as dep_schema,
+    schema_name as ref_schema
+  from defacls
+  where schema_stable_id is not null
 
-union all
-select distinct
-  'membership:' || role_name || '->' || member_name as dependent_stable_id,
-  'role:' || quote_ident(role_name) as referenced_stable_id,
-  'n'::char as deptype
-from memberships
+  union all
+  select distinct
+    format('membership:%s->%s', role_name, member_name) as dependent_stable_id,
+    format('role:%s', role_name) as referenced_stable_id,
+    'n'::char as deptype,
+    NULL::text as dep_schema,
+    NULL::text as ref_schema
+  from memberships
 
-union all
-select distinct
-  'membership:' || role_name || '->' || member_name as dependent_stable_id,
-  'role:' || quote_ident(member_name) as referenced_stable_id,
-  'n'::char as deptype
-from memberships
+  union all
+  select distinct
+    format('membership:%s->%s', role_name, member_name) as dependent_stable_id,
+    format('role:%s', member_name) as referenced_stable_id,
+    'n'::char as deptype,
+    NULL::text as dep_schema,
+    NULL::text as ref_schema
+  from memberships
+) all_rows
+where dependent_stable_id <> referenced_stable_id
+  and NOT (
+    COALESCE(dep_schema, '') LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
+  )
   `;
 
-  return rows;
-}
-
-/**
- * Extract constraint-to-constraint dependencies between foreign key constraints
- * and their referenced unique/primary key constraints.
- */
-async function extractConstraintDepends(sql: Sql): Promise<PgDepend[]> {
-  const constraintRows = await sql<PgDepend[]>`
--- CONSTRAINT-TO-CONSTRAINT DEPENDENCIES: Foreign key constraints depend on their referenced unique/primary key constraints
-
--- Foreign key constraint dependencies on referenced unique/primary key constraints
-SELECT DISTINCT
-  'constraint:' || quote_ident(fk_ns.nspname) || '.' || quote_ident(fk_table.relname) || '.' || quote_ident(fk_con.conname) as dependent_stable_id,
-  'constraint:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_table.relname) || '.' || quote_ident(ref_con.conname) as referenced_stable_id,
-  'n'::char as deptype
-FROM pg_constraint fk_con
--- Foreign key constraint table and schema
-JOIN pg_class fk_table ON fk_con.conrelid = fk_table.oid
-JOIN pg_namespace fk_ns ON fk_table.relnamespace = fk_ns.oid
--- Referenced table and schema
-JOIN pg_class ref_table ON fk_con.confrelid = ref_table.oid
-JOIN pg_namespace ref_ns ON ref_table.relnamespace = ref_ns.oid
--- Find the referenced unique/primary key constraint
-JOIN pg_constraint ref_con ON (
-  ref_con.conrelid = fk_con.confrelid  -- Same referenced table
-  AND ref_con.contype IN ('p', 'u')    -- Primary key or unique constraint
-  AND ref_con.conkey = fk_con.confkey   -- Same columns
-)
-WHERE fk_con.contype = 'f'  -- Only foreign key constraints
-  AND NOT fk_ns.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-  AND NOT ref_ns.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
-  `;
-
-  return constraintRows;
-}
-
-/**
- * Extract dependencies where tables depend on functions, either via
- * column defaults (pg_attrdef) or table constraints (pg_constraint).
- */
-async function extractTableAndConstraintFunctionDepends(
-  sql: Sql,
-): Promise<PgDepend[]> {
-  const rows = await sql<PgDepend[]>`
-    -- Table depends on function via column default expression
-    select distinct
-      'table:' || quote_ident(ns.nspname) || '.' || quote_ident(tbl.relname) as dependent_stable_id,
-      'procedure:' || quote_ident(proc_ns.nspname) || '.' || quote_ident(proc.proname) || '('
-        || coalesce(
-          (
-            select string_agg(format_type(oid, null), ',' order by ord)
-            from unnest(proc.proargtypes) with ordinality as t(oid, ord)
-          ),
-          ''
-        ) || ')' as referenced_stable_id,
-      d.deptype
-    from pg_depend d
-    join pg_class c_dep on d.classid = c_dep.oid and quote_ident(c_dep.relname) = 'pg_attrdef'
-    join pg_attrdef ad on d.objid = ad.oid
-    join pg_class tbl on ad.adrelid = tbl.oid
-    join pg_namespace ns on tbl.relnamespace = ns.oid
-    join pg_class c_ref on d.refclassid = c_ref.oid and quote_ident(c_ref.relname) = 'pg_proc'
-    join pg_proc proc on d.refobjid = proc.oid
-    join pg_namespace proc_ns on proc.pronamespace = proc_ns.oid
-    where d.deptype = 'n'
-    union all
-    -- Table depends on function via CHECK constraint expression
-    select distinct
-      'table:' || quote_ident(ns.nspname) || '.' || quote_ident(tbl.relname) as dependent_stable_id,
-      'procedure:' || quote_ident(proc_ns.nspname) || '.' || quote_ident(proc.proname) || '('
-        || coalesce(
-          (
-            select string_agg(format_type(oid, null), ',' order by ord)
-            from unnest(proc.proargtypes) with ordinality as t(oid, ord)
-          ),
-          ''
-        ) || ')' as referenced_stable_id,
-      d.deptype
-    from pg_depend d
-    join pg_class c_dep on d.classid = c_dep.oid and quote_ident(c_dep.relname) = 'pg_constraint'
-    join pg_constraint con on d.objid = con.oid and con.conrelid <> 0
-    join pg_class tbl on con.conrelid = tbl.oid
-    join pg_namespace ns on tbl.relnamespace = ns.oid
-    join pg_class c_ref on d.refclassid = c_ref.oid and quote_ident(c_ref.relname) = 'pg_proc'
-    join pg_proc proc on d.refobjid = proc.oid
-    join pg_namespace proc_ns on proc.pronamespace = proc_ns.oid
-    where d.deptype = 'n'
-  `;
   return rows;
 }
 
@@ -946,421 +401,990 @@ async function extractTableAndConstraintFunctionDepends(
  */
 export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
   const dependsRows = await sql<PgDepend[]>`
-select * from (
-  select distinct
-  -- Dependent stable ID
-  case
-    -- Schema (namespace)
-    when quote_ident(dep_class.relname) = 'pg_namespace' and dep_namespace.oid is not null
-      then 'schema:' || quote_ident(dep_namespace.nspname)
-    -- Table
-    when quote_ident(dep_class.relname) = 'pg_class' and dep_obj.oid is not null and dep_obj.relkind in ('r','p')
-      then 'table:' || quote_ident(dep_ns.nspname) || '.' || quote_ident(dep_obj.relname)
-    
-    -- View
-    when quote_ident(dep_class.relname) = 'pg_class' and dep_obj.oid is not null and dep_obj.relkind = 'v'
-      then 'view:' || quote_ident(dep_ns.nspname) || '.' || quote_ident(dep_obj.relname)
-    
-    -- Materialized View
-    when quote_ident(dep_class.relname) = 'pg_class' and dep_obj.oid is not null and dep_obj.relkind = 'm'
-      then 'materializedView:' || quote_ident(dep_ns.nspname) || '.' || quote_ident(dep_obj.relname)
-    
-    -- Sequence
-    when quote_ident(dep_class.relname) = 'pg_class' and dep_obj.oid is not null and dep_obj.relkind = 'S'
-      then 'sequence:' || quote_ident(dep_ns.nspname) || '.' || quote_ident(dep_obj.relname)
-    
-    -- Index
-    when quote_ident(dep_class.relname) = 'pg_class' and dep_obj.oid is not null and dep_obj.relkind = 'i'
-      then 'index:' || quote_ident(dep_ns.nspname) || '.' || quote_ident(dep_obj.relname)
-    
-    -- System catalog tables (information_schema, pg_catalog, etc.)
-    when quote_ident(dep_class.relname) = 'pg_class' and dep_obj.oid is not null and dep_obj.relkind = 'r' and quote_ident(dep_ns.nspname) in ('information_schema', 'pg_catalog', 'pg_toast')
-      then 'systemTable:' || quote_ident(dep_ns.nspname) || '.' || quote_ident(dep_obj.relname)
-    
-    -- System catalog views (information_schema, pg_catalog, etc.)
-    when quote_ident(dep_class.relname) = 'pg_class' and dep_obj.oid is not null and dep_obj.relkind = 'v' and quote_ident(dep_ns.nspname) in ('information_schema', 'pg_catalog', 'pg_toast')
-      then 'systemView:' || quote_ident(dep_ns.nspname) || '.' || quote_ident(dep_obj.relname)
-    
-    -- System catalog sequences (information_schema, pg_catalog, etc.)
-    when quote_ident(dep_class.relname) = 'pg_class' and dep_obj.oid is not null and dep_obj.relkind = 'S' and quote_ident(dep_ns.nspname) in ('information_schema', 'pg_catalog', 'pg_toast')
-      then 'systemSequence:' || quote_ident(dep_ns.nspname) || '.' || quote_ident(dep_obj.relname)
-    
-    -- System catalog indexes (information_schema, pg_catalog, etc.)
-    when quote_ident(dep_class.relname) = 'pg_class' and dep_obj.oid is not null and dep_obj.relkind = 'i' and quote_ident(dep_ns.nspname) in ('information_schema', 'pg_catalog', 'pg_toast')
-      then 'systemIndex:' || quote_ident(dep_ns.nspname) || '.' || quote_ident(dep_obj.relname)
-    
-    -- Handle any remaining pg_class objects with unknown relkind values
-    when quote_ident(dep_class.relname) = 'pg_class' and dep_obj.oid is not null and quote_ident(dep_ns.nspname) in ('information_schema', 'pg_catalog', 'pg_toast')
-      then 'systemObject:' || quote_ident(dep_ns.nspname) || '.' || quote_ident(dep_obj.relname) || ':' || dep_obj.relkind::text
-    
-    -- Types
-    -- Domain
-    when quote_ident(dep_class.relname) = 'pg_type' and dep_type.oid is not null and dep_type.typtype = 'd'
-      then 'domain:' || quote_ident(dep_type_ns.nspname) || '.' || quote_ident(dep_type.typname)
-    -- Enum
-    when quote_ident(dep_class.relname) = 'pg_type' and dep_type.oid is not null and dep_type.typtype = 'e'
-      then 'enum:' || quote_ident(dep_type_ns.nspname) || '.' || quote_ident(dep_type.typname)
-    -- Range type
-    when quote_ident(dep_class.relname) = 'pg_type' and dep_type.oid is not null and dep_type.typtype = 'r'
-      then 'range:' || quote_ident(dep_type_ns.nspname) || '.' || quote_ident(dep_type.typname)
-    -- Multirange type
-    when quote_ident(dep_class.relname) = 'pg_type' and dep_type.oid is not null and dep_type.typtype = 'm'
-      then 'multirange:' || quote_ident(dep_type_ns.nspname) || '.' || quote_ident(dep_type.typname)
-    -- Composite type
-    when quote_ident(dep_class.relname) = 'pg_type' and dep_type.oid is not null and dep_type.typtype = 'c'
-      then 'compositeType:' || quote_ident(dep_type_ns.nspname) || '.' || quote_ident(dep_type.typname)
-    -- When a composite type is created sub-elements references are stored in pg_class (columsn of the composite type)
-    when quote_ident(dep_class.relname) = 'pg_class' and dep_obj.oid is not null and dep_obj.relkind = 'c'
-      then 'compositeType:' || quote_ident(dep_ns.nspname) || '.' || quote_ident(dep_obj.relname)
-    -- Base type
-    when quote_ident(dep_class.relname) = 'pg_type' and dep_type.oid is not null and dep_type.typtype = 'b'
-      then 'type:' || quote_ident(dep_type_ns.nspname) || '.' || quote_ident(dep_type.typname)
-    -- Pseudo-type
-    when quote_ident(dep_class.relname) = 'pg_type' and dep_type.oid is not null and dep_type.typtype = 'p'
-      then 'pseudoType:' || quote_ident(dep_type_ns.nspname) || '.' || quote_ident(dep_type.typname)
+  WITH ids AS (
+    -- only the objects that actually show up in dependencies (both sides)
+    SELECT DISTINCT classid, objid, objsubid FROM pg_depend WHERE deptype IN ('n','a')
+    UNION
+    SELECT DISTINCT refclassid, refobjid, refobjsubid FROM pg_depend WHERE deptype IN ('n','a')
+  ),
+  objects AS (
+    /* Schemas */
+    SELECT 'pg_namespace'::regclass AS classid, n.oid AS objid, 0::int2 AS objsubid,
+          n.nspname AS schema_name,
+          format('schema:%I', n.nspname) AS stable_id
+    FROM pg_namespace n
+    JOIN ids i ON i.classid = 'pg_namespace'::regclass AND i.objid = n.oid AND COALESCE(i.objsubid,0) = 0
 
-    -- Constraint on domain
-    when quote_ident(dep_class.relname) = 'pg_constraint' and dep_con.oid is not null and dep_con.contypid != 0 and dep_con_type.oid is not null
-      then 'constraint:' || quote_ident(dep_con_type_ns.nspname) || '.' || quote_ident(dep_con_type.typname) || '.' || quote_ident(dep_con.conname)
-    -- Constraint on table
-    when quote_ident(dep_class.relname) = 'pg_constraint' and dep_con.oid is not null and dep_con.conrelid != 0 and dep_con_table.oid is not null
-      then 'constraint:' || quote_ident(dep_con_table_ns.nspname) || '.' || quote_ident(dep_con_table.relname) || '.' || quote_ident(dep_con.conname)
+    UNION ALL
+    /* Tables / Views / MViews / Sequences / Indexes / Composite types (pg_class) */
+    SELECT 'pg_class'::regclass, c.oid, 0::int2,
+          ns.nspname,
+          CASE
+            WHEN ns.nspname IN ('information_schema','pg_catalog','pg_toast') THEN
+              CASE c.relkind
+                WHEN 'r' THEN format('systemTable:%I.%I', ns.nspname, c.relname)
+                WHEN 'v' THEN format('systemView:%I.%I', ns.nspname, c.relname)
+                WHEN 'S' THEN format('systemSequence:%I.%I', ns.nspname, c.relname)
+                WHEN 'i' THEN format('systemIndex:%I.%I.%I', ns.nspname, tbl.relname, c.relname)
+                ELSE format('systemObject:%I.%I:%s', ns.nspname, c.relname, c.relkind::text)
+              END
+            ELSE
+              CASE c.relkind
+                WHEN 'r' THEN format('table:%I.%I', ns.nspname, c.relname)
+                WHEN 'p' THEN format('table:%I.%I', ns.nspname, c.relname)
+                WHEN 'v' THEN format('view:%I.%I', ns.nspname, c.relname)
+                WHEN 'm' THEN format('materializedView:%I.%I', ns.nspname, c.relname)
+                WHEN 'S' THEN format('sequence:%I.%I', ns.nspname, c.relname)
+                WHEN 'i' THEN format('index:%I.%I.%I', ns.nspname, tbl.relname, c.relname)
+                WHEN 'c' THEN format('compositeType:%I.%I', ns.nspname, c.relname)
+                ELSE format('unknown:%s.%s', 'pg_class', c.oid::text)
+              END
+          END AS stable_id
+    FROM pg_class c
+    JOIN pg_namespace ns ON ns.oid = c.relnamespace
+    LEFT JOIN pg_index idx ON idx.indexrelid = c.oid
+    LEFT JOIN pg_class tbl ON tbl.oid = idx.indrelid
+    JOIN ids i ON i.classid = 'pg_class'::regclass AND i.objid = c.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    /* Columns (so refobjsubid > 0 resolves to a column stable id) */
+    SELECT 'pg_class'::regclass, a.attrelid, a.attnum,
+          ns.nspname,
+          format('column:%I.%I.%I', ns.nspname, c.relname, a.attname)
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    JOIN pg_namespace ns ON ns.oid = c.relnamespace
+    JOIN ids i ON i.classid = 'pg_class'::regclass AND i.objid = a.attrelid AND i.objsubid = a.attnum
+    WHERE a.attnum > 0 AND NOT a.attisdropped
+
+    UNION ALL
+    /* Types (map row types back to their owning relation when applicable) */
+    SELECT 'pg_type'::regclass, t.oid, 0::int2,
+          COALESCE(rns.nspname, ns.nspname) AS schema_name,  -- prefer owning rel's schema if present
+          CASE t.typtype
+            WHEN 'd' THEN format('domain:%I.%I', ns.nspname, t.typname)
+            WHEN 'e' THEN format('enum:%I.%I', ns.nspname, t.typname)
+            WHEN 'r' THEN format('range:%I.%I', ns.nspname, t.typname)
+            WHEN 'm' THEN format('multirange:%I.%I', ns.nspname, t.typname)
+
+            WHEN 'c' THEN
+              CASE
+                /* Row type owned by a table / partitioned table / foreign table */
+                WHEN r.oid IS NOT NULL AND r.relkind IN ('r','p','f') THEN
+                  CASE
+                    WHEN rns.nspname IN ('information_schema','pg_catalog','pg_toast')
+                      THEN format('systemTable:%I.%I', rns.nspname, r.relname)
+                    ELSE    format('table:%I.%I',       rns.nspname, r.relname)
+                  END
+
+                /* Row type owned by a view */
+                WHEN r.oid IS NOT NULL AND r.relkind = 'v' THEN
+                  CASE
+                    WHEN rns.nspname IN ('information_schema','pg_catalog','pg_toast')
+                      THEN format('systemView:%I.%I', rns.nspname, r.relname)
+                    ELSE    format('view:%I.%I',       rns.nspname, r.relname)
+                  END
+
+                /* Row type owned by a materialized view */
+                WHEN r.oid IS NOT NULL AND r.relkind = 'm' THEN
+                  CASE
+                    /* your pg_class system-branch uses systemObject for relkind m */
+                    WHEN rns.nspname IN ('information_schema','pg_catalog','pg_toast')
+                      THEN format('systemObject:%I.%I:%s', rns.nspname, r.relname, 'm')
+                    ELSE    format('materializedView:%I.%I', rns.nspname, r.relname)
+                  END
+
+                /* Standalone composite type */
+                ELSE format('compositeType:%I.%I', ns.nspname, t.typname)
+              END
+
+            WHEN 'p' THEN format('pseudoType:%I.%I', ns.nspname, t.typname)
+            ELSE         format('type:%I.%I',       ns.nspname, t.typname)
+          END AS stable_id
+    FROM pg_type t
+    JOIN pg_namespace ns ON ns.oid = t.typnamespace
+    LEFT JOIN pg_class     r   ON r.oid  = t.typrelid
+    LEFT JOIN pg_namespace rns ON rns.oid = r.relnamespace
+    JOIN ids i ON i.classid = 'pg_type'::regclass AND i.objid = t.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    /* Constraints on domain */
+    SELECT 'pg_constraint'::regclass, c.oid, 0::int2,
+          ns.nspname,
+          format('constraint:%I.%I.%I', ns.nspname, ty.typname, c.conname)
+    FROM pg_constraint c
+    JOIN pg_type ty ON ty.oid = c.contypid
+    JOIN pg_namespace ns ON ns.oid = ty.typnamespace
+    JOIN ids i ON i.classid = 'pg_constraint'::regclass AND i.objid = c.oid AND COALESCE(i.objsubid,0) = 0
+    WHERE c.contypid <> 0
+
+    UNION ALL
+    /* Constraints on table */
+    SELECT 'pg_constraint'::regclass, c.oid, 0::int2,
+          ns.nspname,
+          format('constraint:%I.%I.%I', ns.nspname, tbl.relname, c.conname)
+    FROM pg_constraint c
+    JOIN pg_class tbl ON tbl.oid = c.conrelid
+    JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+    JOIN ids i ON i.classid = 'pg_constraint'::regclass AND i.objid = c.oid AND COALESCE(i.objsubid,0) = 0
+    WHERE c.conrelid <> 0
+
+    UNION ALL
+    /* RLS policies */
+    SELECT 'pg_policy'::regclass, p.oid, 0::int2,
+          ns.nspname,
+          format('rlsPolicy:%I.%I.%I', ns.nspname, tbl.relname, p.polname)
+    FROM pg_policy p
+    JOIN pg_class tbl ON tbl.oid = p.polrelid
+    JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+    JOIN ids i ON i.classid = 'pg_policy'::regclass AND i.objid = p.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    /* Functions/Procedures: types-only signature */
+    SELECT 'pg_proc'::regclass, p.oid, 0::int2,
+          ns.nspname,
+          format(
+            'procedure:%I.%I(%s)',
+            ns.nspname, p.proname,
+            COALESCE((
+              SELECT string_agg(format_type(t.oid, NULL), ',' ORDER BY ord)
+              FROM unnest(p.proargtypes) WITH ORDINALITY AS t(oid, ord)
+            ), '')
+          )
+    FROM pg_proc p
+    JOIN pg_namespace ns ON ns.oid = p.pronamespace
+    JOIN ids i ON i.classid = 'pg_proc'::regclass AND i.objid = p.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    /* Triggers */
+    SELECT 'pg_trigger'::regclass, tg.oid, 0::int2,
+          ns.nspname,
+          format('trigger:%I.%I.%I', ns.nspname, tbl.relname, tg.tgname)
+    FROM pg_trigger tg
+    JOIN pg_class tbl ON tbl.oid = tg.tgrelid
+    JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+    JOIN ids i ON i.classid = 'pg_trigger'::regclass AND i.objid = tg.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    /* Rewrite rules */
+    SELECT 'pg_rewrite'::regclass, r.oid, 0::int2,
+          ns.nspname,
+          format('rewriteRule:%I.%I.%I', ns.nspname, tbl.relname, r.rulename)
+    FROM pg_rewrite r
+    JOIN pg_class tbl ON tbl.oid = r.ev_class
+    JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+    JOIN ids i ON i.classid = 'pg_rewrite'::regclass AND i.objid = r.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    /* Full-text search objects */
+    SELECT 'pg_ts_config'::regclass, c.oid, 0::int2, ns.nspname, format('tsConfig:%I.%I', ns.nspname, c.cfgname)
+    FROM pg_ts_config c
+    JOIN pg_namespace ns ON ns.oid = c.cfgnamespace
+    JOIN ids i ON i.classid = 'pg_ts_config'::regclass AND i.objid = c.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    SELECT 'pg_ts_dict'::regclass, d.oid, 0::int2, ns.nspname, format('tsDict:%I.%I', ns.nspname, d.dictname)
+    FROM pg_ts_dict d
+    JOIN pg_namespace ns ON ns.oid = d.dictnamespace
+    JOIN ids i ON i.classid = 'pg_ts_dict'::regclass AND i.objid = d.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    SELECT 'pg_ts_template'::regclass, t.oid, 0::int2, ns.nspname, format('tsTemplate:%I.%I', ns.nspname, t.tmplname)
+    FROM pg_ts_template t
+    JOIN pg_namespace ns ON ns.oid = t.tmplnamespace
+    JOIN ids i ON i.classid = 'pg_ts_template'::regclass AND i.objid = t.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    /* Column defaults (attrdef) → column stable id */
+    SELECT 'pg_attrdef'::regclass, ad.oid, 0::int2,
+          ns.nspname,
+          format('column:%I.%I.%I', ns.nspname, tbl.relname, col.attname)
+    FROM pg_attrdef ad
+    JOIN pg_class tbl ON tbl.oid = ad.adrelid
+    JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+    JOIN pg_attribute col
+      ON col.attrelid = ad.adrelid AND col.attnum = ad.adnum AND col.attnum > 0 AND NOT col.attisdropped
+    JOIN ids i ON i.classid = 'pg_attrdef'::regclass AND i.objid = ad.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    /* Default ACLs */
+    SELECT 'pg_default_acl'::regclass, da.oid, 0::int2,
+          ns.nspname,
+          format('defaultAcl:%I.%s', ns.nspname, da.defaclobjtype::text)
+    FROM pg_default_acl da
+    JOIN pg_namespace ns ON ns.oid = da.defaclnamespace
+    JOIN ids i ON i.classid = 'pg_default_acl'::regclass AND i.objid = da.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    /* Language (no schema), Event trigger, Extension */
+    SELECT 'pg_language'::regclass, l.oid, 0::int2, NULL::text, format('language:%I', l.lanname)
+    FROM pg_language l
+    JOIN ids i ON i.classid = 'pg_language'::regclass AND i.objid = l.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    SELECT 'pg_event_trigger'::regclass, et.oid, 0::int2, NULL::text, format('eventTrigger:%I', et.evtname)
+    FROM pg_event_trigger et
+    JOIN ids i ON i.classid = 'pg_event_trigger'::regclass AND i.objid = et.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    SELECT 'pg_extension'::regclass, e.oid, 0::int2, NULL::text, format('extension:%I', e.extname)
+    FROM pg_extension e
+    JOIN ids i ON i.classid = 'pg_extension'::regclass AND i.objid = e.oid AND COALESCE(i.objsubid,0) = 0
+  ),
+  base AS (
+    SELECT DISTINCT
+      COALESCE(dep.stable_id, format('unknown:%s.%s', (d.classid::regclass)::text, d.objid::text)) AS dependent_stable_id,
+      COALESCE(ref.stable_id, format('unknown:%s.%s', (d.refclassid::regclass)::text, d.refobjid::text)) AS referenced_stable_id,
+      d.deptype,
+      dep.schema_name AS dep_schema,
+      ref.schema_name AS ref_schema
+    FROM pg_depend d
+    LEFT JOIN objects dep
+      ON dep.classid = d.classid AND dep.objid = d.objid AND dep.objsubid = COALESCE(NULLIF(d.objsubid,0),0)
+    LEFT JOIN objects ref
+      ON ref.classid = d.refclassid AND ref.objid = d.refobjid AND ref.objsubid = COALESCE(NULLIF(d.refobjsubid,0),0)
+    WHERE d.deptype IN ('n','a')
+  ),
+  comment_deps AS (
+    -- Table comments
+    SELECT DISTINCT
+      format('comment:%s', format('table:%I.%I', n.nspname, c.relname))                AS dependent_stable_id,
+      format('table:%I.%I',   n.nspname, c.relname)                                    AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      n.nspname AS ref_schema
+    FROM pg_description d
+    JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid = 0
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    WHERE c.relkind IN ('r','p')
+
+    UNION ALL
+
+    -- Materialized view comments
+    SELECT DISTINCT
+      format(
+        'comment:%s',
+        format('materializedView:%I.%I', n.nspname, c.relname)
+      )                                                                                AS dependent_stable_id,
+      format('materializedView:%I.%I', n.nspname, c.relname)                           AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      n.nspname AS ref_schema
+    FROM pg_description d
+    JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid = 0
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    WHERE c.relkind = 'm'
+
+    UNION ALL
+
+    -- Composite type comments
+    SELECT DISTINCT
+      format(
+        'comment:%s',
+        format('compositeType:%I.%I', n.nspname, t.relname)
+      )                                                                                AS dependent_stable_id,
+      format('compositeType:%I.%I', n.nspname, t.relname)                              AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      n.nspname AS ref_schema
+    FROM pg_description d
+    JOIN pg_type ty
+      ON d.classoid = 'pg_type'::regclass
+     AND d.objoid   = ty.oid
+     AND d.objsubid = 0
+    JOIN pg_class t
+      ON t.reltype = ty.oid
+    JOIN pg_namespace n
+      ON n.oid = t.relnamespace
+    WHERE t.relkind = 'c'
+
+    UNION ALL
+
+    -- Domain comments
+    SELECT DISTINCT
+      format(
+        'comment:%s',
+        format('domain:%I.%I', t.typnamespace::regnamespace::text, t.typname)
+      )                                                                                AS dependent_stable_id,
+      format('domain:%I.%I',  t.typnamespace::regnamespace::text, t.typname)            AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      t.typnamespace::regnamespace::text AS dep_schema,
+      t.typnamespace::regnamespace::text AS ref_schema
+    FROM pg_description d
+    JOIN pg_type t ON d.classoid = 'pg_type'::regclass AND d.objoid = t.oid AND t.typtype = 'd' AND d.objsubid = 0
     
-    -- Policy
-    when quote_ident(dep_class.relname) = 'pg_policy' and dep_policy.oid is not null and dep_policy_table.oid is not null
-      then 'rlsPolicy:' || quote_ident(dep_policy_table_ns.nspname) || '.' || quote_ident(dep_policy_table.relname) || '.' || quote_ident(dep_policy.polname)
+
+    UNION ALL
+
+    -- Collation comments
+    SELECT DISTINCT
+      format(
+        'comment:%s',
+        format('collation:%I.%I', n.nspname, c.collname)
+      )                                                                                AS dependent_stable_id,
+      format('collation:%I.%I', n.nspname, c.collname)                                  AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      n.nspname AS ref_schema
+    FROM pg_description d
+    JOIN pg_collation c ON d.classoid = 'pg_collation'::regclass AND d.objoid = c.oid AND d.objsubid = 0
+    JOIN pg_namespace n ON c.collnamespace = n.oid
     
-    -- Function/Procedure (include identity argument types for overload distinction)
-    when quote_ident(dep_class.relname) = 'pg_proc' and dep_proc.oid is not null
-      then 'procedure:' || quote_ident(dep_proc_ns.nspname) || '.' || quote_ident(dep_proc.proname) || '('
-        || coalesce(
+
+    UNION ALL
+
+    -- Enum type comments
+    SELECT DISTINCT
+      format(
+        'comment:%s',
+        format('enum:%I.%I', t.typnamespace::regnamespace::text, t.typname)
+      )                                                                                AS dependent_stable_id,
+      format('enum:%I.%I',    t.typnamespace::regnamespace::text, t.typname)            AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      t.typnamespace::regnamespace::text AS dep_schema,
+      t.typnamespace::regnamespace::text AS ref_schema
+    FROM pg_description d
+    JOIN pg_type t ON d.classoid = 'pg_type'::regclass AND d.objoid = t.oid AND t.typtype = 'e' AND d.objsubid = 0
+    
+
+    UNION ALL
+
+    -- Range type comments
+    SELECT DISTINCT
+      format(
+        'comment:%s',
+        format('range:%I.%I', t.typnamespace::regnamespace::text, t.typname)
+      )                                                                                AS dependent_stable_id,
+      format('range:%I.%I',   t.typnamespace::regnamespace::text, t.typname)            AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      t.typnamespace::regnamespace::text AS dep_schema,
+      t.typnamespace::regnamespace::text AS ref_schema
+    FROM pg_description d
+    JOIN pg_type t ON d.classoid = 'pg_type'::regclass AND d.objoid = t.oid AND t.typtype = 'r' AND d.objsubid = 0
+    
+
+    UNION ALL
+
+    -- Column comments (reference table as the owning object)
+    SELECT DISTINCT
+      format(
+        'comment:%s',
+        format('column:%I.%I.%I', n.nspname, c.relname, a.attname)
+      )                                                                                AS dependent_stable_id,
+      format('column:%I.%I.%I', n.nspname, c.relname, a.attname)                       AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      n.nspname AS ref_schema
+    FROM pg_description d
+    JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid > 0
+    JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid AND a.attnum > 0 AND NOT a.attisdropped
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    WHERE c.relkind IN ('r','p')
+
+    UNION ALL
+
+    -- Index comments
+    SELECT DISTINCT
+      format(
+        'comment:%s',
+        format('index:%I.%I.%I', n.nspname, tbl.relname, c.relname)
+      )                                                                                AS dependent_stable_id,
+      format('index:%I.%I.%I', n.nspname, tbl.relname, c.relname)                     AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      n.nspname AS ref_schema
+    FROM pg_description d
+    JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid = 0
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    LEFT JOIN pg_index idx ON idx.indexrelid = c.oid
+    LEFT JOIN pg_class tbl ON tbl.oid = idx.indrelid
+    WHERE c.relkind = 'i'
+
+    UNION ALL
+
+    -- Materialized view column comments (reference materialized view as the owning object)
+    SELECT DISTINCT
+      format(
+        'comment:%s',
+        format('column:%I.%I.%I', n.nspname, c.relname, a.attname)
+      )                                                                                AS dependent_stable_id,
+      format('column:%I.%I.%I', n.nspname, c.relname, a.attname)                       AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      n.nspname AS ref_schema
+    FROM pg_description d
+    JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid > 0
+    JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid AND a.attnum > 0 AND NOT a.attisdropped
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    WHERE c.relkind = 'm'
+
+    UNION ALL
+
+    -- Composite type attribute comments
+    SELECT DISTINCT
+      format(
+        'comment:%s',
+        format('%s:%s', format('compositeType:%I.%I', n.nspname, t.relname), a.attname)
+      )                                                                                AS dependent_stable_id,
+      format('%s:%s', format('compositeType:%I.%I', n.nspname, t.relname), a.attname)  AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      n.nspname AS ref_schema
+    FROM pg_description d
+    JOIN pg_class t ON d.classoid = 'pg_class'::regclass AND d.objoid = t.oid AND t.relkind = 'c'
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.objsubid AND a.attnum > 0 AND NOT a.attisdropped
+    JOIN pg_namespace n ON t.relnamespace = n.oid
+    
+
+    UNION ALL
+
+    -- Language comments
+    SELECT DISTINCT
+      format('comment:%s', format('language:%I', l.lanname))                      AS dependent_stable_id,
+      format('language:%I', l.lanname)                                            AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_description d
+    JOIN pg_language l ON d.classoid = 'pg_language'::regclass AND d.objoid = l.oid AND d.objsubid = 0
+    WHERE l.lanname NOT IN ('internal', 'c')
+
+    UNION ALL
+
+    -- Extension comments
+    SELECT DISTINCT
+      format('comment:%s', format('extension:%I', e.extname))                     AS dependent_stable_id,
+      format('extension:%I', e.extname)                                           AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_description d
+    JOIN pg_extension e ON d.classoid = 'pg_extension'::regclass AND d.objoid = e.oid AND d.objsubid = 0
+
+    UNION ALL
+
+    -- Procedure/function comments
+    SELECT DISTINCT
+      format(
+        'comment:%s',
+        format(
+          'procedure:%I.%I(%s)',
+          p.pronamespace::regnamespace::text,
+          p.proname,
+          coalesce(
+            (select string_agg(format_type(oid, null), ',' order by ord) from unnest(p.proargtypes) with ordinality as t(oid, ord)),
+            ''
+          )
+        )
+      ) AS dependent_stable_id,
+      format(
+        'procedure:%I.%I(%s)',
+        p.pronamespace::regnamespace::text,
+        p.proname,
+        coalesce(
+          (select string_agg(format_type(oid, null), ',' order by ord) from unnest(p.proargtypes) with ordinality as t(oid, ord)),
+          ''
+        )
+      ) AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      p.pronamespace::regnamespace::text AS dep_schema,
+      p.pronamespace::regnamespace::text AS ref_schema
+    FROM pg_description d
+    JOIN pg_proc p ON d.classoid = 'pg_proc'::regclass AND d.objoid = p.oid AND d.objsubid = 0
+    
+
+    UNION ALL
+
+    -- RLS policy comments
+    SELECT DISTINCT
+      format(
+        'comment:%s',
+        format('rlsPolicy:%I.%I.%I', ns.nspname, tc.relname, pol.polname)
+      )                                                                                AS dependent_stable_id,
+      format('rlsPolicy:%I.%I.%I', ns.nspname, tc.relname, pol.polname)            AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      ns.nspname AS dep_schema,
+      ns.nspname AS ref_schema
+    FROM pg_description d
+    JOIN pg_policy pol ON d.classoid = 'pg_policy'::regclass AND d.objoid = pol.oid AND d.objsubid = 0
+    JOIN pg_class tc ON pol.polrelid = tc.oid
+    JOIN pg_namespace ns ON tc.relnamespace = ns.oid
+    
+
+    UNION ALL
+
+    -- Role comments
+    SELECT DISTINCT
+      format('comment:%s', format('role:%I', r.rolname))                          AS dependent_stable_id,
+      format('role:%I', r.rolname)                                                AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_description d
+    JOIN pg_roles r ON d.classoid = 'pg_authid'::regclass AND d.objoid = r.oid AND d.objsubid = 0
+
+    UNION ALL
+
+    -- Constraint comments
+    SELECT DISTINCT
+      format(
+        'comment:%s',
+        format('constraint:%I.%I.%I', ns.nspname, tbl.relname, con.conname)
+      )                                                                                AS dependent_stable_id,
+      format('constraint:%I.%I.%I', ns.nspname, tbl.relname, con.conname)          AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      ns.nspname AS dep_schema,
+      ns.nspname AS ref_schema
+    FROM pg_description d
+    JOIN pg_constraint con ON d.classoid = 'pg_constraint'::regclass AND d.objoid = con.oid
+    JOIN pg_class tbl ON con.conrelid = tbl.oid
+    JOIN pg_namespace ns ON tbl.relnamespace = ns.oid
+    WHERE con.conrelid <> 0
+  ),
+  type_usage_deps AS (
+    -- Composite type attribute dependencies on user-defined types (domain/enum/range/multirange/composite)
+    SELECT DISTINCT
+      format('compositeType:%I.%I', ns.nspname, comp.relname) AS dependent_stable_id,
+      CASE ref_t.typtype
+        WHEN 'd' THEN format('domain:%I.%I',      refns.nspname, ref_t.typname)
+        WHEN 'e' THEN format('enum:%I.%I',        refns.nspname, ref_t.typname)
+        WHEN 'r' THEN format('range:%I.%I',       refns.nspname, ref_t.typname)
+        WHEN 'm' THEN format('multirange:%I.%I',  refns.nspname, ref_t.typname)
+        WHEN 'c' THEN format('compositeType:%I.%I', refns.nspname, ref_comp.relname)
+        ELSE NULL
+      END AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      ns.nspname AS dep_schema,
+      refns.nspname AS ref_schema
+    FROM pg_class comp
+    JOIN pg_namespace ns ON ns.oid = comp.relnamespace
+    JOIN pg_attribute a ON a.attrelid = comp.oid AND a.attnum > 0 AND NOT a.attisdropped
+    JOIN pg_type ref_t ON ref_t.oid = a.atttypid
+    JOIN pg_namespace refns ON refns.oid = ref_t.typnamespace
+    LEFT JOIN pg_class ref_comp ON ref_comp.oid = ref_t.typrelid
+    WHERE comp.relkind = 'c'
+      AND NOT refns.nspname LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
+      AND (
+        ref_t.typtype IN ('d','e','r','m')
+        OR (ref_t.typtype = 'c' AND ref_comp.relkind = 'c')
+      )
+      AND CASE ref_t.typtype
+            WHEN 'c' THEN ref_comp.relname IS NOT NULL
+            ELSE true
+          END
+  ),
+  view_rewrite_rel_deps AS (
+    SELECT DISTINCT
+      COALESCE(
+        dep_view.stable_id,
+        CASE v.relkind
+          WHEN 'v' THEN format('view:%I.%I', v_ns.nspname, v.relname)
+          WHEN 'm' THEN format('materializedView:%I.%I', v_ns.nspname, v.relname)
+          ELSE format('unknown:%s.%s', 'pg_class', v.oid::text)
+        END
+      ) AS dependent_stable_id,
+      COALESCE(
+        ref_obj.stable_id,
+        CASE
+          WHEN ref_attr.attnum IS NOT NULL THEN format('column:%I.%I.%I', ref_ns.nspname, ref_rel.relname, ref_attr.attname)
+          WHEN ref_rel.relkind IN ('r','p','f') THEN format('table:%I.%I', ref_ns.nspname, ref_rel.relname)
+          WHEN ref_rel.relkind = 'v' THEN format('view:%I.%I', ref_ns.nspname, ref_rel.relname)
+          WHEN ref_rel.relkind = 'm' THEN format('materializedView:%I.%I', ref_ns.nspname, ref_rel.relname)
+          ELSE format('unknown:%s.%s', 'pg_class', COALESCE(ref_rel.oid::text, d.refobjid::text))
+        END
+      ) AS referenced_stable_id,
+      d.deptype,
+      COALESCE(dep_view.schema_name, v_ns.nspname) AS dep_schema,
+      COALESCE(ref_obj.schema_name, ref_ns.nspname) AS ref_schema
+    FROM pg_depend d
+    JOIN pg_rewrite r ON r.oid = d.objid
+    JOIN pg_class v ON r.ev_class = v.oid
+    JOIN pg_namespace v_ns ON v.relnamespace = v_ns.oid
+    LEFT JOIN objects dep_view
+      ON dep_view.classid = 'pg_class'::regclass
+     AND dep_view.objid = v.oid
+     AND dep_view.objsubid = 0
+    LEFT JOIN pg_class ref_rel ON ref_rel.oid = d.refobjid
+    LEFT JOIN pg_namespace ref_ns ON ref_rel.relnamespace = ref_ns.oid
+    LEFT JOIN pg_attribute ref_attr
+      ON ref_attr.attrelid = ref_rel.oid
+     AND ref_attr.attnum = d.refobjsubid
+     AND d.refobjsubid <> 0
+    LEFT JOIN objects ref_obj
+      ON ref_obj.classid = d.refclassid
+     AND ref_obj.objid = d.refobjid
+     AND ref_obj.objsubid = COALESCE(NULLIF(d.refobjsubid,0),0)
+    WHERE d.classid = 'pg_rewrite'::regclass
+      AND d.refclassid = 'pg_class'::regclass
+      AND v.relkind IN ('v','m')
+      AND d.deptype = 'n'
+      AND (d.refobjsubid = 0 OR (ref_attr.attnum > 0 AND NOT ref_attr.attisdropped))
+      AND ref_rel.oid IS NOT NULL
+      AND (
+        ref_attr.attnum IS NOT NULL
+        OR ref_rel.relkind IN ('r','p','f','v','m')
+      )
+  ),
+  view_rewrite_proc_deps AS (
+    SELECT DISTINCT
+      COALESCE(
+        dep_view.stable_id,
+        CASE v.relkind
+          WHEN 'v' THEN format('view:%I.%I', v_ns.nspname, v.relname)
+          WHEN 'm' THEN format('materializedView:%I.%I', v_ns.nspname, v.relname)
+          ELSE format('unknown:%s.%s', 'pg_class', v.oid::text)
+        END
+      ) AS dependent_stable_id,
+      COALESCE(
+        ref_proc_obj.stable_id,
+        format(
+          'procedure:%I.%I(%s)',
+          ref_proc_ns.nspname,
+          ref_proc.proname,
+          COALESCE(
+            (
+              SELECT string_agg(format_type(oid, NULL), ',' ORDER BY ord)
+              FROM unnest(ref_proc.proargtypes) WITH ORDINALITY AS t(oid, ord)
+            ),
+            ''
+          )
+        )
+      ) AS referenced_stable_id,
+      d.deptype,
+      COALESCE(dep_view.schema_name, v_ns.nspname) AS dep_schema,
+      COALESCE(ref_proc_obj.schema_name, ref_proc_ns.nspname) AS ref_schema
+    FROM pg_depend d
+    JOIN pg_rewrite r ON r.oid = d.objid
+    JOIN pg_class v ON r.ev_class = v.oid
+    JOIN pg_namespace v_ns ON v.relnamespace = v_ns.oid
+    LEFT JOIN objects dep_view
+      ON dep_view.classid = 'pg_class'::regclass
+     AND dep_view.objid = v.oid
+     AND dep_view.objsubid = 0
+    JOIN pg_proc ref_proc ON ref_proc.oid = d.refobjid
+    JOIN pg_namespace ref_proc_ns ON ref_proc_ns.oid = ref_proc.pronamespace
+    LEFT JOIN objects ref_proc_obj
+      ON ref_proc_obj.classid = 'pg_proc'::regclass
+     AND ref_proc_obj.objid = ref_proc.oid
+     AND ref_proc_obj.objsubid = 0
+    WHERE d.classid = 'pg_rewrite'::regclass
+      AND d.refclassid = 'pg_proc'::regclass
+      AND v.relkind IN ('v','m')
+      AND d.deptype = 'n'
+  ),
+  constraint_deps AS (
+    SELECT DISTINCT
+      format('constraint:%I.%I.%I', fk_ns.nspname, fk_table.relname, fk_con.conname) AS dependent_stable_id,
+      format('constraint:%I.%I.%I', ref_ns.nspname, ref_table.relname, ref_con.conname) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      fk_ns.nspname AS dep_schema,
+      ref_ns.nspname AS ref_schema
+    FROM pg_constraint fk_con
+    JOIN pg_class fk_table ON fk_con.conrelid = fk_table.oid
+    JOIN pg_namespace fk_ns ON fk_table.relnamespace = fk_ns.oid
+    JOIN pg_class ref_table ON fk_con.confrelid = ref_table.oid
+    JOIN pg_namespace ref_ns ON ref_table.relnamespace = ref_ns.oid
+    JOIN pg_constraint ref_con ON (
+      ref_con.conrelid = fk_con.confrelid
+      AND ref_con.contype IN ('p', 'u')
+      AND ref_con.conkey = fk_con.confkey
+    )
+    WHERE fk_con.contype = 'f'
+  ),
+  index_schema_deps AS (
+    -- Indexes depend on their schema (ensure schema exists before indexes)
+    SELECT DISTINCT
+      format('index:%I.%I.%I', ns.nspname, tbl.relname, idx_rel.relname) AS dependent_stable_id,
+      format('schema:%I', ns.nspname) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      ns.nspname AS dep_schema,
+      ns.nspname AS ref_schema
+    FROM pg_class idx_rel
+    JOIN pg_index idx ON idx.indexrelid = idx_rel.oid
+    JOIN pg_class tbl ON tbl.oid = idx.indrelid
+    JOIN pg_namespace ns ON ns.oid = idx_rel.relnamespace
+    WHERE idx_rel.relkind = 'i'
+  ),
+  index_table_deps AS (
+    -- Indexes depend on their owning table
+    SELECT DISTINCT
+      format('index:%I.%I.%I', ns.nspname, tbl.relname, idx_rel.relname) AS dependent_stable_id,
+      format('table:%I.%I', ns.nspname, tbl.relname) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      ns.nspname AS dep_schema,
+      ns.nspname AS ref_schema
+    FROM pg_class idx_rel
+    JOIN pg_index idx ON idx.indexrelid = idx_rel.oid
+    JOIN pg_class tbl ON tbl.oid = idx.indrelid
+    JOIN pg_namespace ns ON ns.oid = idx_rel.relnamespace
+    WHERE idx_rel.relkind = 'i'
+  ),
+  ownership_deps AS (
+    -- Schema ownership dependencies
+    SELECT DISTINCT
+      format('schema:%I', n.nspname) AS dependent_stable_id,
+      format('role:%s', n.nspowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_namespace n
+
+    UNION ALL
+
+    -- Table ownership dependencies
+    SELECT DISTINCT
+      format('table:%I.%I', n.nspname, c.relname) AS dependent_stable_id,
+      format('role:%s', c.relowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_class c
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    WHERE c.relkind IN ('r','p')
+
+    UNION ALL
+
+    -- View ownership dependencies
+    SELECT DISTINCT
+      format('view:%I.%I', n.nspname, c.relname) AS dependent_stable_id,
+      format('role:%s', c.relowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_class c
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    WHERE c.relkind = 'v'
+
+    UNION ALL
+
+    -- Materialized view ownership dependencies
+    SELECT DISTINCT
+      format('materializedView:%I.%I', n.nspname, c.relname) AS dependent_stable_id,
+      format('role:%s', c.relowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_class c
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    WHERE c.relkind = 'm'
+
+    UNION ALL
+
+    -- Sequence ownership dependencies
+    SELECT DISTINCT
+      format('sequence:%I.%I', n.nspname, c.relname) AS dependent_stable_id,
+      format('role:%s', c.relowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_class c
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    WHERE c.relkind = 'S'
+
+    UNION ALL
+
+    -- Composite type ownership dependencies
+    SELECT DISTINCT
+      format('compositeType:%I.%I', n.nspname, c.relname) AS dependent_stable_id,
+      format('role:%s', c.relowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_class c
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    WHERE c.relkind = 'c'
+
+    UNION ALL
+
+    -- Function/procedure ownership dependencies
+    SELECT DISTINCT
+      format(
+        'procedure:%I.%I(%s)',
+        n.nspname,
+        p.proname,
+        COALESCE(
           (
-            select string_agg(format_type(oid, null), ',' order by ord)
-            from unnest(dep_proc.proargtypes) with ordinality as t(oid, ord)
+            SELECT string_agg(format_type(oid, NULL), ',' ORDER BY ord)
+            FROM unnest(p.proargtypes) WITH ORDINALITY AS t(oid, ord)
           ),
           ''
         )
-        || ')'
+      ) AS dependent_stable_id,
+      format('role:%s', p.proowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+
+    UNION ALL
+
+    -- Domain ownership dependencies
+    SELECT DISTINCT
+      format('domain:%I.%I', n.nspname, t.typname) AS dependent_stable_id,
+      format('role:%s', t.typowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_type t
+    JOIN pg_namespace n ON t.typnamespace = n.oid
+    WHERE t.typtype = 'd'
+
+    UNION ALL
+
+    -- Enum ownership dependencies
+    SELECT DISTINCT
+      format('enum:%I.%I', n.nspname, t.typname) AS dependent_stable_id,
+      format('role:%s', t.typowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_type t
+    JOIN pg_namespace n ON t.typnamespace = n.oid
+    WHERE t.typtype = 'e'
+
+    UNION ALL
+
+    -- Range type ownership dependencies
+    SELECT DISTINCT
+      format('range:%I.%I', n.nspname, t.typname) AS dependent_stable_id,
+      format('role:%s', t.typowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_type t
+    JOIN pg_namespace n ON t.typnamespace = n.oid
+    WHERE t.typtype = 'r'
+
+    UNION ALL
+
+    -- Multirange type ownership dependencies
+    SELECT DISTINCT
+      format('multirange:%I.%I', n.nspname, t.typname) AS dependent_stable_id,
+      format('role:%s', t.typowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_type t
+    JOIN pg_namespace n ON t.typnamespace = n.oid
+    WHERE t.typtype = 'm'
+
+    UNION ALL
+
+    -- Base type ownership dependencies
+    SELECT DISTINCT
+      format('type:%I.%I', n.nspname, t.typname) AS dependent_stable_id,
+      format('role:%s', t.typowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_type t
+    JOIN pg_namespace n ON t.typnamespace = n.oid
+    WHERE t.typtype = 'b'
+
+    UNION ALL
+
+    -- Trigger ownership dependencies (triggers inherit owner from their table)
+    SELECT DISTINCT
+      format('trigger:%I.%I.%I', tn.nspname, tc.relname, tg.tgname) AS dependent_stable_id,
+      format('role:%s', tc.relowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      tn.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_trigger tg
+    JOIN pg_class tc ON tg.tgrelid = tc.oid
+    JOIN pg_namespace tn ON tc.relnamespace = tn.oid
+    WHERE NOT tg.tgisinternal
+
+    UNION ALL
+
+    -- RLS Policy ownership dependencies (policies inherit owner from their table)
+    SELECT DISTINCT
+      format('rlsPolicy:%I.%I.%I', tn.nspname, tc.relname, pol.polname) AS dependent_stable_id,
+      format('role:%s', tc.relowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      tn.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_policy pol
+    JOIN pg_class tc ON pol.polrelid = tc.oid
+    JOIN pg_namespace tn ON tc.relnamespace = tn.oid
     
-    -- Trigger
-    when quote_ident(dep_class.relname) = 'pg_trigger' and dep_trigger.oid is not null and dep_trigger_table.oid is not null
-      then 'trigger:' || quote_ident(dep_trigger_table_ns.nspname) || '.' || quote_ident(dep_trigger_table.relname) || '.' || quote_ident(dep_trigger.tgname)
-    
-    -- Language
-    when quote_ident(dep_class.relname) = 'pg_language' and dep_language.oid is not null
-      then 'language:' || quote_ident(dep_language.lanname)
-    
-    -- Rewrite rule
-    when quote_ident(dep_class.relname) = 'pg_rewrite' and dep_rewrite.oid is not null and dep_rewrite_table.oid is not null
-      then 'rewriteRule:' || quote_ident(dep_rewrite_table_ns.nspname) || '.' || quote_ident(dep_rewrite_table.relname) || '.' || quote_ident(dep_rewrite.rulename)
-    
-    -- Text search configuration
-    when quote_ident(dep_class.relname) = 'pg_ts_config' and dep_ts_config.oid is not null
-      then 'tsConfig:' || quote_ident(dep_ts_config_ns.nspname) || '.' || quote_ident(dep_ts_config.cfgname)
-    
-    -- Text search dictionary
-    when quote_ident(dep_class.relname) = 'pg_ts_dict' and dep_ts_dict.oid is not null
-      then 'tsDict:' || quote_ident(dep_ts_dict_ns.nspname) || '.' || quote_ident(dep_ts_dict.dictname)
-    
-    -- Text search template
-    when quote_ident(dep_class.relname) = 'pg_ts_template' and dep_ts_template.oid is not null
-      then 'tsTemplate:' || quote_ident(dep_ts_template_ns.nspname) || '.' || quote_ident(dep_ts_template.tmplname)
-    
-    -- Attribute defaults (column default values) — use column stable id
-    when quote_ident(dep_class.relname) = 'pg_attrdef' and dep_attrdef.oid is not null and dep_attrdef_table.oid is not null
-      then 'column:' || quote_ident(dep_attrdef_table_ns.nspname) || '.' || quote_ident(dep_attrdef_table.relname) || '.' || quote_ident(dep_attrdef_col.attname)
-    
-    -- Default ACLs
-    when quote_ident(dep_class.relname) = 'pg_default_acl' and dep_default_acl.oid is not null and dep_default_acl_ns.oid is not null
-      then 'defaultAcl:' || quote_ident(dep_default_acl_ns.nspname) || '.' || dep_default_acl.defaclobjtype::text
-    
-    -- Event triggers
-    when quote_ident(dep_class.relname) = 'pg_event_trigger' and dep_event_trigger.oid is not null
-      then 'eventTrigger:' || quote_ident(dep_event_trigger.evtname)
-    
-    -- Extensions
-    when quote_ident(dep_class.relname) = 'pg_extension' and dep_extension.oid is not null
-      then 'extension:' || quote_ident(dep_extension.extname)
-    
-    else 'unknown:' || quote_ident(dep_class.relname) || '.' || d.objid::text
-  end as dependent_stable_id,
 
-  -- Referenced stable ID
-  case
-    -- Referenced column on a table via refobjsubid
-    when quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and d.refobjsubid > 0
-      then 'column:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname) || '.' || quote_ident(ref_obj_col.attname)
-    -- Schema (namespace)
-    when quote_ident(ref_class.relname) = 'pg_namespace' and ref_namespace.oid is not null
-      then 'schema:' || quote_ident(ref_namespace.nspname)
-    -- Table
-    when quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and ref_obj.relkind in ('r','p')
-      then 'table:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname)
-    -- View
-    when quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and ref_obj.relkind = 'v'
-      then 'view:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname)
-    -- Materialized View
-    when quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and ref_obj.relkind = 'm'
-      then 'materializedView:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname)
-    -- Sequence
-    when quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and ref_obj.relkind = 'S'
-      then 'sequence:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname)
-    -- Index
-    when quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and ref_obj.relkind = 'i'
-      then 'index:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname)
-    -- System catalog tables (information_schema, pg_catalog, etc.)
-    when quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and ref_obj.relkind = 'r' and quote_ident(ref_ns.nspname) in ('information_schema', 'pg_catalog', 'pg_toast')
-      then 'systemTable:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname)
-    -- System catalog views (information_schema, pg_catalog, etc.)
-    when quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and ref_obj.relkind = 'v' and quote_ident(ref_ns.nspname) in ('information_schema', 'pg_catalog', 'pg_toast')
-      then 'systemView:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname)
-    -- System catalog sequences (information_schema, pg_catalog, etc.)
-    when quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and ref_obj.relkind = 'S' and quote_ident(ref_ns.nspname) in ('information_schema', 'pg_catalog', 'pg_toast')
-      then 'systemSequence:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname)
-    -- System catalog indexes (information_schema, pg_catalog, etc.)
-    when quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and ref_obj.relkind = 'i' and quote_ident(ref_ns.nspname) in ('information_schema', 'pg_catalog', 'pg_toast')
-      then 'systemIndex:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname)
-    -- Handle any remaining pg_class objects with unknown relkind values
-    when quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and quote_ident(ref_ns.nspname) in ('information_schema', 'pg_catalog', 'pg_toast')
-      then 'systemObject:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname) || ':' || ref_obj.relkind::text
-    -- Composite Type
-    when quote_ident(ref_class.relname) = 'pg_type' and ref_type.oid is not null and ref_type.typtype = 'd'
-      then 'domain:' || quote_ident(ref_type_ns.nspname) || '.' || quote_ident(ref_type.typname)
-    when quote_ident(ref_class.relname) = 'pg_type' and ref_type.oid is not null and ref_type.typtype = 'e'
-      then 'enum:' || quote_ident(ref_type_ns.nspname) || '.' || quote_ident(ref_type.typname)
-    when quote_ident(ref_class.relname) = 'pg_type' and ref_type.oid is not null and ref_type.typtype = 'r'
-      then 'range:' || quote_ident(ref_type_ns.nspname) || '.' || quote_ident(ref_type.typname)
-    when quote_ident(ref_class.relname) = 'pg_type' and ref_type.oid is not null and ref_type.typtype = 'm'
-      then 'multirange:' || quote_ident(ref_type_ns.nspname) || '.' || quote_ident(ref_type.typname)
-    when quote_ident(ref_class.relname) = 'pg_type' and ref_type.oid is not null and ref_type.typtype = 'c'
-      then 'compositeType:' || quote_ident(ref_type_ns.nspname) || '.' || quote_ident(ref_type.typname)
-    -- When a composite type is created sub-elements references are stored in pg_class (columsn of the composite type)
-    when quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and ref_obj.relkind = 'c'
-      then 'compositeType:' || quote_ident(ref_ns.nspname) || '.' || quote_ident(ref_obj.relname)
-    when quote_ident(ref_class.relname) = 'pg_type' and ref_type.oid is not null and ref_type.typtype = 'b'
-      then 'type:' || quote_ident(ref_type_ns.nspname) || '.' || quote_ident(ref_type.typname)
-    when quote_ident(ref_class.relname) = 'pg_type' and ref_type.oid is not null
-      then 'type:' || quote_ident(ref_type_ns.nspname) || '.' || quote_ident(ref_type.typname)
-    -- Constraint on domain
-    when quote_ident(ref_class.relname) = 'pg_constraint' and ref_con.oid is not null and ref_con.contypid != 0 and ref_con_type.oid is not null
-      then 'constraint:' || quote_ident(ref_con_type_ns.nspname) || '.' || quote_ident(ref_con_type.typname) || '.' || quote_ident(ref_con.conname)
-    -- Constraint on table
-    when quote_ident(ref_class.relname) = 'pg_constraint' and ref_con.oid is not null and ref_con.conrelid != 0 and ref_con_table.oid is not null
-      then 'constraint:' || quote_ident(ref_con_table_ns.nspname) || '.' || quote_ident(ref_con_table.relname) || '.' || quote_ident(ref_con.conname)
-    -- Policy
-    when quote_ident(ref_class.relname) = 'pg_policy' and ref_policy.oid is not null and ref_policy_table.oid is not null
-      then 'rlsPolicy:' || quote_ident(ref_policy_table_ns.nspname) || '.' || quote_ident(ref_policy_table.relname) || '.' || quote_ident(ref_policy.polname)
-    -- Function/Procedure
-    when quote_ident(ref_class.relname) = 'pg_proc' and ref_proc.oid is not null
-      then 'procedure:' || quote_ident(ref_proc_ns.nspname) || '.' || quote_ident(ref_proc.proname) || '('
-        || coalesce(
-          (
-            select string_agg(format_type(oid, null), ',' order by ord)
-            from unnest(ref_proc.proargtypes) with ordinality as t(oid, ord)
-          ),
-          ''
-        )
-        || ')'
-    -- Trigger
-    when quote_ident(ref_class.relname) = 'pg_trigger' and ref_trigger.oid is not null and ref_trigger_table.oid is not null
-      then 'trigger:' || quote_ident(ref_trigger_table_ns.nspname) || '.' || quote_ident(ref_trigger_table.relname) || '.' || quote_ident(ref_trigger.tgname)
-    
-    -- Language
-    when quote_ident(ref_class.relname) = 'pg_language' and ref_language.oid is not null
-      then 'language:' || quote_ident(ref_language.lanname)
-    
-    -- Rewrite rule
-    when quote_ident(ref_class.relname) = 'pg_rewrite' and ref_rewrite.oid is not null and ref_rewrite_table.oid is not null
-      then 'rewriteRule:' || quote_ident(ref_rewrite_table_ns.nspname) || '.' || quote_ident(ref_rewrite_table.relname) || '.' || quote_ident(ref_rewrite.rulename)
-    
-    -- Text search configuration
-    when quote_ident(ref_class.relname) = 'pg_ts_config' and ref_ts_config.oid is not null
-      then 'tsConfig:' || quote_ident(ref_ts_config_ns.nspname) || '.' || quote_ident(ref_ts_config.cfgname)
-    
-    -- Text search dictionary
-    when quote_ident(ref_class.relname) = 'pg_ts_dict' and ref_ts_dict.oid is not null
-      then 'tsDict:' || quote_ident(ref_ts_dict_ns.nspname) || '.' || quote_ident(ref_ts_dict.dictname)
-    
-    -- Text search template
-    when quote_ident(ref_class.relname) = 'pg_ts_template' and ref_ts_template.oid is not null
-      then 'tsTemplate:' || quote_ident(ref_ts_template_ns.nspname) || '.' || quote_ident(ref_ts_template.tmplname)
-    
-    -- Attribute defaults (column default values)
-    when quote_ident(ref_class.relname) = 'pg_attrdef' and ref_attrdef.oid is not null and ref_attrdef_table.oid is not null
-      then 'column:' || quote_ident(ref_attrdef_table_ns.nspname) || '.' || quote_ident(ref_attrdef_table.relname) || '.' || quote_ident(ref_attrdef_col.attname)
-    
-    -- Default ACLs
-    when quote_ident(ref_class.relname) = 'pg_default_acl' and ref_default_acl.oid is not null and ref_default_acl_ns.oid is not null
-      then 'defaultAcl:' || quote_ident(ref_default_acl_ns.nspname) || '.' || ref_default_acl.defaclobjtype::text
-    
-    -- Event triggers
-    when quote_ident(ref_class.relname) = 'pg_event_trigger' and ref_event_trigger.oid is not null
-      then 'eventTrigger:' || quote_ident(ref_event_trigger.evtname)
-    
-    -- Extensions
-    when quote_ident(ref_class.relname) = 'pg_extension' and ref_extension.oid is not null
-      then 'extension:' || quote_ident(ref_extension.extname)
-    
-    else 'unknown:' || quote_ident(ref_class.relname) || '.' || d.refobjid::text
-  end as referenced_stable_id,
+    UNION ALL
 
-  d.deptype
+    -- Language ownership dependencies
+    SELECT DISTINCT
+      format('language:%I', l.lanname) AS dependent_stable_id,
+      format('role:%s', l.lanowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_language l
+    WHERE l.lanname NOT IN ('internal', 'c', 'sql')
 
-from
-  pg_depend d
+    UNION ALL
 
-  -- Dependent object class
-  join pg_class dep_class on d.classid = dep_class.oid
-  -- Referenced object class
-  join pg_class ref_class on d.refclassid = ref_class.oid
+    -- Extension ownership dependencies
+    SELECT DISTINCT
+      format('extension:%I', e.extname) AS dependent_stable_id,
+      format('role:%s', e.extowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_extension e
+    WHERE e.extname <> 'plpgsql'
 
-  -- Dependent object joins
-  left join pg_class dep_obj on quote_ident(dep_class.relname) = 'pg_class' and d.objid = dep_obj.oid
-  left join pg_namespace dep_ns on dep_obj.relnamespace = dep_ns.oid
-  left join pg_namespace dep_namespace on quote_ident(dep_class.relname) = 'pg_namespace' and d.objid = dep_namespace.oid
+    UNION ALL
 
-  left join pg_type dep_type on quote_ident(dep_class.relname) = 'pg_type' and d.objid = dep_type.oid
-  left join pg_namespace dep_type_ns on dep_type.typnamespace = dep_type_ns.oid
-
-  left join pg_constraint dep_con on quote_ident(dep_class.relname) = 'pg_constraint' and d.objid = dep_con.oid
-  left join pg_type dep_con_type on dep_con.contypid = dep_con_type.oid
-  left join pg_namespace dep_con_type_ns on dep_con_type.typnamespace = dep_con_type_ns.oid
-  left join pg_class dep_con_table on dep_con.conrelid = dep_con_table.oid
-  left join pg_namespace dep_con_table_ns on dep_con_table.relnamespace = dep_con_table_ns.oid
-
-  left join pg_policy dep_policy on quote_ident(dep_class.relname) = 'pg_policy' and d.objid = dep_policy.oid
-  left join pg_class dep_policy_table on dep_policy.polrelid = dep_policy_table.oid
-  left join pg_namespace dep_policy_table_ns on dep_policy_table.relnamespace = dep_policy_table_ns.oid
-
-  left join pg_proc dep_proc on quote_ident(dep_class.relname) = 'pg_proc' and d.objid = dep_proc.oid
-  left join pg_namespace dep_proc_ns on dep_proc.pronamespace = dep_proc_ns.oid
-
-  left join pg_trigger dep_trigger on quote_ident(dep_class.relname) = 'pg_trigger' and d.objid = dep_trigger.oid
-  left join pg_class dep_trigger_table on dep_trigger.tgrelid = dep_trigger_table.oid
-  left join pg_namespace dep_trigger_table_ns on dep_trigger_table.relnamespace = dep_trigger_table_ns.oid
-
-  -- Additional dependent object joins for new object types
-  left join pg_language dep_language on quote_ident(dep_class.relname) = 'pg_language' and d.objid = dep_language.oid
-  
-  left join pg_rewrite dep_rewrite on quote_ident(dep_class.relname) = 'pg_rewrite' and d.objid = dep_rewrite.oid
-  left join pg_class dep_rewrite_table on dep_rewrite.ev_class = dep_rewrite_table.oid
-  left join pg_namespace dep_rewrite_table_ns on dep_rewrite_table.relnamespace = dep_rewrite_table_ns.oid
-  
-  left join pg_ts_config dep_ts_config on quote_ident(dep_class.relname) = 'pg_ts_config' and d.objid = dep_ts_config.oid
-  left join pg_namespace dep_ts_config_ns on dep_ts_config.cfgnamespace = dep_ts_config_ns.oid
-  
-  left join pg_ts_dict dep_ts_dict on quote_ident(dep_class.relname) = 'pg_ts_dict' and d.objid = dep_ts_dict.oid
-  left join pg_namespace dep_ts_dict_ns on dep_ts_dict.dictnamespace = dep_ts_dict_ns.oid
-  
-  left join pg_ts_template dep_ts_template on quote_ident(dep_class.relname) = 'pg_ts_template' and d.objid = dep_ts_template.oid
-  left join pg_namespace dep_ts_template_ns on dep_ts_template.tmplnamespace = dep_ts_template_ns.oid
-
-  -- Attribute defaults (column default values)
-  left join pg_attrdef dep_attrdef on quote_ident(dep_class.relname) = 'pg_attrdef' and d.objid = dep_attrdef.oid
-  left join pg_class dep_attrdef_table on dep_attrdef.adrelid = dep_attrdef_table.oid
-  left join pg_namespace dep_attrdef_table_ns on dep_attrdef_table.relnamespace = dep_attrdef_table_ns.oid
-  left join pg_attribute dep_attrdef_col on quote_ident(dep_class.relname) = 'pg_attrdef' and dep_attrdef.adrelid = dep_attrdef_col.attrelid and dep_attrdef.adnum = dep_attrdef_col.attnum and dep_attrdef_col.attnum > 0 and not dep_attrdef_col.attisdropped
-
-  -- Additional system catalog objects
-  left join pg_default_acl dep_default_acl on quote_ident(dep_class.relname) = 'pg_default_acl' and d.objid = dep_default_acl.oid
-  left join pg_namespace dep_default_acl_ns on dep_default_acl.defaclnamespace = dep_default_acl_ns.oid
-  
-  left join pg_event_trigger dep_event_trigger on quote_ident(dep_class.relname) = 'pg_event_trigger' and d.objid = dep_event_trigger.oid
-  
-  left join pg_extension dep_extension on quote_ident(dep_class.relname) = 'pg_extension' and d.objid = dep_extension.oid
-
-  -- Referenced object joins
-  left join pg_class ref_obj on quote_ident(ref_class.relname) = 'pg_class' and d.refobjid = ref_obj.oid
-  left join pg_namespace ref_ns on ref_obj.relnamespace = ref_ns.oid
-  left join pg_namespace ref_namespace on quote_ident(ref_class.relname) = 'pg_namespace' and d.refobjid = ref_namespace.oid
-
-  left join pg_type ref_type on quote_ident(ref_class.relname) = 'pg_type' and d.refobjid = ref_type.oid
-  left join pg_namespace ref_type_ns on ref_type.typnamespace = ref_type_ns.oid
-
-  left join pg_constraint ref_con on quote_ident(ref_class.relname) = 'pg_constraint' and d.refobjid = ref_con.oid
-  left join pg_type ref_con_type on ref_con.contypid = ref_con_type.oid
-  left join pg_namespace ref_con_type_ns on ref_con_type.typnamespace = ref_con_type_ns.oid
-  left join pg_class ref_con_table on ref_con.conrelid = ref_con_table.oid
-  left join pg_namespace ref_con_table_ns on ref_con_table.relnamespace = ref_con_table_ns.oid
-
-  left join pg_policy ref_policy on quote_ident(ref_class.relname) = 'pg_policy' and d.refobjid = ref_policy.oid
-  left join pg_class ref_policy_table on ref_policy.polrelid = ref_policy_table.oid
-  left join pg_namespace ref_policy_table_ns on ref_policy_table.relnamespace = ref_policy_table_ns.oid
-
-  left join pg_proc ref_proc on quote_ident(ref_class.relname) = 'pg_proc' and d.refobjid = ref_proc.oid
-  left join pg_namespace ref_proc_ns on ref_proc.pronamespace = ref_proc_ns.oid
-
-  left join pg_trigger ref_trigger on quote_ident(ref_class.relname) = 'pg_trigger' and d.refobjid = ref_trigger.oid
-  left join pg_class ref_trigger_table on ref_trigger.tgrelid = ref_trigger_table.oid
-  left join pg_namespace ref_trigger_table_ns on ref_trigger_table.relnamespace = ref_trigger_table_ns.oid
-
-  -- Additional referenced object joins for new object types
-  left join pg_language ref_language on quote_ident(ref_class.relname) = 'pg_language' and d.refobjid = ref_language.oid
-  
-  left join pg_rewrite ref_rewrite on quote_ident(ref_class.relname) = 'pg_rewrite' and d.refobjid = ref_rewrite.oid
-  left join pg_class ref_rewrite_table on ref_rewrite.ev_class = ref_rewrite_table.oid
-  left join pg_namespace ref_rewrite_table_ns on ref_rewrite_table.relnamespace = ref_rewrite_table_ns.oid
-  
-  left join pg_ts_config ref_ts_config on quote_ident(ref_class.relname) = 'pg_ts_config' and d.refobjid = ref_ts_config.oid
-  left join pg_namespace ref_ts_config_ns on ref_ts_config.cfgnamespace = ref_ts_config_ns.oid
-  
-  left join pg_ts_dict ref_ts_dict on quote_ident(ref_class.relname) = 'pg_ts_dict' and d.refobjid = ref_ts_dict.oid
-  left join pg_namespace ref_ts_dict_ns on ref_ts_dict.dictnamespace = ref_ts_dict_ns.oid
-  
-  left join pg_ts_template ref_ts_template on quote_ident(ref_class.relname) = 'pg_ts_template' and d.refobjid = ref_ts_template.oid
-  left join pg_namespace ref_ts_template_ns on ref_ts_template.tmplnamespace = ref_ts_template_ns.oid
-
-  -- Attribute defaults (column default values)
-  left join pg_attrdef ref_attrdef on quote_ident(ref_class.relname) = 'pg_attrdef' and d.refobjid = ref_attrdef.oid
-  left join pg_class ref_attrdef_table on ref_attrdef.adrelid = ref_attrdef_table.oid
-  left join pg_namespace ref_attrdef_table_ns on ref_attrdef_table.relnamespace = ref_attrdef_table_ns.oid
-  left join pg_attribute ref_attrdef_col on quote_ident(ref_class.relname) = 'pg_attrdef' and ref_attrdef.adrelid = ref_attrdef_col.attrelid and ref_attrdef.adnum = ref_attrdef_col.attnum and ref_attrdef_col.attnum > 0 and not ref_attrdef_col.attisdropped
-  -- Referenced column by refobjsubid on referenced table
-  left join pg_attribute ref_obj_col on quote_ident(ref_class.relname) = 'pg_class' and ref_obj.oid is not null and d.refobjsubid > 0 and ref_obj_col.attrelid = ref_obj.oid and ref_obj_col.attnum = d.refobjsubid and ref_obj_col.attnum > 0 and not ref_obj_col.attisdropped
-  
-  -- Additional system catalog objects
-  left join pg_default_acl ref_default_acl on quote_ident(ref_class.relname) = 'pg_default_acl' and d.refobjid = ref_default_acl.oid
-  left join pg_namespace ref_default_acl_ns on ref_default_acl.defaclnamespace = ref_default_acl_ns.oid
-  
-  left join pg_event_trigger ref_event_trigger on quote_ident(ref_class.relname) = 'pg_event_trigger' and d.refobjid = ref_event_trigger.oid
-  
-  left join pg_extension ref_extension on quote_ident(ref_class.relname) = 'pg_extension' and d.refobjid = ref_extension.oid
-
-where
-  d.deptype in ('n', 'a', 'i')
-order by
-  dependent_stable_id, referenced_stable_id
-) as depends_rows
--- In some corner case (composite type) we can have the same stable ids in the case where an internal object depends on it's parent type
--- eg: compositeType contains internal columns but we don't distinct them from the parent type itself in our stable ids
-where dependent_stable_id != referenced_stable_id
-
-
+    -- Collation ownership dependencies
+    SELECT DISTINCT
+      format('collation:%I.%I', n.nspname, c.collname) AS dependent_stable_id,
+      format('role:%s', c.collowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_collation c
+    JOIN pg_namespace n ON c.collnamespace = n.oid
+  ),
+  all_rows AS (
+    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM base
+    UNION ALL
+    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM comment_deps
+    UNION ALL
+    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM type_usage_deps
+    UNION ALL
+    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM view_rewrite_rel_deps
+    UNION ALL
+    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM view_rewrite_proc_deps
+    UNION ALL
+    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM constraint_deps
+    UNION ALL
+    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM index_schema_deps
+    UNION ALL
+    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM index_table_deps
+    UNION ALL
+    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM ownership_deps
+  )
+  SELECT DISTINCT
+    dependent_stable_id,
+    referenced_stable_id,
+    deptype
+  FROM all_rows
+  -- In some corner case (composite type) we can have the same stable ids in the case where an internal object depends on it's parent type
+  -- eg: compositeType contains internal columns but we don't distinct them from the parent type itself in our stable ids
+  WHERE dependent_stable_id <> referenced_stable_id
+    -- filter rows where dependent object is part of Postgres internals
+    AND NOT (
+      COALESCE(dep_schema, '') LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
+    )
+  ORDER BY dependent_stable_id, referenced_stable_id;
   `;
 
-  // Also extract view dependencies from pg_rewrite
-  const viewDepends = await extractViewAndMaterializedViewDepends(sql);
-  // Also extract table -> function dependencies (defaults/constraints)
-  const tableFuncDepends = await extractTableAndConstraintFunctionDepends(sql);
-  // Extract ownership dependencies (all objects depend on their owner roles)
-  const ownershipDepends = await extractOwnershipDepends(sql);
-  // Extract constraint-to-constraint dependencies (foreign key -> unique/primary key)
-  const constraintDepends = await extractConstraintDepends(sql);
-  // Extract comment dependencies (comments -> owning objects)
-  const commentDepends = await extractCommentDepends(sql);
   // Extract privilege and membership dependencies
   const privilegeDepends = await extractPrivilegeAndMembershipDepends(sql);
 
   // Combine all dependency sources and remove duplicates
-  const allDepends = new Set([
-    ...dependsRows,
-    ...viewDepends,
-    ...tableFuncDepends,
-    ...ownershipDepends,
-    ...constraintDepends,
-    ...commentDepends,
-    ...privilegeDepends,
-  ]);
+  const allDepends = new Set([...dependsRows, ...privilegeDepends]);
 
   return Array.from(allDepends).sort(
     (a, b) =>

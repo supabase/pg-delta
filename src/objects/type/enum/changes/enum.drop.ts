@@ -20,7 +20,11 @@ export class DropEnum extends DropEnumChange {
     this.enum = props.enum;
   }
 
-  get dependencies() {
+  get drops() {
+    return [this.enum.stableId];
+  }
+
+  get requires() {
     return [this.enum.stableId];
   }
 

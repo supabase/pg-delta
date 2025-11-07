@@ -12,6 +12,7 @@ const base: ExtensionProps = {
   version: "1.0",
   owner: "o1",
   comment: null,
+  members: [],
 };
 
 describe.concurrent("extension.diff", () => {

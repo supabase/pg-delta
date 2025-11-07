@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { stableId } from "../../utils.ts";
 import type { Index } from "../index.model.ts";
 import { CreateIndexChange, DropIndexChange } from "./index.base.ts";
 
@@ -16,10 +17,12 @@ export class CreateCommentOnIndex extends CreateIndexChange {
     this.index = props.index;
   }
 
-  get dependencies() {
-    return [
-      `comment:${this.index.schema}.${this.index.table_name}.${this.index.name}`,
-    ];
+  get creates() {
+    return [stableId.comment(this.index.stableId)];
+  }
+
+  get requires() {
+    return [this.index.stableId];
   }
 
   serialize(): string {
@@ -42,10 +45,12 @@ export class DropCommentOnIndex extends DropIndexChange {
     this.index = props.index;
   }
 
-  get dependencies() {
-    return [
-      `comment:${this.index.schema}.${this.index.table_name}.${this.index.name}`,
-    ];
+  get drops() {
+    return [stableId.comment(this.index.stableId)];
+  }
+
+  get requires() {
+    return [stableId.comment(this.index.stableId), this.index.stableId];
   }
 
   serialize(): string {

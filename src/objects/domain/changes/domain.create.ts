@@ -28,7 +28,7 @@ export class CreateDomain extends CreateDomainChange {
     this.domain = props.domain;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.domain.stableId];
   }
 

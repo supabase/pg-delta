@@ -37,7 +37,7 @@ export class CreateRole extends CreateRoleChange {
     this.role = props.role;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.role.stableId];
   }
 

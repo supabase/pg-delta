@@ -32,7 +32,7 @@ export class AlterEnumChangeOwner extends AlterEnumChange {
     this.owner = props.owner;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.enum.stableId];
   }
 
@@ -66,7 +66,7 @@ export class AlterEnumAddValue extends AlterEnumChange {
     this.position = props.position;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.enum.stableId];
   }
 

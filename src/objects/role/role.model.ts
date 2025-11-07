@@ -243,9 +243,24 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
           FROM pg_catalog.pg_roles r
           LEFT OUTER JOIN extension_role_oids e ON r.oid = e.objid
           LEFT JOIN role_memberships rm ON rm.role_name = r.rolname
-          WHERE r.rolname NOT IN ('postgres', 'pg_signal_backend', 'pg_read_all_settings', 'pg_read_all_stats',
-                                  'pg_stat_scan_tables', 'pg_monitor', 'pg_read_server_files',
-                                  'pg_write_server_files', 'pg_execute_server_program')
+          WHERE r.rolname NOT IN (
+            'pg_checkpoint',
+            'pg_create_subscription', -- PG16+
+            'pg_database_owner',
+            'pg_execute_server_program',
+            'pg_maintain', -- PG17+
+            'pg_monitor',
+            'pg_read_all_data',
+            'pg_read_all_settings',
+            'pg_read_all_stats',
+            'pg_read_server_files',
+            'pg_signal_backend',
+            'pg_stat_scan_tables',
+            'pg_use_reserved_connections', -- PG16+
+            'pg_write_all_data',
+            'pg_write_server_files',
+            'postgres'
+          )
             AND e.objid IS NULL
             AND r.oid NOT IN (SELECT role_oid FROM roles_only_owning_extension_objects)
             AND r.oid NOT IN (SELECT role_oid FROM extension_grantee_roles)

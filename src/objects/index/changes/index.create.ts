@@ -31,11 +31,12 @@ export class CreateIndex extends CreateIndexChange {
     this.indexableObject = props.indexableObject;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.index.stableId];
   }
 
   serialize(): string {
-    return this.index.definition;
+    // btree being the default, we can omit it
+    return this.index.definition.replace(" USING btree", "");
   }
 }

@@ -1,3 +1,4 @@
+import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { CreateMaterializedViewChange } from "./materialized-view.base.ts";
 
@@ -32,8 +33,17 @@ export class CreateMaterializedView extends CreateMaterializedViewChange {
     this.materializedView = props.materializedView;
   }
 
-  get dependencies() {
-    return [this.materializedView.stableId];
+  get creates() {
+    return [
+      this.materializedView.stableId,
+      ...this.materializedView.columns.map((column) =>
+        stableId.column(
+          this.materializedView.schema,
+          this.materializedView.name,
+          column.name,
+        ),
+      ),
+    ];
   }
 
   serialize(): string {

@@ -33,8 +33,8 @@ export function diffIndexes(
 
   for (const indexId of created) {
     const index = branch[indexId];
-    // Skip primary and unique indexes - they are automatically created by AlterTableAddConstraint
-    if (!index.is_constraint) {
+    // Skip indexes owned by constraints - they are automatically created by AlterTableAddConstraint
+    if (!index.is_owned_by_constraint) {
       changes.push(
         new CreateIndex({
           index,
@@ -49,9 +49,12 @@ export function diffIndexes(
 
   for (const indexId of dropped) {
     const index = main[indexId];
-    // if the index is a constraint it'll be handled by an ALTER TABLE
+    // if the index is owned by a constraint it'll be handled by an ALTER TABLE DROP CONSTRAINT
     // or if the entire table the index refers to has been dropped it'll be handled by a DROP TABLE
-    if (index.is_constraint || !branchIndexableObjects[index.tableStableId]) {
+    if (
+      index.is_owned_by_constraint ||
+      !branchIndexableObjects[index.tableStableId]
+    ) {
       continue;
     }
     changes.push(new DropIndex({ index: main[indexId] }));

@@ -8,9 +8,7 @@ import { diffCatalogs } from "../../src/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
 import type { Change } from "../../src/change.types.ts";
 import type { PgDepend } from "../../src/depend.ts";
-import { pgDumpSort } from "../../src/sort/global-sort.ts";
-import { applyRefinements } from "../../src/sort/refined-sort.ts";
-import { sortChangesByRules } from "../../src/sort/sort-utils.ts";
+import { sortChangesByPhasedGraph } from "../../src/sort/phased-graph-sort.ts";
 import { DEBUG } from "../constants.ts";
 
 interface RoundtripTestOptions {
@@ -110,47 +108,71 @@ export async function roundtripFidelityTest(
   // Generate migration from main to branch
   let changes = diffCatalogs(mainCatalog, branchCatalog);
 
+  if (process.env.DEPENDENCIES_DEBUG) {
+    console.log("mainCatalog.depends: ");
+    console.log(
+      mainCatalog.depends.filter((depend) => {
+        return (
+          depend.dependent_stable_id.startsWith("comment") &&
+          depend.referenced_stable_id.startsWith("extension")
+        );
+      }),
+    );
+    console.log("branchCatalog.depends: ");
+    console.log(
+      branchCatalog.depends.filter((depend) => {
+        return (
+          depend.dependent_stable_id.startsWith("comment") &&
+          depend.referenced_stable_id.startsWith("extension")
+        );
+      }),
+    );
+  }
+
+  // Randomize changes order
+  changes = changes.sort(() => Math.random() - 0.5);
+
+  // Optional pre-sort to provide deterministic tie-breaking for the phased sort
   if (sortChangesCallback) {
     changes = changes.sort(sortChangesCallback);
   }
 
-  const globallySortedChanges = sortChangesByRules(changes, pgDumpSort);
-  const sortedChanges = applyRefinements(
-    {
-      mainCatalog,
-      branchCatalog,
-    },
-    globallySortedChanges,
+  const sortedChanges = sortChangesByPhasedGraph(
+    { mainCatalog, branchCatalog },
+    changes,
   );
 
   if (expectedOperationOrder) {
     validateOperationOrder(sortedChanges, expectedOperationOrder);
   }
 
-  // Generate SQL from changes
-  const sqlStatements = sortedChanges.map((change) => change.serialize());
+  const hasProcedureChanges = sortedChanges.some(
+    (change) => change.objectType === "procedure",
+  );
+  const sessionConfig = hasProcedureChanges
+    ? ["SET check_function_bodies = false"]
+    : [];
 
-  // Join SQL statements
-  const diffScript =
-    sqlStatements.join(";\n\n") + (sqlStatements.length > 0 ? ";" : "");
+  const sqlStatements = sortedChanges.map((change) => change.serialize());
+  const migrationScript = [...sessionConfig, ...sqlStatements].join(";\n\n");
 
   // Verify expected terms are the same as the generated SQL
   if (expectedSqlTerms) {
     if (expectedSqlTerms === "same-as-test-sql") {
-      expect(diffScript).toStrictEqual(testSql);
+      expect(migrationScript).toStrictEqual(testSql);
     } else {
       expect(sqlStatements).toStrictEqual(expectedSqlTerms);
     }
   }
 
   if (DEBUG) {
-    console.log("diffScript: ", diffScript);
+    console.log("migrationScript: ", migrationScript);
   }
   // Apply migration to main database
-  if (diffScript.trim()) {
-    await runOrDump(() => mainSession.unsafe(diffScript), {
+  if (migrationScript.trim()) {
+    await runOrDump(() => mainSession.unsafe(migrationScript), {
       label: "migration",
-      diffScript,
+      diffScript: migrationScript,
     });
   }
 

@@ -3,6 +3,9 @@
  */
 
 import { describe } from "vitest";
+import { AlterTableAddColumn } from "../../src/objects/table/changes/table.alter.ts";
+import { CreateView } from "../../src/objects/view/changes/view.create.ts";
+import { DropView } from "../../src/objects/view/changes/view.drop.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -168,6 +171,23 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             SELECT * FROM test_schema.user_orders
             WHERE total > 1000;
         `,
+        sortChangesCallback: (a, b) => {
+          // force create view top_users before user_orders to test that we track the dependency view -> view's columns
+          if (
+            a instanceof CreateView &&
+            b instanceof CreateView &&
+            a.view.schema === "test_schema" &&
+            b.view.schema === "test_schema"
+          ) {
+            if (a.view.name === "top_users" && b.view.name === "user_orders") {
+              return -1;
+            }
+            if (a.view.name === "user_orders" && b.view.name === "top_users") {
+              return 1;
+            }
+          }
+          return 0;
+        },
       });
     });
 
@@ -195,6 +215,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP TABLE test_schema.base;
           DROP SCHEMA test_schema;
         `,
+        sortChangesCallback: (a, b) => {
+          // force drop view v1 before v2 and drop view v2 before v3
+          if (b instanceof DropView && a instanceof DropView) {
+            if (b.view.name === "v1" && a.view.name === "v2") {
+              return -1;
+            }
+            if (b.view.name === "v2" && a.view.name === "v3") {
+              return -1;
+            }
+          }
+          return 0;
+        },
       });
     });
 
@@ -222,6 +254,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                    COUNT(CASE WHEN status = 'active' THEN 1 END) as active_cnt
             FROM test_schema.data;
         `,
+        sortChangesCallback: (a, b) => {
+          // force create view before alter table to test that we track the dependency view -> column
+          if (b instanceof CreateView && a instanceof AlterTableAddColumn) {
+            return 1;
+          }
+          return -1;
+        },
       });
     });
 

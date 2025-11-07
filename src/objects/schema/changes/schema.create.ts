@@ -17,23 +17,25 @@ export class CreateSchema extends CreateSchemaChange {
   public readonly schema: Schema;
   public readonly scope = "object" as const;
 
-  constructor(props: { schema: Schema }) {
+  constructor(props: { schema: Schema; skipAuthorization?: boolean }) {
     super();
     this.schema = props.schema;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.schema.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: { skipAuthorization?: boolean }): string {
     const parts: string[] = ["CREATE SCHEMA"];
 
     // Add schema name
     parts.push(this.schema.name);
 
     // Add AUTHORIZATION
-    parts.push("AUTHORIZATION", this.schema.owner);
+    if (!options?.skipAuthorization) {
+      parts.push("AUTHORIZATION", this.schema.owner);
+    }
 
     return parts.join(" ");
   }

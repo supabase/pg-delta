@@ -20,7 +20,11 @@ export class DropTrigger extends DropTriggerChange {
     this.trigger = props.trigger;
   }
 
-  get dependencies() {
+  get drops() {
+    return [this.trigger.stableId];
+  }
+
+  get requires() {
     return [this.trigger.stableId];
   }
 

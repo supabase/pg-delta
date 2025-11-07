@@ -2,6 +2,7 @@ import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../../base.privilege.ts";
+import { stableId } from "../../../utils.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 import {
   CreateCompositeTypeChange,
@@ -46,9 +47,12 @@ export class GrantCompositeTypePrivileges extends CreateCompositeTypeChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.compositeType.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get creates() {
+    return [stableId.acl(this.compositeType.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [this.compositeType.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {
@@ -103,9 +107,16 @@ export class RevokeCompositeTypePrivileges extends DropCompositeTypeChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.compositeType.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get drops() {
+    return [stableId.acl(this.compositeType.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [
+      stableId.acl(this.compositeType.stableId, this.grantee),
+      this.compositeType.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {
@@ -144,9 +155,12 @@ export class RevokeGrantOptionCompositeTypePrivileges extends DropCompositeTypeC
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.compositeType.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get requires() {
+    return [
+      stableId.acl(this.compositeType.stableId, this.grantee),
+      this.compositeType.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {

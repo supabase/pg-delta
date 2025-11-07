@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { stableId } from "../../utils.ts";
 import type { Role } from "../role.model.ts";
 import { CreateRoleChange, DropRoleChange } from "./role.base.ts";
 
@@ -13,8 +14,12 @@ export class CreateCommentOnRole extends CreateRoleChange {
     this.role = props.role;
   }
 
-  get dependencies() {
-    return [`comment:${this.role.name}`];
+  get creates() {
+    return [stableId.comment(this.role.stableId)];
+  }
+
+  get requires() {
+    return [this.role.stableId];
   }
 
   serialize(): string {
@@ -36,8 +41,12 @@ export class DropCommentOnRole extends DropRoleChange {
     this.role = props.role;
   }
 
-  get dependencies() {
-    return [`comment:${this.role.name}`];
+  get drops() {
+    return [stableId.comment(this.role.stableId)];
+  }
+
+  get requires() {
+    return [stableId.comment(this.role.stableId), this.role.stableId];
   }
 
   serialize(): string {

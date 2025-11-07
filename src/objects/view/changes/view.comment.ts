@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
 import { CreateViewChange, DropViewChange } from "./view.base.ts";
 
@@ -13,8 +14,12 @@ export class CreateCommentOnView extends CreateViewChange {
     this.view = props.view;
   }
 
-  get dependencies() {
-    return [`comment:${this.view.schema}.${this.view.name}`];
+  get creates() {
+    return [stableId.comment(this.view.stableId)];
+  }
+
+  get requires() {
+    return [this.view.stableId];
   }
 
   serialize(): string {
@@ -36,8 +41,12 @@ export class DropCommentOnView extends DropViewChange {
     this.view = props.view;
   }
 
-  get dependencies() {
-    return [`comment:${this.view.schema}.${this.view.name}`];
+  get drops() {
+    return [stableId.comment(this.view.stableId)];
+  }
+
+  get requires() {
+    return [stableId.comment(this.view.stableId), this.view.stableId];
   }
 
   serialize(): string {
