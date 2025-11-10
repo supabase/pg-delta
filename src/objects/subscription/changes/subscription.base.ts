@@ -18,4 +18,3 @@ export abstract class AlterSubscriptionChange extends BaseSubscriptionChange {
 export abstract class DropSubscriptionChange extends BaseSubscriptionChange {
   readonly operation = "drop" as const;
 }
-

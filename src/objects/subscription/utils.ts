@@ -2,6 +2,12 @@
 import { quoteLiteral } from "../base.change.ts";
 import type { Subscription } from "./subscription.model.ts";
 
+/**
+ * Subscription parameters that can be manipulated via `ALTER SUBSCRIPTION ... SET (...)`.
+ * The list intentionally mirrors the options we surface in diff output. When you add a new
+ * entry here, make sure the corresponding serialization/version handling exists in
+ * `getSubscriptionOptionValue` and in the SQL emitter.
+ */
 export type SubscriptionSettableOption =
   | "slot_name"
   | "binary"
@@ -18,7 +24,15 @@ interface CollectOptions {
   includeTwoPhase?: boolean;
 }
 
-export function getSubscriptionOptionValue(
+/**
+ * Resolve the textual value we should emit for a given subscription option.
+ *
+ * Each branch encodes the quirks we already normalize in the model. For example,
+ * `slot_name` collapses to `NONE` when the subscription was extracted without an
+ * associated logical slot, while `streaming` stays free-form because PG 17+ allows
+ * enumerated values (`on`/`off`/`parallel`).
+ */
+function getSubscriptionOptionValue(
   subscription: Subscription,
   option: SubscriptionSettableOption,
 ): string {
@@ -51,6 +65,10 @@ export function getSubscriptionOptionValue(
   }
 }
 
+/**
+ * Convenience helper used by ALTER change classes. It stitches the option key/value
+ * into the canonical `"key = value"` form that PostgreSQL expects.
+ */
 export function formatSubscriptionOption(
   subscription: Subscription,
   option: SubscriptionSettableOption,
@@ -58,14 +76,21 @@ export function formatSubscriptionOption(
   return `${option} = ${getSubscriptionOptionValue(subscription, option)}`;
 }
 
-export function formatSubscriptionWithClause(
-  subscription: Subscription,
-  options: CollectOptions = {},
-): string[] {
-  const entries = collectSubscriptionOptions(subscription, options);
-  return entries.map(({ key, value }) => `${key} = ${value}`);
-}
-
+/**
+ * Collect all options that should accompany a CREATE/ALTER statement.
+ *
+ * This routine encapsulates the nuanced logic around default slot handling and
+ * version-dependent fields:
+ *  - When `includeEnabled` is true we emit `enabled = false` for disabled subs so that
+ *    recreating them does not inadvertently enable replication.
+ *  - When we know no replication slot exists we force `slot_name = NONE`, plus
+ *    `connect = false` / `create_slot = false` in the caller.
+ *  - Optional flags (`streaming`, `password_required`, `origin`, etc.) are emitted only
+ *    when their value deviates from the PostgreSQL defaults.
+ *
+ * Callers can toggle `includeTwoPhase` / `includeEnabled` to opt-in to those
+ * adjustments depending on which statement is being generated.
+ */
 export function collectSubscriptionOptions(
   subscription: Subscription,
   { includeEnabled = false, includeTwoPhase = false }: CollectOptions = {},

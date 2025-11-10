@@ -18,4 +18,3 @@ export class DropSubscription extends DropSubscriptionChange {
     return `DROP SUBSCRIPTION ${this.subscription.name}`;
   }
 }
-

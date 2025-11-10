@@ -20,4 +20,3 @@ export type SubscriptionChange =
   | AlterSubscriptionSetOptions
   | AlterSubscriptionSetOwner
   | CommentSubscription;
-

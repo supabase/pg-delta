@@ -58,4 +58,3 @@ export class DropCommentOnSubscription extends DropSubscriptionChange {
     return `COMMENT ON SUBSCRIPTION ${this.subscription.name} IS NULL`;
   }
 }
-
