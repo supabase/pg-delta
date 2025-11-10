@@ -22,6 +22,7 @@ export class PostgresAlpineContainer extends GenericContainer {
     this.withTmpFs({
       "/var/lib/postgresql/data": "rw,noexec,nosuid,size=256m",
     });
+    this.withCommand(["postgres", "-c", "wal_level=logical"]);
   }
 
   public withDatabase(database: string): this {
@@ -185,6 +186,15 @@ export class StartedPostgresAlpineContainer extends AbstractStartedContainer {
    * Drops a database
    */
   public async dropDatabase(dbName: string): Promise<void> {
+    console.log("dropping subscriptions for database", dbName);
+    await this.execCommandsSQL(
+      [
+        "DO $pgdiff$\nDECLARE\n  sub RECORD;\n  slot_exists boolean;\nBEGIN\n  FOR sub IN SELECT subname, subslotname FROM pg_catalog.pg_subscription LOOP\n    slot_exists := EXISTS (\n      SELECT 1\n      FROM pg_catalog.pg_replication_slots\n      WHERE slot_name = sub.subslotname\n    );\n\n    EXECUTE format(\n      'DROP SUBSCRIPTION %I WITH (drop_slot = %s)',\n      sub.subname,\n      CASE WHEN slot_exists THEN 'true' ELSE 'false' END\n    );\n  END LOOP;\nEND;\n$pgdiff$ LANGUAGE plpgsql;",
+      ],
+      dbName,
+    );
+
+    console.log("dropping database", dbName);
     await this.execCommandsSQL([
       `DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`,
     ]);
@@ -196,7 +206,10 @@ export class StartedPostgresAlpineContainer extends AbstractStartedContainer {
    * @param commands Array of SQL commands to execute in sequence
    * @throws Error if any command fails to execute with details of the failure
    */
-  private async execCommandsSQL(commands: string[]): Promise<void> {
+  private async execCommandsSQL(
+    commands: string[],
+    database: string = "postgres",
+  ): Promise<void> {
     for (const command of commands) {
       try {
         const result = await this.exec([
@@ -206,7 +219,7 @@ export class StartedPostgresAlpineContainer extends AbstractStartedContainer {
           "-U",
           this.getUsername(),
           "-d",
-          "postgres",
+          database,
           "-c",
           command,
         ]);
