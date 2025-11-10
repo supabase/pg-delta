@@ -186,15 +186,34 @@ export class StartedPostgresAlpineContainer extends AbstractStartedContainer {
    * Drops a database
    */
   public async dropDatabase(dbName: string): Promise<void> {
-    console.log("dropping subscriptions for database", dbName);
-    await this.execCommandsSQL(
-      [
-        "DO $pgdiff$\nDECLARE\n  sub RECORD;\n  slot_exists boolean;\nBEGIN\n  FOR sub IN SELECT subname, subslotname FROM pg_catalog.pg_subscription LOOP\n    slot_exists := EXISTS (\n      SELECT 1\n      FROM pg_catalog.pg_replication_slots\n      WHERE slot_name = sub.subslotname\n    );\n\n    EXECUTE format(\n      'DROP SUBSCRIPTION %I WITH (drop_slot = %s)',\n      sub.subname,\n      CASE WHEN slot_exists THEN 'true' ELSE 'false' END\n    );\n  END LOOP;\nEND;\n$pgdiff$ LANGUAGE plpgsql;",
-      ],
+    const listResult = await this.exec([
+      "psql",
+      "-At",
+      "-U",
+      this.getUsername(),
+      "-d",
       dbName,
-    );
-
-    console.log("dropping database", dbName);
+      "-c",
+      "SELECT quote_ident(subname) FROM pg_catalog.pg_subscription WHERE subdbid = (SELECT oid FROM pg_database WHERE datname = current_database());",
+    ]);
+    if (listResult.exitCode !== 0) {
+      throw new Error(
+        `Command failed with exit code ${listResult.exitCode}: ${listResult.output}`,
+      );
+    }
+    const subscriptionNames = listResult.output
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    for (const subName of subscriptionNames) {
+      await this.execCommandsSQL(
+        [
+          `ALTER SUBSCRIPTION ${subName} SET (slot_name = NONE)`,
+          `DROP SUBSCRIPTION ${subName}`,
+        ],
+        dbName,
+      );
+    }
     await this.execCommandsSQL([
       `DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`,
     ]);

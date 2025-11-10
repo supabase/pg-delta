@@ -31,7 +31,11 @@ export class AlterSubscriptionSetPublication extends AlterSubscriptionChange {
   }
 
   serialize(): string {
-    return `ALTER SUBSCRIPTION ${this.subscription.name} SET PUBLICATION ${this.subscription.publications.join(", ")}`;
+    const base = `ALTER SUBSCRIPTION ${this.subscription.name} SET PUBLICATION ${this.subscription.publications.join(", ")}`;
+    if (!this.subscription.enabled) {
+      return `${base} WITH (refresh = false)`;
+    }
+    return base;
   }
 }
 

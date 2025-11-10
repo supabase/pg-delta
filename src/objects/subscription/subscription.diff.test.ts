@@ -32,6 +32,7 @@ const baseProps: SubscriptionProps = {
   conninfo: "host=localhost port=5432 dbname=postgres",
   slot_name: null,
   slot_is_none: false,
+  replication_slot_created: true,
   synchronous_commit: "off",
   publications: ["pub_a"],
   origin: "any",
@@ -150,6 +151,7 @@ describe.concurrent("subscription.diff", () => {
       ...baseProps,
       slot_name: null,
       slot_is_none: true,
+      replication_slot_created: false,
     });
     const changes = diffSubscriptions(
       { [mainSubscription.stableId]: mainSubscription },
@@ -215,4 +217,3 @@ describe.concurrent("subscription.diff", () => {
     ).toBe(1);
   });
 });
-

@@ -8,29 +8,50 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   const testIsolated = getTestIsolated(pgVersion);
 
   describe.concurrent(`subscription operations (pg${pgVersion})`, () => {
-    test.only("create subscription without connecting", async ({ db }) => {
+    test("create subscription without connecting", async ({ db }) => {
+      const [{ name: mainDbName }] =
+        await db.main`select current_database() as name`;
+
       await roundtripFidelityTest({
         mainSession: db.main,
         branchSession: db.branch,
+        initialSetup: `
+          CREATE PUBLICATION sub_create_pub FOR ALL TABLES;
+        `,
         testSql: `
           CREATE SUBSCRIPTION sub_create
-            CONNECTION 'dbname=postgres'
+            CONNECTION 'dbname=${mainDbName}'
             PUBLICATION sub_create_pub
-            WITH (connect = false, create_slot = false, enabled = false);
+            WITH (
+              connect = false,
+              create_slot = false,
+              enabled = false,
+              slot_name = NONE
+            );
         `,
       });
     });
 
     testIsolated("alter subscription configuration", async ({ db }) => {
+      const [{ name: mainDbName }] =
+        await db.main`select current_database() as name`;
+
       await roundtripFidelityTest({
         mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
-          CREATE ROLE sub_owner;
+          CREATE PUBLICATION sub_alter_pub FOR ALL TABLES;
+          CREATE PUBLICATION sub_alter_pub2 FOR ALL TABLES;
+          CREATE ROLE sub_owner SUPERUSER;
           CREATE SUBSCRIPTION sub_alter
-            CONNECTION 'dbname=postgres'
+            CONNECTION 'dbname=${mainDbName}'
             PUBLICATION sub_alter_pub
-            WITH (connect = false, create_slot = false, enabled = false);
+            WITH (
+              connect = false,
+              create_slot = false,
+              enabled = false,
+              slot_name = NONE
+            );
         `,
         testSql: `
           ALTER SUBSCRIPTION sub_alter
@@ -42,13 +63,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER SUBSCRIPTION sub_alter SET (
             slot_name = 'sub_alter_slot',
             binary = true,
-            streaming = 'parallel',
+            streaming = ${pgVersion >= 17 ? "'parallel'" : "true"},
             synchronous_commit = 'local',
-            disable_on_error = true,
-            password_required = false,
-            run_as_owner = true,
-            origin = 'none',
-            failover = true
+            disable_on_error = true${
+              pgVersion >= 16 ? ", password_required = false" : ""
+            }${pgVersion >= 17 ? ", run_as_owner = true" : ""}${
+              pgVersion >= 17 ? ", origin = 'none'" : ""
+            }
           );
 
           COMMENT ON SUBSCRIPTION sub_alter IS 'subscription metadata';
@@ -58,14 +79,23 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("drop subscription", async ({ db }) => {
+      const [{ name: mainDbName }] =
+        await db.main`select current_database() as name`;
+
       await roundtripFidelityTest({
         mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
+          CREATE PUBLICATION sub_drop_pub FOR ALL TABLES;
           CREATE SUBSCRIPTION sub_drop
-            CONNECTION 'dbname=postgres'
+            CONNECTION 'dbname=${mainDbName}'
             PUBLICATION sub_drop_pub
-            WITH (connect = false, create_slot = false, enabled = false);
+            WITH (
+              connect = false,
+              create_slot = false,
+              enabled = false,
+              slot_name = NONE
+            );
         `,
         testSql: `DROP SUBSCRIPTION sub_drop;`,
       });

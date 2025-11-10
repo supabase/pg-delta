@@ -24,6 +24,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
   "procedures": {},
   "indexes": {},
   "materializedViews": {},
+  "subscriptions": {},
   "rlsPolicies": {},
   "roles": {},
   "schemas": {
@@ -177,6 +178,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   "procedures": {},
   "indexes": {},
   "materializedViews": {},
+  "subscriptions": {},
   "rlsPolicies": {},
   "roles": {},
   "schemas": {

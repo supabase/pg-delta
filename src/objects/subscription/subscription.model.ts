@@ -1,5 +1,6 @@
 import type { Sql } from "postgres";
 import z from "zod";
+import { extractVersion } from "../../context.ts";
 import { BasePgModel } from "../base.model.ts";
 
 const subscriptionPropsSchema = z.object({
@@ -18,6 +19,7 @@ const subscriptionPropsSchema = z.object({
   conninfo: z.string(),
   slot_name: z.string().nullable(),
   slot_is_none: z.boolean(),
+  replication_slot_created: z.boolean(),
   synchronous_commit: z.string(),
   publications: z.array(z.string()),
   origin: z.enum(["any", "none"]),
@@ -41,6 +43,7 @@ export class Subscription extends BasePgModel {
   public readonly conninfo: SubscriptionProps["conninfo"];
   public readonly slot_name: SubscriptionProps["slot_name"];
   public readonly slot_is_none: SubscriptionProps["slot_is_none"];
+  public readonly replication_slot_created: SubscriptionProps["replication_slot_created"];
   public readonly synchronous_commit: SubscriptionProps["synchronous_commit"];
   public readonly publications: SubscriptionProps["publications"];
   public readonly origin: SubscriptionProps["origin"];
@@ -63,6 +66,7 @@ export class Subscription extends BasePgModel {
     this.conninfo = props.conninfo;
     this.slot_name = props.slot_name;
     this.slot_is_none = props.slot_is_none;
+    this.replication_slot_created = props.replication_slot_created;
     this.synchronous_commit = props.synchronous_commit;
     this.publications = [...props.publications].sort((a, b) =>
       a.localeCompare(b),
@@ -96,6 +100,7 @@ export class Subscription extends BasePgModel {
       conninfo: this.conninfo,
       slot_name: this.slot_name,
       slot_is_none: this.slot_is_none,
+      replication_slot_created: this.replication_slot_created,
       synchronous_commit: this.synchronous_commit,
       publications: this.publications,
       origin: this.origin,
@@ -106,6 +111,11 @@ export class Subscription extends BasePgModel {
 export async function extractSubscriptions(sql: Sql): Promise<Subscription[]> {
   return sql.begin(async (tx) => {
     await tx`set search_path = ''`;
+    const version = await extractVersion(tx);
+    const isPostgres16OrGreater = version >= 160000;
+    const isPostgres17OrGreater = version >= 170000;
+    const isPostgres17_2OrGreater = version >= 170002; // failover added in 17.2 (170002)
+    const isPostgres17_3OrGreater = version >= 170003; // origin column added in 17.3
     const rows = await tx`
       with extension_oids as (
         select objid
@@ -125,7 +135,7 @@ export async function extractSubscriptions(sql: Sql): Promise<Subscription[]> {
         obj_description(s.oid, 'pg_subscription') as comment,
         s.subenabled as enabled,
         s.subbinary as binary,
-        case s.substream
+        case s.substream::text
           when 'f' then 'off'
           when 't' then 'on'
           when 'p' then 'parallel'
@@ -133,9 +143,9 @@ export async function extractSubscriptions(sql: Sql): Promise<Subscription[]> {
         end as streaming,
         (s.subtwophasestate <> 'd') as two_phase,
         s.subdisableonerr as disable_on_error,
-        s.subpasswordrequired as password_required,
-        s.subrunasowner as run_as_owner,
-        s.subfailover as failover,
+        ${isPostgres16OrGreater ? tx` s.subpasswordrequired ` : tx` true `} as password_required,
+        ${isPostgres17OrGreater ? tx` s.subrunasowner ` : tx` false `} as run_as_owner,
+        ${isPostgres17_2OrGreater ? tx` s.subfailover ` : tx` false `} as failover,
         s.subconninfo as conninfo,
         case
           when s.subslotname is null then null
@@ -143,6 +153,7 @@ export async function extractSubscriptions(sql: Sql): Promise<Subscription[]> {
           else s.subslotname::text
         end as slot_name,
         s.subslotname is null as slot_is_none,
+        (r.slot_name is not null) as replication_slot_created,
         s.subsynccommit as synchronous_commit,
         coalesce(
           (
@@ -151,11 +162,15 @@ export async function extractSubscriptions(sql: Sql): Promise<Subscription[]> {
           ),
           '[]'::json
         ) as publications,
-        case s.suborigin
-          when 'none' then 'none'
-          else 'any'
-        end as origin
+        ${
+          isPostgres17_3OrGreater
+            ? tx` case s.suborigin when 'none' then 'none' else 'any' end `
+            : tx` 'any' `
+        } as origin
       from scoped_subscriptions s
+      left join pg_replication_slots r
+        on r.slot_name = s.subslotname
+       and r.datoid = s.subdbid
       left join extension_oids e on e.objid = s.oid
       where e.objid is null
       order by s.subname;
