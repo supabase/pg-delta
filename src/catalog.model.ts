@@ -1,6 +1,10 @@
 import type { Sql } from "postgres";
 import { extractCurrentUser, extractVersion } from "./context.ts";
 import { extractDepends, type PgDepend } from "./depend.ts";
+import {
+  type Aggregate,
+  extractAggregates,
+} from "./objects/aggregate/aggregate.model.ts";
 import type { BasePgModel, TableLikeObject } from "./objects/base.model.ts";
 import {
   type Collation,
@@ -30,6 +34,7 @@ import {
   type RlsPolicy,
 } from "./objects/rls-policy/rls-policy.model.ts";
 import { extractRoles, type Role } from "./objects/role/role.model.ts";
+import { extractRules, type Rule } from "./objects/rule/rule.model.ts";
 import { extractSchemas, type Schema } from "./objects/schema/schema.model.ts";
 import {
   extractSequences,
@@ -49,6 +54,7 @@ import { extractRanges, type Range } from "./objects/type/range/range.model.ts";
 import { extractViews, type View } from "./objects/view/view.model.ts";
 
 interface CatalogProps {
+  aggregates: Record<string, Aggregate>;
   collations: Record<string, Collation>;
   compositeTypes: Record<string, CompositeType>;
   domains: Record<string, Domain>;
@@ -64,6 +70,7 @@ interface CatalogProps {
   tables: Record<string, Table>;
   triggers: Record<string, Trigger>;
   eventTriggers: Record<string, EventTrigger>;
+  rules: Record<string, Rule>;
   ranges: Record<string, Range>;
   views: Record<string, View>;
   depends: PgDepend[];
@@ -73,6 +80,7 @@ interface CatalogProps {
 }
 
 export class Catalog {
+  public readonly aggregates: CatalogProps["aggregates"];
   public readonly collations: CatalogProps["collations"];
   public readonly compositeTypes: CatalogProps["compositeTypes"];
   public readonly domains: CatalogProps["domains"];
@@ -88,6 +96,7 @@ export class Catalog {
   public readonly tables: CatalogProps["tables"];
   public readonly triggers: CatalogProps["triggers"];
   public readonly eventTriggers: CatalogProps["eventTriggers"];
+  public readonly rules: CatalogProps["rules"];
   public readonly ranges: CatalogProps["ranges"];
   public readonly views: CatalogProps["views"];
   public readonly depends: CatalogProps["depends"];
@@ -96,6 +105,7 @@ export class Catalog {
   public readonly currentUser: CatalogProps["currentUser"];
 
   constructor(props: CatalogProps) {
+    this.aggregates = props.aggregates;
     this.collations = props.collations;
     this.compositeTypes = props.compositeTypes;
     this.domains = props.domains;
@@ -111,6 +121,7 @@ export class Catalog {
     this.tables = props.tables;
     this.triggers = props.triggers;
     this.eventTriggers = props.eventTriggers;
+    this.rules = props.rules;
     this.ranges = props.ranges;
     this.views = props.views;
     this.depends = props.depends;
@@ -122,6 +133,7 @@ export class Catalog {
 
 export async function extractCatalog(sql: Sql) {
   const [
+    aggregates,
     collations,
     compositeTypes,
     domains,
@@ -137,12 +149,14 @@ export async function extractCatalog(sql: Sql) {
     tables,
     triggers,
     eventTriggers,
+    rules,
     ranges,
     views,
     depends,
     version,
     currentUser,
   ] = await Promise.all([
+    extractAggregates(sql).then(listToRecord),
     extractCollations(sql).then(listToRecord),
     extractCompositeTypes(sql).then(listToRecord),
     extractDomains(sql).then(listToRecord),
@@ -158,6 +172,7 @@ export async function extractCatalog(sql: Sql) {
     extractTables(sql).then(listToRecord),
     extractTriggers(sql).then(listToRecord),
     extractEventTriggers(sql).then(listToRecord),
+    extractRules(sql).then(listToRecord),
     extractRanges(sql).then(listToRecord),
     extractViews(sql).then(listToRecord),
     extractDepends(sql),
@@ -171,6 +186,7 @@ export async function extractCatalog(sql: Sql) {
   };
 
   return new Catalog({
+    aggregates,
     collations,
     compositeTypes,
     domains,
@@ -186,6 +202,7 @@ export async function extractCatalog(sql: Sql) {
     tables,
     triggers,
     eventTriggers,
+    rules,
     ranges,
     views,
     depends,

@@ -2,6 +2,7 @@
 
 exports[`extract empty catalog > catalog-empty-pg15 1`] = `
 "{
+  "aggregates": {},
   "collations": {},
   "compositeTypes": {},
   "domains": {},
@@ -54,6 +55,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
   "tables": {},
   "triggers": {},
   "eventTriggers": {},
+  "rules": {},
   "ranges": {},
   "views": {},
   "depends": [
@@ -156,6 +158,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
 
 exports[`extract empty catalog > catalog-empty-pg17 1`] = `
 "{
+  "aggregates": {},
   "collations": {},
   "compositeTypes": {},
   "domains": {},
@@ -208,6 +211,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   "tables": {},
   "triggers": {},
   "eventTriggers": {},
+  "rules": {},
   "ranges": {},
   "views": {},
   "depends": [

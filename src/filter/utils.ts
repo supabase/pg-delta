@@ -2,6 +2,8 @@ import type { Change } from "../change.types.ts";
 
 export function getSchema(change: Change) {
   switch (change.objectType) {
+    case "aggregate":
+      return change.aggregate.schema;
     case "collation":
       return change.collation.schema;
     case "composite_type":
@@ -28,6 +30,8 @@ export function getSchema(change: Change) {
       return change.policy.schema;
     case "role":
       return null;
+    case "rule":
+      return change.rule.schema;
     case "schema":
       return change.schema.name;
     case "sequence":
@@ -48,6 +52,8 @@ export function getSchema(change: Change) {
 
 export function getOwner(change: Change) {
   switch (change.objectType) {
+    case "aggregate":
+      return change.aggregate.owner;
     case "collation":
       return change.collation.owner;
     case "composite_type":
@@ -74,6 +80,8 @@ export function getOwner(change: Change) {
       return change.policy.owner;
     case "role":
       return change.role.name;
+    case "rule":
+      return change.rule.owner;
     case "schema":
       return change.schema.owner;
     case "sequence":

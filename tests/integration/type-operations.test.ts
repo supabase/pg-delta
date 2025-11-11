@@ -5,9 +5,6 @@
 import dedent from "dedent";
 import { describe } from "vitest";
 import type { Change } from "../../src/change.types.ts";
-import { CreateCommentOnDomain } from "../../src/objects/domain/changes/domain.comment.ts";
-import { CreateCommentOnCompositeType } from "../../src/objects/type/composite-type/changes/composite-type.comment.ts";
-import { CreateCommentOnEnum } from "../../src/objects/type/enum/changes/enum.comment.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -426,20 +423,37 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         COMMENT ON TYPE test_schema.address IS 'address composite type';
       `,
         sortChangesCallback: (a, b) => {
-          // force create comment before create type or domain to test comment -> type or domain dependency
-          const isCommentChange = (change: Change) =>
-            change instanceof CreateCommentOnDomain ||
-            change instanceof CreateCommentOnEnum ||
-            change instanceof CreateCommentOnCompositeType;
-
-          if (isCommentChange(a) && !isCommentChange(b)) {
-            return -1;
-          }
-          if (!isCommentChange(a) && isCommentChange(b)) {
-            return 1;
-          }
-
-          return 0;
+          const priority = (change: Change) => {
+            if (change.objectType === "domain" && change.scope === "comment") {
+              return 0;
+            }
+            if (change.objectType === "enum" && change.scope === "comment") {
+              return 1;
+            }
+            if (
+              change.objectType === "composite_type" &&
+              change.scope === "comment"
+            ) {
+              return 2;
+            }
+            if (
+              change.objectType === "domain" &&
+              change.operation === "create"
+            ) {
+              return 3;
+            }
+            if (change.objectType === "enum" && change.operation === "create") {
+              return 4;
+            }
+            if (
+              change.objectType === "composite_type" &&
+              change.operation === "create"
+            ) {
+              return 5;
+            }
+            return 6;
+          };
+          return priority(a) - priority(b);
         },
       });
     });

@@ -118,8 +118,10 @@ with
     select
       p.pronamespace::regnamespace::text as schema_name,
       p.proname as procname,
+      p.prokind,
       case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee,
-      (select coalesce(string_agg(format_type(oid, null), ',' order by ord), '') from unnest(p.proargtypes) with ordinality as t(oid, ord)) as arg_types
+      (select coalesce(string_agg(format_type(oid, null), ',' order by ord), '') from unnest(p.proargtypes) with ordinality as t(oid, ord)) as arg_types,
+      trim(pg_catalog.pg_get_function_identity_arguments(p.oid)) as identity_arguments
     from pg_catalog.pg_proc p
     join lateral aclexplode(p.proacl) as x(grantor, grantee, privilege_type, is_grantable) on true
     left join extension_proc_oids e on e.objid = p.oid
@@ -130,7 +132,10 @@ with
   ),
   proc_targets as (
     select
-      format('procedure:%I.%I(%s)', schema_name, procname, arg_types) as target_stable_id,
+      case
+        when prokind = 'a' then format('aggregate:%I.%I(%s)', schema_name, procname, identity_arguments)
+        else format('procedure:%I.%I(%s)', schema_name, procname, arg_types)
+      end as target_stable_id,
       schema_name,
       grantee
     from proc_acls
@@ -540,17 +545,26 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     JOIN ids i ON i.classid = 'pg_policy'::regclass AND i.objid = p.oid AND COALESCE(i.objsubid,0) = 0
 
     UNION ALL
-    /* Functions/Procedures: types-only signature */
+    /* Functions/Procedures/Aggregates: types-only signature */
     SELECT 'pg_proc'::regclass, p.oid, 0::int2,
           ns.nspname,
-          format(
-            'procedure:%I.%I(%s)',
-            ns.nspname, p.proname,
-            COALESCE((
-              SELECT string_agg(format_type(t.oid, NULL), ',' ORDER BY ord)
-              FROM unnest(p.proargtypes) WITH ORDINALITY AS t(oid, ord)
-            ), '')
-          )
+          CASE
+            WHEN p.prokind = 'a' THEN format(
+              'aggregate:%I.%I(%s)',
+              ns.nspname,
+              p.proname,
+              trim(pg_catalog.pg_get_function_identity_arguments(p.oid))
+            )
+            ELSE format(
+              'procedure:%I.%I(%s)',
+              ns.nspname,
+              p.proname,
+              COALESCE((
+                SELECT string_agg(format_type(t.oid, NULL), ',' ORDER BY ord)
+                FROM unnest(p.proargtypes) WITH ORDINALITY AS t(oid, ord)
+              ), '')
+            )
+          END
     FROM pg_proc p
     JOIN pg_namespace ns ON ns.oid = p.pronamespace
     JOIN ids i ON i.classid = 'pg_proc'::regclass AND i.objid = p.oid AND COALESCE(i.objsubid,0) = 0
@@ -569,7 +583,7 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     /* Rewrite rules */
     SELECT 'pg_rewrite'::regclass, r.oid, 0::int2,
           ns.nspname,
-          format('rewriteRule:%I.%I.%I', ns.nspname, tbl.relname, r.rulename)
+          format('rule:%I.%I.%I', ns.nspname, tbl.relname, r.rulename)
     FROM pg_rewrite r
     JOIN pg_class tbl ON tbl.oid = r.ev_class
     JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
@@ -874,11 +888,39 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
 
     UNION ALL
 
-    -- Procedure/function comments
+    -- Procedure/function/aggregate comments
     SELECT DISTINCT
-      format(
-        'comment:%s',
-        format(
+      CASE
+        WHEN p.prokind = 'a' THEN format(
+          'comment:%s',
+          format(
+            'aggregate:%I.%I(%s)',
+            p.pronamespace::regnamespace::text,
+            p.proname,
+            trim(pg_catalog.pg_get_function_identity_arguments(p.oid))
+          )
+        )
+        ELSE format(
+          'comment:%s',
+          format(
+            'procedure:%I.%I(%s)',
+            p.pronamespace::regnamespace::text,
+            p.proname,
+            coalesce(
+              (select string_agg(format_type(oid, null), ',' order by ord) from unnest(p.proargtypes) with ordinality as t(oid, ord)),
+              ''
+            )
+          )
+        )
+      END AS dependent_stable_id,
+      CASE
+        WHEN p.prokind = 'a' THEN format(
+          'aggregate:%I.%I(%s)',
+          p.pronamespace::regnamespace::text,
+          p.proname,
+          trim(pg_catalog.pg_get_function_identity_arguments(p.oid))
+        )
+        ELSE format(
           'procedure:%I.%I(%s)',
           p.pronamespace::regnamespace::text,
           p.proname,
@@ -887,16 +929,7 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
             ''
           )
         )
-      ) AS dependent_stable_id,
-      format(
-        'procedure:%I.%I(%s)',
-        p.pronamespace::regnamespace::text,
-        p.proname,
-        coalesce(
-          (select string_agg(format_type(oid, null), ',' order by ord) from unnest(p.proargtypes) with ordinality as t(oid, ord)),
-          ''
-        )
-      ) AS referenced_stable_id,
+      END AS referenced_stable_id,
       'a'::"char" AS deptype,
       p.pronamespace::regnamespace::text AS dep_schema,
       p.pronamespace::regnamespace::text AS ref_schema
@@ -1048,18 +1081,26 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
       ) AS dependent_stable_id,
       COALESCE(
         ref_proc_obj.stable_id,
-        format(
-          'procedure:%I.%I(%s)',
-          ref_proc_ns.nspname,
-          ref_proc.proname,
-          COALESCE(
-            (
-              SELECT string_agg(format_type(oid, NULL), ',' ORDER BY ord)
-              FROM unnest(ref_proc.proargtypes) WITH ORDINALITY AS t(oid, ord)
-            ),
-            ''
+        CASE
+          WHEN ref_proc.prokind = 'a' THEN format(
+            'aggregate:%I.%I(%s)',
+            ref_proc_ns.nspname,
+            ref_proc.proname,
+            trim(pg_catalog.pg_get_function_identity_arguments(ref_proc.oid))
           )
-        )
+          ELSE format(
+            'procedure:%I.%I(%s)',
+            ref_proc_ns.nspname,
+            ref_proc.proname,
+            COALESCE(
+              (
+                SELECT string_agg(format_type(oid, NULL), ',' ORDER BY ord)
+                FROM unnest(ref_proc.proargtypes) WITH ORDINALITY AS t(oid, ord)
+              ),
+              ''
+            )
+          )
+        END
       ) AS referenced_stable_id,
       d.deptype,
       COALESCE(dep_view.schema_name, v_ns.nspname) AS dep_schema,
@@ -1207,20 +1248,28 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
 
     UNION ALL
 
-    -- Function/procedure ownership dependencies
+    -- Function/procedure/aggregate ownership dependencies
     SELECT DISTINCT
-      format(
-        'procedure:%I.%I(%s)',
-        n.nspname,
-        p.proname,
-        COALESCE(
-          (
-            SELECT string_agg(format_type(oid, NULL), ',' ORDER BY ord)
-            FROM unnest(p.proargtypes) WITH ORDINALITY AS t(oid, ord)
-          ),
-          ''
+      CASE
+        WHEN p.prokind = 'a' THEN format(
+          'aggregate:%I.%I(%s)',
+          n.nspname,
+          p.proname,
+          trim(pg_catalog.pg_get_function_identity_arguments(p.oid))
         )
-      ) AS dependent_stable_id,
+        ELSE format(
+          'procedure:%I.%I(%s)',
+          n.nspname,
+          p.proname,
+          COALESCE(
+            (
+              SELECT string_agg(format_type(oid, NULL), ',' ORDER BY ord)
+              FROM unnest(p.proargtypes) WITH ORDINALITY AS t(oid, ord)
+            ),
+            ''
+          )
+        )
+      END AS dependent_stable_id,
       format('role:%s', p.proowner::regrole::text) AS referenced_stable_id,
       'n'::"char" AS deptype,
       n.nspname AS dep_schema,

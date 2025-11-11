@@ -3,10 +3,7 @@
  */
 
 import { describe } from "vitest";
-import {
-  AlterTableAddColumn,
-  AlterTableAddConstraint,
-} from "../../src/objects/table/changes/table.alter.ts";
+import type { Change } from "../../src/change.types.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -32,13 +29,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         // Force AlterTableAddConstraint to be after AlterTableAddColumn
         sortChangesCallback: (a, b) => {
-          if (
-            a instanceof AlterTableAddColumn &&
-            b instanceof AlterTableAddConstraint
-          ) {
-            return -1;
-          }
-          return 0;
+          const priority = (change: Change) => {
+            if (change.objectType === "table" && change.operation === "alter") {
+              return change.constructor.name === "AlterTableAddColumn" ? 0 : 1;
+            }
+            return 2;
+          };
+          return priority(a) - priority(b);
         },
       });
     });
