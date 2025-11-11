@@ -195,12 +195,12 @@ with
     select
       format(
         'defacl:%s:%s:%s:grantee:%s',
-        quote_ident(d.defaclrole::regrole::text),
+        d.defaclrole::regrole::text,
         d.defaclobjtype::text,
         coalesce(format('schema:%s', d.defaclnamespace::regnamespace::text), 'global'),
         case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end
       ) as defacl_stable_id,
-      format('role:%s', quote_ident(d.defaclrole::regrole::text)) as grantor_role_stable_id,
+      format('role:%s', d.defaclrole::regrole::text) as grantor_role_stable_id,
       format('role:%s', case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end) as grantee_role_stable_id,
       case
         when d.defaclnamespace = 0 then null
