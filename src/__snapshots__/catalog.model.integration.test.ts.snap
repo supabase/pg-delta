@@ -53,6 +53,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
   "sequences": {},
   "tables": {},
   "triggers": {},
+  "eventTriggers": {},
   "ranges": {},
   "views": {},
   "depends": [
@@ -206,6 +207,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   "sequences": {},
   "tables": {},
   "triggers": {},
+  "eventTriggers": {},
   "ranges": {},
   "views": {},
   "depends": [
