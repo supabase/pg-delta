@@ -1,3 +1,4 @@
+import type { AggregateChange } from "./objects/aggregate/changes/aggregate.types.ts";
 import type { CollationChange } from "./objects/collation/changes/collation.types.ts";
 import type { DomainChange } from "./objects/domain/changes/domain.types.ts";
 import type { ExtensionChange } from "./objects/extension/changes/extension.types.ts";
@@ -16,6 +17,7 @@ import type { TypeChange } from "./objects/type/type.types.ts";
 import type { ViewChange } from "./objects/view/changes/view.types.ts";
 
 export type Change =
+  | AggregateChange
   | CollationChange
   | DomainChange
   | ExtensionChange

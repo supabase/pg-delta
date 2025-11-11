@@ -55,11 +55,13 @@ function objectPrivilegeUniverse(
       return ["CREATE", "USAGE"].sort();
     case "LANGUAGE":
       return ["USAGE"];
+    case "FUNCTION":
+    case "PROCEDURE":
+    case "ROUTINE":
+      return ["EXECUTE"];
     case "TYPE":
     case "DOMAIN":
       return ["USAGE"];
-    case "ROUTINE":
-      return ["EXECUTE"];
     default:
       return [];
   }
@@ -116,6 +118,10 @@ export function formatObjectPrivilegeList(
  */
 export function getObjectKindPrefix(objectKind: string): string {
   switch (objectKind) {
+    case "FUNCTION":
+      return "ON FUNCTION";
+    case "PROCEDURE":
+      return "ON PROCEDURE";
     case "ROUTINE":
       return "ON ROUTINE";
     case "LANGUAGE":

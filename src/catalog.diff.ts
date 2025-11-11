@@ -1,6 +1,7 @@
 import { DEBUG } from "../tests/constants.ts";
 import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
+import { diffAggregates } from "./objects/aggregate/aggregate.diff.ts";
 import { diffCollations } from "./objects/collation/collation.diff.ts";
 import { diffDomains } from "./objects/domain/domain.diff.ts";
 import { diffExtensions } from "./objects/extension/extension.diff.ts";
@@ -22,6 +23,13 @@ import { diffViews } from "./objects/view/view.diff.ts";
 
 export function diffCatalogs(main: Catalog, branch: Catalog) {
   const changes: Change[] = [];
+  changes.push(
+    ...diffAggregates(
+      { version: main.version },
+      main.aggregates,
+      branch.aggregates,
+    ),
+  );
   changes.push(...diffCollations(main.collations, branch.collations));
   changes.push(
     ...diffCompositeTypes(
@@ -105,6 +113,8 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
           return !droppedObjectStableIds.has(change.language.stableId);
         case "materialized_view":
           return !droppedObjectStableIds.has(change.materializedView.stableId);
+        case "aggregate":
+          return !droppedObjectStableIds.has(change.aggregate.stableId);
         case "procedure":
           return !droppedObjectStableIds.has(change.procedure.stableId);
         case "range":
