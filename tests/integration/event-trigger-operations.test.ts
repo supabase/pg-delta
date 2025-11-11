@@ -59,13 +59,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
 
-    testIsolated.only(
-      "alter event trigger owner and comment",
-      async ({ db }) => {
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-          initialSetup: dedent(`
+    testIsolated("alter event trigger owner and comment", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: dedent(`
           CREATE ROLE ddl_owner LOGIN SUPERUSER;
           CREATE SCHEMA test_schema;
           CREATE FUNCTION test_schema.log_ddl()
@@ -80,12 +78,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             ON ddl_command_start
             EXECUTE FUNCTION test_schema.log_ddl();
         `),
-          testSql: dedent(`
+        testSql: dedent(`
           ALTER EVENT TRIGGER ddl_logger OWNER TO ddl_owner;
           COMMENT ON EVENT TRIGGER ddl_logger IS 'Logs DDL statements';
         `),
-        });
-      },
-    );
+      });
+    });
   });
 }
