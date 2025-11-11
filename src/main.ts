@@ -97,10 +97,11 @@ export async function main(
     filteredChanges,
   );
 
-  const hasProcedureChanges = sortedChanges.some(
-    (change) => change.objectType === "procedure",
+  const hasRoutineChanges = sortedChanges.some(
+    (change) =>
+      change.objectType === "procedure" || change.objectType === "aggregate",
   );
-  const sessionConfig = hasProcedureChanges
+  const sessionConfig = hasRoutineChanges
     ? ["SET check_function_bodies = false"]
     : [];
 
