@@ -10,6 +10,7 @@ import { diffMaterializedViews } from "./objects/materialized-view/materialized-
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
 import { diffRlsPolicies } from "./objects/rls-policy/rls-policy.diff.ts";
 import { diffRoles } from "./objects/role/role.diff.ts";
+import { diffRules } from "./objects/rule/rule.diff.ts";
 import { diffSchemas } from "./objects/schema/schema.diff.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
 import { diffTables } from "./objects/table/table.diff.ts";
@@ -81,6 +82,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(
     ...diffTriggers(main.triggers, branch.triggers, branch.indexableObjects),
   );
+  changes.push(...diffRules(main.rules, branch.rules));
   changes.push(
     ...diffRanges({ version: main.version }, main.ranges, branch.ranges),
   );

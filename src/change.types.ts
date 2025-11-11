@@ -8,6 +8,7 @@ import type { MaterializedViewChange } from "./objects/materialized-view/changes
 import type { ProcedureChange } from "./objects/procedure/changes/procedure.types.ts";
 import type { RlsPolicyChange } from "./objects/rls-policy/changes/rls-policy.types.ts";
 import type { RoleChange } from "./objects/role/changes/role.types.ts";
+import type { RuleChange } from "./objects/rule/changes/rule.types.ts";
 import type { SchemaChange } from "./objects/schema/changes/schema.types.ts";
 import type { SequenceChange } from "./objects/sequence/changes/sequence.types.ts";
 import type { TableChange } from "./objects/table/changes/table.types.ts";
@@ -30,5 +31,6 @@ export type Change =
   | SequenceChange
   | TableChange
   | TriggerChange
+  | RuleChange
   | TypeChange
   | ViewChange;

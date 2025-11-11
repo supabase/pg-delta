@@ -1,7 +1,5 @@
 import { describe } from "vitest";
-import { CreateCommentOnExtension } from "../../src/objects/extension/changes/extension.comment.ts";
-import { CreateExtension } from "../../src/objects/extension/changes/extension.create.ts";
-import { CreateTable } from "../../src/objects/table/changes/table.create.ts";
+import type { Change } from "../../src/change.types.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTestWithSupabaseIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -19,27 +17,30 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE TABLE test_table (vec extensions.vector);
         `,
         sortChangesCallback: (a, b) => {
-          // force create table before create extension to test table -> extension dependency
-          // and force comment on extension before create extension to test extension -> comment dependency
-          if (a instanceof CreateTable && b instanceof CreateExtension) {
-            return -1;
-          }
-          if (a instanceof CreateExtension && b instanceof CreateTable) {
-            return 1;
-          }
-          if (
-            a instanceof CreateCommentOnExtension &&
-            b instanceof CreateExtension
-          ) {
-            return -1;
-          }
-          if (
-            a instanceof CreateExtension &&
-            b instanceof CreateCommentOnExtension
-          ) {
-            return 1;
-          }
-          return 0;
+          const priority = (change: Change) => {
+            if (
+              change.objectType === "extension" &&
+              change.operation === "create" &&
+              change.scope === "object"
+            ) {
+              return 0;
+            }
+            if (
+              change.objectType === "table" &&
+              change.operation === "create"
+            ) {
+              return 1;
+            }
+            if (
+              change.objectType === "extension" &&
+              change.operation === "create" &&
+              change.scope === "comment"
+            ) {
+              return 2;
+            }
+            return 3;
+          };
+          return priority(a) - priority(b);
         },
       });
     });

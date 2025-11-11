@@ -30,6 +30,7 @@ import {
   type RlsPolicy,
 } from "./objects/rls-policy/rls-policy.model.ts";
 import { extractRoles, type Role } from "./objects/role/role.model.ts";
+import { extractRules, type Rule } from "./objects/rule/rule.model.ts";
 import { extractSchemas, type Schema } from "./objects/schema/schema.model.ts";
 import {
   extractSequences,
@@ -64,6 +65,7 @@ interface CatalogProps {
   sequences: Record<string, Sequence>;
   tables: Record<string, Table>;
   triggers: Record<string, Trigger>;
+  rules: Record<string, Rule>;
   ranges: Record<string, Range>;
   views: Record<string, View>;
   depends: PgDepend[];
@@ -88,6 +90,7 @@ export class Catalog {
   public readonly sequences: CatalogProps["sequences"];
   public readonly tables: CatalogProps["tables"];
   public readonly triggers: CatalogProps["triggers"];
+  public readonly rules: CatalogProps["rules"];
   public readonly ranges: CatalogProps["ranges"];
   public readonly views: CatalogProps["views"];
   public readonly depends: CatalogProps["depends"];
@@ -111,6 +114,7 @@ export class Catalog {
     this.sequences = props.sequences;
     this.tables = props.tables;
     this.triggers = props.triggers;
+    this.rules = props.rules;
     this.ranges = props.ranges;
     this.views = props.views;
     this.depends = props.depends;
@@ -137,6 +141,7 @@ export async function extractCatalog(sql: Sql) {
     sequences,
     tables,
     triggers,
+    rules,
     ranges,
     views,
     depends,
@@ -158,6 +163,7 @@ export async function extractCatalog(sql: Sql) {
     extractSequences(sql).then(listToRecord),
     extractTables(sql).then(listToRecord),
     extractTriggers(sql).then(listToRecord),
+    extractRules(sql).then(listToRecord),
     extractRanges(sql).then(listToRecord),
     extractViews(sql).then(listToRecord),
     extractDepends(sql),
@@ -186,6 +192,7 @@ export async function extractCatalog(sql: Sql) {
     sequences,
     tables,
     triggers,
+    rules,
     ranges,
     views,
     depends,

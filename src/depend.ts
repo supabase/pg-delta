@@ -583,7 +583,7 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     /* Rewrite rules */
     SELECT 'pg_rewrite'::regclass, r.oid, 0::int2,
           ns.nspname,
-          format('rewriteRule:%I.%I.%I', ns.nspname, tbl.relname, r.rulename)
+          format('rule:%I.%I.%I', ns.nspname, tbl.relname, r.rulename)
     FROM pg_rewrite r
     JOIN pg_class tbl ON tbl.oid = r.ev_class
     JOIN pg_namespace ns ON ns.oid = tbl.relnamespace

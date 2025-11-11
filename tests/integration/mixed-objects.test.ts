@@ -3,9 +3,7 @@
  */
 
 import { describe } from "vitest";
-import { AlterTableAddColumn } from "../../src/objects/table/changes/table.alter.ts";
-import { CreateView } from "../../src/objects/view/changes/view.create.ts";
-import { DropView } from "../../src/objects/view/changes/view.drop.ts";
+import type { Change } from "../../src/change.types.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -172,21 +170,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             WHERE total > 1000;
         `,
         sortChangesCallback: (a, b) => {
-          // force create view top_users before user_orders to test that we track the dependency view -> view's columns
-          if (
-            a instanceof CreateView &&
-            b instanceof CreateView &&
-            a.view.schema === "test_schema" &&
-            b.view.schema === "test_schema"
-          ) {
-            if (a.view.name === "top_users" && b.view.name === "user_orders") {
-              return -1;
+          const priority = (change: Change) => {
+            if (change.objectType === "view" && change.operation === "create") {
+              const viewName = change.view?.name ?? "";
+              return viewName === "top_users"
+                ? 0
+                : viewName === "user_orders"
+                  ? 1
+                  : 2;
             }
-            if (a.view.name === "user_orders" && b.view.name === "top_users") {
-              return 1;
-            }
-          }
-          return 0;
+            return 3;
+          };
+          return priority(a) - priority(b);
         },
       });
     });
@@ -216,16 +211,26 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP SCHEMA test_schema;
         `,
         sortChangesCallback: (a, b) => {
-          // force drop view v1 before v2 and drop view v2 before v3
-          if (b instanceof DropView && a instanceof DropView) {
-            if (b.view.name === "v1" && a.view.name === "v2") {
-              return -1;
+          const priority = (change: Change) => {
+            if (change.objectType === "view" && change.operation === "drop") {
+              const viewName = change.view?.name ?? "";
+              return viewName === "v1"
+                ? 0
+                : viewName === "v2"
+                  ? 1
+                  : viewName === "v3"
+                    ? 2
+                    : 3;
             }
-            if (b.view.name === "v2" && a.view.name === "v3") {
-              return -1;
+            if (change.objectType === "table" && change.operation === "drop") {
+              return 4;
             }
-          }
-          return 0;
+            if (change.objectType === "schema" && change.operation === "drop") {
+              return 5;
+            }
+            return 6;
+          };
+          return priority(a) - priority(b);
         },
       });
     });
@@ -255,11 +260,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             FROM test_schema.data;
         `,
         sortChangesCallback: (a, b) => {
-          // force create view before alter table to test that we track the dependency view -> column
-          if (b instanceof CreateView && a instanceof AlterTableAddColumn) {
-            return 1;
-          }
-          return -1;
+          const priority = (change: Change) => {
+            if (change.objectType === "view" && change.operation === "create") {
+              return 0;
+            }
+            if (change.objectType === "table" && change.operation === "alter") {
+              return 1;
+            }
+            return 2;
+          };
+          return priority(a) - priority(b);
         },
       });
     });

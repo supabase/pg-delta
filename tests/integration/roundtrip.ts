@@ -135,6 +135,13 @@ export async function roundtripFidelityTest(
   // Optional pre-sort to provide deterministic tie-breaking for the phased sort
   if (sortChangesCallback) {
     changes = changes.sort(sortChangesCallback);
+    if (DEBUG) {
+      // just print class names
+      console.log(
+        "sorted changes: ",
+        changes.map((change) => change.constructor.name),
+      );
+    }
   }
 
   const sortedChanges = sortChangesByPhasedGraph(

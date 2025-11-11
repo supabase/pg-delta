@@ -44,6 +44,12 @@ export const stableId = {
   table(schema: string, table: string) {
     return `table:${schema}.${table}` as const;
   },
+  view(schema: string, view: string) {
+    return `view:${schema}.${view}` as const;
+  },
+  materializedView(schema: string, view: string) {
+    return `materializedView:${schema}.${view}` as const;
+  },
   acl(objectStableId: string, grantee: string) {
     return `acl:${objectStableId}::grantee:${grantee}` as const;
   },
