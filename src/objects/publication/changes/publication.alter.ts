@@ -27,6 +27,10 @@ export class AlterPublicationSetOptions extends AlterPublicationChange {
     this.setPublishViaPartitionRoot = props.setPublishViaPartitionRoot;
   }
 
+  get requires() {
+    return [this.publication.stableId];
+  }
+
   serialize(): string {
     const assignments: string[] = [];
 
@@ -54,6 +58,10 @@ export class AlterPublicationSetForAllTables extends AlterPublicationChange {
     this.publication = props.publication;
   }
 
+  get requires() {
+    return [this.publication.stableId];
+  }
+
   serialize(): string {
     return `ALTER PUBLICATION ${this.publication.name} SET FOR ALL TABLES`;
   }
@@ -70,6 +78,8 @@ export class AlterPublicationSetList extends AlterPublicationChange {
 
   get requires() {
     const dependencies = new Set<string>();
+
+    dependencies.add(this.publication.stableId);
 
     for (const table of this.publication.tables) {
       dependencies.add(stableId.table(table.schema, table.name));
@@ -112,6 +122,9 @@ export class AlterPublicationAddTables extends AlterPublicationChange {
 
   get requires() {
     const dependencies = new Set<string>();
+
+    dependencies.add(this.publication.stableId);
+
     for (const table of this.tables) {
       dependencies.add(stableId.table(table.schema, table.name));
       if (table.columns) {
@@ -143,6 +156,18 @@ export class AlterPublicationDropTables extends AlterPublicationChange {
     this.tables = props.tables;
   }
 
+  get requires() {
+    const dependencies = new Set<string>();
+
+    dependencies.add(this.publication.stableId);
+
+    for (const table of this.tables) {
+      dependencies.add(stableId.table(table.schema, table.name));
+    }
+
+    return Array.from(dependencies);
+  }
+
   serialize(): string {
     const targets = this.tables.map((table) => `${table.schema}.${table.name}`);
     return `ALTER PUBLICATION ${this.publication.name} DROP TABLE ${targets.join(", ")}`;
@@ -161,7 +186,10 @@ export class AlterPublicationAddSchemas extends AlterPublicationChange {
   }
 
   get requires() {
-    return this.schemas.map((schema) => stableId.schema(schema));
+    return [
+      this.publication.stableId,
+      ...this.schemas.map((schema) => stableId.schema(schema)),
+    ];
   }
 
   serialize(): string {
@@ -179,6 +207,13 @@ export class AlterPublicationDropSchemas extends AlterPublicationChange {
     super();
     this.publication = props.publication;
     this.schemas = props.schemas;
+  }
+
+  get requires() {
+    return [
+      this.publication.stableId,
+      ...this.schemas.map((schema) => stableId.schema(schema)),
+    ];
   }
 
   serialize(): string {
@@ -199,7 +234,7 @@ export class AlterPublicationSetOwner extends AlterPublicationChange {
   }
 
   get requires() {
-    return [stableId.role(this.owner)];
+    return [this.publication.stableId, stableId.role(this.owner)];
   }
 
   serialize(): string {

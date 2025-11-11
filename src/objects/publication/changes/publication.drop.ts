@@ -19,6 +19,10 @@ export class DropPublication extends DropPublicationChange {
     return [this.publication.stableId];
   }
 
+  get requires() {
+    return [this.publication.stableId];
+  }
+
   serialize(): string {
     return `DROP PUBLICATION ${this.publication.name}`;
   }

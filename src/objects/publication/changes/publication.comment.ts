@@ -47,6 +47,10 @@ export class DropCommentOnPublication extends DropPublicationChange {
     this.publication = props.publication;
   }
 
+  get drops() {
+    return [stableId.comment(this.publication.stableId)];
+  }
+
   get requires() {
     return [
       stableId.comment(this.publication.stableId),
