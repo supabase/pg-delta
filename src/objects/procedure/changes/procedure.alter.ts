@@ -50,7 +50,7 @@ export class AlterProcedureChangeOwner extends AlterProcedureChange {
     this.owner = props.owner;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.procedure.stableId];
   }
 
@@ -81,7 +81,7 @@ export class AlterProcedureSetSecurity extends AlterProcedureChange {
     this.securityDefiner = props.securityDefiner;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.procedure.stableId];
   }
 
@@ -132,7 +132,7 @@ export class AlterProcedureSetConfig extends AlterProcedureChange {
     this.value = props.value;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.procedure.stableId];
   }
 
@@ -166,7 +166,7 @@ export class AlterProcedureSetVolatility extends AlterProcedureChange {
     this.volatility = props.volatility;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.procedure.stableId];
   }
 
@@ -200,7 +200,7 @@ export class AlterProcedureSetStrictness extends AlterProcedureChange {
     this.isStrict = props.isStrict;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.procedure.stableId];
   }
 
@@ -230,7 +230,7 @@ export class AlterProcedureSetLeakproof extends AlterProcedureChange {
     this.leakproof = props.leakproof;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.procedure.stableId];
   }
 
@@ -260,7 +260,7 @@ export class AlterProcedureSetParallel extends AlterProcedureChange {
     this.parallelSafety = props.parallelSafety;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.procedure.stableId];
   }
 

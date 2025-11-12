@@ -1,3 +1,4 @@
+import { stableId } from "../../utils.ts";
 import type { Role } from "../role.model.ts";
 import { CreateRoleChange, DropRoleChange } from "./role.base.ts";
 
@@ -41,9 +42,12 @@ export class GrantRoleMembership extends CreateRoleChange {
     this.options = props.options;
   }
 
-  get dependencies() {
-    const membershipStableId = `membership:${this.role.name}->${this.member}`;
-    return [membershipStableId];
+  get creates() {
+    return [`membership:${this.role.name}->${this.member}`];
+  }
+
+  get requires() {
+    return [this.role.stableId, stableId.role(this.member)];
   }
 
   serialize(): string {
@@ -78,9 +82,16 @@ export class RevokeRoleMembership extends DropRoleChange {
     this.member = props.member;
   }
 
-  get dependencies() {
-    const membershipStableId = `membership:${this.role.name}->${this.member}`;
-    return [membershipStableId];
+  get drops() {
+    return [`membership:${this.role.name}->${this.member}`];
+  }
+
+  get requires() {
+    return [
+      `membership:${this.role.name}->${this.member}`,
+      stableId.role(this.member),
+      this.role.stableId,
+    ];
   }
 
   serialize(): string {
@@ -119,9 +130,12 @@ export class RevokeRoleMembershipOptions extends DropRoleChange {
     this.set = props.set;
   }
 
-  get dependencies() {
-    const membershipStableId = `membership:${this.role.name}->${this.member}`;
-    return [membershipStableId];
+  get requires() {
+    return [
+      `membership:${this.role.name}->${this.member}`,
+      stableId.role(this.member),
+      this.role.stableId,
+    ];
   }
 
   serialize(): string {
@@ -164,10 +178,23 @@ export class GrantRoleDefaultPrivileges extends CreateRoleChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const scope = this.inSchema ? `schema:${this.inSchema}` : "global";
-    const defaclStableId = `defacl:${this.role.name}:${this.objtype}:${scope}:grantee:${this.grantee}`;
-    return [defaclStableId];
+  get creates() {
+    return [
+      stableId.defacl(
+        this.role.name,
+        this.objtype,
+        this.inSchema,
+        this.grantee,
+      ),
+    ];
+  }
+
+  get requires() {
+    return [
+      this.role.stableId,
+      stableId.role(this.grantee),
+      ...(this.inSchema ? [stableId.schema(this.inSchema)] : []),
+    ];
   }
 
   serialize(): string {
@@ -220,10 +247,20 @@ export class RevokeRoleDefaultPrivileges extends DropRoleChange {
     this.version = props.version;
   }
 
-  get dependencies() {
+  get drops() {
     const scope = this.inSchema ? `schema:${this.inSchema}` : "global";
-    const defaclStableId = `defacl:${this.role.name}:${this.objtype}:${scope}:grantee:${this.grantee}`;
-    return [defaclStableId];
+    return [
+      `defacl:${this.role.name}:${this.objtype}:${scope}:grantee:${this.grantee}`,
+    ];
+  }
+
+  get requires() {
+    const scope = this.inSchema ? `schema:${this.inSchema}` : "global";
+    return [
+      `defacl:${this.role.name}:${this.objtype}:${scope}:grantee:${this.grantee}`,
+      this.role.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {

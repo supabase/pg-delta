@@ -78,17 +78,11 @@ function createAlterConstraintChange(
       );
       if (parentHasPrimaryKey) continue;
     }
-    const branchForeignKeyTable =
-      c.constraint_type === "f"
-        ? branchCatalog[`table:${c.foreign_key_schema}.${c.foreign_key_table}`]
-        : undefined;
-
     if (!mainByName.has(name)) {
       changes.push(
         new AlterTableAddConstraint({
           table: branchTable,
           constraint: c,
-          foreignKeyTable: branchForeignKeyTable,
         }),
       );
       if (!c.validated) {
@@ -134,12 +128,6 @@ function createAlterConstraintChange(
   // Altered constraints -> drop + add
   for (const [name, mainC] of mainByName) {
     const branchC = branchByName.get(name);
-    const branchForeignKeyTable =
-      branchC?.constraint_type === "f"
-        ? branchCatalog[
-            `table:${branchC.foreign_key_schema}.${branchC.foreign_key_table}`
-          ]
-        : undefined;
     if (!branchC) continue;
     // Skip any primary key alterations on partitions
     if (branchTable.is_partition && branchC.constraint_type === "p") {
@@ -180,7 +168,6 @@ function createAlterConstraintChange(
         new AlterTableAddConstraint({
           table: branchTable,
           constraint: branchC,
-          foreignKeyTable: branchForeignKeyTable,
         }),
       );
       if (!branchC.validated) {

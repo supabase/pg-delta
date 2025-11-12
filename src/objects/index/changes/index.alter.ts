@@ -42,7 +42,7 @@ export class AlterIndexSetStorageParams extends AlterIndexChange {
     this.keysToReset = props.keysToReset;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.index.stableId];
   }
 
@@ -86,7 +86,7 @@ export class AlterIndexSetStatistics extends BaseChange {
     this.columnTargets = props.columnTargets;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.index.stableId];
   }
 
@@ -123,7 +123,7 @@ export class AlterIndexSetTablespace extends BaseChange {
     this.tablespace = props.tablespace;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.index.stableId];
   }
 

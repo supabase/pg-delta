@@ -31,7 +31,7 @@ export class CreateIndex extends CreateIndexChange {
     this.indexableObject = props.indexableObject;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.index.stableId];
   }
 

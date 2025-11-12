@@ -29,7 +29,7 @@ export class AlterSchemaChangeOwner extends AlterSchemaChange {
     this.owner = props.owner;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.schema.stableId];
   }
 

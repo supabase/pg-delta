@@ -301,7 +301,7 @@ describe.concurrent("table.diff", () => {
       validated: false,
       is_local: true,
       no_inherit: false,
-      key_columns: [1],
+      key_columns: ["a"],
       foreign_key_columns: null,
       foreign_key_table: null,
       foreign_key_schema: null,
@@ -416,7 +416,7 @@ describe.concurrent("table.diff", () => {
           validated: true,
           is_local: true,
           no_inherit: false,
-          key_columns: [1],
+          key_columns: ["a"],
           foreign_key_columns: null,
           foreign_key_table: null,
           foreign_key_schema: null,
@@ -434,7 +434,7 @@ describe.concurrent("table.diff", () => {
       constraints: [
         {
           ...tMain.constraints[0],
-          key_columns: [1, 2],
+          key_columns: ["a", "b"],
         },
       ],
     });
@@ -484,8 +484,8 @@ describe.concurrent("table.diff", () => {
           validated: true,
           is_local: true,
           no_inherit: false,
-          key_columns: [1],
-          foreign_key_columns: [1],
+          key_columns: ["a"],
+          foreign_key_columns: ["a"],
           foreign_key_table: "other",
           foreign_key_schema: "public",
           on_update: "a",

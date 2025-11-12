@@ -1,4 +1,5 @@
 import type { ColumnProps } from "../../base.model.ts";
+import { stableId } from "../../utils.ts";
 import type { Table, TableConstraintProps } from "../table.model.ts";
 import { AlterTableChange } from "./table.base.ts";
 
@@ -96,7 +97,7 @@ export class AlterTableChangeOwner extends AlterTableChange {
     this.owner = props.owner;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.table.stableId];
   }
 
@@ -122,7 +123,7 @@ export class AlterTableSetLogged extends AlterTableChange {
     this.table = props.table;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.table.stableId];
   }
 
@@ -147,7 +148,7 @@ export class AlterTableSetUnlogged extends AlterTableChange {
     this.table = props.table;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.table.stableId];
   }
 
@@ -172,7 +173,7 @@ export class AlterTableEnableRowLevelSecurity extends AlterTableChange {
     this.table = props.table;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.table.stableId];
   }
 
@@ -197,7 +198,7 @@ export class AlterTableDisableRowLevelSecurity extends AlterTableChange {
     this.table = props.table;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.table.stableId];
   }
 
@@ -222,7 +223,7 @@ export class AlterTableForceRowLevelSecurity extends AlterTableChange {
     this.table = props.table;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.table.stableId];
   }
 
@@ -247,7 +248,7 @@ export class AlterTableNoForceRowLevelSecurity extends AlterTableChange {
     this.table = props.table;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.table.stableId];
   }
 
@@ -274,7 +275,7 @@ export class AlterTableSetStorageParams extends AlterTableChange {
     this.options = props.options;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.table.stableId];
   }
 
@@ -302,7 +303,7 @@ export class AlterTableResetStorageParams extends AlterTableChange {
     this.params = props.params;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.table.stableId];
   }
 
@@ -323,33 +324,45 @@ export class AlterTableResetStorageParams extends AlterTableChange {
  */
 export class AlterTableAddConstraint extends AlterTableChange {
   public readonly table: Table;
-  public readonly foreignKeyTable?: Table;
   public readonly constraint: TableConstraintProps;
   public readonly scope = "object" as const;
 
-  constructor(props: {
-    table: Table;
-    constraint: TableConstraintProps;
-    foreignKeyTable?: Table;
-  }) {
+  constructor(props: { table: Table; constraint: TableConstraintProps }) {
     super();
-
-    if (props.constraint.constraint_type === "f" && !props.foreignKeyTable) {
-      throw new Error(
-        "foreignKeyTable is required for FOREIGN KEY constraints",
-      );
-    }
-
     this.table = props.table;
     this.constraint = props.constraint;
-    this.foreignKeyTable = props.foreignKeyTable;
   }
 
-  get dependencies() {
+  get creates() {
     return [
-      `constraint:${this.table.schema}.${this.table.name}.${this.constraint.name}`,
-      `${this.table.stableId}`,
+      stableId.constraint(
+        this.table.schema,
+        this.table.name,
+        this.constraint.name,
+      ),
     ];
+  }
+
+  get requires() {
+    const reqs: string[] = [this.table.stableId];
+    if (this.constraint.constraint_type === "f") {
+      const referencingColumns = this.constraint.key_columns.map((columnName) =>
+        stableId.column(this.table.schema, this.table.name, columnName),
+      );
+      const referencedColumns =
+        // biome-ignore lint/style/noNonNullAssertion: constraint_type "f" means foreign_key_columns is not null
+        this.constraint.foreign_key_columns!.map((columnName) =>
+          stableId.column(
+            // biome-ignore lint/style/noNonNullAssertion: constraint_type "f" means foreign_key_schema is not null
+            this.constraint.foreign_key_schema!,
+            // biome-ignore lint/style/noNonNullAssertion: constraint_type "f" means foreign_key_table is not null
+            this.constraint.foreign_key_table!,
+            columnName,
+          ),
+        );
+      reqs.push(...referencingColumns, ...referencedColumns);
+    }
+    return reqs;
   }
 
   serialize(): string {
@@ -377,8 +390,25 @@ export class AlterTableDropConstraint extends AlterTableChange {
     this.constraint = props.constraint;
   }
 
-  get dependencies() {
-    return [this.table.stableId];
+  get drops() {
+    return [
+      stableId.constraint(
+        this.table.schema,
+        this.table.name,
+        this.constraint.name,
+      ),
+    ];
+  }
+
+  get requires() {
+    return [
+      stableId.constraint(
+        this.table.schema,
+        this.table.name,
+        this.constraint.name,
+      ),
+      this.table.stableId,
+    ];
   }
 
   serialize(): string {
@@ -405,8 +435,15 @@ export class AlterTableValidateConstraint extends AlterTableChange {
     this.constraint = props.constraint;
   }
 
-  get dependencies() {
-    return [this.table.stableId];
+  get requires() {
+    return [
+      stableId.constraint(
+        this.table.schema,
+        this.table.name,
+        this.constraint.name,
+      ),
+      this.table.stableId,
+    ];
   }
 
   serialize(): string {
@@ -433,7 +470,7 @@ export class AlterTableSetReplicaIdentity extends AlterTableChange {
     this.mode = props.mode;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.table.stableId];
   }
 
@@ -469,7 +506,13 @@ export class AlterTableAddColumn extends AlterTableChange {
     this.column = props.column;
   }
 
-  get dependencies() {
+  get creates() {
+    return [
+      stableId.column(this.table.schema, this.table.name, this.column.name),
+    ];
+  }
+
+  get requires() {
     return [this.table.stableId];
   }
 
@@ -516,8 +559,17 @@ export class AlterTableDropColumn extends AlterTableChange {
     this.column = props.column;
   }
 
-  get dependencies() {
-    return [this.table.stableId];
+  get drops() {
+    return [
+      stableId.column(this.table.schema, this.table.name, this.column.name),
+    ];
+  }
+
+  get requires() {
+    return [
+      this.table.stableId,
+      stableId.column(this.table.schema, this.table.name, this.column.name),
+    ];
   }
 
   serialize(): string {
@@ -544,8 +596,10 @@ export class AlterTableAlterColumnType extends AlterTableChange {
     this.column = props.column;
   }
 
-  get dependencies() {
-    return [this.table.stableId];
+  get requires() {
+    return [
+      stableId.column(this.table.schema, this.table.name, this.column.name),
+    ];
   }
 
   serialize(): string {
@@ -578,8 +632,10 @@ export class AlterTableAlterColumnSetDefault extends AlterTableChange {
     this.column = props.column;
   }
 
-  get dependencies() {
-    return [this.table.stableId];
+  get requires() {
+    return [
+      stableId.column(this.table.schema, this.table.name, this.column.name),
+    ];
   }
 
   serialize(): string {
@@ -610,8 +666,10 @@ export class AlterTableAlterColumnDropDefault extends AlterTableChange {
     this.column = props.column;
   }
 
-  get dependencies() {
-    return [this.table.stableId];
+  get requires() {
+    return [
+      stableId.column(this.table.schema, this.table.name, this.column.name),
+    ];
   }
 
   serialize(): string {
@@ -639,8 +697,10 @@ export class AlterTableAlterColumnSetNotNull extends AlterTableChange {
     this.column = props.column;
   }
 
-  get dependencies() {
-    return [this.table.stableId];
+  get requires() {
+    return [
+      stableId.column(this.table.schema, this.table.name, this.column.name),
+    ];
   }
 
   serialize(): string {
@@ -668,8 +728,10 @@ export class AlterTableAlterColumnDropNotNull extends AlterTableChange {
     this.column = props.column;
   }
 
-  get dependencies() {
-    return [this.table.stableId];
+  get requires() {
+    return [
+      stableId.column(this.table.schema, this.table.name, this.column.name),
+    ];
   }
 
   serialize(): string {
@@ -697,9 +759,9 @@ export class AlterTableAttachPartition extends AlterTableChange {
     this.partition = props.partition;
   }
 
-  get dependencies() {
+  get requires() {
     // Depend on the partition child so that it is created before attach
-    return [`${this.partition.stableId}`, `${this.table.stableId}`];
+    return [this.partition.stableId, this.table.stableId];
   }
 
   serialize(): string {
@@ -728,9 +790,9 @@ export class AlterTableDetachPartition extends AlterTableChange {
     this.partition = props.partition;
   }
 
-  get dependencies() {
+  get requires() {
     // Depend on the partition child for consistent ordering with potential drops
-    return [`${this.table.stableId}`, `${this.partition.stableId}`];
+    return [this.table.stableId, this.partition.stableId];
   }
 
   serialize(): string {

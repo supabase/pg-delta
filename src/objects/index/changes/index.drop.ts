@@ -20,7 +20,11 @@ export class DropIndex extends DropIndexChange {
     this.index = props.index;
   }
 
-  get dependencies() {
+  get drops() {
+    return [this.index.stableId];
+  }
+
+  get requires() {
     return [this.index.stableId];
   }
 

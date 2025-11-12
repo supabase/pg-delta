@@ -693,7 +693,7 @@ describe.concurrent("table", () => {
         validated: true,
         is_local: true,
         no_inherit: false,
-        key_columns: [1],
+        key_columns: ["a"],
         foreign_key_columns: null,
         foreign_key_table: null,
         foreign_key_schema: null,

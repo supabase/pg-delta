@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { stableId } from "../../utils.ts";
 import type { Collation } from "../collation.model.ts";
 import {
   CreateCollationChange,
@@ -21,8 +22,12 @@ export class CreateCommentOnCollation extends CreateCollationChange {
     this.collation = props.collation;
   }
 
-  get dependencies() {
-    return [`comment:${this.collation.schema}.${this.collation.name}`];
+  get creates() {
+    return [stableId.comment(this.collation.stableId)];
+  }
+
+  get requires() {
+    return [this.collation.stableId];
   }
 
   serialize(): string {
@@ -45,8 +50,12 @@ export class DropCommentOnCollation extends DropCollationChange {
     this.collation = props.collation;
   }
 
-  get dependencies() {
-    return [`comment:${this.collation.schema}.${this.collation.name}`];
+  get requires() {
+    return [this.collation.stableId, stableId.comment(this.collation.stableId)];
+  }
+
+  get drops() {
+    return [stableId.comment(this.collation.stableId)];
   }
 
   serialize(): string {

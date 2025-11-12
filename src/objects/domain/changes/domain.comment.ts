@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { stableId } from "../../utils.ts";
 import type { Domain } from "../domain.model.ts";
 import { CreateDomainChange, DropDomainChange } from "./domain.base.ts";
 
@@ -16,8 +17,12 @@ export class CreateCommentOnDomain extends CreateDomainChange {
     this.domain = props.domain;
   }
 
-  get dependencies() {
-    return [`comment:${this.domain.schema}.${this.domain.name}`];
+  get creates() {
+    return [stableId.comment(this.domain.stableId)];
+  }
+
+  get requires() {
+    return [this.domain.stableId];
   }
 
   serialize(): string {
@@ -40,8 +45,8 @@ export class DropCommentOnDomain extends DropDomainChange {
     this.domain = props.domain;
   }
 
-  get dependencies() {
-    return [`comment:${this.domain.schema}.${this.domain.name}`];
+  get requires() {
+    return [stableId.comment(this.domain.stableId), this.domain.stableId];
   }
 
   serialize(): string {

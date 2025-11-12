@@ -1,6 +1,10 @@
 import type { Sql } from "postgres";
 import { extractCurrentUser, extractVersion } from "./context.ts";
 import { extractDepends, type PgDepend } from "./depend.ts";
+import {
+  type Aggregate,
+  extractAggregates,
+} from "./objects/aggregate/aggregate.model.ts";
 import type { BasePgModel, TableLikeObject } from "./objects/base.model.ts";
 import {
   type Collation,
@@ -8,6 +12,10 @@ import {
 } from "./objects/collation/collation.model.ts";
 import type { Domain } from "./objects/domain/domain.model.ts";
 import { extractDomains } from "./objects/domain/domain.model.ts";
+import {
+  type EventTrigger,
+  extractEventTriggers,
+} from "./objects/event-trigger/event-trigger.model.ts";
 import {
   type Extension,
   extractExtensions,
@@ -22,15 +30,24 @@ import {
   type Procedure,
 } from "./objects/procedure/procedure.model.ts";
 import {
+  extractPublications,
+  type Publication,
+} from "./objects/publication/publication.model.ts";
+import {
   extractRlsPolicies,
   type RlsPolicy,
 } from "./objects/rls-policy/rls-policy.model.ts";
 import { extractRoles, type Role } from "./objects/role/role.model.ts";
+import { extractRules, type Rule } from "./objects/rule/rule.model.ts";
 import { extractSchemas, type Schema } from "./objects/schema/schema.model.ts";
 import {
   extractSequences,
   type Sequence,
 } from "./objects/sequence/sequence.model.ts";
+import {
+  extractSubscriptions,
+  type Subscription,
+} from "./objects/subscription/subscription.model.ts";
 import { extractTables, type Table } from "./objects/table/table.model.ts";
 import {
   extractTriggers,
@@ -45,6 +62,7 @@ import { extractRanges, type Range } from "./objects/type/range/range.model.ts";
 import { extractViews, type View } from "./objects/view/view.model.ts";
 
 interface CatalogProps {
+  aggregates: Record<string, Aggregate>;
   collations: Record<string, Collation>;
   compositeTypes: Record<string, CompositeType>;
   domains: Record<string, Domain>;
@@ -53,12 +71,16 @@ interface CatalogProps {
   procedures: Record<string, Procedure>;
   indexes: Record<string, Index>;
   materializedViews: Record<string, MaterializedView>;
+  subscriptions: Record<string, Subscription>;
+  publications: Record<string, Publication>;
   rlsPolicies: Record<string, RlsPolicy>;
   roles: Record<string, Role>;
   schemas: Record<string, Schema>;
   sequences: Record<string, Sequence>;
   tables: Record<string, Table>;
   triggers: Record<string, Trigger>;
+  eventTriggers: Record<string, EventTrigger>;
+  rules: Record<string, Rule>;
   ranges: Record<string, Range>;
   views: Record<string, View>;
   depends: PgDepend[];
@@ -68,6 +90,7 @@ interface CatalogProps {
 }
 
 export class Catalog {
+  public readonly aggregates: CatalogProps["aggregates"];
   public readonly collations: CatalogProps["collations"];
   public readonly compositeTypes: CatalogProps["compositeTypes"];
   public readonly domains: CatalogProps["domains"];
@@ -76,12 +99,16 @@ export class Catalog {
   public readonly procedures: CatalogProps["procedures"];
   public readonly indexes: CatalogProps["indexes"];
   public readonly materializedViews: CatalogProps["materializedViews"];
+  public readonly subscriptions: CatalogProps["subscriptions"];
+  public readonly publications: CatalogProps["publications"];
   public readonly rlsPolicies: CatalogProps["rlsPolicies"];
   public readonly roles: CatalogProps["roles"];
   public readonly schemas: CatalogProps["schemas"];
   public readonly sequences: CatalogProps["sequences"];
   public readonly tables: CatalogProps["tables"];
   public readonly triggers: CatalogProps["triggers"];
+  public readonly eventTriggers: CatalogProps["eventTriggers"];
+  public readonly rules: CatalogProps["rules"];
   public readonly ranges: CatalogProps["ranges"];
   public readonly views: CatalogProps["views"];
   public readonly depends: CatalogProps["depends"];
@@ -90,6 +117,7 @@ export class Catalog {
   public readonly currentUser: CatalogProps["currentUser"];
 
   constructor(props: CatalogProps) {
+    this.aggregates = props.aggregates;
     this.collations = props.collations;
     this.compositeTypes = props.compositeTypes;
     this.domains = props.domains;
@@ -98,12 +126,16 @@ export class Catalog {
     this.procedures = props.procedures;
     this.indexes = props.indexes;
     this.materializedViews = props.materializedViews;
+    this.subscriptions = props.subscriptions;
+    this.publications = props.publications;
     this.rlsPolicies = props.rlsPolicies;
     this.roles = props.roles;
     this.schemas = props.schemas;
     this.sequences = props.sequences;
     this.tables = props.tables;
     this.triggers = props.triggers;
+    this.eventTriggers = props.eventTriggers;
+    this.rules = props.rules;
     this.ranges = props.ranges;
     this.views = props.views;
     this.depends = props.depends;
@@ -115,6 +147,7 @@ export class Catalog {
 
 export async function extractCatalog(sql: Sql) {
   const [
+    aggregates,
     collations,
     compositeTypes,
     domains,
@@ -122,6 +155,8 @@ export async function extractCatalog(sql: Sql) {
     extensions,
     indexes,
     materializedViews,
+    subscriptions,
+    publications,
     procedures,
     rlsPolicies,
     roles,
@@ -129,12 +164,15 @@ export async function extractCatalog(sql: Sql) {
     sequences,
     tables,
     triggers,
+    eventTriggers,
+    rules,
     ranges,
     views,
     depends,
     version,
     currentUser,
   ] = await Promise.all([
+    extractAggregates(sql).then(listToRecord),
     extractCollations(sql).then(listToRecord),
     extractCompositeTypes(sql).then(listToRecord),
     extractDomains(sql).then(listToRecord),
@@ -142,6 +180,8 @@ export async function extractCatalog(sql: Sql) {
     extractExtensions(sql).then(listToRecord),
     extractIndexes(sql).then(listToRecord),
     extractMaterializedViews(sql).then(listToRecord),
+    extractSubscriptions(sql).then(listToRecord),
+    extractPublications(sql).then(listToRecord),
     extractProcedures(sql).then(listToRecord),
     extractRlsPolicies(sql).then(listToRecord),
     extractRoles(sql).then(listToRecord),
@@ -149,6 +189,8 @@ export async function extractCatalog(sql: Sql) {
     extractSequences(sql).then(listToRecord),
     extractTables(sql).then(listToRecord),
     extractTriggers(sql).then(listToRecord),
+    extractEventTriggers(sql).then(listToRecord),
+    extractRules(sql).then(listToRecord),
     extractRanges(sql).then(listToRecord),
     extractViews(sql).then(listToRecord),
     extractDepends(sql),
@@ -162,6 +204,7 @@ export async function extractCatalog(sql: Sql) {
   };
 
   return new Catalog({
+    aggregates,
     collations,
     compositeTypes,
     domains,
@@ -170,12 +213,16 @@ export async function extractCatalog(sql: Sql) {
     procedures,
     indexes,
     materializedViews,
+    subscriptions,
+    publications,
     rlsPolicies,
     roles,
     schemas,
     sequences,
     tables,
     triggers,
+    eventTriggers,
+    rules,
     ranges,
     views,
     depends,

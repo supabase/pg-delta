@@ -25,7 +25,7 @@ export class CreateRlsPolicy extends CreateRlsPolicyChange {
     this.policy = props.policy;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.policy.stableId];
   }
 

@@ -16,7 +16,7 @@ describe("index", () => {
       is_unique: false,
       is_primary: false,
       is_exclusion: false,
-      is_constraint: false,
+      is_owned_by_constraint: false,
       nulls_not_distinct: false,
       immediate: true,
       is_clustered: false,

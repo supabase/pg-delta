@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../../base.change.ts";
+import { stableId } from "../../../utils.ts";
 import type { Range } from "../range.model.ts";
 import { CreateRangeChange, DropRangeChange } from "./range.base.ts";
 
@@ -17,8 +18,12 @@ export class CreateCommentOnRange extends CreateRangeChange {
     this.range = props.range;
   }
 
-  get dependencies() {
-    return [`comment:${this.range.schema}.${this.range.name}`];
+  get creates() {
+    return [stableId.comment(this.range.stableId)];
+  }
+
+  get requires() {
+    return [this.range.stableId];
   }
 
   serialize(): string {
@@ -41,8 +46,12 @@ export class DropCommentOnRange extends DropRangeChange {
     this.range = props.range;
   }
 
-  get dependencies() {
-    return [`comment:${this.range.schema}.${this.range.name}`];
+  get drops() {
+    return [stableId.comment(this.range.stableId)];
+  }
+
+  get requires() {
+    return [stableId.comment(this.range.stableId), this.range.stableId];
   }
 
   serialize(): string {

@@ -20,7 +20,11 @@ export class DropCollation extends DropCollationChange {
     this.collation = props.collation;
   }
 
-  get dependencies() {
+  get requires() {
+    return [this.collation.stableId];
+  }
+
+  get drops() {
     return [this.collation.stableId];
   }
 

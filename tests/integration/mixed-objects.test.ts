@@ -3,6 +3,7 @@
  */
 
 import { describe } from "vitest";
+import type { Change } from "../../src/change.types.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -168,6 +169,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             SELECT * FROM test_schema.user_orders
             WHERE total > 1000;
         `,
+        sortChangesCallback: (a, b) => {
+          const priority = (change: Change) => {
+            if (change.objectType === "view" && change.operation === "create") {
+              const viewName = change.view?.name ?? "";
+              return viewName === "top_users"
+                ? 0
+                : viewName === "user_orders"
+                  ? 1
+                  : 2;
+            }
+            return 3;
+          };
+          return priority(a) - priority(b);
+        },
       });
     });
 
@@ -195,6 +210,28 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP TABLE test_schema.base;
           DROP SCHEMA test_schema;
         `,
+        sortChangesCallback: (a, b) => {
+          const priority = (change: Change) => {
+            if (change.objectType === "view" && change.operation === "drop") {
+              const viewName = change.view?.name ?? "";
+              return viewName === "v1"
+                ? 0
+                : viewName === "v2"
+                  ? 1
+                  : viewName === "v3"
+                    ? 2
+                    : 3;
+            }
+            if (change.objectType === "table" && change.operation === "drop") {
+              return 4;
+            }
+            if (change.objectType === "schema" && change.operation === "drop") {
+              return 5;
+            }
+            return 6;
+          };
+          return priority(a) - priority(b);
+        },
       });
     });
 
@@ -222,6 +259,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                    COUNT(CASE WHEN status = 'active' THEN 1 END) as active_cnt
             FROM test_schema.data;
         `,
+        sortChangesCallback: (a, b) => {
+          const priority = (change: Change) => {
+            if (change.objectType === "view" && change.operation === "create") {
+              return 0;
+            }
+            if (change.objectType === "table" && change.operation === "alter") {
+              return 1;
+            }
+            return 2;
+          };
+          return priority(a) - priority(b);
+        },
       });
     });
 

@@ -42,6 +42,14 @@ export default defineConfig({
           },
         },
       },
+      {
+        extends: true,
+        test: {
+          // Unit tests - run with full parallelism for maximum speed
+          name: "supabase",
+          include: ["tests/supabase/supabase.test.ts"],
+        },
+      },
     ],
   },
 });

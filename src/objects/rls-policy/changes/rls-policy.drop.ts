@@ -20,7 +20,11 @@ export class DropRlsPolicy extends DropRlsPolicyChange {
     this.policy = props.policy;
   }
 
-  get dependencies() {
+  get drops() {
+    return [this.policy.stableId];
+  }
+
+  get requires() {
     return [this.policy.stableId];
   }
 

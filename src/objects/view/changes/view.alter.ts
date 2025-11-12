@@ -38,7 +38,7 @@ export class AlterViewChangeOwner extends AlterViewChange {
     this.owner = props.owner;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.view.stableId];
   }
 
@@ -68,7 +68,7 @@ export class AlterViewSetOptions extends AlterViewChange {
     this.options = props.options;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.view.stableId];
   }
 
@@ -97,7 +97,7 @@ export class AlterViewResetOptions extends AlterViewChange {
     this.params = props.params;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.view.stableId];
   }
 

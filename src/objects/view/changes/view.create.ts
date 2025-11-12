@@ -1,3 +1,4 @@
+import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
 import { CreateViewChange } from "./view.base.ts";
 
@@ -25,8 +26,13 @@ export class CreateView extends CreateViewChange {
     this.orReplace = props.orReplace;
   }
 
-  get dependencies() {
-    return [this.view.stableId];
+  get creates() {
+    return [
+      this.view.stableId,
+      ...this.view.columns.map((column) =>
+        stableId.column(this.view.schema, this.view.name, column.name),
+      ),
+    ];
   }
 
   serialize(): string {

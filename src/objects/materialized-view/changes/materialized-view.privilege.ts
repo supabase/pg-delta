@@ -2,6 +2,7 @@ import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import {
   CreateMaterializedViewChange,
@@ -52,9 +53,12 @@ export class GrantMaterializedViewPrivileges extends CreateMaterializedViewChang
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.materializedView.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get creates() {
+    return [stableId.acl(this.materializedView.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [this.materializedView.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {
@@ -123,9 +127,16 @@ export class RevokeMaterializedViewPrivileges extends DropMaterializedViewChange
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.materializedView.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get drops() {
+    return [stableId.acl(this.materializedView.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [
+      stableId.acl(this.materializedView.stableId, this.grantee),
+      this.materializedView.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {
@@ -177,9 +188,12 @@ export class RevokeGrantOptionMaterializedViewPrivileges extends DropMaterialize
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.materializedView.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get requires() {
+    return [
+      stableId.acl(this.materializedView.stableId, this.grantee),
+      this.materializedView.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {

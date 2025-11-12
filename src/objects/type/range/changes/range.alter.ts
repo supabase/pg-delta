@@ -30,7 +30,7 @@ export class AlterRangeChangeOwner extends AlterRangeChange {
     this.owner = props.owner;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.range.stableId];
   }
 

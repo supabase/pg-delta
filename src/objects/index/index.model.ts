@@ -29,7 +29,7 @@ const indexPropsSchema = z.object({
   column_options: z.array(z.number()),
   index_expressions: z.string().nullable(),
   partial_predicate: z.string().nullable(),
-  is_constraint: z.boolean(),
+  is_owned_by_constraint: z.boolean(),
   table_relkind: TableRelkindSchema, // 'r' for table, 'm' for materialized view
   definition: z.string(),
   comment: z.string().nullable(),
@@ -73,7 +73,7 @@ export class Index extends BasePgModel {
   public readonly index_expressions: IndexProps["index_expressions"];
   public readonly partial_predicate: IndexProps["partial_predicate"];
   public readonly table_relkind: IndexProps["table_relkind"];
-  public readonly is_constraint: IndexProps["is_constraint"];
+  public readonly is_owned_by_constraint: IndexProps["is_owned_by_constraint"];
   public readonly definition: IndexProps["definition"];
   public readonly comment: IndexProps["comment"];
   public readonly owner: IndexProps["owner"];
@@ -105,7 +105,7 @@ export class Index extends BasePgModel {
     this.index_expressions = props.index_expressions;
     this.partial_predicate = props.partial_predicate;
     this.table_relkind = props.table_relkind;
-    this.is_constraint = props.is_constraint;
+    this.is_owned_by_constraint = props.is_owned_by_constraint;
     this.definition = props.definition;
     this.comment = props.comment;
     this.owner = props.owner;
@@ -147,7 +147,7 @@ export class Index extends BasePgModel {
       index_expressions: this.index_expressions,
       partial_predicate: this.partial_predicate,
       table_relkind: this.table_relkind,
-      is_constraint: this.is_constraint,
+      is_owned_by_constraint: this.is_owned_by_constraint,
       definition: this.definition,
       comment: this.comment,
       owner: this.owner,
@@ -202,7 +202,17 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
       i.indisreplident                 as is_replica_identity,
       i.indkey                         as key_columns,
 
-      exists (select 1 from pg_constraint pc where pc.conindid = i.indexrelid) as is_constraint,
+      -- Foreign keys don’t create/own an index; their conindid points to the referenced PK/UNIQUE index. Mark as is_owned_by_constraint only when the owning constraint is PK/UNIQUE/EXCLUSION.
+      exists (
+        select 1
+        from pg_depend d
+        join pg_constraint pc on pc.oid = d.refobjid
+        where d.classid    = 'pg_class'::regclass
+          and d.objid      = i.indexrelid
+          and d.refclassid = 'pg_constraint'::regclass
+          and d.deptype    = 'i'
+          and pc.contype   IN ('p','u','x')
+      ) as is_owned_by_constraint,
 
       -- per-column arrays from one pass over idx_cols
       coalesce(agg.column_collations, array[]::text[]) as column_collations,

@@ -38,14 +38,19 @@ export class AlterSequenceSetOwnedBy extends AlterSequenceChange {
     this.ownedBy = props.ownedBy;
   }
 
-  get dependencies() {
-    if (this.ownedBy) {
-      return [
-        `${this.sequence.stableId}`,
-        `table:${this.ownedBy.schema}.${this.ownedBy.table}`,
-      ];
-    }
-    return [`${this.sequence.stableId}`];
+  get creates() {
+    return [];
+  }
+
+  get requires() {
+    return [
+      this.sequence.stableId,
+      ...(this.ownedBy
+        ? [
+            `column:${this.ownedBy.schema}.${this.ownedBy.table}.${this.ownedBy.column}`,
+          ]
+        : []),
+    ];
   }
 
   serialize(): string {
@@ -79,7 +84,11 @@ export class AlterSequenceSetOptions extends AlterSequenceChange {
     this.options = props.options;
   }
 
-  get dependencies() {
+  get creates() {
+    return [];
+  }
+
+  get requires() {
     return [this.sequence.stableId];
   }
 

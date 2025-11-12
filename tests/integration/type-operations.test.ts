@@ -4,6 +4,7 @@
 
 import dedent from "dedent";
 import { describe } from "vitest";
+import type { Change } from "../../src/change.types.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -421,6 +422,39 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         COMMENT ON DOMAIN test_schema.positive_int IS 'positive integer domain';
         COMMENT ON TYPE test_schema.address IS 'address composite type';
       `,
+        sortChangesCallback: (a, b) => {
+          const priority = (change: Change) => {
+            if (change.objectType === "domain" && change.scope === "comment") {
+              return 0;
+            }
+            if (change.objectType === "enum" && change.scope === "comment") {
+              return 1;
+            }
+            if (
+              change.objectType === "composite_type" &&
+              change.scope === "comment"
+            ) {
+              return 2;
+            }
+            if (
+              change.objectType === "domain" &&
+              change.operation === "create"
+            ) {
+              return 3;
+            }
+            if (change.objectType === "enum" && change.operation === "create") {
+              return 4;
+            }
+            if (
+              change.objectType === "composite_type" &&
+              change.operation === "create"
+            ) {
+              return 5;
+            }
+            return 6;
+          };
+          return priority(a) - priority(b);
+        },
       });
     });
   });

@@ -20,7 +20,11 @@ export class DropCompositeType extends DropCompositeTypeChange {
     this.compositeType = props.compositeType;
   }
 
-  get dependencies() {
+  get drops() {
+    return [this.compositeType.stableId];
+  }
+
+  get requires() {
     return [this.compositeType.stableId];
   }
 

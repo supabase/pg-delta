@@ -2,6 +2,7 @@ import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { stableId } from "../../utils.ts";
 import type { Procedure } from "../procedure.model.ts";
 import {
   CreateProcedureChange,
@@ -47,9 +48,12 @@ export class GrantProcedurePrivileges extends CreateProcedureChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.procedure.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get creates() {
+    return [stableId.acl(this.procedure.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [this.procedure.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {
@@ -106,9 +110,16 @@ export class RevokeProcedurePrivileges extends DropProcedureChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.procedure.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get drops() {
+    return [stableId.acl(this.procedure.stableId, this.grantee)];
+  }
+
+  get requires() {
+    return [
+      stableId.acl(this.procedure.stableId, this.grantee),
+      this.procedure.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {
@@ -149,9 +160,12 @@ export class RevokeGrantOptionProcedurePrivileges extends DropProcedureChange {
     this.version = props.version;
   }
 
-  get dependencies() {
-    const aclStableId = `acl:${this.procedure.stableId}::grantee:${this.grantee}`;
-    return [aclStableId];
+  get requires() {
+    return [
+      stableId.acl(this.procedure.stableId, this.grantee),
+      this.procedure.stableId,
+      stableId.role(this.grantee),
+    ];
   }
 
   serialize(): string {

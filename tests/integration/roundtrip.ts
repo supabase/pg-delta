@@ -8,9 +8,7 @@ import { diffCatalogs } from "../../src/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
 import type { Change } from "../../src/change.types.ts";
 import type { PgDepend } from "../../src/depend.ts";
-import { pgDumpSort } from "../../src/sort/global-sort.ts";
-import { applyRefinements } from "../../src/sort/refined-sort.ts";
-import { sortChangesByRules } from "../../src/sort/sort-utils.ts";
+import { sortChangesByPhasedGraph } from "../../src/sort/phased-graph-sort.ts";
 import { DEBUG } from "../constants.ts";
 
 interface RoundtripTestOptions {
@@ -76,16 +74,23 @@ export async function roundtripFidelityTest(
     expectedOperationOrder,
     sortChangesCallback,
   } = options;
-
+  // Silent warnings from PostgreSQL such as subscriptions created without a slot.
+  const sessionConfig = ["SET LOCAL client_min_messages = error"];
   // Set up initial schema in BOTH databases
   if (initialSetup) {
-    await expect(mainSession.unsafe(initialSetup)).resolves.not.toThrow();
-    await expect(branchSession.unsafe(initialSetup)).resolves.not.toThrow();
+    await expect(
+      mainSession.unsafe([...sessionConfig, initialSetup].join(";\n\n")),
+    ).resolves.not.toThrow();
+    await expect(
+      branchSession.unsafe([...sessionConfig, initialSetup].join(";\n\n")),
+    ).resolves.not.toThrow();
   }
 
   // Execute the test SQL in the BRANCH database only
   if (testSql) {
-    await expect(branchSession.unsafe(testSql)).resolves.not.toThrow();
+    await expect(
+      branchSession.unsafe([...sessionConfig, testSql].join(";\n\n")),
+    ).resolves.not.toThrow();
   }
 
   // Extract catalogs from both databases
@@ -110,48 +115,72 @@ export async function roundtripFidelityTest(
   // Generate migration from main to branch
   let changes = diffCatalogs(mainCatalog, branchCatalog);
 
-  if (sortChangesCallback) {
-    changes = changes.sort(sortChangesCallback);
+  if (process.env.DEPENDENCIES_DEBUG) {
+    console.log("mainCatalog.depends: ");
+    console.log(mainCatalog.depends);
+    console.log("branchCatalog.depends: ");
+    console.log(branchCatalog.depends);
   }
 
-  const globallySortedChanges = sortChangesByRules(changes, pgDumpSort);
-  const sortedChanges = applyRefinements(
-    {
-      mainCatalog,
-      branchCatalog,
-    },
-    globallySortedChanges,
+  // Randomize changes order
+  changes = changes.sort(() => Math.random() - 0.5);
+
+  // Optional pre-sort to provide deterministic tie-breaking for the phased sort
+  if (sortChangesCallback) {
+    changes = changes.sort(sortChangesCallback);
+    if (DEBUG) {
+      // just print class names
+      console.log(
+        "sorted changes: ",
+        changes.map((change) => change.constructor.name),
+      );
+    }
+  }
+
+  const sortedChanges = sortChangesByPhasedGraph(
+    { mainCatalog, branchCatalog },
+    changes,
   );
 
   if (expectedOperationOrder) {
     validateOperationOrder(sortedChanges, expectedOperationOrder);
   }
 
-  // Generate SQL from changes
-  const sqlStatements = sortedChanges.map((change) => change.serialize());
+  const hasRoutineChanges = sortedChanges.some(
+    (change) =>
+      change.objectType === "procedure" || change.objectType === "aggregate",
+  );
+  const migrationSessionConfig = hasRoutineChanges
+    ? ["SET check_function_bodies = false"]
+    : [];
 
-  // Join SQL statements
-  const diffScript =
-    sqlStatements.join(";\n\n") + (sqlStatements.length > 0 ? ";" : "");
+  const sqlStatements = sortedChanges.map((change) => change.serialize());
+  const migrationScript = [...migrationSessionConfig, ...sqlStatements].join(
+    ";\n\n",
+  );
 
   // Verify expected terms are the same as the generated SQL
   if (expectedSqlTerms) {
     if (expectedSqlTerms === "same-as-test-sql") {
-      expect(diffScript).toStrictEqual(testSql);
+      expect(migrationScript).toStrictEqual(testSql);
     } else {
       expect(sqlStatements).toStrictEqual(expectedSqlTerms);
     }
   }
 
   if (DEBUG) {
-    console.log("diffScript: ", diffScript);
+    console.log("migrationScript: ", migrationScript);
   }
   // Apply migration to main database
-  if (diffScript.trim()) {
-    await runOrDump(() => mainSession.unsafe(diffScript), {
-      label: "migration",
-      diffScript,
-    });
+  if (migrationScript.trim()) {
+    await runOrDump(
+      () =>
+        mainSession.unsafe([...sessionConfig, migrationScript].join(";\n\n")),
+      {
+        label: "migration",
+        diffScript: migrationScript,
+      },
+    );
   }
 
   // Extract final catalog from main database

@@ -52,8 +52,8 @@ const tableConstraintPropsSchema = z.object({
   validated: z.boolean(),
   is_local: z.boolean(),
   no_inherit: z.boolean(),
-  key_columns: z.array(z.number()),
-  foreign_key_columns: z.array(z.number()).nullable(),
+  key_columns: z.array(z.string()),
+  foreign_key_columns: z.array(z.string()).nullable(),
   foreign_key_table: z.string().nullable(),
   foreign_key_schema: z.string().nullable(),
   on_update: ForeignKeyActionSchema.nullable(),
@@ -252,8 +252,30 @@ select
           'validated', c.convalidated,
           'is_local', c.conislocal,
           'no_inherit', c.connoinherit,
-          'key_columns', c.conkey,
-          'foreign_key_columns', c.confkey,
+          'key_columns',
+            CASE
+              WHEN c.conkey IS NOT NULL THEN (
+                SELECT json_agg(quote_ident(att.attname) ORDER BY pk.ordinality)
+                FROM unnest(c.conkey) WITH ORDINALITY AS pk(attnum, ordinality)
+                JOIN pg_attribute att
+                  ON att.attrelid = c.conrelid
+                  AND att.attnum = pk.attnum
+                  AND att.attisdropped = false
+              )
+              ELSE '[]'::json
+            END,
+          'foreign_key_columns',
+            CASE
+              WHEN c.contype = 'f' THEN (
+                SELECT json_agg(quote_ident(att.attname) ORDER BY fk.ordinality)
+                FROM unnest(c.confkey) WITH ORDINALITY AS fk(attnum, ordinality)
+                JOIN pg_attribute att
+                  ON att.attrelid = c.confrelid
+                  AND att.attnum = fk.attnum
+                  AND att.attisdropped = false
+              )
+              ELSE NULL
+            END,
           'foreign_key_table', quote_ident(ftc.relname),
           'foreign_key_schema', ftc.relnamespace::regnamespace::text,
           'on_update', case when c.contype = 'f' then c.confupdtype else null end,

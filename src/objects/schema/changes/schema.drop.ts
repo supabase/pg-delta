@@ -20,7 +20,11 @@ export class DropSchema extends DropSchemaChange {
     this.schema = props.schema;
   }
 
-  get dependencies() {
+  get drops() {
+    return [this.schema.stableId];
+  }
+
+  get requires() {
     return [this.schema.stableId];
   }
 

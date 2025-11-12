@@ -52,7 +52,7 @@ export class AlterRoleSetOptions extends AlterRoleChange {
     this.options = props.options;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.role.stableId];
   }
 
@@ -89,7 +89,7 @@ export class AlterRoleSetConfig extends AlterRoleChange {
     this.value = props.value;
   }
 
-  get dependencies() {
+  get requires() {
     return [this.role.stableId];
   }
 

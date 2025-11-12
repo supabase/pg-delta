@@ -20,7 +20,11 @@ export class DropLanguage extends DropLanguageChange {
     this.language = props.language;
   }
 
-  get dependencies() {
+  get drops() {
+    return [this.language.stableId];
+  }
+
+  get requires() {
     return [this.language.stableId];
   }
 

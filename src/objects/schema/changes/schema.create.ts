@@ -22,7 +22,7 @@ export class CreateSchema extends CreateSchemaChange {
     this.schema = props.schema;
   }
 
-  get dependencies() {
+  get creates() {
     return [this.schema.stableId];
   }
 

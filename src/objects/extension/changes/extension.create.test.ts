@@ -11,6 +11,7 @@ describe("extension", () => {
       version: "1.0",
       owner: "test",
       comment: null,
+      members: [],
     });
 
     const change = new CreateExtension({

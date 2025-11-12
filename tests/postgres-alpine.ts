@@ -22,6 +22,8 @@ export class PostgresAlpineContainer extends GenericContainer {
     this.withTmpFs({
       "/var/lib/postgresql/data": "rw,noexec,nosuid,size=256m",
     });
+    // Enable logical replication to be able to create subscriptions
+    this.withCommand(["postgres", "-c", "wal_level=logical"]);
   }
 
   public withDatabase(database: string): this {
@@ -185,6 +187,34 @@ export class StartedPostgresAlpineContainer extends AbstractStartedContainer {
    * Drops a database
    */
   public async dropDatabase(dbName: string): Promise<void> {
+    const listResult = await this.exec([
+      "psql",
+      "-At",
+      "-U",
+      this.getUsername(),
+      "-d",
+      dbName,
+      "-c",
+      "SELECT quote_ident(subname) FROM pg_catalog.pg_subscription WHERE subdbid = (SELECT oid FROM pg_database WHERE datname = current_database());",
+    ]);
+    if (listResult.exitCode !== 0) {
+      throw new Error(
+        `Command failed with exit code ${listResult.exitCode}: ${listResult.output}`,
+      );
+    }
+    const subscriptionNames = listResult.output
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    for (const subName of subscriptionNames) {
+      await this.execCommandsSQL(
+        [
+          `ALTER SUBSCRIPTION ${subName} SET (slot_name = NONE)`,
+          `DROP SUBSCRIPTION ${subName}`,
+        ],
+        dbName,
+      );
+    }
     await this.execCommandsSQL([
       `DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`,
     ]);
@@ -196,7 +226,10 @@ export class StartedPostgresAlpineContainer extends AbstractStartedContainer {
    * @param commands Array of SQL commands to execute in sequence
    * @throws Error if any command fails to execute with details of the failure
    */
-  private async execCommandsSQL(commands: string[]): Promise<void> {
+  private async execCommandsSQL(
+    commands: string[],
+    database: string = "postgres",
+  ): Promise<void> {
     for (const command of commands) {
       try {
         const result = await this.exec([
@@ -206,7 +239,7 @@ export class StartedPostgresAlpineContainer extends AbstractStartedContainer {
           "-U",
           this.getUsername(),
           "-d",
-          "postgres",
+          database,
           "-c",
           command,
         ]);
