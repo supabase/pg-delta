@@ -4,10 +4,12 @@ import type { Change } from "./change.types.ts";
 import { diffAggregates } from "./objects/aggregate/aggregate.diff.ts";
 import { diffCollations } from "./objects/collation/collation.diff.ts";
 import { diffDomains } from "./objects/domain/domain.diff.ts";
+import { diffEventTriggers } from "./objects/event-trigger/event-trigger.diff.ts";
 import { diffExtensions } from "./objects/extension/extension.diff.ts";
 import { diffIndexes } from "./objects/index/index.diff.ts";
 import { diffMaterializedViews } from "./objects/materialized-view/materialized-view.diff.ts";
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
+import { diffPublications } from "./objects/publication/publication.diff.ts";
 import { diffRlsPolicies } from "./objects/rls-policy/rls-policy.diff.ts";
 import { diffRoles } from "./objects/role/role.diff.ts";
 import { diffRules } from "./objects/rule/rule.diff.ts";
@@ -57,6 +59,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
     ),
   );
   changes.push(...diffSubscriptions(main.subscriptions, branch.subscriptions));
+  changes.push(...diffPublications(main.publications, branch.publications));
   changes.push(
     ...diffProcedures(
       { version: main.version },
@@ -84,6 +87,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(
     ...diffTriggers(main.triggers, branch.triggers, branch.indexableObjects),
   );
+  changes.push(...diffEventTriggers(main.eventTriggers, branch.eventTriggers));
   changes.push(...diffRules(main.rules, branch.rules));
   changes.push(
     ...diffRanges({ version: main.version }, main.ranges, branch.ranges),

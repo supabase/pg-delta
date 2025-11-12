@@ -12,6 +12,8 @@ export function getSchema(change: Change) {
       return change.domain.schema;
     case "enum":
       return change.enum.schema;
+    case "event_trigger":
+      return null;
     case "extension":
       return change.extension.schema;
     case "index":
@@ -22,6 +24,8 @@ export function getSchema(change: Change) {
       return change.materializedView.schema;
     case "procedure":
       return change.procedure.schema;
+    case "publication":
+      return null;
     case "range":
       return change.range.schema;
     case "rls_policy":
@@ -62,6 +66,8 @@ export function getOwner(change: Change) {
       return change.domain.owner;
     case "enum":
       return change.enum.owner;
+    case "event_trigger":
+      return change.eventTrigger.owner;
     case "extension":
       return change.extension.owner;
     case "index":
@@ -72,6 +78,8 @@ export function getOwner(change: Change) {
       return change.materializedView.owner;
     case "procedure":
       return change.procedure.owner;
+    case "publication":
+      return change.publication.owner;
     case "range":
       return change.range.owner;
     case "rls_policy":

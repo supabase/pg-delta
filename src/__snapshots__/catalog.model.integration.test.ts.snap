@@ -26,6 +26,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
   "indexes": {},
   "materializedViews": {},
   "subscriptions": {},
+  "publications": {},
   "rlsPolicies": {},
   "roles": {},
   "schemas": {
@@ -55,6 +56,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
   "sequences": {},
   "tables": {},
   "triggers": {},
+  "eventTriggers": {},
   "rules": {},
   "ranges": {},
   "views": {},
@@ -182,6 +184,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   "indexes": {},
   "materializedViews": {},
   "subscriptions": {},
+  "publications": {},
   "rlsPolicies": {},
   "roles": {},
   "schemas": {
@@ -211,6 +214,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   "sequences": {},
   "tables": {},
   "triggers": {},
+  "eventTriggers": {},
   "rules": {},
   "ranges": {},
   "views": {},

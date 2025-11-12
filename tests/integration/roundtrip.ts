@@ -116,23 +116,9 @@ export async function roundtripFidelityTest(
 
   if (process.env.DEPENDENCIES_DEBUG) {
     console.log("mainCatalog.depends: ");
-    console.log(
-      mainCatalog.depends.filter((depend) => {
-        return (
-          depend.dependent_stable_id.startsWith("comment") &&
-          depend.referenced_stable_id.startsWith("extension")
-        );
-      }),
-    );
+    console.log(mainCatalog.depends);
     console.log("branchCatalog.depends: ");
-    console.log(
-      branchCatalog.depends.filter((depend) => {
-        return (
-          depend.dependent_stable_id.startsWith("comment") &&
-          depend.referenced_stable_id.startsWith("extension")
-        );
-      }),
-    );
+    console.log(branchCatalog.depends);
   }
 
   // Randomize changes order

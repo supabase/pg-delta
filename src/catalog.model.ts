@@ -13,6 +13,10 @@ import {
 import type { Domain } from "./objects/domain/domain.model.ts";
 import { extractDomains } from "./objects/domain/domain.model.ts";
 import {
+  type EventTrigger,
+  extractEventTriggers,
+} from "./objects/event-trigger/event-trigger.model.ts";
+import {
   type Extension,
   extractExtensions,
 } from "./objects/extension/extension.model.ts";
@@ -25,6 +29,10 @@ import {
   extractProcedures,
   type Procedure,
 } from "./objects/procedure/procedure.model.ts";
+import {
+  extractPublications,
+  type Publication,
+} from "./objects/publication/publication.model.ts";
 import {
   extractRlsPolicies,
   type RlsPolicy,
@@ -64,12 +72,14 @@ interface CatalogProps {
   indexes: Record<string, Index>;
   materializedViews: Record<string, MaterializedView>;
   subscriptions: Record<string, Subscription>;
+  publications: Record<string, Publication>;
   rlsPolicies: Record<string, RlsPolicy>;
   roles: Record<string, Role>;
   schemas: Record<string, Schema>;
   sequences: Record<string, Sequence>;
   tables: Record<string, Table>;
   triggers: Record<string, Trigger>;
+  eventTriggers: Record<string, EventTrigger>;
   rules: Record<string, Rule>;
   ranges: Record<string, Range>;
   views: Record<string, View>;
@@ -90,12 +100,14 @@ export class Catalog {
   public readonly indexes: CatalogProps["indexes"];
   public readonly materializedViews: CatalogProps["materializedViews"];
   public readonly subscriptions: CatalogProps["subscriptions"];
+  public readonly publications: CatalogProps["publications"];
   public readonly rlsPolicies: CatalogProps["rlsPolicies"];
   public readonly roles: CatalogProps["roles"];
   public readonly schemas: CatalogProps["schemas"];
   public readonly sequences: CatalogProps["sequences"];
   public readonly tables: CatalogProps["tables"];
   public readonly triggers: CatalogProps["triggers"];
+  public readonly eventTriggers: CatalogProps["eventTriggers"];
   public readonly rules: CatalogProps["rules"];
   public readonly ranges: CatalogProps["ranges"];
   public readonly views: CatalogProps["views"];
@@ -115,12 +127,14 @@ export class Catalog {
     this.indexes = props.indexes;
     this.materializedViews = props.materializedViews;
     this.subscriptions = props.subscriptions;
+    this.publications = props.publications;
     this.rlsPolicies = props.rlsPolicies;
     this.roles = props.roles;
     this.schemas = props.schemas;
     this.sequences = props.sequences;
     this.tables = props.tables;
     this.triggers = props.triggers;
+    this.eventTriggers = props.eventTriggers;
     this.rules = props.rules;
     this.ranges = props.ranges;
     this.views = props.views;
@@ -142,6 +156,7 @@ export async function extractCatalog(sql: Sql) {
     indexes,
     materializedViews,
     subscriptions,
+    publications,
     procedures,
     rlsPolicies,
     roles,
@@ -149,6 +164,7 @@ export async function extractCatalog(sql: Sql) {
     sequences,
     tables,
     triggers,
+    eventTriggers,
     rules,
     ranges,
     views,
@@ -165,6 +181,7 @@ export async function extractCatalog(sql: Sql) {
     extractIndexes(sql).then(listToRecord),
     extractMaterializedViews(sql).then(listToRecord),
     extractSubscriptions(sql).then(listToRecord),
+    extractPublications(sql).then(listToRecord),
     extractProcedures(sql).then(listToRecord),
     extractRlsPolicies(sql).then(listToRecord),
     extractRoles(sql).then(listToRecord),
@@ -172,6 +189,7 @@ export async function extractCatalog(sql: Sql) {
     extractSequences(sql).then(listToRecord),
     extractTables(sql).then(listToRecord),
     extractTriggers(sql).then(listToRecord),
+    extractEventTriggers(sql).then(listToRecord),
     extractRules(sql).then(listToRecord),
     extractRanges(sql).then(listToRecord),
     extractViews(sql).then(listToRecord),
@@ -196,12 +214,14 @@ export async function extractCatalog(sql: Sql) {
     indexes,
     materializedViews,
     subscriptions,
+    publications,
     rlsPolicies,
     roles,
     schemas,
     sequences,
     tables,
     triggers,
+    eventTriggers,
     rules,
     ranges,
     views,

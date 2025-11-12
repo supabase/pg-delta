@@ -200,12 +200,12 @@ with
     select
       format(
         'defacl:%s:%s:%s:grantee:%s',
-        quote_ident(d.defaclrole::regrole::text),
+        d.defaclrole::regrole::text,
         d.defaclobjtype::text,
         coalesce(format('schema:%s', d.defaclnamespace::regnamespace::text), 'global'),
         case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end
       ) as defacl_stable_id,
-      format('role:%s', quote_ident(d.defaclrole::regrole::text)) as grantor_role_stable_id,
+      format('role:%s', d.defaclrole::regrole::text) as grantor_role_stable_id,
       format('role:%s', case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end) as grantee_role_stable_id,
       case
         when d.defaclnamespace = 0 then null
@@ -630,6 +630,25 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     JOIN ids i ON i.classid = 'pg_default_acl'::regclass AND i.objid = da.oid AND COALESCE(i.objsubid,0) = 0
 
     UNION ALL
+    /* Publications */
+    SELECT 'pg_publication'::regclass, p.oid, 0::int2,
+          NULL::text,
+          format('publication:%I', p.pubname)
+    FROM pg_publication p
+    JOIN ids i ON i.classid = 'pg_publication'::regclass AND i.objid = p.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    /* Publication–table membership rows (collapse to publication stable id) */
+    SELECT 'pg_publication_rel'::regclass, pr.oid, 0::int2,
+           NULL::text AS schema_name, -- publication isn’t really “in” a schema
+           format('publication:%I', pub.pubname) AS stable_id
+    FROM pg_publication_rel pr
+    JOIN pg_publication pub ON pub.oid = pr.prpubid
+    JOIN ids i ON i.classid = 'pg_publication_rel'::regclass
+              AND i.objid   = pr.oid
+              AND COALESCE(i.objsubid,0) = 0
+              
+    UNION ALL
     /* Language (no schema), Event trigger, Extension */
     SELECT 'pg_language'::regclass, l.oid, 0::int2, NULL::text, format('language:%I', l.lanname)
     FROM pg_language l
@@ -874,6 +893,32 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     FROM pg_description d
     JOIN pg_language l ON d.classoid = 'pg_language'::regclass AND d.objoid = l.oid AND d.objsubid = 0
     WHERE l.lanname NOT IN ('internal', 'c')
+    UNION ALL
+
+    -- Event trigger comments
+    SELECT DISTINCT
+      format('comment:%s', format('eventTrigger:%I', et.evtname))                 AS dependent_stable_id,
+      format('eventTrigger:%I', et.evtname)                                       AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_description d
+    JOIN pg_event_trigger et ON d.classoid = 'pg_event_trigger'::regclass AND d.objoid = et.oid AND d.objsubid = 0
+
+    UNION ALL
+
+    -- Publication comments
+    SELECT DISTINCT
+      format('comment:%s', format('publication:%I', p.pubname)) AS dependent_stable_id,
+      format('publication:%I', p.pubname)                       AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_description d
+    JOIN pg_publication p
+      ON d.classoid = 'pg_publication'::regclass
+     AND d.objoid = p.oid
+     AND d.objsubid = 0
 
     UNION ALL
 
@@ -1401,6 +1446,17 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
 
     UNION ALL
 
+    -- Event trigger ownership dependencies
+    SELECT DISTINCT
+      format('eventTrigger:%I', et.evtname) AS dependent_stable_id,
+      format('role:%s', et.evtowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_event_trigger et
+
+    UNION ALL
+
     -- Extension ownership dependencies
     SELECT DISTINCT
       format('extension:%I', e.extname) AS dependent_stable_id,
@@ -1424,6 +1480,17 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     WHERE s.subdbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 
     UNION ALL
+    
+    -- Publication ownership dependencies
+    SELECT DISTINCT
+      format('publication:%I', p.pubname) AS dependent_stable_id,
+      format('role:%s', p.pubowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_publication p
+
+    UNION ALL
 
     -- Collation ownership dependencies
     SELECT DISTINCT
@@ -1434,6 +1501,31 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
       NULL::text AS ref_schema
     FROM pg_collation c
     JOIN pg_namespace n ON c.collnamespace = n.oid
+  ),
+  publication_deps AS (
+    SELECT DISTINCT
+      format('publication:%I', pub.pubname) AS dependent_stable_id,
+      format('table:%I.%I', ns.nspname, cls.relname) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      ns.nspname AS ref_schema
+    FROM pg_publication pub
+    JOIN pg_publication_rel pr ON pr.prpubid = pub.oid
+    JOIN pg_class cls ON cls.oid = pr.prrelid
+    JOIN pg_namespace ns ON ns.oid = cls.relnamespace
+    WHERE NOT ns.nspname LIKE ANY (ARRAY['pg\_%','information\_schema'])
+  ),
+  publication_schema_deps AS (
+    SELECT DISTINCT
+      format('publication:%I', pub.pubname) AS dependent_stable_id,
+      format('schema:%I', ns.nspname) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      ns.nspname AS ref_schema
+    FROM pg_publication pub
+    JOIN pg_publication_namespace pn ON pn.pnpubid = pub.oid
+    JOIN pg_namespace ns ON ns.oid = pn.pnnspid
+    WHERE NOT ns.nspname LIKE ANY (ARRAY['pg\_%','information\_schema'])
   ),
   all_rows AS (
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM base
@@ -1453,6 +1545,10 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM index_table_deps
     UNION ALL
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM ownership_deps
+    UNION ALL
+    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM publication_deps
+    UNION ALL
+    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM publication_schema_deps
   )
   SELECT DISTINCT
     dependent_stable_id,
