@@ -573,54 +573,27 @@ export function diffTables(
           );
         }
       }
+    }
 
-      // PRIVILEGES (unified object and column privileges)
-      const privilegeResults = diffPrivileges(
-        mainTable.privileges,
-        branchTable.privileges,
-      );
+    // PRIVILEGES (unified object and column privileges)
+    const privilegeResults = diffPrivileges(
+      mainTable.privileges,
+      branchTable.privileges,
+    );
 
-      for (const [grantee, result] of privilegeResults) {
-        // Generate grant changes
-        if (result.grants.length > 0) {
-          const grantGroups = groupPrivilegesByColumns(result.grants);
-          for (const [, group] of grantGroups) {
-            for (const [grantable, privSet] of group.byGrant) {
-              const privileges = Array.from(privSet).map((priv) => ({
-                privilege: priv,
-                grantable,
-              }));
-              changes.push(
-                new GrantTablePrivileges({
-                  table: branchTable,
-                  grantee,
-                  privileges,
-                  columns: group.columns,
-                  version: ctx.version,
-                }),
-              );
-            }
-          }
-        }
-
-        // Generate revoke changes
-        if (result.revokes.length > 0) {
-          const revokeGroups = groupPrivilegesByColumns(result.revokes);
-          for (const [, group] of revokeGroups) {
-            // Collapse all grantable groups into a single revoke (grantable: false)
-            const allPrivileges = new Set<string>();
-            for (const [, privSet] of group.byGrant) {
-              for (const priv of privSet) {
-                allPrivileges.add(priv);
-              }
-            }
-            const privileges = Array.from(allPrivileges).map((priv) => ({
+    for (const [grantee, result] of privilegeResults) {
+      // Generate grant changes
+      if (result.grants.length > 0) {
+        const grantGroups = groupPrivilegesByColumns(result.grants);
+        for (const [, group] of grantGroups) {
+          for (const [grantable, privSet] of group.byGrant) {
+            const privileges = Array.from(privSet).map((priv) => ({
               privilege: priv,
-              grantable: false,
+              grantable,
             }));
             changes.push(
-              new RevokeTablePrivileges({
-                table: mainTable,
+              new GrantTablePrivileges({
+                table: branchTable,
                 grantee,
                 privileges,
                 columns: group.columns,
@@ -629,45 +602,72 @@ export function diffTables(
             );
           }
         }
+      }
 
-        // Generate revoke grant option changes
-        if (result.revokeGrantOption.length > 0) {
-          const revokeGrantGroups = new Map<
-            string,
-            { columns?: string[]; privileges: Set<string> }
-          >();
-          for (const r of result.revokeGrantOption) {
-            // For revoke grant option, we need to find the columns from the original privilege
-            const originalPriv = mainTable.privileges.find(
-              (p) => p.grantee === grantee && p.privilege === r,
-            );
-            const key = originalPriv?.columns
-              ? originalPriv.columns.sort().join(",")
-              : "";
-            if (!revokeGrantGroups.has(key)) {
-              revokeGrantGroups.set(key, {
-                columns: originalPriv?.columns
-                  ? [...originalPriv.columns]
-                  : undefined,
-                privileges: new Set(),
-              });
+      // Generate revoke changes
+      if (result.revokes.length > 0) {
+        const revokeGroups = groupPrivilegesByColumns(result.revokes);
+        for (const [, group] of revokeGroups) {
+          // Collapse all grantable groups into a single revoke (grantable: false)
+          const allPrivileges = new Set<string>();
+          for (const [, privSet] of group.byGrant) {
+            for (const priv of privSet) {
+              allPrivileges.add(priv);
             }
-            const group = revokeGrantGroups.get(key);
-            if (!group) continue;
-            group.privileges.add(r);
           }
-          for (const [, group] of revokeGrantGroups) {
-            const privilegeNames = Array.from(group.privileges);
-            changes.push(
-              new RevokeGrantOptionTablePrivileges({
-                table: mainTable,
-                grantee,
-                privilegeNames,
-                columns: group.columns,
-                version: ctx.version,
-              }),
-            );
+          const privileges = Array.from(allPrivileges).map((priv) => ({
+            privilege: priv,
+            grantable: false,
+          }));
+          changes.push(
+            new RevokeTablePrivileges({
+              table: mainTable,
+              grantee,
+              privileges,
+              columns: group.columns,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke grant option changes
+      if (result.revokeGrantOption.length > 0) {
+        const revokeGrantGroups = new Map<
+          string,
+          { columns?: string[]; privileges: Set<string> }
+        >();
+        for (const r of result.revokeGrantOption) {
+          // For revoke grant option, we need to find the columns from the original privilege
+          const originalPriv = mainTable.privileges.find(
+            (p) => p.grantee === grantee && p.privilege === r,
+          );
+          const key = originalPriv?.columns
+            ? originalPriv.columns.sort().join(",")
+            : "";
+          if (!revokeGrantGroups.has(key)) {
+            revokeGrantGroups.set(key, {
+              columns: originalPriv?.columns
+                ? [...originalPriv.columns]
+                : undefined,
+              privileges: new Set(),
+            });
           }
+          const group = revokeGrantGroups.get(key);
+          if (!group) continue;
+          group.privileges.add(r);
+        }
+        for (const [, group] of revokeGrantGroups) {
+          const privilegeNames = Array.from(group.privileges);
+          changes.push(
+            new RevokeGrantOptionTablePrivileges({
+              table: mainTable,
+              grantee,
+              privilegeNames,
+              columns: group.columns,
+              version: ctx.version,
+            }),
+          );
         }
       }
     }

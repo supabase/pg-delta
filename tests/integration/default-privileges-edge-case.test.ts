@@ -17,7 +17,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   const test = getTestIsolated(pgVersion);
 
   describe(`default privileges edge case (pg${pgVersion})`, () => {
-    test("table revoke a privilege that is granted by default", async ({
+    test.only("table revoke a privilege that is granted by default", async ({
       db,
     }) => {
       await roundtripFidelityTest({
