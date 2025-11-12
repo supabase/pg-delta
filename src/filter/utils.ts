@@ -12,6 +12,8 @@ export function getSchema(change: Change) {
       return change.domain.schema;
     case "enum":
       return change.enum.schema;
+    case "event_trigger":
+      return null;
     case "extension":
       return change.extension.schema;
     case "index":
@@ -62,6 +64,8 @@ export function getOwner(change: Change) {
       return change.domain.owner;
     case "enum":
       return change.enum.owner;
+    case "event_trigger":
+      return change.eventTrigger.owner;
     case "extension":
       return change.extension.owner;
     case "index":
