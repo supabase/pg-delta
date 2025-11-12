@@ -289,6 +289,34 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(procedure.schema).toBe("test_schema");
     });
 
+    test("extract event triggers", async ({ db }) => {
+      await db.main.unsafe(`
+        CREATE SCHEMA test_schema;
+        CREATE FUNCTION test_schema.log_ddl()
+        RETURNS event_trigger
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+          RAISE NOTICE 'DDL event %', TG_TAG;
+        END;
+        $$;
+        CREATE EVENT TRIGGER ddl_logger
+          ON ddl_command_start
+          WHEN TAG IN ('CREATE TABLE')
+          EXECUTE FUNCTION test_schema.log_ddl();
+      `);
+
+      const catalog = await extractCatalog(db.main);
+
+      expect(Object.keys(catalog.eventTriggers)).toHaveLength(1);
+      const eventTrigger = catalog.eventTriggers["eventTrigger:ddl_logger"];
+      expect(eventTrigger).toBeDefined();
+      expect(eventTrigger?.event).toBe("ddl_command_start");
+      expect(eventTrigger?.function_schema).toBe("test_schema");
+      expect(eventTrigger?.function_name).toBe("log_ddl");
+      expect(eventTrigger?.tags).toEqual(["CREATE TABLE"]);
+    });
+
     test("extract advanced features", async ({ db }) => {
       // Create domains, extensions, collations, and RLS policies
       await db.main.unsafe(`

@@ -1,6 +1,7 @@
 import type { AggregateChange } from "./objects/aggregate/changes/aggregate.types.ts";
 import type { CollationChange } from "./objects/collation/changes/collation.types.ts";
 import type { DomainChange } from "./objects/domain/changes/domain.types.ts";
+import type { EventTriggerChange } from "./objects/event-trigger/changes/event-trigger.types.ts";
 import type { ExtensionChange } from "./objects/extension/changes/extension.types.ts";
 import type { IndexChange } from "./objects/index/changes/index.types.ts";
 import type { LanguageChange } from "./objects/language/changes/language.types.ts";
@@ -31,6 +32,7 @@ export type Change =
   | SequenceChange
   | TableChange
   | TriggerChange
+  | EventTriggerChange
   | RuleChange
   | TypeChange
   | ViewChange;

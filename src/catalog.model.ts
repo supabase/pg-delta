@@ -13,6 +13,10 @@ import {
 import type { Domain } from "./objects/domain/domain.model.ts";
 import { extractDomains } from "./objects/domain/domain.model.ts";
 import {
+  type EventTrigger,
+  extractEventTriggers,
+} from "./objects/event-trigger/event-trigger.model.ts";
+import {
   type Extension,
   extractExtensions,
 } from "./objects/extension/extension.model.ts";
@@ -65,6 +69,7 @@ interface CatalogProps {
   sequences: Record<string, Sequence>;
   tables: Record<string, Table>;
   triggers: Record<string, Trigger>;
+  eventTriggers: Record<string, EventTrigger>;
   rules: Record<string, Rule>;
   ranges: Record<string, Range>;
   views: Record<string, View>;
@@ -90,6 +95,7 @@ export class Catalog {
   public readonly sequences: CatalogProps["sequences"];
   public readonly tables: CatalogProps["tables"];
   public readonly triggers: CatalogProps["triggers"];
+  public readonly eventTriggers: CatalogProps["eventTriggers"];
   public readonly rules: CatalogProps["rules"];
   public readonly ranges: CatalogProps["ranges"];
   public readonly views: CatalogProps["views"];
@@ -114,6 +120,7 @@ export class Catalog {
     this.sequences = props.sequences;
     this.tables = props.tables;
     this.triggers = props.triggers;
+    this.eventTriggers = props.eventTriggers;
     this.rules = props.rules;
     this.ranges = props.ranges;
     this.views = props.views;
@@ -141,6 +148,7 @@ export async function extractCatalog(sql: Sql) {
     sequences,
     tables,
     triggers,
+    eventTriggers,
     rules,
     ranges,
     views,
@@ -163,6 +171,7 @@ export async function extractCatalog(sql: Sql) {
     extractSequences(sql).then(listToRecord),
     extractTables(sql).then(listToRecord),
     extractTriggers(sql).then(listToRecord),
+    extractEventTriggers(sql).then(listToRecord),
     extractRules(sql).then(listToRecord),
     extractRanges(sql).then(listToRecord),
     extractViews(sql).then(listToRecord),
@@ -192,6 +201,7 @@ export async function extractCatalog(sql: Sql) {
     sequences,
     tables,
     triggers,
+    eventTriggers,
     rules,
     ranges,
     views,
