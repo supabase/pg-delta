@@ -17,7 +17,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   const test = getTestIsolated(pgVersion);
 
   describe(`default privileges edge case (pg${pgVersion})`, () => {
-    test.only("table revoke a privilege that is granted by default", async ({
+    test("table revoke a privilege that is granted by default", async ({
       db,
     }) => {
       await roundtripFidelityTest({
@@ -53,7 +53,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     // - The authenticated and service_role should retain their grants
     // - The generated SQL should reflect the user's intent, not just the
     //   current privilege state
-    test("table creation with anon role revocation should account for default privileges", async ({
+    test.only("table creation with anon role revocation should account for default privileges", async ({
       db,
     }) => {
       await roundtripFidelityTest({

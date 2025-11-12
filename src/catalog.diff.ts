@@ -82,7 +82,12 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
     ),
   );
   changes.push(
-    ...diffTables({ version: main.version }, main.tables, branch.tables),
+    ...diffTables(
+      { version: main.version, currentUser: main.currentUser },
+      main.tables,
+      branch.tables,
+      main.roles,
+    ),
   );
   changes.push(
     ...diffTriggers(main.triggers, branch.triggers, branch.indexableObjects),

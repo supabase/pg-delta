@@ -258,8 +258,7 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
             'pg_stat_scan_tables',
             'pg_use_reserved_connections', -- PG16+
             'pg_write_all_data',
-            'pg_write_server_files',
-            'postgres'
+            'pg_write_server_files'
           )
             AND e.objid IS NULL
             AND r.oid NOT IN (SELECT role_oid FROM roles_only_owning_extension_objects)
@@ -395,8 +394,7 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
             'pg_stat_scan_tables',
             'pg_use_reserved_connections', -- PG16+
             'pg_write_all_data',
-            'pg_write_server_files',
-            'postgres'
+            'pg_write_server_files'
           )
             AND e.objid IS NULL
             AND r.oid NOT IN (SELECT role_oid FROM roles_only_owning_extension_objects)
