@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
@@ -49,22 +50,19 @@ const base: TableProps = {
   privileges: [],
 };
 
+// Test context with empty default privileges state
+const testContext = {
+  version: 150014,
+  currentUser: "postgres",
+  defaultPrivilegeState: new DefaultPrivilegeState({}),
+};
+
 describe.concurrent("table.diff", () => {
   test("create and drop", () => {
     const t = new Table(base);
-    const created = diffTables(
-      { version: 150014, currentUser: "postgres" },
-      {},
-      { [t.stableId]: t },
-      {},
-    );
+    const created = diffTables(testContext, {}, { [t.stableId]: t });
     expect(created[0]).toBeInstanceOf(CreateTable);
-    const dropped = diffTables(
-      { version: 150014, currentUser: "postgres" },
-      { [t.stableId]: t },
-      {},
-      {},
-    );
+    const dropped = diffTables(testContext, { [t.stableId]: t }, {});
     expect(dropped[0]).toBeInstanceOf(DropTable);
   });
 
@@ -119,10 +117,9 @@ describe.concurrent("table.diff", () => {
       ],
     });
     const changes = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-      {},
     );
     expect(changes.some((c) => c instanceof AlterTableAddConstraint)).toBe(
       true,
@@ -136,10 +133,9 @@ describe.concurrent("table.diff", () => {
     const main = new Table(base);
     const branch = new Table({ ...base, owner: "o2" });
     const changes = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-      {},
     );
     expect(changes[0]).toBeInstanceOf(AlterTableChangeOwner);
   });
@@ -148,10 +144,9 @@ describe.concurrent("table.diff", () => {
     const main = new Table(base);
     const branch = new Table({ ...base, options: ["fillfactor=90"] });
     const changes = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-      {},
     );
     expect(changes[0]).toBeInstanceOf(AlterTableSetStorageParams);
   });
@@ -166,10 +161,9 @@ describe.concurrent("table.diff", () => {
       options: ["autovacuum_enabled=true"],
     });
     const changes = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-      {},
     );
     expect(changes.some((c) => c instanceof AlterTableSetStorageParams)).toBe(
       true,
@@ -183,10 +177,9 @@ describe.concurrent("table.diff", () => {
     const main = new Table(base);
     const branch = new Table({ ...base, persistence: "u" });
     const changes = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-      {},
     );
     expect(changes.some((c) => c instanceof AlterTableSetUnlogged)).toBe(true);
   });
@@ -195,17 +188,16 @@ describe.concurrent("table.diff", () => {
     const main = new Table({ ...base, persistence: "u" });
     const branch = new Table({ ...base, persistence: "p" });
     const changes = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-      {},
     );
     expect(changes.some((c) => c instanceof AlterTableSetLogged)).toBe(true);
   });
 
   test("row level security toggles", () => {
     const enable = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       {
         "table:public.t1": new Table({
           ...base,
@@ -220,13 +212,12 @@ describe.concurrent("table.diff", () => {
           row_security: true,
         }),
       },
-      {},
     );
     expect(
       enable.some((c) => c instanceof AlterTableEnableRowLevelSecurity),
     ).toBe(true);
     const disable = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       {
         "table:public.t2": new Table({
           ...base,
@@ -241,7 +232,6 @@ describe.concurrent("table.diff", () => {
           row_security: false,
         }),
       },
-      {},
     );
     expect(
       disable.some((c) => c instanceof AlterTableDisableRowLevelSecurity),
@@ -250,7 +240,7 @@ describe.concurrent("table.diff", () => {
 
   test("force row level security toggles", () => {
     const force = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       {
         "table:public.t3": new Table({
           ...base,
@@ -267,14 +257,13 @@ describe.concurrent("table.diff", () => {
           force_row_security: true,
         }),
       },
-      {},
     );
     expect(
       force.some((c) => c instanceof AlterTableForceRowLevelSecurity),
     ).toBe(true);
 
     const noforce = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       {
         "table:public.t4": new Table({
           ...base,
@@ -291,7 +280,6 @@ describe.concurrent("table.diff", () => {
           force_row_security: false,
         }),
       },
-      {},
     );
     expect(
       noforce.some((c) => c instanceof AlterTableNoForceRowLevelSecurity),
@@ -302,10 +290,9 @@ describe.concurrent("table.diff", () => {
     const main = new Table(base);
     const branch = new Table({ ...base, replica_identity: "n" });
     const changes = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-      {},
     );
     expect(changes.some((c) => c instanceof AlterTableSetReplicaIdentity)).toBe(
       true,
@@ -334,7 +321,7 @@ describe.concurrent("table.diff", () => {
       definition: "PRIMARY KEY (a)",
     };
     const created = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [t1.stableId]: t1 },
       {
         [t1.stableId]: new Table({ ...base, name: "t1", constraints: [pkey] }),
@@ -348,19 +335,18 @@ describe.concurrent("table.diff", () => {
     );
 
     const dropped = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       {
         [t1.stableId]: new Table({ ...base, name: "t1", constraints: [pkey] }),
       },
       { [t1.stableId]: t1 },
-      {},
     );
     expect(dropped.some((c) => c instanceof AlterTableDropConstraint)).toBe(
       true,
     );
 
     const altered = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       {
         [t1.stableId]: new Table({ ...base, name: "t1", constraints: [pkey] }),
       },
@@ -378,7 +364,6 @@ describe.concurrent("table.diff", () => {
           ],
         }),
       },
-      {},
     );
     expect(altered.some((c) => c instanceof AlterTableDropConstraint)).toBe(
       true,
@@ -462,10 +447,9 @@ describe.concurrent("table.diff", () => {
       ],
     });
     const changes = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [tMain.stableId]: tMain },
       { [tBranch.stableId]: tBranch },
-      {},
     );
     expect(changes.some((c) => c instanceof AlterTableDropConstraint)).toBe(
       true,
@@ -532,7 +516,7 @@ describe.concurrent("table.diff", () => {
       ],
     });
     const changes = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [tMain.stableId]: tMain },
       {
         [tBranch.stableId]: tBranch,
@@ -561,7 +545,6 @@ describe.concurrent("table.diff", () => {
           ],
         }),
       },
-      {},
     );
     expect(changes.some((c) => c instanceof AlterTableDropConstraint)).toBe(
       true,
@@ -601,18 +584,16 @@ describe.concurrent("table.diff", () => {
       ],
     });
     const added = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [main.stableId]: main },
       { [withCol.stableId]: withCol },
-      {},
     );
     expect(added.some((c) => c instanceof AlterTableAddColumn)).toBe(true);
 
     const dropped = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [withCol.stableId]: withCol },
       { [main.stableId]: main },
-      {},
     );
     expect(dropped.some((c) => c instanceof AlterTableDropColumn)).toBe(true);
 
@@ -628,10 +609,9 @@ describe.concurrent("table.diff", () => {
       ],
     });
     const typeChanges = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [withCol.stableId]: withCol },
       { [typeChanged.stableId]: typeChanged },
-      {},
     );
     expect(
       typeChanges.some((c) => c instanceof AlterTableAlterColumnType),
@@ -643,10 +623,9 @@ describe.concurrent("table.diff", () => {
       columns: [{ ...withCol.columns[0], default: "0" }],
     });
     const defaultAddedChanges = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [withCol.stableId]: withCol },
       { [defaultAdded.stableId]: defaultAdded },
-      {},
     );
     expect(
       defaultAddedChanges.some(
@@ -655,10 +634,9 @@ describe.concurrent("table.diff", () => {
     ).toBe(true);
 
     const defaultDropped = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [defaultAdded.stableId]: defaultAdded },
       { [withCol.stableId]: withCol },
-      {},
     );
     expect(
       defaultDropped.some((c) => c instanceof AlterTableAlterColumnDropDefault),
@@ -670,10 +648,9 @@ describe.concurrent("table.diff", () => {
       columns: [{ ...withCol.columns[0], not_null: true }],
     });
     const notNullSetChanges = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [withCol.stableId]: withCol },
       { [notNullSet.stableId]: notNullSet },
-      {},
     );
     expect(
       notNullSetChanges.some(
@@ -682,10 +659,9 @@ describe.concurrent("table.diff", () => {
     ).toBe(true);
 
     const notNullDropped = diffTables(
-      { version: 150014, currentUser: "postgres" },
+      testContext,
       { [notNullSet.stableId]: notNullSet },
       { [withCol.stableId]: withCol },
-      {},
     );
     expect(
       notNullDropped.some((c) => c instanceof AlterTableAlterColumnDropNotNull),

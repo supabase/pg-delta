@@ -26,7 +26,11 @@ import type { Schema } from "./schema.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffSchemas(
-  ctx: { version: number },
+  ctx: {
+    version: number;
+    currentUser?: string;
+    defaultPrivilegeState?: unknown;
+  },
   main: Record<string, Schema>,
   branch: Record<string, Schema>,
 ): SchemaChange[] {

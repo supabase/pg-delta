@@ -27,7 +27,11 @@ import type { Range } from "./range.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffRanges(
-  ctx: { version: number },
+  ctx: {
+    version: number;
+    currentUser?: string;
+    defaultPrivilegeState?: unknown;
+  },
   main: Record<string, Range>,
   branch: Record<string, Range>,
 ): RangeChange[] {

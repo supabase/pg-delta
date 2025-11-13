@@ -8,6 +8,10 @@ import { diffCatalogs } from "../../src/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
 import type { Change } from "../../src/change.types.ts";
 import type { PgDepend } from "../../src/depend.ts";
+import {
+  GrantRoleDefaultPrivileges,
+  RevokeRoleDefaultPrivileges,
+} from "../../src/objects/role/changes/role.privilege.ts";
 import { sortChangesByPhasedGraph } from "../../src/sort/phased-graph-sort.ts";
 import { DEBUG } from "../constants.ts";
 
@@ -140,9 +144,38 @@ export async function roundtripFidelityTest(
     }
   }
 
+  // Ensure ALTER DEFAULT PRIVILEGES comes before CREATE statements in the final migration
+  // The dependency system handles role/schema dependencies automatically
+  // Privilege changes for CREATE statements are now generated during diffing using
+  // the default privileges state computed from role changes
+  const constraintSpecs = [
+    {
+      pairwise: (a: Change, b: Change) => {
+        const aIsDefaultPriv =
+          a instanceof GrantRoleDefaultPrivileges ||
+          a instanceof RevokeRoleDefaultPrivileges;
+        const bIsDefaultPriv =
+          b instanceof GrantRoleDefaultPrivileges ||
+          b instanceof RevokeRoleDefaultPrivileges;
+        const aIsCreate = a.operation === "create" && a.scope === "object";
+        const bIsCreate = b.operation === "create" && b.scope === "object";
+
+        // Default privilege changes should come before CREATE statements
+        if (aIsDefaultPriv && bIsCreate) {
+          return "a_before_b";
+        }
+        if (aIsCreate && bIsDefaultPriv) {
+          return "b_before_a";
+        }
+        return undefined;
+      },
+    },
+  ];
+
   const sortedChanges = sortChangesByPhasedGraph(
     { mainCatalog, branchCatalog },
     changes,
+    constraintSpecs,
   );
 
   if (expectedOperationOrder) {

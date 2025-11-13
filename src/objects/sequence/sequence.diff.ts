@@ -30,7 +30,11 @@ import type { Sequence } from "./sequence.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffSequences(
-  ctx: { version: number },
+  ctx: {
+    version: number;
+    currentUser?: string;
+    defaultPrivilegeState?: unknown;
+  },
   main: Record<string, Sequence>,
   branch: Record<string, Sequence>,
 ): SequenceChange[] {

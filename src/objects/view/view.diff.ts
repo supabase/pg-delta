@@ -32,7 +32,11 @@ import type { View } from "./view.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffViews(
-  ctx: { version: number },
+  ctx: {
+    version: number;
+    currentUser?: string;
+    defaultPrivilegeState?: unknown;
+  },
   main: Record<string, View>,
   branch: Record<string, View>,
 ): ViewChange[] {

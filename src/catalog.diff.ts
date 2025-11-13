@@ -2,6 +2,7 @@ import { DEBUG } from "../tests/constants.ts";
 import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import { diffAggregates } from "./objects/aggregate/aggregate.diff.ts";
+import { DefaultPrivilegeState } from "./objects/base.default-privileges.ts";
 import { diffCollations } from "./objects/collation/collation.diff.ts";
 import { diffDomains } from "./objects/domain/domain.diff.ts";
 import { diffEventTriggers } from "./objects/event-trigger/event-trigger.diff.ts";
@@ -11,6 +12,10 @@ import { diffMaterializedViews } from "./objects/materialized-view/materialized-
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
 import { diffPublications } from "./objects/publication/publication.diff.ts";
 import { diffRlsPolicies } from "./objects/rls-policy/rls-policy.diff.ts";
+import {
+  GrantRoleDefaultPrivileges,
+  RevokeRoleDefaultPrivileges,
+} from "./objects/role/changes/role.privilege.ts";
 import { diffRoles } from "./objects/role/role.diff.ts";
 import { diffRules } from "./objects/rule/rule.diff.ts";
 import { diffSchemas } from "./objects/schema/schema.diff.ts";
@@ -26,34 +31,65 @@ import { diffViews } from "./objects/view/view.diff.ts";
 
 export function diffCatalogs(main: Catalog, branch: Catalog) {
   const changes: Change[] = [];
+
+  // Step 1: Diff roles first to get default privilege changes
+  const roleChanges = diffRoles(
+    { version: main.version },
+    main.roles,
+    branch.roles,
+  );
+  changes.push(...roleChanges);
+
+  // Step 2: Compute final default privileges state from role changes
+  const defaultPrivilegeState = new DefaultPrivilegeState(main.roles);
+  for (const change of roleChanges) {
+    if (change instanceof GrantRoleDefaultPrivileges) {
+      defaultPrivilegeState.applyGrant(
+        change.role.name,
+        change.objtype,
+        change.inSchema,
+        change.grantee,
+        change.privileges,
+      );
+    } else if (change instanceof RevokeRoleDefaultPrivileges) {
+      defaultPrivilegeState.applyRevoke(
+        change.role.name,
+        change.objtype,
+        change.inSchema,
+        change.grantee,
+        change.privileges,
+      );
+    }
+  }
+
+  // Step 3: Create context with default privileges state for object diffing
+  const diffContext = {
+    version: main.version,
+    currentUser: main.currentUser,
+    defaultPrivilegeState,
+  };
+
+  // Step 4: Diff all other objects with default privileges context
   changes.push(
-    ...diffAggregates(
-      { version: main.version },
-      main.aggregates,
-      branch.aggregates,
-    ),
+    ...diffAggregates(diffContext, main.aggregates, branch.aggregates),
   );
   changes.push(...diffCollations(main.collations, branch.collations));
   changes.push(
     ...diffCompositeTypes(
-      { version: main.version },
+      diffContext,
       main.compositeTypes,
       branch.compositeTypes,
     ),
   );
-  changes.push(
-    ...diffDomains({ version: main.version }, main.domains, branch.domains),
-  );
-  changes.push(
-    ...diffEnums({ version: main.version }, main.enums, branch.enums),
-  );
+  changes.push(...diffDomains(diffContext, main.domains, branch.domains));
+  changes.push(...diffEnums(diffContext, main.enums, branch.enums));
   changes.push(...diffExtensions(main.extensions, branch.extensions));
   changes.push(
     ...diffIndexes(main.indexes, branch.indexes, branch.indexableObjects),
   );
   changes.push(
     ...diffMaterializedViews(
-      { version: main.version },
+      diffContext,
       main.materializedViews,
       branch.materializedViews,
     ),
@@ -61,45 +97,19 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(...diffSubscriptions(main.subscriptions, branch.subscriptions));
   changes.push(...diffPublications(main.publications, branch.publications));
   changes.push(
-    ...diffProcedures(
-      { version: main.version },
-      main.procedures,
-      branch.procedures,
-    ),
+    ...diffProcedures(diffContext, main.procedures, branch.procedures),
   );
   changes.push(...diffRlsPolicies(main.rlsPolicies, branch.rlsPolicies));
-  changes.push(
-    ...diffRoles({ version: main.version }, main.roles, branch.roles),
-  );
-  changes.push(
-    ...diffSchemas({ version: main.version }, main.schemas, branch.schemas),
-  );
-  changes.push(
-    ...diffSequences(
-      { version: main.version },
-      main.sequences,
-      branch.sequences,
-    ),
-  );
-  changes.push(
-    ...diffTables(
-      { version: main.version, currentUser: main.currentUser },
-      main.tables,
-      branch.tables,
-      main.roles,
-    ),
-  );
+  changes.push(...diffSchemas(diffContext, main.schemas, branch.schemas));
+  changes.push(...diffSequences(diffContext, main.sequences, branch.sequences));
+  changes.push(...diffTables(diffContext, main.tables, branch.tables));
   changes.push(
     ...diffTriggers(main.triggers, branch.triggers, branch.indexableObjects),
   );
   changes.push(...diffEventTriggers(main.eventTriggers, branch.eventTriggers));
   changes.push(...diffRules(main.rules, branch.rules));
-  changes.push(
-    ...diffRanges({ version: main.version }, main.ranges, branch.ranges),
-  );
-  changes.push(
-    ...diffViews({ version: main.version }, main.views, branch.views),
-  );
+  changes.push(...diffRanges(diffContext, main.ranges, branch.ranges));
+  changes.push(...diffViews(diffContext, main.views, branch.views));
 
   // Filter privilege REVOKEs for objects that are being dropped
   // Avoid emitting redundant REVOKE statements for targets that will no longer exist.

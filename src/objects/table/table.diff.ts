@@ -1,10 +1,9 @@
+import type { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
   groupPrivilegesByColumns,
-  type PrivilegeProps,
 } from "../base.privilege-diff.ts";
-import type { Role } from "../role/role.model.ts";
 import { deepEqual } from "../utils.ts";
 import {
   AlterTableAddColumn,
@@ -215,56 +214,21 @@ function createAlterConstraintChange(
 }
 
 /**
- * Compute default privileges that would be granted when creating a table.
- * This looks at the currentUser's default privileges for tables in the given schema.
- */
-function computeDefaultPrivilegesForTable(
-  currentUser: string,
-  tableSchema: string,
-  roles: Record<string, Role>,
-): PrivilegeProps[] {
-  const currentUserRole = roles[`role:${currentUser}`];
-  if (!currentUserRole) return [];
-
-  const defaultPrivs: PrivilegeProps[] = [];
-
-  for (const defPriv of currentUserRole.default_privileges) {
-    // Only consider table privileges (objtype "r")
-    if (defPriv.objtype !== "r") continue;
-
-    // Match schema-specific or global default privileges
-    const matchesSchema =
-      defPriv.in_schema === null || defPriv.in_schema === tableSchema;
-
-    if (matchesSchema) {
-      // Convert default privilege to PrivilegeProps format
-      for (const priv of defPriv.privileges) {
-        defaultPrivs.push({
-          grantee: defPriv.grantee,
-          privilege: priv.privilege,
-          grantable: priv.grantable,
-          columns: null, // Default privileges are always object-level, not column-level
-        });
-      }
-    }
-  }
-
-  return defaultPrivs;
-}
-
-/**
  * Diff two sets of tables from main and branch catalogs.
  *
+ * @param ctx - Context containing version, currentUser, and defaultPrivilegeState
  * @param main - The tables in the main catalog.
  * @param branch - The tables in the branch catalog.
- * @param roles - The roles in the main catalog (used to compute default privileges).
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffTables(
-  ctx: { version: number; currentUser: string },
+  ctx: {
+    version: number;
+    currentUser: string;
+    defaultPrivilegeState: DefaultPrivilegeState;
+  },
   main: Record<string, Table>,
   branch: Record<string, Table>,
-  roles: Record<string, Role>,
 ): TableChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
@@ -299,19 +263,20 @@ export function diffTables(
       }
     }
 
-    // PRIVILEGES: Compute default privileges that would be granted and diff against branch
-    const defaultPrivileges = computeDefaultPrivilegesForTable(
+    // PRIVILEGES: Compute default privileges from state and diff against desired privileges
+    const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
       ctx.currentUser,
+      "table",
       branchTable.schema,
-      roles,
     );
+    const desiredPrivileges = branchTable.privileges;
     const privilegeResults = diffPrivileges(
-      defaultPrivileges,
-      branchTable.privileges,
+      effectiveDefaults,
+      desiredPrivileges,
     );
 
+    // Generate grant changes
     for (const [grantee, result] of privilegeResults) {
-      // Generate grant changes
       if (result.grants.length > 0) {
         const grantGroups = groupPrivilegesByColumns(result.grants);
         for (const [, group] of grantGroups) {
@@ -337,7 +302,6 @@ export function diffTables(
       if (result.revokes.length > 0) {
         const revokeGroups = groupPrivilegesByColumns(result.revokes);
         for (const [, group] of revokeGroups) {
-          // Collapse all grantable groups into a single revoke (grantable: false)
           const allPrivileges = new Set<string>();
           for (const [, privSet] of group.byGrant) {
             for (const priv of privSet) {
@@ -355,7 +319,7 @@ export function diffTables(
               privileges,
               columns: group.columns,
               version: ctx.version,
-              privilegeDoesNotExist: true, // Privilege doesn't exist yet, will be granted by default
+              privilegeDoesNotExist: true,
             }),
           );
         }
@@ -368,8 +332,7 @@ export function diffTables(
           { columns?: string[]; privileges: Set<string> }
         >();
         for (const r of result.revokeGrantOption) {
-          // For revoke grant option, we need to find the columns from the original privilege
-          const originalPriv = defaultPrivileges.find(
+          const originalPriv = effectiveDefaults.find(
             (p) => p.grantee === grantee && p.privilege === r,
           );
           const key = originalPriv?.columns

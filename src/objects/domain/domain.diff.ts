@@ -36,7 +36,11 @@ import type { Domain } from "./domain.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffDomains(
-  ctx: { version: number },
+  ctx: {
+    version: number;
+    currentUser?: string;
+    defaultPrivilegeState?: unknown;
+  },
   main: Record<string, Domain>,
   branch: Record<string, Domain>,
 ): DomainChange[] {

@@ -36,7 +36,11 @@ import type { Procedure } from "./procedure.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffProcedures(
-  ctx: { version: number },
+  ctx: {
+    version: number;
+    currentUser?: string;
+    defaultPrivilegeState?: unknown;
+  },
   main: Record<string, Procedure>,
   branch: Record<string, Procedure>,
 ): ProcedureChange[] {

@@ -228,5 +228,63 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
       });
     });
+
+    test("altering default privileges mid-migration should affect subsequent object creation", async ({
+      db,
+    }) => {
+      // This test demonstrates the issue: when default privileges are altered
+      // in the migration script, subsequent object creations should use the
+      // updated default privileges, not the original ones from introspection.
+      // Expected behavior:
+      // - First table should use initial default privileges (ALL to anon)
+      // - ALTER DEFAULT PRIVILEGES should run early
+      // - Second table should use updated default privileges (no anon access)
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          -- Create Supabase roles
+          CREATE ROLE anon;
+          CREATE ROLE authenticated;
+          CREATE ROLE service_role;
+          
+          -- Set up initial default privileges
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+            GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
+        `,
+        testSql: `
+          -- Create first table (should have ALL to anon from initial defaults)
+          CREATE TABLE public.first_table (
+            id integer PRIMARY KEY,
+            data text
+          );
+          
+          -- Alter default privileges to remove anon access
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+            REVOKE ALL ON TABLES FROM anon;
+          
+          -- Create second table (should NOT have anon access due to altered defaults)
+          CREATE TABLE public.second_table (
+            id integer PRIMARY KEY,
+            data text
+          );
+          
+          -- Explicitly revoke from first table to match desired state
+          REVOKE ALL ON public.first_table FROM anon;
+        `,
+        expectedSqlTerms: [
+          "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES FROM anon",
+          "CREATE TABLE public.first_table (id integer NOT NULL, data text)",
+          "ALTER TABLE public.first_table ADD CONSTRAINT first_table_pkey PRIMARY KEY (id)",
+          "REVOKE ALL ON public.first_table FROM anon",
+          "CREATE TABLE public.second_table (id integer NOT NULL, data text)",
+          "ALTER TABLE public.second_table ADD CONSTRAINT second_table_pkey PRIMARY KEY (id)",
+          // Note: second_table should NOT have REVOKE ALL FROM anon because
+          // it was created after the default privileges were altered.
+          // The order of ALTER DEFAULT PRIVILEGES relative to CREATE TABLE may vary
+          // due to sorting, but the privileges are computed correctly based on effective defaults.
+        ],
+      });
+    });
   });
 }

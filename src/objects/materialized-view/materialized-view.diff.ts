@@ -33,7 +33,11 @@ import type { MaterializedView } from "./materialized-view.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffMaterializedViews(
-  ctx: { version: number },
+  ctx: {
+    version: number;
+    currentUser?: string;
+    defaultPrivilegeState?: unknown;
+  },
   main: Record<string, MaterializedView>,
   branch: Record<string, MaterializedView>,
 ): MaterializedViewChange[] {

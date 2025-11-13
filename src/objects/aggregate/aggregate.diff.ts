@@ -20,7 +20,11 @@ import {
 import type { AggregateChange } from "./changes/aggregate.types.ts";
 
 export function diffAggregates(
-  ctx: { version: number },
+  ctx: {
+    version: number;
+    currentUser?: string;
+    defaultPrivilegeState?: unknown;
+  },
   main: Record<string, Aggregate>,
   branch: Record<string, Aggregate>,
 ): AggregateChange[] {

@@ -3,6 +3,10 @@ import { diffCatalogs } from "./catalog.diff.ts";
 import type { Catalog } from "./catalog.model.ts";
 import { extractCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
+import {
+  GrantRoleDefaultPrivileges,
+  RevokeRoleDefaultPrivileges,
+} from "./objects/role/changes/role.privilege.ts";
 import { sortChangesByPhasedGraph } from "./sort/phased-graph-sort.ts";
 
 // Custom type handler for specifics corner cases
@@ -92,9 +96,38 @@ export async function main(
     return null;
   }
 
+  // Ensure ALTER DEFAULT PRIVILEGES comes before CREATE statements in the final migration
+  // The dependency system handles role/schema dependencies automatically
+  // Privilege changes for CREATE statements are now generated during diffing using
+  // the default privileges state computed from role changes
+  const constraintSpecs = [
+    {
+      pairwise: (a: Change, b: Change) => {
+        const aIsDefaultPriv =
+          a instanceof GrantRoleDefaultPrivileges ||
+          a instanceof RevokeRoleDefaultPrivileges;
+        const bIsDefaultPriv =
+          b instanceof GrantRoleDefaultPrivileges ||
+          b instanceof RevokeRoleDefaultPrivileges;
+        const aIsCreate = a.operation === "create" && a.scope === "object";
+        const bIsCreate = b.operation === "create" && b.scope === "object";
+
+        // Default privilege changes should come before CREATE statements
+        if (aIsDefaultPriv && bIsCreate) {
+          return "a_before_b";
+        }
+        if (aIsCreate && bIsDefaultPriv) {
+          return "b_before_a";
+        }
+        return undefined;
+      },
+    },
+  ];
+
   const sortedChanges = sortChangesByPhasedGraph(
     { mainCatalog, branchCatalog },
     filteredChanges,
+    constraintSpecs,
   );
 
   const hasRoutineChanges = sortedChanges.some(

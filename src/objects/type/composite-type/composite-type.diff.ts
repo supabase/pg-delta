@@ -34,7 +34,11 @@ import type { CompositeType } from "./composite-type.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffCompositeTypes(
-  ctx: { version: number },
+  ctx: {
+    version: number;
+    currentUser?: string;
+    defaultPrivilegeState?: unknown;
+  },
   main: Record<string, CompositeType>,
   branch: Record<string, CompositeType>,
 ): CompositeTypeChange[] {
