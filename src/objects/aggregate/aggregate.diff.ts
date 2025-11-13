@@ -1,5 +1,5 @@
-import { diffObjects } from "../base.diff.ts";
 import type { DefaultPrivilegeState } from "../base.default-privileges.ts";
+import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
   groupPrivilegesByGrantable,
