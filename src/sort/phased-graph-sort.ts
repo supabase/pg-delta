@@ -77,7 +77,7 @@ interface ConstraintSpec<TChange extends Change> {
  * @param constraintSpecs - optional additional edge providers
  * @returns ordered list of Change objects
  */
-export function sortChangesByPhasedGraph(
+function sortChangesByPhasedGraph(
   catalogContext: {
     mainCatalog: { depends: PgDependRow[] };
     branchCatalog: { depends: PgDependRow[] };
