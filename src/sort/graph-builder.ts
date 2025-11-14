@@ -122,7 +122,7 @@ export function buildGraphData(
  * 2. A change that creates the dependent ID (since creating something implies
  *    it depends on its own dependencies)
  */
-export function findConsumerIndexes(
+function findConsumerIndexes(
   dependentStableId: string,
   graphData: GraphData,
 ): Set<number> {

@@ -1,11 +1,11 @@
 import type { Change } from "../change.types.ts";
-import type { GraphData } from "./types.ts";
 import { findCycle } from "./topological-sort.ts";
+import type { GraphData } from "./types.ts";
 
 /**
  * Generate a Mermaid diagram representation of the dependency graph for debugging.
  */
-export function generateMermaidDiagram(
+function generateMermaidDiagram(
   phaseChanges: Change[],
   graphData: GraphData,
   edges: Array<[number, number]>,
@@ -15,11 +15,7 @@ export function generateMermaidDiagram(
   mermaidLines.push("flowchart TD");
 
   // Add nodes
-  for (
-    let changeIndex = 0;
-    changeIndex < phaseChanges.length;
-    changeIndex++
-  ) {
+  for (let changeIndex = 0; changeIndex < phaseChanges.length; changeIndex++) {
     const changeInstance = phaseChanges[changeIndex];
     const changeClassName = changeInstance?.constructor?.name ?? "Change";
     const truncatedCreates = Array.isArray(changeInstance.creates)
@@ -72,8 +68,7 @@ export function generateMermaidDiagram(
     for (const [sourceIndex, targetIndex] of edges) {
       const edgeBelongsToCycle = cycleEdges.some(
         ([cycleSourceIndex, cycleTargetIndex]) =>
-          cycleSourceIndex === sourceIndex &&
-          cycleTargetIndex === targetIndex,
+          cycleSourceIndex === sourceIndex && cycleTargetIndex === targetIndex,
       );
       if (edgeBelongsToCycle) {
         mermaidLines.push(
@@ -104,9 +99,8 @@ function describeEdge(
 
   // Check pg_depend relationships
   for (const createdId of graphData.createdStableIdSets[sourceIndex]) {
-    const outgoingDependencies = graphData.dependenciesByReferencedId.get(
-      createdId,
-    );
+    const outgoingDependencies =
+      graphData.dependenciesByReferencedId.get(createdId);
     if (!outgoingDependencies) continue;
 
     // Check if target requires this ID
@@ -155,4 +149,3 @@ export function printDebugGraph(
     // ignore debug printing errors
   }
 }
-

@@ -24,13 +24,13 @@ export type PgDependRow = {
 /**
  * Pairwise decision for additional constraint edges.
  */
-export type PairwiseOrder = "a_before_b" | "b_before_a";
+type PairwiseOrder = "a_before_b" | "b_before_a";
 
 /**
  * Edge formats for custom constraints.
  */
-export type EdgeIndices = [number, number];
-export type EdgeObjects<TChange> = { from: TChange; to: TChange };
+type EdgeIndices = [number, number];
+type EdgeObjects<TChange> = { from: TChange; to: TChange };
 export type Edge<TChange> = EdgeIndices | EdgeObjects<TChange>;
 
 /**

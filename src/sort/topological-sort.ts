@@ -133,9 +133,7 @@ export function formatCycleError(
   cycleNodeIndexes: number[],
   phaseChanges: Change[],
 ): string {
-  const cycleChanges = cycleNodeIndexes.map(
-    (idx) => phaseChanges[idx],
-  );
+  const cycleChanges = cycleNodeIndexes.map((idx) => phaseChanges[idx]);
   const changeDescriptions = cycleChanges.map((change, i) => {
     const className = change?.constructor?.name ?? "Change";
     const creates = change.creates.slice(0, 2).join(", ");
@@ -144,4 +142,3 @@ export function formatCycleError(
 
   return `CycleError: dependency graph contains a cycle involving ${cycleNodeIndexes.length} changes:\n${changeDescriptions.join("\n")}\n\nThis usually indicates a circular dependency in the schema changes that cannot be resolved.`;
 }
-

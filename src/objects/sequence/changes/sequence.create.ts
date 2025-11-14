@@ -1,4 +1,3 @@
-import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { CreateSequenceChange } from "./sequence.base.ts";
 
