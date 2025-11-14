@@ -263,6 +263,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.calculations DROP COLUMN computed;
           ALTER TABLE test_schema.calculations ADD COLUMN computed numeric GENERATED ALWAYS AS (value_a * value_b) STORED;
         `,
+        // Force ADD COLUMN to be before DROP COLUMN to test that we track the dependency column -> generated column
+        sortChangesCallback: (a, b) => {
+          const priority = (change: Change) => {
+            if (change.objectType === "table" && change.operation === "alter") {
+              return change.constructor.name === "AlterTableAddColumn" ? 0 : 1;
+            }
+            return 2;
+          };
+          return priority(a) - priority(b);
+        },
       });
     });
 

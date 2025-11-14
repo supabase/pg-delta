@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { DefaultPrivilegeState } from "../../base.default-privileges.ts";
 import { AlterRangeChangeOwner } from "./changes/range.alter.ts";
 import { CreateRange } from "./changes/range.create.ts";
 import { DropRange } from "./changes/range.drop.ts";
@@ -22,12 +23,18 @@ const base: RangeProps = {
   privileges: [],
 };
 
+const testContext = {
+  version: 170000,
+  currentUser: "postgres",
+  defaultPrivilegeState: new DefaultPrivilegeState({}),
+};
+
 describe.concurrent("range.diff", () => {
   test("create and drop", () => {
     const r = new Range(base);
-    const created = diffRanges({ version: 170000 }, {}, { [r.stableId]: r });
+    const created = diffRanges(testContext, {}, { [r.stableId]: r });
     expect(created[0]).toBeInstanceOf(CreateRange);
-    const dropped = diffRanges({ version: 170000 }, { [r.stableId]: r }, {});
+    const dropped = diffRanges(testContext, { [r.stableId]: r }, {});
     expect(dropped[0]).toBeInstanceOf(DropRange);
   });
 
@@ -35,7 +42,7 @@ describe.concurrent("range.diff", () => {
     const main = new Range(base);
     const branch = new Range({ ...base, owner: "o2" });
     const changes = diffRanges(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -51,7 +58,7 @@ describe.concurrent("range.diff", () => {
       collation: "en_US",
     });
     const changes = diffRanges(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

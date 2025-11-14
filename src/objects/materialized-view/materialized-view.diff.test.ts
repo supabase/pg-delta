@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import {
   AlterMaterializedViewChangeOwner,
   AlterMaterializedViewSetStorageParams,
@@ -32,17 +33,23 @@ const base: MaterializedViewProps = {
   privileges: [],
 };
 
+const testContext = {
+  version: 170000,
+  currentUser: "postgres",
+  defaultPrivilegeState: new DefaultPrivilegeState({}),
+};
+
 describe.concurrent("materialized-view.diff", () => {
   test("create and drop", () => {
     const mv = new MaterializedView(base);
     const created = diffMaterializedViews(
-      { version: 170000 },
+      testContext,
       {},
       { [mv.stableId]: mv },
     );
     expect(created[0]).toBeInstanceOf(CreateMaterializedView);
     const dropped = diffMaterializedViews(
-      { version: 170000 },
+      testContext,
       { [mv.stableId]: mv },
       {},
     );
@@ -53,7 +60,7 @@ describe.concurrent("materialized-view.diff", () => {
     const main = new MaterializedView(base);
     const branch = new MaterializedView({ ...base, owner: "o2" });
     const changes = diffMaterializedViews(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -64,7 +71,7 @@ describe.concurrent("materialized-view.diff", () => {
     const main = new MaterializedView(base);
     const branch = new MaterializedView({ ...base, definition: "select 2" });
     const changes = diffMaterializedViews(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -83,7 +90,7 @@ describe.concurrent("materialized-view.diff", () => {
       options: ["fillfactor=70", "user_catalog_table=true"],
     });
     const changes = diffMaterializedViews(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

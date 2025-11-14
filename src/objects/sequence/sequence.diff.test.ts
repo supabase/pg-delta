@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import {
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
@@ -27,12 +28,18 @@ const base: SequenceProps = {
   owner: "test",
 };
 
+const testContext = {
+  version: 170000,
+  currentUser: "postgres",
+  defaultPrivilegeState: new DefaultPrivilegeState({}),
+};
+
 describe.concurrent("sequence.diff", () => {
   test("create and drop", () => {
     const s = new Sequence(base);
-    const created = diffSequences({ version: 170000 }, {}, { [s.stableId]: s });
+    const created = diffSequences(testContext, {}, { [s.stableId]: s });
     expect(created[0]).toBeInstanceOf(CreateSequence);
-    const dropped = diffSequences({ version: 170000 }, { [s.stableId]: s }, {});
+    const dropped = diffSequences(testContext, { [s.stableId]: s }, {});
     expect(dropped[0]).toBeInstanceOf(DropSequence);
   });
 
@@ -45,7 +52,7 @@ describe.concurrent("sequence.diff", () => {
       owned_by_column: "id",
     });
     const changes = diffSequences(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -64,7 +71,7 @@ describe.concurrent("sequence.diff", () => {
       cycle_option: true,
     });
     const changes = diffSequences(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -81,7 +88,7 @@ describe.concurrent("sequence.diff", () => {
       persistence: "u",
     });
     const changes = diffSequences(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

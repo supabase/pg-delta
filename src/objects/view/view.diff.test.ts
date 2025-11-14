@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import {
   AlterViewChangeOwner,
   AlterViewResetOptions,
@@ -30,12 +31,18 @@ const base: ViewProps = {
   privileges: [],
 };
 
+const testContext = {
+  version: 170000,
+  currentUser: "postgres",
+  defaultPrivilegeState: new DefaultPrivilegeState({}),
+};
+
 describe.concurrent("view.diff", () => {
   test("create and drop", () => {
     const v = new View(base);
-    const created = diffViews({ version: 170000 }, {}, { [v.stableId]: v });
+    const created = diffViews(testContext, {}, { [v.stableId]: v });
     expect(created[0]).toBeInstanceOf(CreateView);
-    const dropped = diffViews({ version: 170000 }, { [v.stableId]: v }, {});
+    const dropped = diffViews(testContext, { [v.stableId]: v }, {});
     expect(dropped[0]).toBeInstanceOf(DropView);
   });
 
@@ -43,7 +50,7 @@ describe.concurrent("view.diff", () => {
     const main = new View(base);
     const branch = new View({ ...base, owner: "o2" });
     const changes = diffViews(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -57,7 +64,7 @@ describe.concurrent("view.diff", () => {
     });
     const branch = new View({ ...base, options: ["security_barrier=false"] });
     const changes = diffViews(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -73,7 +80,7 @@ describe.concurrent("view.diff", () => {
       row_security: true,
     });
     const changes = diffViews(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

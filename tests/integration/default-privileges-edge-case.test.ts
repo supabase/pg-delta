@@ -316,7 +316,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         expectedSqlTerms: [
           "CREATE VIEW public.test_view AS SELECT 1 AS id",
-          "REVOKE DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.test_view FROM anon",
+          "REVOKE ALL ON public.test_view FROM anon",
         ],
       });
     });
@@ -374,7 +374,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         expectedSqlTerms: [
           "CREATE MATERIALIZED VIEW public.test_mv AS SELECT 1 AS id WITH DATA",
-          "REVOKE DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.test_mv FROM anon",
+          "REVOKE ALL ON public.test_mv FROM anon",
         ],
       });
     });

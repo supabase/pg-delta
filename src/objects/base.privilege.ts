@@ -31,23 +31,33 @@ function objectPrivilegeUniverse(
     }
     case "VIEW": {
       // Per PostgreSQL docs, views are table-like and share the table privilege set
-      // for GRANT/REVOKE purposes. Do not include MAINTAIN for views.
+      // for GRANT/REVOKE purposes. MAINTAIN exists on PostgreSQL >= 17
+      const includesMaintain = (version ?? 170000) >= 170000;
       return [
         "DELETE",
         "INSERT",
+        ...(includesMaintain ? (["MAINTAIN"] as const) : []),
         "REFERENCES",
         "SELECT",
         "TRIGGER",
         "TRUNCATE",
         "UPDATE",
-      ].sort();
+      ];
     }
     case "MATERIALIZED VIEW": {
+      // Materialized views support the same table-like privileges as tables/views
+      // Per PostgreSQL docs, materialized views are table-like for GRANT/REVOKE purposes
       const includesMaintain = (version ?? 170000) >= 170000;
       return [
-        "SELECT",
+        "DELETE",
+        "INSERT",
         ...(includesMaintain ? (["MAINTAIN"] as const) : []),
-      ].sort();
+        "REFERENCES",
+        "SELECT",
+        "TRIGGER",
+        "TRUNCATE",
+        "UPDATE",
+      ];
     }
     case "SEQUENCE":
       return ["SELECT", "UPDATE", "USAGE"].sort();

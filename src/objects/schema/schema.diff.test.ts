@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { AlterSchemaChangeOwner } from "./changes/schema.alter.ts";
 import { CreateSchema } from "./changes/schema.create.ts";
 import { DropSchema } from "./changes/schema.drop.ts";
@@ -12,12 +13,18 @@ const base: SchemaProps = {
   privileges: [],
 };
 
+const testContext = {
+  version: 170000,
+  currentUser: "postgres",
+  defaultPrivilegeState: new DefaultPrivilegeState({}),
+};
+
 describe.concurrent("schema.diff", () => {
   test("create and drop", () => {
     const s = new Schema(base);
-    const created = diffSchemas({ version: 170000 }, {}, { [s.stableId]: s });
+    const created = diffSchemas(testContext, {}, { [s.stableId]: s });
     expect(created[0]).toBeInstanceOf(CreateSchema);
-    const dropped = diffSchemas({ version: 170000 }, { [s.stableId]: s }, {});
+    const dropped = diffSchemas(testContext, { [s.stableId]: s }, {});
     expect(dropped[0]).toBeInstanceOf(DropSchema);
   });
 
@@ -25,7 +32,7 @@ describe.concurrent("schema.diff", () => {
     const main = new Schema(base);
     const branch = new Schema({ ...base, owner: "o2" });
     const changes = diffSchemas(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

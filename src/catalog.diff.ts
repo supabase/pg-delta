@@ -125,7 +125,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
     }
   }
   const filteredChanges = changes.filter((change) => {
-    if (change.operation === "drop" && change.scope === "privilege") {
+    if (change.operation === "alter" && change.scope === "privilege") {
       switch (change.objectType) {
         case "composite_type":
           return !droppedObjectStableIds.has(change.compositeType.stableId);

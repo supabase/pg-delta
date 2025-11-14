@@ -183,7 +183,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   });
 
   // Function dependency ordering tests
-  describe(`function dependency ordering (pg${pgVersion})`, () => {
+  describe.concurrent(`function dependency ordering (pg${pgVersion})`, () => {
     test("function before constraint that uses it", async ({ db }) => {
       await roundtripFidelityTest({
         mainSession: db.main,
@@ -227,7 +227,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   });
 
   // Complex function scenario test
-  describe(`complex function scenarios (pg${pgVersion})`, () => {
+  describe.concurrent(`complex function scenarios (pg${pgVersion})`, () => {
     test("function with dependencies roundtrip", async ({ db }) => {
       await roundtripFidelityTest({
         mainSession: db.main,

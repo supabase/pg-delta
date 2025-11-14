@@ -41,6 +41,67 @@ type PgDependRow = {
 /** Sorting phases aligning with execution semantics. */
 type Phase = "drop" | "create_alter_object";
 
+/**
+ * Check if a stable ID represents metadata (ACL, default privileges, etc.)
+ * rather than an actual database object.
+ */
+function isMetadataStableId(stableId: string): boolean {
+  return (
+    stableId.startsWith("acl:") ||
+    stableId.startsWith("defacl:") ||
+    stableId.startsWith("aclcol:") ||
+    stableId.startsWith("membership:")
+  );
+}
+
+/**
+ * Determine the execution phase for a change based on its properties.
+ *
+ * This function inspects the change to determine which phase it belongs to,
+ * keeping Change classes unaware of sorting implementation details.
+ *
+ * Rules:
+ * - DROP operations → drop phase
+ * - CREATE operations → create_alter_object phase
+ * - ALTER operations with scope="privilege" → create_alter_object phase (metadata changes)
+ * - ALTER operations that drop actual objects → drop phase (destructive ALTER)
+ * - ALTER operations that don't drop objects → create_alter_object phase (non-destructive ALTER)
+ */
+function getExecutionPhase(change: Change): Phase {
+  // DROP operations always go to drop phase
+  if (change.operation === "drop") {
+    return "drop";
+  }
+
+  // CREATE operations always go to create_alter phase
+  if (change.operation === "create") {
+    return "create_alter_object";
+  }
+
+  // For ALTER operations, determine based on what they do
+  if (change.operation === "alter") {
+    // Privilege changes (metadata) always go to create_alter phase
+    if (change.scope === "privilege") {
+      return "create_alter_object";
+    }
+
+    // Check if this ALTER drops actual objects (not metadata)
+    const droppedIds = change.drops ?? [];
+    const dropsObjects = droppedIds.some((id) => !isMetadataStableId(id));
+
+    if (dropsObjects) {
+      // Destructive ALTER (DROP COLUMN, DROP CONSTRAINT, etc.) → drop phase
+      return "drop";
+    }
+
+    // Non-destructive ALTER (ADD COLUMN, GRANT, etc.) → create_alter phase
+    return "create_alter_object";
+  }
+
+  // Safe default
+  return "create_alter_object";
+}
+
 /** Predicate for selecting changes targeted by a constraint spec. */
 type ChangeFilter =
   | Partial<Pick<Change, "operation" | "objectType" | "scope">>
@@ -91,15 +152,11 @@ function sortChangesByPhasedGraph(
   };
 
   // Partition changes into execution phases.
-  // Use operation to determine phase, with drops.length as fallback for legacy cases.
-  // This ensures ALTER operations (including GRANT/REVOKE) go to create_alter phase,
-  // while ACL tracking via creates()/drops() continues to work for dependencies.
+  // The sorting algorithm determines phases by inspecting change properties,
+  // keeping Change classes unaware of sorting implementation details.
   for (const changeItem of changeList) {
-    if (changeItem.operation === "drop" && changeItem.drops.length > 0) {
-      changesByPhase.drop.push(changeItem);
-    } else {
-      changesByPhase.create_alter_object.push(changeItem);
-    }
+    const phase = getExecutionPhase(changeItem);
+    changesByPhase[phase].push(changeItem);
   }
 
   // Phase 1: DROP — reverse dependency order, using dependencies from the main catalog.

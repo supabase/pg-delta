@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { DefaultPrivilegeState } from "../../base.default-privileges.ts";
 import {
   AlterCompositeTypeAddAttribute,
   AlterCompositeTypeAlterAttributeType,
@@ -33,20 +34,18 @@ const base: CompositeTypeProps = {
   privileges: [],
 };
 
+const testContext = {
+  version: 170000,
+  currentUser: "postgres",
+  defaultPrivilegeState: new DefaultPrivilegeState({}),
+};
+
 describe.concurrent("composite-type.diff", () => {
   test("create and drop", () => {
     const ct = new CompositeType(base);
-    const created = diffCompositeTypes(
-      { version: 170000 },
-      {},
-      { [ct.stableId]: ct },
-    );
+    const created = diffCompositeTypes(testContext, {}, { [ct.stableId]: ct });
     expect(created[0]).toBeInstanceOf(CreateCompositeType);
-    const dropped = diffCompositeTypes(
-      { version: 170000 },
-      { [ct.stableId]: ct },
-      {},
-    );
+    const dropped = diffCompositeTypes(testContext, { [ct.stableId]: ct }, {});
     expect(dropped[0]).toBeInstanceOf(DropCompositeType);
   });
 
@@ -54,7 +53,7 @@ describe.concurrent("composite-type.diff", () => {
     const main = new CompositeType(base);
     const branch = new CompositeType({ ...base, owner: "o2" });
     const changes = diffCompositeTypes(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -88,7 +87,7 @@ describe.concurrent("composite-type.diff", () => {
       privileges: [],
     });
     const changes = diffCompositeTypes(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -123,7 +122,7 @@ describe.concurrent("composite-type.diff", () => {
     });
     const branch = new CompositeType(base);
     const changes = diffCompositeTypes(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -180,7 +179,7 @@ describe.concurrent("composite-type.diff", () => {
       ],
     });
     const changes = diffCompositeTypes(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

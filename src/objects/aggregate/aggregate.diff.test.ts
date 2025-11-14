@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { diffAggregates } from "./aggregate.diff.ts";
 import { Aggregate } from "./aggregate.model.ts";
 import { AlterAggregateChangeOwner } from "./changes/aggregate.alter.ts";
@@ -67,11 +68,17 @@ const makeAggregate = (override: Partial<AggregateProps> = {}) =>
     privileges: override.privileges ?? [...base.privileges],
   });
 
+const testContext = {
+  version: 170000,
+  currentUser: "postgres",
+  defaultPrivilegeState: new DefaultPrivilegeState({}),
+};
+
 describe.concurrent("aggregate.diff", () => {
   test("create and drop emit expected changes", () => {
     const aggregate = makeAggregate({ comment: "sum comment" });
     const created = diffAggregates(
-      { version: 170000 },
+      testContext,
       {},
       { [aggregate.stableId]: aggregate },
     );
@@ -82,7 +89,7 @@ describe.concurrent("aggregate.diff", () => {
     ).toBe(true);
 
     const dropped = diffAggregates(
-      { version: 170000 },
+      testContext,
       { [aggregate.stableId]: aggregate },
       {},
     );
@@ -94,7 +101,7 @@ describe.concurrent("aggregate.diff", () => {
     const main = makeAggregate();
     const branch = makeAggregate({ owner: "owner2" });
     const changes = diffAggregates(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -107,7 +114,7 @@ describe.concurrent("aggregate.diff", () => {
     const main = makeAggregate();
     const withComment = makeAggregate({ comment: "sum comment" });
     const addComment = diffAggregates(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [withComment.stableId]: withComment },
     );
@@ -115,7 +122,7 @@ describe.concurrent("aggregate.diff", () => {
     expect(addComment[0]).toBeInstanceOf(CreateCommentOnAggregate);
 
     const dropComment = diffAggregates(
-      { version: 170000 },
+      testContext,
       { [withComment.stableId]: withComment },
       { [main.stableId]: main },
     );
@@ -127,7 +134,7 @@ describe.concurrent("aggregate.diff", () => {
     const main = makeAggregate();
     const branch = makeAggregate({ return_type: "text" });
     const changes = diffAggregates(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -154,7 +161,7 @@ describe.concurrent("aggregate.diff", () => {
     });
 
     const changes = diffAggregates(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

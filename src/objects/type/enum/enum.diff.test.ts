@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { DefaultPrivilegeState } from "../../base.default-privileges.ts";
 import {
   AlterEnumAddValue,
   AlterEnumChangeOwner,
@@ -7,6 +8,12 @@ import { CreateEnum } from "./changes/enum.create.ts";
 import { DropEnum } from "./changes/enum.drop.ts";
 import { diffEnums } from "./enum.diff.ts";
 import { Enum, type EnumProps } from "./enum.model.ts";
+
+const testContext = {
+  version: 170000,
+  currentUser: "postgres",
+  defaultPrivilegeState: new DefaultPrivilegeState({}),
+};
 
 describe.concurrent("enum.diff", () => {
   test("create and drop", () => {
@@ -23,10 +30,10 @@ describe.concurrent("enum.diff", () => {
     };
     const e = new Enum(props);
 
-    const created = diffEnums({ version: 170000 }, {}, { [e.stableId]: e });
+    const created = diffEnums(testContext, {}, { [e.stableId]: e });
     expect(created[0]).toBeInstanceOf(CreateEnum);
 
-    const dropped = diffEnums({ version: 170000 }, { [e.stableId]: e }, {});
+    const dropped = diffEnums(testContext, { [e.stableId]: e }, {});
     expect(dropped[0]).toBeInstanceOf(DropEnum);
   });
 
@@ -56,7 +63,7 @@ describe.concurrent("enum.diff", () => {
     });
 
     const changes = diffEnums(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -93,7 +100,7 @@ describe.concurrent("enum.diff", () => {
     });
 
     const changes = diffEnums(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -131,7 +138,7 @@ describe.concurrent("enum.diff", () => {
     });
 
     const changes = diffEnums(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -169,7 +176,7 @@ describe.concurrent("enum.diff", () => {
     });
 
     const changes = diffEnums(
-      { version: 170000 },
+      testContext,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

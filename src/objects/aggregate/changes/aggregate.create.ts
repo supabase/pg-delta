@@ -143,9 +143,7 @@ export class CreateAggregate extends CreateAggregateChange {
       clauses.push("HYPOTHETICAL");
     }
 
-    const body = clauses.length
-      ? `(${clauses.join(", ")})`
-      : "()";
+    const body = clauses.length ? `(${clauses.join(", ")})` : "()";
 
     return `${head} ${body}`;
   }
