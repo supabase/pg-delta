@@ -1,161 +1,217 @@
-# Solution for Default Privileges Handling
+# Default Privileges Handling
 
-## Problem Statement
+## The Problem
 
-1. **Generalization**: Support default privileges for all object types that have privileges (tables, views, sequences, functions, types, schemas, etc.), not just tables.
+When a migration script contains `ALTER DEFAULT PRIVILEGES` statements, they affect **all objects created after them** in that script. This creates a challenge for the diff tool:
 
-2. **ALTER DEFAULT PRIVILEGES**: When default privileges are altered mid-migration, subsequent object creations should use the updated default privileges, not the original ones from introspection.
+1. **Side effects**: If we have:
+   ```sql
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon;
+   CREATE TABLE public.users (...);
+   ```
+   The `users` table will automatically get privileges granted to `anon` because of the default privileges.
 
-## Solution Overview
+2. **Order matters**: If default privileges are changed mid-migration, objects created before and after will have different privileges:
+   ```sql
+   CREATE TABLE public.first (...);  -- Gets initial defaults
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon;
+   CREATE TABLE public.second (...); -- Gets updated defaults (no anon)
+   ```
 
-The solution uses a **context-based approach**: diff default privileges first, compute the final default privileges state, then pass it as context to all diffing methods. Each diff function uses this state to compute the correct grant/revoke statements when creating objects.
+3. **What we need**: The diff tool must generate the correct `GRANT`/`REVOKE` statements for each created object, accounting for what default privileges will be in effect when that object is created.
 
-This approach:
-- Generates privilege changes at the right time (during CREATE, not pre/post-processing)
-- Ensures correct ordering (privilege changes follow CREATE statements naturally)
-- Keeps logic where it belongs (in each diff function)
-- Avoids complex pre/post-processing
+## The Solution
 
-## Implementation
+We use a **context-based approach** that computes the final default privileges state upfront and uses it when generating privilege changes for created objects.
 
-### Phase 1: Generalized Default Privilege Computation ✅
+### Key Insight
 
-**File**: `src/objects/base.default-privileges.ts`
+Since we ensure `ALTER DEFAULT PRIVILEGES` statements run **before** all `CREATE` statements (via a constraint spec), we can:
+1. Compute the **final** default privileges state by applying all `ALTER DEFAULT PRIVILEGES` changes upfront
+2. Use this final state for **all** object creations
+3. Compare this final state against desired privileges to generate the correct `GRANT`/`REVOKE` statements
 
-1. Created `computeDefaultPrivilegesForObject()` function:
-   - Takes: `currentUser`, `objectType`, `objectSchema`, `roles`, `version`
-   - Returns: `PrivilegeProps[]` for that object type
-   - Maps object types to default privilege `objtype` codes:
-     - TABLE → "r"
-     - VIEW → "r" (same as tables)
-     - MATERIALIZED VIEW → "r"
-     - SEQUENCE → "S"
-     - FUNCTION/PROCEDURE/AGGREGATE → "f"
-     - TYPE/DOMAIN/ENUM/RANGE/COMPOSITE_TYPE → "T"
-     - SCHEMA → "n"
-     - LANGUAGE → (no default privileges)
-
-2. Created `DefaultPrivilegeState` class:
-   - Stores default privileges per role/schema/objtype/grantee
-   - Can apply `GrantRoleDefaultPrivileges` and `RevokeRoleDefaultPrivileges` changes
-   - Can compute effective default privileges for a given object
-   - Initializes from roles' `default_privileges` array extracted during catalog introspection
-
-### Phase 2: Context-Based Diffing ✅
-
-**File**: `src/catalog.diff.ts`
-
-1. **Diff roles first** to get all default privilege changes
-2. **Compute final default privileges state** by applying all role changes to `DefaultPrivilegeState`
-3. **Create diff context** with `version`, `currentUser`, and `defaultPrivilegeState`
-4. **Pass context to all diff functions** (diffTables, diffViews, diffSequences, etc.)
-
-**File**: `src/objects/table/table.diff.ts` (and other diff functions)
-
-1. **Accept extended context** with `defaultPrivilegeState`
-2. **For CREATE statements**:
-   - Get effective defaults from `defaultPrivilegeState.getEffectiveDefaults()`
-   - Diff effective defaults against desired privileges from branch catalog
-   - Generate GRANT/REVOKE changes immediately after CREATE
-   - This ensures correct ordering (CREATE → constraints → comments → privileges)
-
-### Phase 3: Constraint-Based Ordering ✅
-
-**Files**: `tests/integration/roundtrip.ts`, `src/main.ts`
-
-Added a constraint spec to ensure `ALTER DEFAULT PRIVILEGES` statements execute before CREATE statements in the final migration:
-
-```typescript
-constraintSpecs = [
-  {
-    pairwise: (a: Change, b: Change) => {
-      const aIsDefaultPriv = a instanceof GrantRoleDefaultPrivileges || 
-                             a instanceof RevokeRoleDefaultPrivileges;
-      const bIsCreate = b.operation === "create" && b.scope === "object";
-      
-      if (aIsDefaultPriv && bIsCreate) return "a_before_b";
-      if (aIsCreate && bIsDefaultPriv) return "b_before_a";
-      return undefined;
-    },
-  },
-];
-```
-
-**Important**: This constraint only applies when there are no dependency conflicts. The dependency system automatically ensures:
-- `CREATE ROLE` comes before `ALTER DEFAULT PRIVILEGES FOR ROLE <role>` (via `requires()`)
-- `CREATE SCHEMA` comes before `ALTER DEFAULT PRIVILEGES IN SCHEMA <schema>` (via `requires()`)
-
-As documented in [PostgreSQL's ALTER DEFAULT PRIVILEGES documentation](https://www.postgresql.org/docs/current/sql-alterdefaultprivileges.html), `ALTER DEFAULT PRIVILEGES` can specify:
-- `FOR ROLE targetrole` - requires the target role to exist
-- `IN SCHEMA schemaname` - requires the schema to exist
-
-The `GrantRoleDefaultPrivileges` and `RevokeRoleDefaultPrivileges` classes already declare these dependencies in their `requires()` getters, so the topological sort ensures proper ordering.
+This works because the constraint spec guarantees execution order, so all objects are created with the same final default privileges state.
 
 ## How It Works
 
-1. **Diff Roles First**: `diffCatalogs()` calls `diffRoles()` first to get all default privilege changes.
+### Step 1: Diff Roles First
 
-2. **Compute Final State**: All `GrantRoleDefaultPrivileges` and `RevokeRoleDefaultPrivileges` changes are applied to a `DefaultPrivilegeState` instance, computing the final state that will be in effect.
+In `diffCatalogs()` (`src/catalog.diff.ts`), we diff roles first to collect all `ALTER DEFAULT PRIVILEGES` changes:
 
-3. **Pass Context**: The final `defaultPrivilegeState` is passed as part of the diff context to all object diff functions.
+```43:66:src/catalog.diff.ts
+  // Step 2: Compute default privileges state from role changes
+  // This represents what defaults will be in effect after all ALTER DEFAULT PRIVILEGES
+  // Since ALTER DEFAULT PRIVILEGES runs before CREATE (via constraint spec),
+  // all created objects will use these final defaults.
+  const defaultPrivilegeState = new DefaultPrivilegeState(main.roles);
+  for (const change of roleChanges) {
+    if (change instanceof GrantRoleDefaultPrivileges) {
+      defaultPrivilegeState.applyGrant(
+        change.role.name,
+        change.objtype,
+        change.inSchema,
+        change.grantee,
+        change.privileges,
+      );
+    } else if (change instanceof RevokeRoleDefaultPrivileges) {
+      defaultPrivilegeState.applyRevoke(
+        change.role.name,
+        change.objtype,
+        change.inSchema,
+        change.grantee,
+        change.privileges,
+      );
+    }
+  }
+```
 
-4. **Generate Privilege Changes During Diffing**: For each CREATE statement:
-   - The diff function calls `defaultPrivilegeState.getEffectiveDefaults()` to get what privileges would be granted by default
-   - It diffs these against the desired privileges from the branch catalog
-   - It generates GRANT/REVOKE changes immediately after the CREATE statement
-   - This ensures natural ordering: CREATE → constraints → comments → privileges
+### Step 2: Compute Final State
 
-5. **Sorting**: The dependency system ensures:
-   - Roles/schemas are created before ALTER DEFAULT PRIVILEGES
-   - ALTER DEFAULT PRIVILEGES comes before CREATE statements (via constraint spec)
-   - Privilege changes follow their CREATE statements (via `requires()`)
+`DefaultPrivilegeState` (`src/objects/base.default-privileges.ts`) tracks default privileges:
+- Initializes from the main catalog's current default privileges
+- Applies all `GrantRoleDefaultPrivileges` and `RevokeRoleDefaultPrivileges` changes
+- Computes the final state that will be in effect
 
-## Benefits
+### Step 3: Pass Context to Object Diff Functions
 
-- **Simpler**: No pre-processing or post-processing needed
-- **More maintainable**: Logic stays in diff functions where it belongs
-- **Correct ordering**: Privilege changes are generated at the right time, ensuring natural ordering
-- **Same result**: Achieves the same final privilege state
-- **Better performance**: Computes defaults once and passes as context
-- **Respects dependencies**: Roles and schemas are created before being referenced
+The final `defaultPrivilegeState` is passed as part of the diff context to all object diff functions:
+
+```68:73:src/catalog.diff.ts
+  // Step 3: Create context with default privileges state for object diffing
+  const diffContext = {
+    version: main.version,
+    currentUser: main.currentUser,
+    defaultPrivilegeState,
+  };
+```
+
+### Step 4: Generate Privilege Changes During Object Creation
+
+When creating an object (e.g., in `diffTables()`), we:
+1. Get effective defaults from the state
+2. Compare against desired privileges from the branch catalog
+3. Generate `GRANT`/`REVOKE` changes to reach the desired state
+
+```266:280:src/objects/table/table.diff.ts
+    // PRIVILEGES: For created objects, compare against default privileges state
+    // The migration script will run ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
+    // so objects are created with the default privileges state in effect.
+    // We compare default privileges against desired privileges to generate REVOKE/GRANT statements
+    // needed to reach the final desired state.
+    const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
+      ctx.currentUser,
+      "table",
+      branchTable.schema ?? "",
+    );
+    const desiredPrivileges = branchTable.privileges;
+    const privilegeResults = diffPrivileges(
+      effectiveDefaults,
+      desiredPrivileges,
+    );
+```
+
+### Step 5: Ensure Correct Ordering
+
+A constraint spec in `sortChanges()` (`src/sort/phased-graph-sort.ts`) ensures `ALTER DEFAULT PRIVILEGES` runs before `CREATE` statements:
+
+```141:163:src/sort/phased-graph-sort.ts
+  const constraintSpecs: ConstraintSpec<Change>[] = [
+    {
+      pairwise: (a: Change, b: Change) => {
+        const aIsDefaultPriv =
+          a instanceof GrantRoleDefaultPrivileges ||
+          a instanceof RevokeRoleDefaultPrivileges;
+        const bIsCreate = b.operation === "create" && b.scope === "object";
+
+        // Exclude CREATE ROLE and CREATE SCHEMA from the constraint since they are
+        // dependencies of ALTER DEFAULT PRIVILEGES and must come before it
+        const bIsRoleOrSchema =
+          bIsCreate && (b.objectType === "role" || b.objectType === "schema");
+
+        // Default privilege changes should come before CREATE statements
+        // (but not CREATE ROLE or CREATE SCHEMA, which are dependencies)
+        // Note: pairwise is called for both (a,b) and (b,a), so we only need to check one direction
+        if (aIsDefaultPriv && bIsCreate && !bIsRoleOrSchema) {
+          return "a_before_b";
+        }
+        return undefined;
+      },
+    },
+  ];
+```
+
+**Note**: The dependency system automatically ensures:
+- `CREATE ROLE` comes before `ALTER DEFAULT PRIVILEGES FOR ROLE <role>` (via `requires()`)
+- `CREATE SCHEMA` comes before `ALTER DEFAULT PRIVILEGES IN SCHEMA <schema>` (via `requires()`)
+
+## Example
+
+Consider this scenario:
+
+**Branch database state:**
+```sql
+-- Initial default privileges grant ALL to anon
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon;
+
+-- Create table (gets ALL privileges from defaults)
+CREATE TABLE public.users (...);
+
+-- Change defaults to revoke anon
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon;
+
+-- Create another table (gets no anon privileges)
+CREATE TABLE public.admin (...);
+
+-- Explicitly revoke anon from first table
+REVOKE ALL ON public.users FROM anon;
+```
+
+**Generated migration:**
+```sql
+-- 1. All ALTER DEFAULT PRIVILEGES first (constraint spec)
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES FROM anon;
+
+-- 2. Create tables (both get final defaults: no anon)
+CREATE TABLE public.users (...);
+CREATE TABLE public.admin (...);
+
+-- 3. Revoke anon from users table (to match branch state)
+REVOKE ALL ON public.users FROM anon;
+```
+
+**Why this works:**
+- The constraint spec ensures `ALTER DEFAULT PRIVILEGES` runs first
+- Both tables are created with the final default state (no anon)
+- We only need to revoke from `users` to match the branch state
+- The migration doesn't need to reproduce the exact sequence from the branch
 
 ## Supported Object Types
 
-The solution handles all object types that support default privileges:
-- ✅ Tables (implemented)
-- ✅ Views (context ready, privilege generation pending)
-- ✅ Materialized Views (context ready, privilege generation pending)
-- ✅ Sequences (context ready, privilege generation pending)
-- ✅ Procedures/Functions (context ready, privilege generation pending)
-- ✅ Aggregates (context ready, privilege generation pending)
-- ✅ Schemas (context ready, privilege generation pending)
-- ✅ Domains (context ready, privilege generation pending)
-- ✅ Enums (context ready, privilege generation pending)
-- ✅ Composite Types (context ready, privilege generation pending)
-- ✅ Range Types (context ready, privilege generation pending)
-- ✅ Languages (context ready, privilege generation pending)
+The solution handles all object types that have privilege change files (`*.privilege.ts`) and support default privileges in PostgreSQL:
 
-## Files Created/Modified
+- ✅ **Tables** (`src/objects/table/changes/table.privilege.ts`) - Fully implemented
+- ✅ **Views** (`src/objects/view/changes/view.privilege.ts`) - Context ready
+- ✅ **Materialized Views** (`src/objects/materialized-view/changes/materialized-view.privilege.ts`) - Context ready
+- ✅ **Sequences** (`src/objects/sequence/changes/sequence.privilege.ts`) - Context ready
+- ✅ **Procedures/Functions** (`src/objects/procedure/changes/procedure.privilege.ts`) - Context ready
+- ✅ **Aggregates** (`src/objects/aggregate/changes/aggregate.privilege.ts`) - Context ready
+- ✅ **Schemas** (`src/objects/schema/changes/schema.privilege.ts`) - Context ready
+- ✅ **Domains** (`src/objects/domain/changes/domain.privilege.ts`) - Context ready
+- ✅ **Enums** (`src/objects/type/enum/changes/enum.privilege.ts`) - Context ready
+- ✅ **Composite Types** (`src/objects/type/composite-type/changes/composite-type.privilege.ts`) - Context ready
+- ✅ **Range Types** (`src/objects/type/range/changes/range.privilege.ts`) - Context ready
 
-**New Files**:
-- `src/objects/base.default-privileges.ts` - Generalized default privilege computation and state tracking
+**Note**: Languages (`src/objects/language/changes/language.privilege.ts`) have privilege files but do not support default privileges in PostgreSQL, so they are not included in this solution.
 
-**Modified Files**:
-- `src/catalog.diff.ts` - Diff roles first, compute default privileges state, pass as context
-- `src/objects/table/table.diff.ts` - Uses defaultPrivilegeState from context to generate privilege changes
-- `src/objects/view/view.diff.ts` - Updated to accept extended context
-- `src/objects/sequence/sequence.diff.ts` - Updated to accept extended context
-- `src/objects/schema/schema.diff.ts` - Updated to accept extended context
-- `src/objects/procedure/procedure.diff.ts` - Updated to accept extended context
-- `src/objects/aggregate/aggregate.diff.ts` - Updated to accept extended context
-- `src/objects/domain/domain.diff.ts` - Updated to accept extended context
-- `src/objects/type/enum/enum.diff.ts` - Updated to accept extended context
-- `src/objects/type/range/range.diff.ts` - Updated to accept extended context
-- `src/objects/type/composite-type/composite-type.diff.ts` - Updated to accept extended context
-- `src/objects/materialized-view/materialized-view.diff.ts` - Updated to accept extended context
-- `tests/integration/roundtrip.ts` - Removed pre-processing, kept constraint spec
-- `src/main.ts` - Removed pre-processing, kept constraint spec
-- `tests/integration/default-privileges-edge-case.test.ts` - Test for ALTER DEFAULT PRIVILEGES mid-migration
+## Key Files
+
+- `src/objects/base.default-privileges.ts` - `DefaultPrivilegeState` class that tracks and computes default privileges
+- `src/catalog.diff.ts` - Diff roles first, compute final state, pass as context
+- `src/objects/table/table.diff.ts` - Example implementation using `defaultPrivilegeState` to generate privilege changes
+- `src/sort/phased-graph-sort.ts` - Constraint spec ensuring `ALTER DEFAULT PRIVILEGES` runs before `CREATE`
+- `tests/integration/default-privileges-edge-case.test.ts` - Tests for edge cases
+- `tests/integration/default-privileges-dependency-ordering.test.ts` - Tests for dependency ordering
 
 ## References
 

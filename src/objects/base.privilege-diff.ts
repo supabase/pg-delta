@@ -1,4 +1,5 @@
 import z from "zod";
+import type { Change } from "../change.types.ts";
 
 /**
  * Privilege properties that all privilege objects share.
@@ -164,6 +165,62 @@ export function groupPrivilegesByColumns<T extends PrivilegeProps>(
   }
 
   return groups;
+}
+
+/**
+ * Filters out PUBLIC's built-in default privileges that PostgreSQL automatically grants
+ * when creating certain object types. This prevents generating unnecessary GRANT statements
+ * for privileges that PostgreSQL grants automatically.
+ *
+ * Reference: PostgreSQL 17 Documentation, Table 5.2 "Summary of Access Privileges"
+ * https://www.postgresql.org/docs/17/ddl-priv.html
+ *
+ * Objects with default PUBLIC privileges:
+ * - Functions/Procedures/Aggregates: EXECUTE
+ * - Types/Domains/Enums/Ranges/Composite Types: USAGE
+ * - Languages: USAGE
+ *
+ * Objects WITHOUT default PUBLIC privileges (so we should generate GRANT statements):
+ * - Tables, Views, Materialized Views, Sequences, Schemas, etc.
+ */
+export function filterPublicBuiltInDefaults<T extends PrivilegeProps>(
+  objectType: Change["objectType"],
+  privileges: T[],
+): T[] {
+  // Only filter PUBLIC privileges
+  return privileges.filter((priv) => {
+    if (priv.grantee !== "PUBLIC") {
+      return true; // Keep all non-PUBLIC privileges
+    }
+
+    // Check if this is a built-in default privilege for this object type
+    switch (objectType) {
+      case "procedure":
+      case "aggregate":
+        // Functions/Procedures/Aggregates: EXECUTE is granted to PUBLIC by default
+        // Filter it out so we don't generate unnecessary GRANT EXECUTE TO PUBLIC
+        return priv.privilege !== "EXECUTE";
+
+      case "domain":
+      case "enum":
+      case "range":
+      case "composite_type":
+        // Types/Domains/Enums/Ranges/Composite Types: USAGE is granted to PUBLIC by default
+        // Filter it out so we don't generate unnecessary GRANT USAGE TO PUBLIC
+        return priv.privilege !== "USAGE";
+
+      case "language":
+        // Languages: USAGE is granted to PUBLIC by default
+        // Filter it out so we don't generate unnecessary GRANT USAGE TO PUBLIC
+        return priv.privilege !== "USAGE";
+
+      default:
+        // For other object types (tables, views, sequences, schemas, etc.),
+        // PUBLIC has NO default privileges, so we should keep all PUBLIC privileges
+        // and generate GRANT statements for them
+        return true;
+    }
+  });
 }
 
 /**

@@ -1,3 +1,4 @@
+import type { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
@@ -25,6 +26,7 @@ import type { Sequence } from "./sequence.model.ts";
 /**
  * Diff two sets of sequences from main and branch catalogs.
  *
+ * @param ctx - Context containing version, currentUser, and defaultPrivilegeState
  * @param main - The sequences in the main catalog.
  * @param branch - The sequences in the branch catalog.
  * @returns A list of changes to apply to main to make it match branch.
@@ -32,8 +34,8 @@ import type { Sequence } from "./sequence.model.ts";
 export function diffSequences(
   ctx: {
     version: number;
-    currentUser?: string;
-    defaultPrivilegeState?: unknown;
+    currentUser: string;
+    defaultPrivilegeState: DefaultPrivilegeState;
   },
   main: Record<string, Sequence>,
   branch: Record<string, Sequence>,
@@ -64,6 +66,68 @@ export function diffSequences(
           } as { schema: string; table: string; column: string },
         }),
       );
+    }
+
+    // PRIVILEGES: For created objects, compare against default privileges state
+    // The migration script will run ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
+    // so objects are created with the default privileges state in effect.
+    // We compare default privileges against desired privileges to generate REVOKE/GRANT statements
+    // needed to reach the final desired state.
+    const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
+      ctx.currentUser,
+      "sequence",
+      createdSeq.schema ?? "",
+    );
+    const desiredPrivileges = createdSeq.privileges;
+    const privilegeResults = diffPrivileges(
+      effectiveDefaults,
+      desiredPrivileges,
+    );
+
+    // Generate grant changes
+    for (const [grantee, result] of privilegeResults) {
+      if (result.grants.length > 0) {
+        const grantGroups = groupPrivilegesByGrantable(result.grants);
+        for (const [grantable, list] of grantGroups) {
+          void grantable;
+          changes.push(
+            new GrantSequencePrivileges({
+              sequence: createdSeq,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke changes
+      if (result.revokes.length > 0) {
+        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+        for (const [grantable, list] of revokeGroups) {
+          void grantable;
+          changes.push(
+            new RevokeSequencePrivileges({
+              sequence: createdSeq,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke grant option changes
+      if (result.revokeGrantOption.length > 0) {
+        changes.push(
+          new RevokeGrantOptionSequencePrivileges({
+            sequence: createdSeq,
+            grantee,
+            privilegeNames: result.revokeGrantOption,
+            version: ctx.version,
+          }),
+        );
+      }
     }
   }
 

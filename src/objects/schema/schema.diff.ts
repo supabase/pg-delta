@@ -1,3 +1,4 @@
+import type { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
@@ -21,6 +22,7 @@ import type { Schema } from "./schema.model.ts";
 /**
  * Diff two sets of schemas from main and branch catalogs.
  *
+ * @param ctx - Context containing version, currentUser, and defaultPrivilegeState
  * @param main - The schemas in the main catalog.
  * @param branch - The schemas in the branch catalog.
  * @returns A list of changes to apply to main to make it match branch.
@@ -28,8 +30,8 @@ import type { Schema } from "./schema.model.ts";
 export function diffSchemas(
   ctx: {
     version: number;
-    currentUser?: string;
-    defaultPrivilegeState?: unknown;
+    currentUser: string;
+    defaultPrivilegeState: DefaultPrivilegeState;
   },
   main: Record<string, Schema>,
   branch: Record<string, Schema>,
@@ -43,6 +45,69 @@ export function diffSchemas(
     changes.push(new CreateSchema({ schema: sc }));
     if (sc.comment !== null) {
       changes.push(new CreateCommentOnSchema({ schema: sc }));
+    }
+
+    // PRIVILEGES: For created objects, compare against default privileges state
+    // The migration script will run ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
+    // so objects are created with the default privileges state in effect.
+    // We compare default privileges against desired privileges to generate REVOKE/GRANT statements
+    // needed to reach the final desired state.
+    // Note: Schemas don't have a schema property, so we pass empty string
+    const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
+      ctx.currentUser,
+      "schema",
+      "",
+    );
+    const desiredPrivileges = sc.privileges;
+    const privilegeResults = diffPrivileges(
+      effectiveDefaults,
+      desiredPrivileges,
+    );
+
+    // Generate grant changes
+    for (const [grantee, result] of privilegeResults) {
+      if (result.grants.length > 0) {
+        const grantGroups = groupPrivilegesByGrantable(result.grants);
+        for (const [grantable, list] of grantGroups) {
+          void grantable;
+          changes.push(
+            new GrantSchemaPrivileges({
+              schema: sc,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke changes
+      if (result.revokes.length > 0) {
+        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+        for (const [grantable, list] of revokeGroups) {
+          void grantable;
+          changes.push(
+            new RevokeSchemaPrivileges({
+              schema: sc,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke grant option changes
+      if (result.revokeGrantOption.length > 0) {
+        changes.push(
+          new RevokeGrantOptionSchemaPrivileges({
+            schema: sc,
+            grantee,
+            privilegeNames: result.revokeGrantOption,
+            version: ctx.version,
+          }),
+        );
+      }
     }
   }
 

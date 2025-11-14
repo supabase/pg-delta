@@ -1,3 +1,4 @@
+import type { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
@@ -27,7 +28,7 @@ import type { MaterializedView } from "./materialized-view.model.ts";
 /**
  * Diff two sets of materialized views from main and branch catalogs.
  *
- * @param ctx - Context containing version information.
+ * @param ctx - Context containing version, currentUser, and defaultPrivilegeState
  * @param main - The materialized views in the main catalog.
  * @param branch - The materialized views in the branch catalog.
  * @returns A list of changes to apply to main to make it match branch.
@@ -35,8 +36,8 @@ import type { MaterializedView } from "./materialized-view.model.ts";
 export function diffMaterializedViews(
   ctx: {
     version: number;
-    currentUser?: string;
-    defaultPrivilegeState?: unknown;
+    currentUser: string;
+    defaultPrivilegeState: DefaultPrivilegeState;
   },
   main: Record<string, MaterializedView>,
   branch: Record<string, MaterializedView>,
@@ -46,28 +47,135 @@ export function diffMaterializedViews(
   const changes: MaterializedViewChange[] = [];
 
   for (const materializedViewId of created) {
+    const mv = branch[materializedViewId];
     changes.push(
       new CreateMaterializedView({
-        materializedView: branch[materializedViewId],
+        materializedView: mv,
       }),
     );
     // Materialized view comment on creation
-    if (branch[materializedViewId].comment !== null) {
+    if (mv.comment !== null) {
       changes.push(
         new CreateCommentOnMaterializedView({
-          materializedView: branch[materializedViewId],
+          materializedView: mv,
         }),
       );
     }
     // Column comments on creation
-    for (const col of branch[materializedViewId].columns) {
+    for (const col of mv.columns) {
       if (col.comment !== null) {
         changes.push(
           new CreateCommentOnMaterializedViewColumn({
-            materializedView: branch[materializedViewId],
+            materializedView: mv,
             column: col,
           }),
         );
+      }
+    }
+
+    // PRIVILEGES: For created objects, compare against default privileges state
+    // The migration script will run ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
+    // so objects are created with the default privileges state in effect.
+    // We compare default privileges against desired privileges to generate REVOKE/GRANT statements
+    // needed to reach the final desired state.
+    const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
+      ctx.currentUser,
+      "materialized_view",
+      mv.schema ?? "",
+    );
+    const desiredPrivileges = mv.privileges;
+    const privilegeResults = diffPrivileges(
+      effectiveDefaults,
+      desiredPrivileges,
+    );
+
+    // Generate grant changes
+    for (const [grantee, result] of privilegeResults) {
+      if (result.grants.length > 0) {
+        const grantGroups = groupPrivilegesByColumns(result.grants);
+        for (const [, group] of grantGroups) {
+          for (const [grantable, privSet] of group.byGrant) {
+            const privileges = Array.from(privSet).map((priv) => ({
+              privilege: priv,
+              grantable,
+            }));
+            changes.push(
+              new GrantMaterializedViewPrivileges({
+                materializedView: mv,
+                grantee,
+                privileges,
+                columns: group.columns,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+      }
+
+      // Generate revoke changes
+      if (result.revokes.length > 0) {
+        const revokeGroups = groupPrivilegesByColumns(result.revokes);
+        for (const [, group] of revokeGroups) {
+          const allPrivileges = new Set<string>();
+          for (const [, privSet] of group.byGrant) {
+            for (const priv of privSet) {
+              allPrivileges.add(priv);
+            }
+          }
+          const privileges = Array.from(allPrivileges).map((priv) => ({
+            privilege: priv,
+            grantable: false,
+          }));
+          changes.push(
+            new RevokeMaterializedViewPrivileges({
+              materializedView: mv,
+              grantee,
+              privileges,
+              columns: group.columns,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke grant option changes
+      if (result.revokeGrantOption.length > 0) {
+        const revokeGrantGroups = new Map<
+          string,
+          { columns?: string[]; privileges: Set<string> }
+        >();
+        for (const r of result.revokeGrantOption) {
+          // For revoke grant option, we need to find the columns from the effective defaults
+          const originalPriv = effectiveDefaults.find(
+            (p) => p.grantee === grantee && p.privilege === r,
+          );
+          const key = originalPriv?.columns
+            ? originalPriv.columns.sort().join(",")
+            : "";
+          if (!revokeGrantGroups.has(key)) {
+            revokeGrantGroups.set(key, {
+              columns: originalPriv?.columns
+                ? [...originalPriv.columns]
+                : undefined,
+              privileges: new Set(),
+            });
+          }
+          const group = revokeGrantGroups.get(key);
+          if (!group) continue;
+          group.privileges.add(r);
+        }
+        for (const [, group] of revokeGrantGroups) {
+          const privilegeNames = Array.from(group.privileges);
+          changes.push(
+            new RevokeGrantOptionMaterializedViewPrivileges({
+              materializedView: mv,
+              grantee,
+              privilegeNames,
+              columns: group.columns,
+              version: ctx.version,
+            }),
+          );
+        }
       }
     }
   }

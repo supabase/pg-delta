@@ -2,6 +2,7 @@ import type { Change } from "../../change.types.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
+  filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
@@ -102,9 +103,16 @@ export function diffLanguages(
       // a name change would be handled as drop + create by diffObjects()
 
       // PRIVILEGES
+      // Filter out PUBLIC's built-in default USAGE privilege (PostgreSQL grants it automatically)
+      // Reference: https://www.postgresql.org/docs/17/ddl-priv.html Table 5.2
+      // This prevents generating unnecessary "GRANT USAGE TO PUBLIC" statements
+      const filteredBranchPrivileges = filterPublicBuiltInDefaults(
+        "language",
+        branchLanguage.privileges,
+      );
       const privilegeResults = diffPrivileges(
         mainLanguage.privileges,
-        branchLanguage.privileges,
+        filteredBranchPrivileges,
       );
 
       for (const [grantee, result] of privilegeResults) {

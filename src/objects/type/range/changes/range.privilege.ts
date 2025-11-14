@@ -4,7 +4,7 @@ import {
 } from "../../../base.privilege.ts";
 import { stableId } from "../../../utils.ts";
 import type { Range } from "../range.model.ts";
-import { CreateRangeChange, DropRangeChange } from "./range.base.ts";
+import { AlterRangeChange } from "./range.base.ts";
 
 export type RangePrivilege =
   | GrantRangePrivileges
@@ -24,7 +24,7 @@ export type RangePrivilege =
  *    [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantRangePrivileges extends CreateRangeChange {
+export class GrantRangePrivileges extends AlterRangeChange {
   public readonly range: Range;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -84,7 +84,7 @@ export class GrantRangePrivileges extends CreateRangeChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeRangePrivileges extends DropRangeChange {
+export class RevokeRangePrivileges extends AlterRangeChange {
   public readonly range: Range;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -105,6 +105,8 @@ export class RevokeRangePrivileges extends DropRangeChange {
   }
 
   get drops() {
+    // Return ACL ID for dependency tracking, even though this is an ALTER operation
+    // Phase assignment now uses operation type, so this won't affect phase placement
     return [stableId.acl(this.range.stableId, this.grantee)];
   }
 
@@ -132,7 +134,7 @@ export class RevokeRangePrivileges extends DropRangeChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionRangePrivileges extends DropRangeChange {
+export class RevokeGrantOptionRangePrivileges extends AlterRangeChange {
   public readonly range: Range;
   public readonly grantee: string;
   public readonly privilegeNames: string[];

@@ -4,10 +4,7 @@ import {
 } from "../../base.privilege.ts";
 import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
-import {
-  CreateMaterializedViewChange,
-  DropMaterializedViewChange,
-} from "./materialized-view.base.ts";
+import { AlterMaterializedViewChange } from "./materialized-view.base.ts";
 
 export type MaterializedViewPrivilege =
   | GrantMaterializedViewPrivileges
@@ -28,7 +25,7 @@ export type MaterializedViewPrivilege =
  *     [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantMaterializedViewPrivileges extends CreateMaterializedViewChange {
+export class GrantMaterializedViewPrivileges extends AlterMaterializedViewChange {
   public readonly materializedView: MaterializedView;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -102,7 +99,7 @@ export class GrantMaterializedViewPrivileges extends CreateMaterializedViewChang
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeMaterializedViewPrivileges extends DropMaterializedViewChange {
+export class RevokeMaterializedViewPrivileges extends AlterMaterializedViewChange {
   public readonly materializedView: MaterializedView;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -128,6 +125,8 @@ export class RevokeMaterializedViewPrivileges extends DropMaterializedViewChange
   }
 
   get drops() {
+    // Return ACL ID for dependency tracking, even though this is an ALTER operation
+    // Phase assignment now uses operation type, so this won't affect phase placement
     return [stableId.acl(this.materializedView.stableId, this.grantee)];
   }
 
@@ -163,7 +162,7 @@ export class RevokeMaterializedViewPrivileges extends DropMaterializedViewChange
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionMaterializedViewPrivileges extends DropMaterializedViewChange {
+export class RevokeGrantOptionMaterializedViewPrivileges extends AlterMaterializedViewChange {
   public readonly materializedView: MaterializedView;
   public readonly grantee: string;
   public readonly privilegeNames: string[];

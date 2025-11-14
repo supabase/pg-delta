@@ -4,10 +4,7 @@ import {
 } from "../../base.privilege.ts";
 import { stableId } from "../../utils.ts";
 import type { Procedure } from "../procedure.model.ts";
-import {
-  CreateProcedureChange,
-  DropProcedureChange,
-} from "./procedure.base.ts";
+import { AlterProcedureChange } from "./procedure.base.ts";
 
 export type ProcedurePrivilege =
   | GrantProcedurePrivileges
@@ -28,7 +25,7 @@ export type ProcedurePrivilege =
  *    [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantProcedurePrivileges extends CreateProcedureChange {
+export class GrantProcedurePrivileges extends AlterProcedureChange {
   public readonly procedure: Procedure;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -65,12 +62,14 @@ export class GrantProcedurePrivileges extends CreateProcedureChange {
       );
     }
     const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("FUNCTION");
+    const objectKind = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    const kindPrefix = getObjectKindPrefix(objectKind);
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("FUNCTION", list, this.version);
+    const privSql = formatObjectPrivilegeList(objectKind, list, this.version);
     const procedureName = `${this.procedure.schema}.${this.procedure.name}`;
     const args = this.procedure.argument_types?.join(", ") ?? "";
-    const signature = args ? `${procedureName}(${args})` : procedureName;
+    // Always include parentheses for privilege statements, even for zero-argument procedures/functions
+    const signature = `${procedureName}(${args})`;
     return `GRANT ${privSql} ${kindPrefix} ${signature} TO ${this.grantee}${withGrant}`;
   }
 }
@@ -90,7 +89,7 @@ export class GrantProcedurePrivileges extends CreateProcedureChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeProcedurePrivileges extends DropProcedureChange {
+export class RevokeProcedurePrivileges extends AlterProcedureChange {
   public readonly procedure: Procedure;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -111,6 +110,8 @@ export class RevokeProcedurePrivileges extends DropProcedureChange {
   }
 
   get drops() {
+    // Return ACL ID for dependency tracking, even though this is an ALTER operation
+    // Phase assignment now uses operation type, so this won't affect phase placement
     return [stableId.acl(this.procedure.stableId, this.grantee)];
   }
 
@@ -123,12 +124,14 @@ export class RevokeProcedurePrivileges extends DropProcedureChange {
   }
 
   serialize(): string {
-    const kindPrefix = getObjectKindPrefix("FUNCTION");
+    const objectKind = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    const kindPrefix = getObjectKindPrefix(objectKind);
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("FUNCTION", list, this.version);
+    const privSql = formatObjectPrivilegeList(objectKind, list, this.version);
     const procedureName = `${this.procedure.schema}.${this.procedure.name}`;
     const args = this.procedure.argument_types?.join(", ") ?? "";
-    const signature = args ? `${procedureName}(${args})` : procedureName;
+    // Always include parentheses for privilege statements, even for zero-argument procedures/functions
+    const signature = `${procedureName}(${args})`;
     return `REVOKE ${privSql} ${kindPrefix} ${signature} FROM ${this.grantee}`;
   }
 }
@@ -140,7 +143,7 @@ export class RevokeProcedurePrivileges extends DropProcedureChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionProcedurePrivileges extends DropProcedureChange {
+export class RevokeGrantOptionProcedurePrivileges extends AlterProcedureChange {
   public readonly procedure: Procedure;
   public readonly grantee: string;
   public readonly privilegeNames: string[];
@@ -169,15 +172,17 @@ export class RevokeGrantOptionProcedurePrivileges extends DropProcedureChange {
   }
 
   serialize(): string {
-    const kindPrefix = getObjectKindPrefix("FUNCTION");
+    const objectKind = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    const kindPrefix = getObjectKindPrefix(objectKind);
     const privSql = formatObjectPrivilegeList(
-      "FUNCTION",
+      objectKind,
       this.privilegeNames,
       this.version,
     );
     const procedureName = `${this.procedure.schema}.${this.procedure.name}`;
     const args = this.procedure.argument_types?.join(", ") ?? "";
-    const signature = args ? `${procedureName}(${args})` : procedureName;
+    // Always include parentheses for privilege statements, even for zero-argument procedures/functions
+    const signature = `${procedureName}(${args})`;
     return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${signature} FROM ${this.grantee}`;
   }
 }

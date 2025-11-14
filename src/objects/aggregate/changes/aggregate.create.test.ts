@@ -60,13 +60,7 @@ describe("aggregate.create", () => {
     const change = new CreateAggregate({ aggregate });
 
     expect(change.creates).toEqual([aggregate.stableId]);
-    expect(change.serialize()).toMatchInlineSnapshot(`
-      "CREATE AGGREGATE public.agg_sum(integer)
-      (
-        SFUNC = pg_catalog.int4pl,
-        STYPE = integer
-      )"
-    `);
+    expect(change.serialize()).toMatchInlineSnapshot(`"CREATE AGGREGATE public.agg_sum(integer) (SFUNC = pg_catalog.int4pl, STYPE = integer)"`);
   });
 
   test("serialize aggregate with optional clauses and or replace", () => {
@@ -98,32 +92,6 @@ describe("aggregate.create", () => {
 
     const change = new CreateAggregate({ aggregate, orReplace: true });
 
-    expect(change.serialize()).toMatchInlineSnapshot(`
-      "CREATE OR REPLACE AGGREGATE public.agg_full(integer)
-      (
-        SFUNC = public.sum_int8,
-        STYPE = bigint,
-        SSPACE = 8,
-        FINALFUNC = public.finalize,
-        FINALFUNC_EXTRA,
-        FINALFUNC_MODIFY = READ_WRITE,
-        COMBINEFUNC = public.combine,
-        SERIALFUNC = public.serialize_state,
-        DESERIALFUNC = public.deserialize_state,
-        INITCOND = '0',
-        MSFUNC = public.msum,
-        MINVFUNC = public.minv,
-        MSTYPE = pg_catalog.bigint,
-        MSSPACE = 16,
-        MFINALFUNC = public.mfinal,
-        MFINALFUNC_EXTRA,
-        MFINALFUNC_MODIFY = SHAREABLE,
-        MINITCOND = '0',
-        SORTOP = OPERATOR(pg_catalog.<),
-        PARALLEL SAFE,
-        STRICT,
-        HYPOTHETICAL
-      )"
-    `);
+    expect(change.serialize()).toMatchInlineSnapshot(`"CREATE OR REPLACE AGGREGATE public.agg_full(integer) (SFUNC = public.sum_int8, STYPE = bigint, SSPACE = 8, FINALFUNC = public.finalize, FINALFUNC_EXTRA, FINALFUNC_MODIFY = READ_WRITE, COMBINEFUNC = public.combine, SERIALFUNC = public.serialize_state, DESERIALFUNC = public.deserialize_state, INITCOND = '0', MSFUNC = public.msum, MINVFUNC = public.minv, MSTYPE = pg_catalog.bigint, MSSPACE = 16, MFINALFUNC = public.mfinal, MFINALFUNC_EXTRA, MFINALFUNC_MODIFY = SHAREABLE, MINITCOND = '0', SORTOP = OPERATOR(pg_catalog.<), PARALLEL SAFE, STRICT, HYPOTHETICAL)"`);
   });
 });

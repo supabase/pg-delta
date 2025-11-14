@@ -4,7 +4,7 @@ import {
 } from "../../base.privilege.ts";
 import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
-import { CreateViewChange, DropViewChange } from "./view.base.ts";
+import { AlterViewChange } from "./view.base.ts";
 
 export type ViewPrivilege =
   | GrantViewPrivileges
@@ -26,7 +26,7 @@ export type ViewPrivilege =
  *     [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantViewPrivileges extends CreateViewChange {
+export class GrantViewPrivileges extends AlterViewChange {
   public readonly view: View;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -95,7 +95,7 @@ export class GrantViewPrivileges extends CreateViewChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeViewPrivileges extends DropViewChange {
+export class RevokeViewPrivileges extends AlterViewChange {
   public readonly view: View;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -119,6 +119,8 @@ export class RevokeViewPrivileges extends DropViewChange {
   }
 
   get drops() {
+    // Return ACL ID for dependency tracking, even though this is an ALTER operation
+    // Phase assignment now uses operation type, so this won't affect phase placement
     return [stableId.acl(this.view.stableId, this.grantee)];
   }
 
@@ -150,7 +152,7 @@ export class RevokeViewPrivileges extends DropViewChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionViewPrivileges extends DropViewChange {
+export class RevokeGrantOptionViewPrivileges extends AlterViewChange {
   public readonly view: View;
   public readonly grantee: string;
   public readonly privilegeNames: string[];

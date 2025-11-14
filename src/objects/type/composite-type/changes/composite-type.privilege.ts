@@ -4,10 +4,7 @@ import {
 } from "../../../base.privilege.ts";
 import { stableId } from "../../../utils.ts";
 import type { CompositeType } from "../composite-type.model.ts";
-import {
-  CreateCompositeTypeChange,
-  DropCompositeTypeChange,
-} from "./composite-type.base.ts";
+import { AlterCompositeTypeChange } from "./composite-type.base.ts";
 
 export type CompositeTypePrivilege =
   | GrantCompositeTypePrivileges
@@ -27,7 +24,7 @@ export type CompositeTypePrivilege =
  *    [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantCompositeTypePrivileges extends CreateCompositeTypeChange {
+export class GrantCompositeTypePrivileges extends AlterCompositeTypeChange {
   public readonly compositeType: CompositeType;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -87,7 +84,7 @@ export class GrantCompositeTypePrivileges extends CreateCompositeTypeChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeCompositeTypePrivileges extends DropCompositeTypeChange {
+export class RevokeCompositeTypePrivileges extends AlterCompositeTypeChange {
   public readonly compositeType: CompositeType;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -108,6 +105,8 @@ export class RevokeCompositeTypePrivileges extends DropCompositeTypeChange {
   }
 
   get drops() {
+    // Return ACL ID for dependency tracking, even though this is an ALTER operation
+    // Phase assignment now uses operation type, so this won't affect phase placement
     return [stableId.acl(this.compositeType.stableId, this.grantee)];
   }
 
@@ -135,7 +134,7 @@ export class RevokeCompositeTypePrivileges extends DropCompositeTypeChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionCompositeTypePrivileges extends DropCompositeTypeChange {
+export class RevokeGrantOptionCompositeTypePrivileges extends AlterCompositeTypeChange {
   public readonly compositeType: CompositeType;
   public readonly grantee: string;
   public readonly privilegeNames: string[];

@@ -4,7 +4,7 @@ import {
 } from "../../base.privilege.ts";
 import { stableId } from "../../utils.ts";
 import type { Domain } from "../domain.model.ts";
-import { CreateDomainChange, DropDomainChange } from "./domain.base.ts";
+import { AlterDomainChange } from "./domain.base.ts";
 
 export type DomainPrivilege =
   | GrantDomainPrivileges
@@ -24,7 +24,7 @@ export type DomainPrivilege =
  *    [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantDomainPrivileges extends CreateDomainChange {
+export class GrantDomainPrivileges extends AlterDomainChange {
   public readonly domain: Domain;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -84,7 +84,7 @@ export class GrantDomainPrivileges extends CreateDomainChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeDomainPrivileges extends DropDomainChange {
+export class RevokeDomainPrivileges extends AlterDomainChange {
   public readonly domain: Domain;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -105,6 +105,8 @@ export class RevokeDomainPrivileges extends DropDomainChange {
   }
 
   get drops() {
+    // Return ACL ID for dependency tracking, even though this is an ALTER operation
+    // Phase assignment now uses operation type, so this won't affect phase placement
     return [stableId.acl(this.domain.stableId, this.grantee)];
   }
 
@@ -128,7 +130,7 @@ export class RevokeDomainPrivileges extends DropDomainChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionDomainPrivileges extends DropDomainChange {
+export class RevokeGrantOptionDomainPrivileges extends AlterDomainChange {
   public readonly domain: Domain;
   public readonly grantee: string;
   public readonly privilegeNames: string[];

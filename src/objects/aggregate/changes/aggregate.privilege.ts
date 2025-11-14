@@ -4,17 +4,14 @@ import {
 } from "../../base.privilege.ts";
 import { stableId } from "../../utils.ts";
 import type { Aggregate } from "../aggregate.model.ts";
-import {
-  CreateAggregateChange,
-  DropAggregateChange,
-} from "./aggregate.base.ts";
+import { AlterAggregateChange } from "./aggregate.base.ts";
 
 export type AggregatePrivilege =
   | GrantAggregatePrivileges
   | RevokeAggregatePrivileges
   | RevokeGrantOptionAggregatePrivileges;
 
-export class GrantAggregatePrivileges extends CreateAggregateChange {
+export class GrantAggregatePrivileges extends AlterAggregateChange {
   public readonly aggregate: Aggregate;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -61,7 +58,7 @@ export class GrantAggregatePrivileges extends CreateAggregateChange {
   }
 }
 
-export class RevokeAggregatePrivileges extends DropAggregateChange {
+export class RevokeAggregatePrivileges extends AlterAggregateChange {
   public readonly aggregate: Aggregate;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -82,6 +79,8 @@ export class RevokeAggregatePrivileges extends DropAggregateChange {
   }
 
   get drops() {
+    // Return ACL ID for dependency tracking, even though this is an ALTER operation
+    // Phase assignment now uses operation type, so this won't affect phase placement
     return [stableId.acl(this.aggregate.stableId, this.grantee)];
   }
 
@@ -104,7 +103,7 @@ export class RevokeAggregatePrivileges extends DropAggregateChange {
   }
 }
 
-export class RevokeGrantOptionAggregatePrivileges extends DropAggregateChange {
+export class RevokeGrantOptionAggregatePrivileges extends AlterAggregateChange {
   public readonly aggregate: Aggregate;
   public readonly grantee: string;
   public readonly privilegeNames: string[];

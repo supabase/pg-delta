@@ -49,7 +49,12 @@ export class CreateAggregate extends CreateAggregateChange {
     if (this.aggregate.final_function_extra_args) {
       clauses.push("FINALFUNC_EXTRA");
     }
-    if (this.aggregate.final_function_modify) {
+    // Only include FINALFUNC_MODIFY if it's explicitly set to a non-default value
+    // PostgreSQL defaults to 'r' (READ_ONLY) when not specified
+    if (
+      this.aggregate.final_function_modify &&
+      this.aggregate.final_function_modify !== "r"
+    ) {
       clauses.push(
         `FINALFUNC_MODIFY = ${formatModify(this.aggregate.final_function_modify)}`,
       );
@@ -104,7 +109,12 @@ export class CreateAggregate extends CreateAggregateChange {
     if (this.aggregate.moving_final_function_extra_args) {
       clauses.push("MFINALFUNC_EXTRA");
     }
-    if (this.aggregate.moving_final_function_modify) {
+    // Only include MFINALFUNC_MODIFY if it's explicitly set to a non-default value
+    // PostgreSQL defaults to 'r' (READ_ONLY) when not specified
+    if (
+      this.aggregate.moving_final_function_modify &&
+      this.aggregate.moving_final_function_modify !== "r"
+    ) {
       clauses.push(
         `MFINALFUNC_MODIFY = ${formatModify(this.aggregate.moving_final_function_modify)}`,
       );
@@ -134,13 +144,10 @@ export class CreateAggregate extends CreateAggregateChange {
     }
 
     const body = clauses.length
-      ? `(
-  ${clauses.join(",\n  ")}
-)`
+      ? `(${clauses.join(", ")})`
       : "()";
 
-    return `${head}
-${body}`;
+    return `${head} ${body}`;
   }
 }
 

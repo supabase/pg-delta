@@ -4,7 +4,7 @@ import {
 } from "../../../base.privilege.ts";
 import { stableId } from "../../../utils.ts";
 import type { Enum } from "../enum.model.ts";
-import { CreateEnumChange, DropEnumChange } from "./enum.base.ts";
+import { AlterEnumChange } from "./enum.base.ts";
 
 export type EnumPrivilege =
   | GrantEnumPrivileges
@@ -24,7 +24,7 @@ export type EnumPrivilege =
  *    [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantEnumPrivileges extends CreateEnumChange {
+export class GrantEnumPrivileges extends AlterEnumChange {
   public readonly enum: Enum;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -84,7 +84,7 @@ export class GrantEnumPrivileges extends CreateEnumChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeEnumPrivileges extends DropEnumChange {
+export class RevokeEnumPrivileges extends AlterEnumChange {
   public readonly enum: Enum;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -105,6 +105,8 @@ export class RevokeEnumPrivileges extends DropEnumChange {
   }
 
   get drops() {
+    // Return ACL ID for dependency tracking, even though this is an ALTER operation
+    // Phase assignment now uses operation type, so this won't affect phase placement
     return [stableId.acl(this.enum.stableId, this.grantee)];
   }
 
@@ -132,7 +134,7 @@ export class RevokeEnumPrivileges extends DropEnumChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionEnumPrivileges extends DropEnumChange {
+export class RevokeGrantOptionEnumPrivileges extends AlterEnumChange {
   public readonly enum: Enum;
   public readonly grantee: string;
   public readonly privilegeNames: string[];

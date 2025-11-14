@@ -323,7 +323,6 @@ export function diffTables(
               privileges,
               columns: group.columns,
               version: ctx.version,
-              privilegeDoesNotExist: true,
             }),
           );
         }

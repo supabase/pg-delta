@@ -4,7 +4,7 @@ import {
 } from "../../base.privilege.ts";
 import { stableId } from "../../utils.ts";
 import type { Language } from "../language.model.ts";
-import { CreateLanguageChange, DropLanguageChange } from "./language.base.ts";
+import { AlterLanguageChange } from "./language.base.ts";
 
 export type LanguagePrivilege =
   | GrantLanguagePrivileges
@@ -24,7 +24,7 @@ export type LanguagePrivilege =
  *    [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantLanguagePrivileges extends CreateLanguageChange {
+export class GrantLanguagePrivileges extends AlterLanguageChange {
   public readonly language: Language;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -83,7 +83,7 @@ export class GrantLanguagePrivileges extends CreateLanguageChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeLanguagePrivileges extends DropLanguageChange {
+export class RevokeLanguagePrivileges extends AlterLanguageChange {
   public readonly language: Language;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -104,6 +104,8 @@ export class RevokeLanguagePrivileges extends DropLanguageChange {
   }
 
   get drops() {
+    // Return ACL ID for dependency tracking, even though this is an ALTER operation
+    // Phase assignment now uses operation type, so this won't affect phase placement
     return [stableId.acl(this.language.stableId, this.grantee)];
   }
 
@@ -130,7 +132,7 @@ export class RevokeLanguagePrivileges extends DropLanguageChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionLanguagePrivileges extends DropLanguageChange {
+export class RevokeGrantOptionLanguagePrivileges extends AlterLanguageChange {
   public readonly language: Language;
   public readonly grantee: string;
   public readonly privilegeNames: string[];

@@ -1,6 +1,8 @@
+import type { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
+  filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
 import {
@@ -30,7 +32,7 @@ import type { Domain } from "./domain.model.ts";
 /**
  * Diff two sets of domains from main and branch catalogs.
  *
- * @param ctx - Context containing version information.
+ * @param ctx - Context containing version, currentUser, and defaultPrivilegeState
  * @param main - The domains in the main catalog.
  * @param branch - The domains in the branch catalog.
  * @returns A list of changes to apply to main to make it match branch.
@@ -38,8 +40,8 @@ import type { Domain } from "./domain.model.ts";
 export function diffDomains(
   ctx: {
     version: number;
-    currentUser?: string;
-    defaultPrivilegeState?: unknown;
+    currentUser: string;
+    defaultPrivilegeState: DefaultPrivilegeState;
   },
   main: Record<string, Domain>,
   branch: Record<string, Domain>,
@@ -70,6 +72,74 @@ export function diffDomains(
             }),
           );
         }
+      }
+    }
+
+    // PRIVILEGES: For created objects, compare against default privileges state
+    // The migration script will run ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
+    // so objects are created with the default privileges state in effect.
+    // We compare default privileges against desired privileges to generate REVOKE/GRANT statements
+    // needed to reach the final desired state.
+    const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
+      ctx.currentUser,
+      "domain",
+      newDomain.schema ?? "",
+    );
+    // Filter out PUBLIC's built-in default USAGE privilege (PostgreSQL grants it automatically)
+    // Reference: https://www.postgresql.org/docs/17/ddl-priv.html Table 5.2
+    // This prevents generating unnecessary "GRANT USAGE TO PUBLIC" statements
+    const desiredPrivileges = filterPublicBuiltInDefaults(
+      "domain",
+      newDomain.privileges,
+    );
+    const privilegeResults = diffPrivileges(
+      effectiveDefaults,
+      desiredPrivileges,
+    );
+
+    // Generate grant changes
+    for (const [grantee, result] of privilegeResults) {
+      if (result.grants.length > 0) {
+        const grantGroups = groupPrivilegesByGrantable(result.grants);
+        for (const [grantable, list] of grantGroups) {
+          void grantable;
+          changes.push(
+            new GrantDomainPrivileges({
+              domain: newDomain,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke changes
+      if (result.revokes.length > 0) {
+        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+        for (const [grantable, list] of revokeGroups) {
+          void grantable;
+          changes.push(
+            new RevokeDomainPrivileges({
+              domain: newDomain,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke grant option changes
+      if (result.revokeGrantOption.length > 0) {
+        changes.push(
+          new RevokeGrantOptionDomainPrivileges({
+            domain: newDomain,
+            grantee,
+            privilegeNames: result.revokeGrantOption,
+            version: ctx.version,
+          }),
+        );
       }
     }
   }

@@ -4,7 +4,7 @@ import {
 } from "../../base.privilege.ts";
 import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
-import { CreateSequenceChange, DropSequenceChange } from "./sequence.base.ts";
+import { AlterSequenceChange } from "./sequence.base.ts";
 
 export type SequencePrivilege =
   | GrantSequencePrivileges
@@ -26,7 +26,7 @@ export type SequencePrivilege =
  *     [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantSequencePrivileges extends CreateSequenceChange {
+export class GrantSequencePrivileges extends AlterSequenceChange {
   public readonly sequence: Sequence;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -88,7 +88,7 @@ export class GrantSequencePrivileges extends CreateSequenceChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeSequencePrivileges extends DropSequenceChange {
+export class RevokeSequencePrivileges extends AlterSequenceChange {
   public readonly sequence: Sequence;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -109,6 +109,8 @@ export class RevokeSequencePrivileges extends DropSequenceChange {
   }
 
   get drops() {
+    // Return ACL ID for dependency tracking, even though this is an ALTER operation
+    // Phase assignment now uses operation type, so this won't affect phase placement
     return [stableId.acl(this.sequence.stableId, this.grantee)];
   }
 
@@ -136,7 +138,7 @@ export class RevokeSequencePrivileges extends DropSequenceChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionSequencePrivileges extends DropSequenceChange {
+export class RevokeGrantOptionSequencePrivileges extends AlterSequenceChange {
   public readonly sequence: Sequence;
   public readonly grantee: string;
   public readonly privilegeNames: string[];

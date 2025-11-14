@@ -1,6 +1,8 @@
+import type { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
+  filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
@@ -30,7 +32,7 @@ import type { Procedure } from "./procedure.model.ts";
 /**
  * Diff two sets of procedures from main and branch catalogs.
  *
- * @param ctx - Context containing version information.
+ * @param ctx - Context containing version, currentUser, and defaultPrivilegeState
  * @param main - The procedures in the main catalog.
  * @param branch - The procedures in the branch catalog.
  * @returns A list of changes to apply to main to make it match branch.
@@ -38,8 +40,8 @@ import type { Procedure } from "./procedure.model.ts";
 export function diffProcedures(
   ctx: {
     version: number;
-    currentUser?: string;
-    defaultPrivilegeState?: unknown;
+    currentUser: string;
+    defaultPrivilegeState: DefaultPrivilegeState;
   },
   main: Record<string, Procedure>,
   branch: Record<string, Procedure>,
@@ -53,6 +55,74 @@ export function diffProcedures(
     changes.push(new CreateProcedure({ procedure: proc }));
     if (proc.comment !== null) {
       changes.push(new CreateCommentOnProcedure({ procedure: proc }));
+    }
+
+    // PRIVILEGES: For created objects, compare against default privileges state
+    // The migration script will run ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
+    // so objects are created with the default privileges state in effect.
+    // We compare default privileges against desired privileges to generate REVOKE/GRANT statements
+    // needed to reach the final desired state.
+    const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
+      ctx.currentUser,
+      "procedure",
+      proc.schema ?? "",
+    );
+    // Filter out PUBLIC's built-in default EXECUTE privilege (PostgreSQL grants it automatically)
+    // Reference: https://www.postgresql.org/docs/17/ddl-priv.html Table 5.2
+    // This prevents generating unnecessary "GRANT EXECUTE TO PUBLIC" statements
+    const desiredPrivileges = filterPublicBuiltInDefaults(
+      "procedure",
+      proc.privileges,
+    );
+    const privilegeResults = diffPrivileges(
+      effectiveDefaults,
+      desiredPrivileges,
+    );
+
+    // Generate grant changes
+    for (const [grantee, result] of privilegeResults) {
+      if (result.grants.length > 0) {
+        const grantGroups = groupPrivilegesByGrantable(result.grants);
+        for (const [grantable, list] of grantGroups) {
+          void grantable;
+          changes.push(
+            new GrantProcedurePrivileges({
+              procedure: proc,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke changes
+      if (result.revokes.length > 0) {
+        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+        for (const [grantable, list] of revokeGroups) {
+          void grantable;
+          changes.push(
+            new RevokeProcedurePrivileges({
+              procedure: proc,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke grant option changes
+      if (result.revokeGrantOption.length > 0) {
+        changes.push(
+          new RevokeGrantOptionProcedurePrivileges({
+            procedure: proc,
+            grantee,
+            privilegeNames: result.revokeGrantOption,
+            version: ctx.version,
+          }),
+        );
+      }
     }
   }
 

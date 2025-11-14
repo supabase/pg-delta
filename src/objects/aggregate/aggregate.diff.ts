@@ -2,6 +2,7 @@ import type { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
+  filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
@@ -23,8 +24,8 @@ import type { AggregateChange } from "./changes/aggregate.types.ts";
 export function diffAggregates(
   ctx: {
     version: number;
-    currentUser?: string;
-    defaultPrivilegeState?: DefaultPrivilegeState;
+    currentUser: string;
+    defaultPrivilegeState: DefaultPrivilegeState;
   },
   main: Record<string, Aggregate>,
   branch: Record<string, Aggregate>,
@@ -38,6 +39,72 @@ export function diffAggregates(
     changes.push(new CreateAggregate({ aggregate }));
     if (aggregate.comment !== null) {
       changes.push(new CreateCommentOnAggregate({ aggregate }));
+    }
+
+    // PRIVILEGES: For created objects, compare against default privileges state
+    // The migration script will run ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
+    // so objects are created with the default privileges state in effect.
+    // We compare default privileges against desired privileges to generate REVOKE/GRANT statements
+    // needed to reach the final desired state.
+    const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
+      ctx.currentUser,
+      "aggregate",
+      aggregate.schema ?? "",
+    );
+    // Filter out PUBLIC's built-in default EXECUTE privilege (PostgreSQL grants it automatically)
+    // Reference: https://www.postgresql.org/docs/17/ddl-priv.html Table 5.2
+    // This prevents generating unnecessary "GRANT EXECUTE TO PUBLIC" statements
+    const desiredPrivileges = filterPublicBuiltInDefaults(
+      "aggregate",
+      aggregate.privileges,
+    );
+    const privilegeResults = diffPrivileges(
+      effectiveDefaults,
+      desiredPrivileges,
+    );
+
+    // Generate grant changes
+    for (const [grantee, result] of privilegeResults) {
+      if (result.grants.length > 0) {
+        const grantGroups = groupPrivilegesByGrantable(result.grants);
+        for (const [, list] of grantGroups) {
+          changes.push(
+            new GrantAggregatePrivileges({
+              aggregate,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke changes
+      if (result.revokes.length > 0) {
+        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+        for (const [, list] of revokeGroups) {
+          changes.push(
+            new RevokeAggregatePrivileges({
+              aggregate,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke grant option changes
+      if (result.revokeGrantOption.length > 0) {
+        changes.push(
+          new RevokeGrantOptionAggregatePrivileges({
+            aggregate,
+            grantee,
+            privilegeNames: result.revokeGrantOption,
+            version: ctx.version,
+          }),
+        );
+      }
     }
   }
 

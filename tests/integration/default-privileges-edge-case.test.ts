@@ -8,6 +8,7 @@
  *    and not generate grants that would conflict with the user's intent
  */
 
+import dedent from "dedent";
 import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { roundtripFidelityTest } from "../integration/roundtrip.ts";
@@ -16,7 +17,7 @@ import { getTestIsolated } from "../utils.ts";
 for (const pgVersion of POSTGRES_VERSIONS) {
   const test = getTestIsolated(pgVersion);
 
-  describe(`default privileges edge case (pg${pgVersion})`, () => {
+  describe.concurrent(`default privileges edge case (pg${pgVersion})`, () => {
     test("table revoke a privilege that is granted by default", async ({
       db,
     }) => {
@@ -287,6 +288,307 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           // Note: Since ALTER DEFAULT PRIVILEGES runs before CREATE (via constraint spec),
           // both tables are created with final defaults (no anon), which matches the branch state.
           // No REVOKE statements are needed because the final state is already correct.
+        ],
+      });
+    });
+
+    test("view creation with anon role revocation should account for default privileges", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          -- Create Supabase roles
+          CREATE ROLE anon;
+          CREATE ROLE authenticated;
+          CREATE ROLE service_role;
+          
+          -- Set up default privileges for views
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+            GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
+        `,
+        testSql: `
+          -- User creates a view and explicitly revokes anon access
+          CREATE VIEW public.test_view AS SELECT 1 AS id;
+          
+          REVOKE ALL ON public.test_view FROM anon;
+        `,
+        expectedSqlTerms: [
+          "CREATE VIEW public.test_view AS SELECT 1 AS id",
+          "REVOKE DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.test_view FROM anon",
+        ],
+      });
+    });
+
+    test("sequence creation with anon role revocation should account for default privileges", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          -- Create Supabase roles
+          CREATE ROLE anon;
+          CREATE ROLE authenticated;
+          CREATE ROLE service_role;
+          
+          -- Set up default privileges for sequences
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+            GRANT ALL ON SEQUENCES TO postgres, anon, authenticated, service_role;
+        `,
+        testSql: `
+          -- User creates a sequence and explicitly revokes anon access
+          CREATE SEQUENCE public.test_seq;
+          
+          REVOKE ALL ON public.test_seq FROM anon;
+        `,
+        expectedSqlTerms: [
+          "CREATE SEQUENCE public.test_seq",
+          "REVOKE ALL ON SEQUENCE public.test_seq FROM anon",
+        ],
+      });
+    });
+
+    test("materialized view creation with anon role revocation should account for default privileges", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          -- Create Supabase roles
+          CREATE ROLE anon;
+          CREATE ROLE authenticated;
+          CREATE ROLE service_role;
+          
+          -- Set up default privileges for materialized views
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+            GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
+        `,
+        testSql: `
+          -- User creates a materialized view and explicitly revokes anon access
+          CREATE MATERIALIZED VIEW public.test_mv AS SELECT 1 AS id;
+          
+          REVOKE ALL ON public.test_mv FROM anon;
+        `,
+        expectedSqlTerms: [
+          "CREATE MATERIALIZED VIEW public.test_mv AS SELECT 1 AS id WITH DATA",
+          "REVOKE DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.test_mv FROM anon",
+        ],
+      });
+    });
+
+    test("procedure creation with anon role revocation should account for default privileges", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          -- Create Supabase roles
+          CREATE ROLE anon;
+          CREATE ROLE authenticated;
+          CREATE ROLE service_role;
+          
+          -- Set up default privileges for functions/procedures
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+            GRANT ALL ON FUNCTIONS TO postgres, anon, authenticated, service_role;
+        `,
+        testSql: dedent`
+          -- User creates a procedure and explicitly revokes anon access
+          CREATE PROCEDURE public.test_proc()
+          LANGUAGE sql
+          AS $$ SELECT 1; $$;
+          
+          REVOKE ALL ON PROCEDURE public.test_proc() FROM anon;
+        `,
+        expectedSqlTerms: [
+          "CREATE PROCEDURE public.test_proc()\n LANGUAGE sql\nAS $procedure$ SELECT 1; $procedure$",
+          "REVOKE ALL ON PROCEDURE public.test_proc() FROM anon",
+        ],
+      });
+    });
+
+    test("aggregate creation with anon role revocation should account for default privileges", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          -- Create Supabase roles
+          CREATE ROLE anon;
+          CREATE ROLE authenticated;
+          CREATE ROLE service_role;
+          
+          -- Set up default privileges for functions/aggregates
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+            GRANT ALL ON FUNCTIONS TO postgres, anon, authenticated, service_role;
+        `,
+        testSql: `
+          -- User creates an aggregate and explicitly revokes anon access
+          CREATE AGGREGATE public.test_agg(int) (
+            SFUNC = int4pl,
+            STYPE = int
+          );
+          
+          REVOKE ALL ON FUNCTION public.test_agg(int) FROM anon;
+        `,
+        expectedSqlTerms: [
+          "CREATE AGGREGATE public.test_agg(integer) (SFUNC = int4pl, STYPE = integer)",
+          "REVOKE ALL ON FUNCTION public.test_agg(integer) FROM anon",
+        ],
+      });
+    });
+
+    test("schema creation with anon role revocation should account for default privileges", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          -- Create Supabase roles
+          CREATE ROLE anon;
+          CREATE ROLE authenticated;
+          CREATE ROLE service_role;
+          
+          -- Set up default privileges for schemas (global, not schema-specific)
+          ALTER DEFAULT PRIVILEGES 
+            GRANT ALL ON SCHEMAS TO postgres, anon, authenticated, service_role;
+        `,
+        testSql: `
+          -- User creates a schema and explicitly revokes anon access
+          CREATE SCHEMA test_schema;
+          
+          REVOKE ALL ON SCHEMA test_schema FROM anon;
+        `,
+        expectedSqlTerms: [
+          "CREATE SCHEMA test_schema AUTHORIZATION postgres",
+          "REVOKE ALL ON SCHEMA test_schema FROM anon",
+        ],
+      });
+    });
+
+    test("domain creation with anon role revocation should account for default privileges", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          -- Create Supabase roles
+          CREATE ROLE anon;
+          CREATE ROLE authenticated;
+          CREATE ROLE service_role;
+          
+          -- Set up default privileges for types/domains
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+            GRANT ALL ON TYPES TO postgres, anon, authenticated, service_role;
+        `,
+        testSql: `
+          -- User creates a domain and explicitly revokes anon access
+          CREATE DOMAIN public.test_domain AS integer;
+          
+          REVOKE ALL ON DOMAIN public.test_domain FROM anon;
+        `,
+        expectedSqlTerms: [
+          "CREATE DOMAIN public.test_domain AS integer",
+          "REVOKE ALL ON DOMAIN public.test_domain FROM anon",
+        ],
+      });
+    });
+
+    test("enum creation with anon role revocation should account for default privileges", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          -- Create Supabase roles
+          CREATE ROLE anon;
+          CREATE ROLE authenticated;
+          CREATE ROLE service_role;
+          
+          -- Set up default privileges for types/enums
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+            GRANT ALL ON TYPES TO postgres, anon, authenticated, service_role;
+        `,
+        testSql: `
+          -- User creates an enum and explicitly revokes anon access
+          CREATE TYPE public.test_enum AS ENUM ('value1', 'value2');
+          
+          REVOKE ALL ON TYPE public.test_enum FROM anon;
+        `,
+        expectedSqlTerms: [
+          "CREATE TYPE public.test_enum AS ENUM ('value1', 'value2')",
+          "REVOKE ALL ON TYPE public.test_enum FROM anon",
+        ],
+      });
+    });
+
+    test("composite type creation with anon role revocation should account for default privileges", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          -- Create Supabase roles
+          CREATE ROLE anon;
+          CREATE ROLE authenticated;
+          CREATE ROLE service_role;
+          
+          -- Set up default privileges for types/composite types
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+            GRANT ALL ON TYPES TO postgres, anon, authenticated, service_role;
+        `,
+        testSql: `
+          -- User creates a composite type and explicitly revokes anon access
+          CREATE TYPE public.test_composite AS (
+            field1 integer,
+            field2 text
+          );
+          
+          REVOKE ALL ON TYPE public.test_composite FROM anon;
+        `,
+        expectedSqlTerms: [
+          "CREATE TYPE public.test_composite AS (field1 integer, field2 text)",
+          "REVOKE ALL ON TYPE public.test_composite FROM postgres",
+          "REVOKE ALL ON TYPE public.test_composite FROM anon",
+          "REVOKE ALL ON TYPE public.test_composite FROM authenticated",
+          "REVOKE ALL ON TYPE public.test_composite FROM service_role",
+        ],
+      });
+    });
+
+    test("range type creation with anon role revocation should account for default privileges", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          -- Create Supabase roles
+          CREATE ROLE anon;
+          CREATE ROLE authenticated;
+          CREATE ROLE service_role;
+          
+          -- Set up default privileges for types/range types
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+            GRANT ALL ON TYPES TO postgres, anon, authenticated, service_role;
+        `,
+        testSql: `
+          -- User creates a range type and explicitly revokes anon access
+          CREATE TYPE public.test_range AS RANGE (SUBTYPE = int4);
+          
+          REVOKE ALL ON TYPE public.test_range FROM anon;
+        `,
+        expectedSqlTerms: [
+          "CREATE TYPE public.test_range AS RANGE (SUBTYPE = integer)",
+          "REVOKE ALL ON TYPE public.test_range FROM anon",
         ],
       });
     });

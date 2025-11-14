@@ -4,7 +4,7 @@ import {
 } from "../../base.privilege.ts";
 import { stableId } from "../../utils.ts";
 import type { Schema } from "../schema.model.ts";
-import { CreateSchemaChange, DropSchemaChange } from "./schema.base.ts";
+import { AlterSchemaChange } from "./schema.base.ts";
 
 export type SchemaPrivilege =
   | GrantSchemaPrivileges
@@ -24,7 +24,7 @@ export type SchemaPrivilege =
  *    [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantSchemaPrivileges extends CreateSchemaChange {
+export class GrantSchemaPrivileges extends AlterSchemaChange {
   public readonly schema: Schema;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -84,7 +84,7 @@ export class GrantSchemaPrivileges extends CreateSchemaChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeSchemaPrivileges extends DropSchemaChange {
+export class RevokeSchemaPrivileges extends AlterSchemaChange {
   public readonly schema: Schema;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -105,6 +105,8 @@ export class RevokeSchemaPrivileges extends DropSchemaChange {
   }
 
   get drops() {
+    // Return ACL ID for dependency tracking, even though this is an ALTER operation
+    // Phase assignment now uses operation type, so this won't affect phase placement
     return [stableId.acl(this.schema.stableId, this.grantee)];
   }
 
@@ -132,7 +134,7 @@ export class RevokeSchemaPrivileges extends DropSchemaChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionSchemaPrivileges extends DropSchemaChange {
+export class RevokeGrantOptionSchemaPrivileges extends AlterSchemaChange {
   public readonly schema: Schema;
   public readonly grantee: string;
   public readonly privilegeNames: string[];

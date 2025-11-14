@@ -91,8 +91,11 @@ function sortChangesByPhasedGraph(
   };
 
   // Partition changes into execution phases.
+  // Use operation to determine phase, with drops.length as fallback for legacy cases.
+  // This ensures ALTER operations (including GRANT/REVOKE) go to create_alter phase,
+  // while ACL tracking via creates()/drops() continues to work for dependencies.
   for (const changeItem of changeList) {
-    if (changeItem.drops.length > 0) {
+    if (changeItem.operation === "drop" && changeItem.drops.length > 0) {
       changesByPhase.drop.push(changeItem);
     } else {
       changesByPhase.create_alter_object.push(changeItem);

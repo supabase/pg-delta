@@ -1,3 +1,4 @@
+import type { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
@@ -26,7 +27,7 @@ import type { View } from "./view.model.ts";
 /**
  * Diff two sets of views from main and branch catalogs.
  *
- * @param ctx - Context containing version information.
+ * @param ctx - Context containing version, currentUser, and defaultPrivilegeState
  * @param main - The views in the main catalog.
  * @param branch - The views in the branch catalog.
  * @returns A list of changes to apply to main to make it match branch.
@@ -34,8 +35,8 @@ import type { View } from "./view.model.ts";
 export function diffViews(
   ctx: {
     version: number;
-    currentUser?: string;
-    defaultPrivilegeState?: unknown;
+    currentUser: string;
+    defaultPrivilegeState: DefaultPrivilegeState;
   },
   main: Record<string, View>,
   branch: Record<string, View>,
@@ -49,6 +50,112 @@ export function diffViews(
     changes.push(new CreateView({ view: v }));
     if (v.comment !== null) {
       changes.push(new CreateCommentOnView({ view: v }));
+    }
+
+    // PRIVILEGES: For created objects, compare against default privileges state
+    // The migration script will run ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
+    // so objects are created with the default privileges state in effect.
+    // We compare default privileges against desired privileges to generate REVOKE/GRANT statements
+    // needed to reach the final desired state.
+    const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
+      ctx.currentUser,
+      "view",
+      v.schema ?? "",
+    );
+    const desiredPrivileges = v.privileges;
+    const privilegeResults = diffPrivileges(
+      effectiveDefaults,
+      desiredPrivileges,
+    );
+
+    // Generate grant changes
+    for (const [grantee, result] of privilegeResults) {
+      if (result.grants.length > 0) {
+        const grantGroups = groupPrivilegesByColumns(result.grants);
+        for (const [, group] of grantGroups) {
+          for (const [grantable, privSet] of group.byGrant) {
+            const privileges = Array.from(privSet).map((priv) => ({
+              privilege: priv,
+              grantable,
+            }));
+            changes.push(
+              new GrantViewPrivileges({
+                view: v,
+                grantee,
+                privileges,
+                columns: group.columns,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+      }
+
+      // Generate revoke changes
+      if (result.revokes.length > 0) {
+        const revokeGroups = groupPrivilegesByColumns(result.revokes);
+        for (const [, group] of revokeGroups) {
+          const allPrivileges = new Set<string>();
+          for (const [, privSet] of group.byGrant) {
+            for (const priv of privSet) {
+              allPrivileges.add(priv);
+            }
+          }
+          const privileges = Array.from(allPrivileges).map((priv) => ({
+            privilege: priv,
+            grantable: false,
+          }));
+          changes.push(
+            new RevokeViewPrivileges({
+              view: v,
+              grantee,
+              privileges,
+              columns: group.columns,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke grant option changes
+      if (result.revokeGrantOption.length > 0) {
+        const revokeGrantGroups = new Map<
+          string,
+          { columns?: string[]; privileges: Set<string> }
+        >();
+        for (const r of result.revokeGrantOption) {
+          // For revoke grant option, we need to find the columns from the effective defaults
+          const originalPriv = effectiveDefaults.find(
+            (p) => p.grantee === grantee && p.privilege === r,
+          );
+          const key = originalPriv?.columns
+            ? originalPriv.columns.sort().join(",")
+            : "";
+          if (!revokeGrantGroups.has(key)) {
+            revokeGrantGroups.set(key, {
+              columns: originalPriv?.columns
+                ? [...originalPriv.columns]
+                : undefined,
+              privileges: new Set(),
+            });
+          }
+          const group = revokeGrantGroups.get(key);
+          if (!group) continue;
+          group.privileges.add(r);
+        }
+        for (const [, group] of revokeGrantGroups) {
+          const privilegeNames = Array.from(group.privileges);
+          changes.push(
+            new RevokeGrantOptionViewPrivileges({
+              view: v,
+              grantee,
+              privilegeNames,
+              columns: group.columns,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
     }
   }
 
