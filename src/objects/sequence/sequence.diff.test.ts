@@ -107,7 +107,7 @@ describe.concurrent("sequence.diff", () => {
     // When the owning table is not in branch catalog (being dropped),
     // DROP SEQUENCE should not be generated (PostgreSQL auto-drops it)
     const changes = diffSequences(
-      { version: 170000 },
+      testContext,
       { [ownedSequence.stableId]: ownedSequence },
       {}, // branch has no sequences (sequence was auto-dropped)
       {}, // branch has no tables (table is being dropped)
@@ -126,7 +126,7 @@ describe.concurrent("sequence.diff", () => {
     // When the owning table still exists in branch catalog,
     // DROP SEQUENCE should be generated
     const changes = diffSequences(
-      { version: 170000 },
+      testContext,
       { [ownedSequence.stableId]: ownedSequence },
       {}, // branch has no sequences
       {
