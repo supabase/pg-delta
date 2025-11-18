@@ -1,8 +1,5 @@
-import {
-  parseProcedureReference,
-  stableId,
-} from "../../utils.ts";
 import type { TableLikeObject } from "../../base.model.ts";
+import { stableId } from "../../utils.ts";
 import type { Trigger } from "../trigger.model.ts";
 import { CreateTriggerChange } from "./trigger.base.ts";
 

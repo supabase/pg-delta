@@ -1,8 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
-import {
-  parseProcedureReference,
-  stableId,
-} from "../../utils.ts";
+import { parseProcedureReference, stableId } from "../../utils.ts";
 import type { EventTrigger } from "../event-trigger.model.ts";
 import { CreateEventTriggerChange } from "./event-trigger.base.ts";
 

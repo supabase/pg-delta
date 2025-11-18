@@ -1,7 +1,4 @@
-import {
-  isUserDefinedTypeSchema,
-  stableId,
-} from "../../utils.ts";
+import { isUserDefinedTypeSchema, stableId } from "../../utils.ts";
 import type { Table } from "../table.model.ts";
 import { CreateTableChange } from "./table.base.ts";
 

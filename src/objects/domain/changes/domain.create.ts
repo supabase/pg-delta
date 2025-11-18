@@ -1,8 +1,4 @@
-import {
-  isUserDefinedTypeSchema,
-  parseTypeString,
-  stableId,
-} from "../../utils.ts";
+import { isUserDefinedTypeSchema, stableId } from "../../utils.ts";
 import type { Domain } from "../domain.model.ts";
 import { CreateDomainChange } from "./domain.base.ts";
 
@@ -63,9 +59,7 @@ export class CreateDomain extends CreateDomainChange {
       if (collationParts.length === 2) {
         const [collationSchema, collationName] = collationParts;
         if (isUserDefinedTypeSchema(collationSchema)) {
-          dependencies.add(
-            stableId.collation(collationSchema, collationName),
-          );
+          dependencies.add(stableId.collation(collationSchema, collationName));
         }
       }
     }

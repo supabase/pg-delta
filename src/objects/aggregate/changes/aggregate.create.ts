@@ -1,6 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
 import {
-  isUserDefinedTypeSchema,
   parseProcedureReference,
   parseTypeString,
   stableId,
@@ -55,9 +54,7 @@ export class CreateAggregate extends CreateAggregateChange {
 
     // Final function dependency
     if (this.aggregate.final_function) {
-      const finalProc = parseProcedureReference(
-        this.aggregate.final_function,
-      );
+      const finalProc = parseProcedureReference(this.aggregate.final_function);
       if (finalProc) {
         dependencies.add(
           `procedure:${finalProc.schema}.${finalProc.name}()` as string,
@@ -153,9 +150,7 @@ export class CreateAggregate extends CreateAggregateChange {
     if (this.aggregate.return_type_schema) {
       const returnType = parseTypeString(this.aggregate.return_type);
       if (returnType) {
-        dependencies.add(
-          stableId.type(returnType.schema, returnType.name),
-        );
+        dependencies.add(stableId.type(returnType.schema, returnType.name));
       }
     }
 

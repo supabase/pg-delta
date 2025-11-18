@@ -93,9 +93,7 @@ export function isUserDefinedTypeSchema(
   schema: string | null | undefined,
 ): boolean {
   return (
-    schema != null &&
-    schema !== "pg_catalog" &&
-    schema !== "information_schema"
+    schema != null && schema !== "pg_catalog" && schema !== "information_schema"
   );
 }
 

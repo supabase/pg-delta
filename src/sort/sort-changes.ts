@@ -1,40 +1,25 @@
 /**
  * Phased dependency-graph sort for ordered schema changes.
  *
- * We split incoming `Change` instances into two execution phases that mirror how
- * PostgreSQL applies DDL: destructive operations (`drop`) and all remaining
- * changes (`create_alter_object`). Metadata and privilege statements rely on
- * their declared dependencies to run after the structural work in the combined
- * phase.
+ * Changes are split into two execution phases:
+ * - `drop`: Destructive operations (executed first, in reverse dependency order)
+ * - `create_alter_object`: All remaining changes (executed second, in forward dependency order)
  *
- * Within each phase we:
- *   1. Collect dependency edges from pg_depend for the relevant catalog snapshot.
- *   2. Map those dependency edges onto the `Change` objects based on their
- *      `creates`/`requires` stable ids (with optional `drops()` hooks coming from
- *      the change implementations).
- *   3. Add any extra ordering constraints provided by `constraintSpecs`.
- *   4. Execute a stable topological sort to preserve the user's submission order
- *      whenever dependencies do not dictate a stricter ordering.
- *
- * This approach keeps the algorithm aligned with PostgreSQL's dependency system,
- * avoiding brittle hand-maintained priority tables while still giving us hooks for
- * targeted overrides (for example, column-level ordering on a table).
+ * Within each phase, changes are sorted using Constraints derived from:
+ * - Catalog dependencies (from pg_depend)
+ * - Explicit requirements (from Change.requires)
+ * - Constraint specs (custom change-to-change ordering rules)
  */
 
 import type { Catalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
-import {
-  GrantRoleDefaultPrivileges,
-  RevokeRoleDefaultPrivileges,
-} from "../objects/role/changes/role.privilege.ts";
-import { convertConstraintSpecsToUnifiedDependencies } from "./constraint-specs.ts";
+import { generateCustomConstraints } from "./constraint-specs.ts";
 import { printDebugGraph } from "./debug-visualization.ts";
-import { filterUnifiedDependencies } from "./dependency-filter.ts";
 import {
-  buildEdgesFromUnifiedDependencies,
   buildGraphData,
-  convertCatalogDependencies,
-  convertExplicitRequirements,
+  convertCatalogDependenciesToConstraints,
+  convertConstraintsToEdges,
+  convertExplicitRequirementsToConstraints,
 } from "./graph-builder.ts";
 import {
   dedupeEdges,
@@ -42,7 +27,7 @@ import {
   formatCycleError,
   performStableTopologicalSort,
 } from "./topological-sort.ts";
-import type { ConstraintSpec, PgDependRow, PhaseSortOptions } from "./types.ts";
+import type { PgDependRow, PhaseSortOptions } from "./types.ts";
 
 /**
  * Sorting phases aligning with execution semantics.
@@ -114,11 +99,7 @@ function getExecutionPhase(change: Change): Phase {
 }
 
 /**
- * High-level sort function that applies custom ordering constraints.
- *
- * This function encapsulates domain-specific ordering rules that supplement
- * the dependency graph. These constraints handle cases where the dependency
- * system alone isn't sufficient to determine the correct execution order.
+ * Sort changes using dependency information from catalogs and custom constraint specs.
  *
  * @param catalogs - Main and branch catalogs containing dependency information
  * @param changes - List of Change objects to order
@@ -128,50 +109,20 @@ export function sortChanges(
   catalogs: { mainCatalog: Catalog; branchCatalog: Catalog },
   changes: Change[],
 ): Change[] {
-  // Ensure ALTER DEFAULT PRIVILEGES comes before CREATE statements in the final migration
-  // The dependency system handles role/schema dependencies automatically
-  // Privilege changes for CREATE statements are now generated during diffing using
-  // the default privileges state computed from role changes
-  const constraintSpecs: ConstraintSpec<Change>[] = [
-    {
-      pairwise: (a: Change, b: Change) => {
-        const aIsDefaultPriv =
-          a instanceof GrantRoleDefaultPrivileges ||
-          a instanceof RevokeRoleDefaultPrivileges;
-        const bIsCreate = b.operation === "create" && b.scope === "object";
-
-        // Exclude CREATE ROLE and CREATE SCHEMA from the constraint since they are
-        // dependencies of ALTER DEFAULT PRIVILEGES and must come before it
-        const bIsRoleOrSchema =
-          bIsCreate && (b.objectType === "role" || b.objectType === "schema");
-
-        // Default privilege changes should come before CREATE statements
-        // (but not CREATE ROLE or CREATE SCHEMA, which are dependencies)
-        // Note: pairwise is called for both (a,b) and (b,a), so we only need to check one direction
-        if (aIsDefaultPriv && bIsCreate && !bIsRoleOrSchema) {
-          return "a_before_b";
-        }
-        return undefined;
-      },
-    },
-  ];
-
   return sortChangesByPhasedGraph(
     {
       mainCatalog: { depends: catalogs.mainCatalog.depends },
       branchCatalog: { depends: catalogs.branchCatalog.depends },
     },
     changes,
-    constraintSpecs,
   );
 }
 
 /**
- * Sort a set of changes by phases, using dependency graphs in each phase.
+ * Sort changes by phases, using dependency information in each phase.
  *
  * @param catalogContext - pg_depend rows from the main and branch catalogs
  * @param changeList - list of Change objects to order
- * @param constraintSpecs - optional additional edge providers
  * @returns ordered list of Change objects
  */
 function sortChangesByPhasedGraph(
@@ -180,94 +131,74 @@ function sortChangesByPhasedGraph(
     branchCatalog: { depends: PgDependRow[] };
   },
   changeList: Change[],
-  constraintSpecs: ConstraintSpec<Change>[] = [],
 ): Change[] {
   const changesByPhase: Record<Phase, Change[]> = {
     drop: [],
     create_alter_object: [],
   };
 
-  // Partition changes into execution phases.
-  // The sorting algorithm determines phases by inspecting change properties,
-  // keeping Change classes unaware of sorting implementation details.
+  // Partition changes into execution phases
   for (const changeItem of changeList) {
     const phase = getExecutionPhase(changeItem);
     changesByPhase[phase].push(changeItem);
   }
 
-  // Phase 1: DROP — reverse dependency order, using dependencies from the main catalog.
+  // Sort DROP phase: reverse dependency order using main catalog dependencies
   const sortedDropPhase = sortPhaseChanges(
     changesByPhase.drop,
     catalogContext.mainCatalog.depends,
     { invert: true },
-    constraintSpecs,
   );
 
-  // Phase 2: CREATE/ALTER object definitions — forward order using the branch catalog.
+  // Sort CREATE/ALTER phase: forward dependency order using branch catalog dependencies
   const sortedCreateAlterPhase = sortPhaseChanges(
     changesByPhase.create_alter_object,
     catalogContext.branchCatalog.depends,
     {},
-    constraintSpecs,
   );
 
   return [...sortedDropPhase, ...sortedCreateAlterPhase];
 }
 
 /**
- * Build the per-phase graph from catalog edges and optional constraint specs, then
- * run a stable topological sort.
+ * Sort changes within a phase using Constraints derived from all dependency sources.
  *
- * The algorithm follows these clear steps:
- * 1. Unify all sources of dependency information into a single format
- * 2. Filter the unified dependencies to prevent potential cycles
- * 3. Build edges from the filtered unified dependencies
+ * Algorithm:
+ * 1. Build graph data (change sets and reverse indexes)
+ * 2. Convert all sources to Constraints (catalog, explicit, constraint specs)
+ * 3. Convert Constraints to edges
  * 4. Topologically sort the graph
  *
- * In DROP phase, edges are inverted so drops run opposite to creation order.
+ * In DROP phase, edges are inverted so drops run in reverse dependency order.
  */
 function sortPhaseChanges(
   phaseChanges: Change[],
   dependencyRows: PgDependRow[],
   options: PhaseSortOptions = {},
-  constraintSpecs: ConstraintSpec<Change>[] = [],
 ): Change[] {
   if (phaseChanges.length <= 1) return phaseChanges;
 
-  // Step 1: Build graph data structures (needed for filtering and building edges)
-  // This builds change sets and reverse indexes from the changes, which are needed by both
-  // the filter (for findConsumerIndexes) and edge building logic
+  // Step 1: Build graph data structures
   const graphData = buildGraphData(phaseChanges, options);
 
-  // Step 2: Unify all sources of dependency information into a single format
-  // - Catalog dependencies (from pg_depend)
-  // - Explicit requirements (from Change.requires)
-  // - Constraint specs (change-to-change ordering rules)
-  const catalogDeps = convertCatalogDependencies(dependencyRows);
-  const explicitDeps = convertExplicitRequirements(
-    phaseChanges,
-    graphData.createdStableIdSets,
-    graphData.explicitRequirementSets,
-  );
-  const constraintDeps = convertConstraintSpecsToUnifiedDependencies(
-    phaseChanges,
-    constraintSpecs,
-  );
-  const allUnifiedDependencies = [
-    ...catalogDeps,
-    ...explicitDeps,
-    ...constraintDeps,
-  ];
-
-  // Step 3: Filter unified dependencies to prevent potential cycles
-  // This removes unknown dependencies, sequence ownership cycles, etc.
-  const filteredDependencies = filterUnifiedDependencies(
-    allUnifiedDependencies,
+  // Step 2: Convert all sources to Constraints
+  const catalogConstraints = convertCatalogDependenciesToConstraints(
+    dependencyRows,
     phaseChanges,
     graphData,
   );
+  const explicitConstraints = convertExplicitRequirementsToConstraints(
+    phaseChanges,
+    graphData,
+  );
+  const customConstraintObjects = generateCustomConstraints(phaseChanges);
+  const allConstraints = [
+    ...catalogConstraints,
+    ...explicitConstraints,
+    ...customConstraintObjects,
+  ];
 
-  // Step 4: Build edges from filtered unified dependencies
+  // Step 3: Convert constraints to edges
   const graphEdges: Array<[number, number]> = [];
   const registerEdge = (sourceIndex: number, targetIndex: number) => {
     if (sourceIndex === targetIndex) return;
@@ -276,36 +207,27 @@ function sortPhaseChanges(
     );
   };
 
-  buildEdgesFromUnifiedDependencies(
-    {
-      changeIndexesByCreatedId: graphData.changeIndexesByCreatedId,
-      changeIndexesByExplicitRequirementId:
-        graphData.changeIndexesByExplicitRequirementId,
-      createdStableIdSets: graphData.createdStableIdSets,
-      explicitRequirementSets: graphData.explicitRequirementSets,
-      registerEdge,
-    },
-    filteredDependencies,
-    phaseChanges,
-  );
+  convertConstraintsToEdges(allConstraints, registerEdge);
 
-  // Step 5: Deduplicate edges and perform stable topological sort
+  // Step 4: Deduplicate edges and perform stable topological sort
   const deduplicatedEdges = dedupeEdges(graphEdges);
   const topologicalOrder = performStableTopologicalSort(
     phaseChanges.length,
     deduplicatedEdges,
   );
 
-  // Debug visualization (builds debug-only data just-in-time)
-  printDebugGraph(
-    phaseChanges,
-    graphData,
-    deduplicatedEdges,
-    dependencyRows,
-    allUnifiedDependencies,
-  );
+  if (process.env.GRAPH_DEBUG) {
+    // Debug visualization
+    printDebugGraph(
+      phaseChanges,
+      graphData,
+      deduplicatedEdges,
+      dependencyRows,
+      allConstraints,
+    );
+  }
 
-  // Step 6: Validate no cycles exist
+  // Step 5: Validate no cycles exist
   if (!topologicalOrder || topologicalOrder.length !== phaseChanges.length) {
     const cycleNodeIndexes = findCycle(phaseChanges.length, deduplicatedEdges);
     if (cycleNodeIndexes) {

@@ -1,7 +1,4 @@
-import {
-  parseProcedureReference,
-  stableId,
-} from "../../utils.ts";
+import { parseProcedureReference, stableId } from "../../utils.ts";
 import type { Language } from "../language.model.ts";
 import { CreateLanguageChange } from "./language.base.ts";
 
@@ -63,9 +60,7 @@ export class CreateLanguage extends CreateLanguageChange {
 
     // Validator function dependency
     if (this.language.validator) {
-      const validatorProc = parseProcedureReference(
-        this.language.validator,
-      );
+      const validatorProc = parseProcedureReference(this.language.validator);
       if (validatorProc) {
         dependencies.add(
           `procedure:${validatorProc.schema}.${validatorProc.name}()` as string,

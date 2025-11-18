@@ -1,8 +1,4 @@
-import {
-  isUserDefinedTypeSchema,
-  parseTypeString,
-  stableId,
-} from "../../utils.ts";
+import { parseTypeString, stableId } from "../../utils.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { CreateProcedureChange } from "./procedure.base.ts";
 

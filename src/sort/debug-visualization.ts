@@ -1,6 +1,6 @@
 import type { Change } from "../change.types.ts";
 import { findCycle } from "./topological-sort.ts";
-import type { GraphData, PgDependRow, UnifiedDependency } from "./types.ts";
+import type { Constraint, GraphData, PgDependRow } from "./types.ts";
 
 /**
  * Generate a Mermaid diagram representation of the dependency graph for debugging.
@@ -87,62 +87,39 @@ function generateMermaidDiagram(
 }
 
 /**
- * Build requirementSets from explicit requirements and dependencies (for debug visualization).
+ * Build requirementSets from explicit requirements and constraints (for debug visualization).
  *
- * This reconstructs what requirements were inferred from dependencies by looking at
- * the dependencies that were processed. Only processes stable_id dependencies, as
- * change-to-change constraints don't affect requirement sets.
+ * This reconstructs what requirements were inferred from constraints by looking at
+ * the constraints that were processed. Only processes catalog/explicit constraints,
+ * as constraint specs don't affect requirement sets.
  */
 function buildRequirementSets(
   explicitRequirementSets: Array<Set<string>>,
-  dependencies: UnifiedDependency[],
+  constraints: Constraint[],
   changeIndexesByCreatedId: Map<string, Set<number>>,
-  changeIndexesByExplicitRequirementId: Map<string, Set<number>>,
+  _changeIndexesByExplicitRequirementId: Map<string, Set<number>>,
 ): Array<Set<string>> {
   // Start with explicit requirements
   const requirementSets: Array<Set<string>> = explicitRequirementSets.map(
     (explicitRequirements) => new Set<string>(explicitRequirements),
   );
 
-  // Add requirements inferred from stable_id dependencies
-  // For each dependency, if the referenced ID is created by some change,
-  // then the consumers of the dependent ID require the referenced ID
-  for (const dependency of dependencies) {
-    // Only process stable_id dependencies (change-to-change constraints don't affect requirements)
-    if (dependency.type !== "stable_id") continue;
+  // Add requirements inferred from catalog/explicit constraints
+  // For each constraint with a reason, if the referenced ID is created by some change,
+  // then the target change requires the referenced ID
+  for (const constraint of constraints) {
+    // Only process catalog/explicit constraints (constraint specs don't affect requirements)
+    if (constraint.source === "constraint_spec" || !constraint.reason) continue;
 
     const referencedProducers = changeIndexesByCreatedId.get(
-      dependency.referenced_stable_id,
+      constraint.reason.referencedStableId,
     );
     if (!referencedProducers || referencedProducers.size === 0) continue;
 
-    // Find consumers of the dependent ID (changes that create or require it)
-    const consumers = new Set<number>();
-
-    // Consumers that explicitly require the dependent ID
-    const explicitConsumers = changeIndexesByExplicitRequirementId.get(
-      dependency.dependent_stable_id,
+    // The target change requires the referenced stable ID
+    requirementSets[constraint.targetChangeIndex].add(
+      constraint.reason.referencedStableId,
     );
-    if (explicitConsumers) {
-      for (const idx of explicitConsumers) {
-        consumers.add(idx);
-      }
-    }
-
-    // Consumers that create the dependent ID
-    const creatingConsumers = changeIndexesByCreatedId.get(
-      dependency.dependent_stable_id,
-    );
-    if (creatingConsumers) {
-      for (const idx of creatingConsumers) {
-        consumers.add(idx);
-      }
-    }
-
-    // Add the referenced ID to requirement sets of all consumers
-    for (const consumerIndex of consumers) {
-      requirementSets[consumerIndex].add(dependency.referenced_stable_id);
-    }
   }
 
   return requirementSets;
@@ -229,15 +206,13 @@ export function printDebugGraph(
   graphData: GraphData,
   edges: Array<[number, number]>,
   dependencyRows: PgDependRow[],
-  dependencies: UnifiedDependency[],
+  constraints: Constraint[],
 ): void {
-  if (!process.env.GRAPH_DEBUG) return;
-
   try {
     // Build debug-only data structures just-in-time
     const requirementSets = buildRequirementSets(
       graphData.explicitRequirementSets,
-      dependencies,
+      constraints,
       graphData.changeIndexesByCreatedId,
       graphData.changeIndexesByExplicitRequirementId,
     );

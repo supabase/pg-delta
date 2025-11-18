@@ -1,8 +1,4 @@
-import {
-  isUserDefinedTypeSchema,
-  parseTypeString,
-  stableId,
-} from "../../../utils.ts";
+import { isUserDefinedTypeSchema, stableId } from "../../../utils.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 import { CreateCompositeTypeChange } from "./composite-type.base.ts";
 

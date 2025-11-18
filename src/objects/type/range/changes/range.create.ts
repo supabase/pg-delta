@@ -1,7 +1,6 @@
 import {
   isUserDefinedTypeSchema,
   parseProcedureReference,
-  parseTypeString,
   stableId,
 } from "../../../utils.ts";
 import type { Range } from "../range.model.ts";
@@ -76,10 +75,7 @@ export class CreateRange extends CreateRangeChange {
     }
 
     // Subtype diff function dependency
-    if (
-      this.range.subtype_diff_schema &&
-      this.range.subtype_diff_name
-    ) {
+    if (this.range.subtype_diff_schema && this.range.subtype_diff_name) {
       const procRef = parseProcedureReference(
         `${this.range.subtype_diff_schema}.${this.range.subtype_diff_name}()`,
       );
@@ -97,9 +93,7 @@ export class CreateRange extends CreateRangeChange {
       if (collationParts.length === 2) {
         const [collationSchema, collationName] = collationParts;
         if (isUserDefinedTypeSchema(collationSchema)) {
-          dependencies.add(
-            stableId.collation(collationSchema, collationName),
-          );
+          dependencies.add(stableId.collation(collationSchema, collationName));
         }
       }
     }

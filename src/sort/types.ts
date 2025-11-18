@@ -22,82 +22,57 @@ export type PgDependRow = {
 };
 
 /**
- * Unified dependency format that represents all sources of dependency information.
+ * Constraint representing that one change must come before another.
  *
- * This format unifies:
- * - Stable ID dependencies (from catalog and explicit requirements)
- * - Change-to-change constraints (from constraint specs)
- *
- * All dependency sources are converted to this format before filtering and edge building.
+ * Unified abstraction for all ordering requirements:
+ * - Catalog dependencies (from pg_depend) → Constraints
+ * - Explicit requirements (from Change.requires) → Constraints
+ * - Constraint specs (change-to-change rules) → Constraints
  */
-export type UnifiedDependency =
-  | {
-      /** Stable ID-based dependency */
-      type: "stable_id";
-      /** Object that depends on `referenced_stable_id`. */
-      dependent_stable_id: string;
-      /** Object being depended upon. */
-      referenced_stable_id: string;
-      /**
-       * Source of the dependency.
-       * - "catalog": From pg_depend (PostgreSQL catalog)
-       * - "explicit": From explicit requires declarations in Change objects
-       */
-      source: "catalog" | "explicit";
-    }
-  | {
-      /** Change-to-change constraint */
-      type: "change";
-      /** Index of the change that must come first. */
-      dependent_index: number;
-      /** Index of the change that must come after. */
-      referenced_index: number;
-      /** Source is always "constraint" for change-to-change dependencies */
-      source: "constraint";
-    };
-
-/**
- * Pairwise decision for additional constraint edges.
- */
-type PairwiseOrder = "a_before_b" | "b_before_a";
-
-/**
- * Edge formats for custom constraints.
- */
-type EdgeIndices = [number, number];
-type EdgeObjects<TChange> = { from: TChange; to: TChange };
-export type Edge<TChange> = EdgeIndices | EdgeObjects<TChange>;
-
-/**
- * ConstraintSpec allows injecting additional ordering constraints per phase.
- *
- * - filter: limit which changes are considered by this spec
- * - groupBy: (optional) partition the filtered set; edges are applied within groups
- * - buildEdges: add explicit edges among items
- * - pairwise: compare two items and produce an ordering decision
- */
-export interface ConstraintSpec<TChange extends Change> {
-  filter?:
-    | Partial<Pick<Change, "operation" | "objectType" | "scope">>
-    | ((change: Change) => boolean); // default: entire phase
-  groupBy?: (item: TChange) => string | null | undefined; // optional grouping key
-  buildEdges?: (items: TChange[]) => Edge<TChange>[]; // edges within the filtered group(s)
-  pairwise?: (a: TChange, b: TChange) => PairwiseOrder | undefined; // pairwise ordering
+export interface Constraint {
+  /** Index of the change that must come first */
+  sourceChangeIndex: number;
+  /** Index of the change that must come after */
+  targetChangeIndex: number;
+  /** Where this constraint came from */
+  source: "catalog" | "explicit" | "constraint_spec";
+  /**
+   * Why this constraint exists (for catalog/explicit sources).
+   * Represents the stable ID dependency that led to this change-to-change constraint.
+   */
+  reason?: {
+    /** The stable ID that depends on referencedStableId */
+    dependentStableId: string;
+    /** The stable ID being depended upon */
+    referencedStableId: string;
+  };
+  /** Optional description for custom constraints */
+  description?: string;
 }
 
 /**
- * Options for phase sorting.
+ * Pairwise ordering decision for two changes.
  */
+export type PairwiseOrder = "a_before_b" | "b_before_a";
+
+/**
+ * Custom constraint that decides ordering between two changes.
+ *
+ * Takes two changes and returns whether a should come before b, b should come before a,
+ * or undefined if there's no ordering constraint between them.
+ */
+export type CustomConstraint = (
+  a: Change,
+  b: Change,
+) => PairwiseOrder | undefined;
+
 export interface PhaseSortOptions {
   /** If true, invert edges so drops run in reverse dependency order. */
   invert?: boolean;
 }
 
 /**
- * Data structures for building the dependency graph.
- *
- * Note: requirementSets and dependenciesByReferencedId are only needed for debug visualization
- * and are built just-in-time in the debug function.
+ * Graph data structures for converting dependencies to Constraints.
  */
 export interface GraphData {
   /** Maps each change index to the set of stable IDs it creates. */
@@ -108,21 +83,4 @@ export interface GraphData {
   changeIndexesByCreatedId: Map<string, Set<number>>;
   /** Maps a stable ID to the set of change indices that explicitly require it. */
   changeIndexesByExplicitRequirementId: Map<string, Set<number>>;
-}
-
-/**
- * Context for building edges from dependencies.
- * Contains all the data structures and callbacks needed for edge building.
- */
-export interface EdgeBuildingContext {
-  /** Maps a stable ID to the set of change indices that create it. */
-  changeIndexesByCreatedId: Map<string, Set<number>>;
-  /** Maps a stable ID to the set of change indices that explicitly require it. */
-  changeIndexesByExplicitRequirementId: Map<string, Set<number>>;
-  /** Maps each change index to the set of stable IDs it creates. */
-  createdStableIdSets: Array<Set<string>>;
-  /** Maps each change index to the set of stable IDs it explicitly requires. */
-  explicitRequirementSets: Array<Set<string>>;
-  /** Callback to register an edge from source to target. */
-  registerEdge: (sourceIndex: number, targetIndex: number) => void;
 }

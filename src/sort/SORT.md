@@ -67,13 +67,27 @@ The algorithm operates in **two phases** that mirror how PostgreSQL applies DDL:
 
 ## Phase Partitioning
 
-Changes are partitioned based on whether they have a `drops` array:
+Changes are partitioned using `getExecutionPhase()` which inspects change properties:
 
 ```typescript
-if (change.drops.length > 0) {
-  // → DROP phase (inverted edges)
-} else {
-  // → CREATE/ALTER phase (forward edges)
+function getExecutionPhase(change: Change): Phase {
+  // DROP operations → drop phase
+  if (change.operation === "drop") return "drop";
+  
+  // CREATE operations → create_alter_object phase
+  if (change.operation === "create") return "create_alter_object";
+  
+  // ALTER operations:
+  // - scope="privilege" → create_alter_object phase (metadata)
+  // - drops actual objects (not metadata) → drop phase (destructive)
+  // - doesn't drop objects → create_alter_object phase (non-destructive)
+  if (change.operation === "alter") {
+    if (change.scope === "privilege") return "create_alter_object";
+    const dropsObjects = change.drops?.some(id => !isMetadataStableId(id));
+    return dropsObjects ? "drop" : "create_alter_object";
+  }
+  
+  return "create_alter_object"; // default
 }
 ```
 
@@ -81,12 +95,12 @@ if (change.drops.length > 0) {
 
 ```
 Input Changes:
-  [DropTable(users), CreateTable(posts), DropView(old_view), 
-   CreateRole(admin), AlterTable(users)]
+  [DropTable(users), CreateTable(posts), AlterTableDropColumn(users), 
+   CreateRole(admin), AlterTableAddColumn(users)]
 
 Partitioned:
-  DROP Phase:     [DropTable(users), DropView(old_view)]
-  CREATE/ALTER:   [CreateTable(posts), CreateRole(admin), AlterTable(users)]
+  DROP Phase:     [DropTable(users), AlterTableDropColumn(users)]
+  CREATE/ALTER:   [CreateTable(posts), CreateRole(admin), AlterTableAddColumn(users)]
 ```
 
 ## Dependency Graph Construction
@@ -97,7 +111,7 @@ For each phase, we build a **directed acyclic graph (DAG)** where:
 
 ### Graph Data Structures
 
-The algorithm builds several data structures to efficiently map between changes and stable IDs:
+The algorithm builds data structures to efficiently map between changes and stable IDs:
 
 ```typescript
 GraphData {
@@ -122,19 +136,15 @@ GraphData {
     ...
   }
   
-  // Reverse index: which changes require a given stable ID?
+  // Reverse index: which changes explicitly require a given stable ID?
   changeIndexesByExplicitRequirementId: {
     "role:admin" → Set{1, 3},
     ...
   }
-  
-  // From pg_depend: what depends on what?
-  dependenciesByReferencedId: {
-    "table:public.users" → Set{"table:public.posts"},
-    ...
-  }
 }
 ```
+
+Note: `dependenciesByReferencedId` is only built for debug visualization, not part of the main `GraphData` structure.
 
 ### Stable IDs
 
@@ -162,13 +172,31 @@ class CreateTable extends Change {
 }
 ```
 
-## Edge Sources
+## Constraint-Based Architecture
 
-The dependency graph is built from **three sources of edges**:
+The algorithm uses a unified **Constraint** abstraction to represent all ordering requirements. All dependency sources are converted to Constraints, then Constraints are converted to graph edges.
 
-### 1. pg_depend Catalog Rows
+### Constraint Interface
 
-PostgreSQL's `pg_depend` catalog tracks object dependencies. We extract these and map them to changes:
+```typescript
+interface Constraint {
+  sourceChangeIndex: number;  // Change that must come first
+  targetChangeIndex: number;  // Change that must come after
+  source: "catalog" | "explicit" | "constraint_spec";
+  reason?: {
+    dependentStableId: string;
+    referencedStableId: string;
+  };
+}
+```
+
+## Constraint Sources
+
+The dependency graph is built from **three sources**, all converted to Constraints:
+
+### 1. Catalog Dependencies (pg_depend)
+
+PostgreSQL's `pg_depend` catalog tracks object dependencies. These are converted to Constraints:
 
 ```
 pg_depend row: {
@@ -176,29 +204,28 @@ pg_depend row: {
   referenced_stable_id: "table:public.users"
 }
 
-Meaning: posts table depends on users table
-
 Algorithm:
-  1. Filter out cycle-breaking dependencies (e.g., sequence ownership)
+  1. Filter catalog dependencies (unknown IDs, cycle-breaking filters)
   2. Find changes that create "table:public.users" → [Change A]
   3. Find changes that create/require "table:public.posts" → [Change B]
-  4. Check if Change B accepts the dependency
-  5. Add edge: A → B (A must run before B)
+  4. Create Constraint: A → B
 ```
+
+**Filtering:**
+
+Filtering happens inside `convertCatalogDependenciesToConstraints()`:
+- Unknown stable IDs (with "unknown:" prefix) are filtered out
+- Cycle-breaking filters are applied (e.g., sequence ownership dependencies)
 
 **Cycle-Breaking Filters:**
 
-Some dependencies in `pg_depend` create cycles that would prevent valid ordering. We filter these out before building edges:
+When a sequence is owned by a table column that also uses the sequence (via DEFAULT), `pg_depend` creates a cycle:
+- `sequence → table/column` (ownership)
+- `table/column → sequence` (column default)
 
-- **Sequence Ownership Dependencies**: When a sequence is owned by a table column that also uses the sequence (via DEFAULT), `pg_depend` creates a cycle:
-  - `sequence → table/column` (ownership)
-  - `table/column → sequence` (column default)
-  
-  We filter out the ownership dependency because:
-  - **CREATE phase**: Sequences should be created before tables (ownership is set via `ALTER SEQUENCE OWNED BY` after both exist)
-  - **DROP phase**: Prevents cycles when dropping sequences owned by tables that aren't being dropped
-  
-  This filtering is done by `shouldFilterSequenceOwnershipDependency()` before edges are created.
+We filter out the ownership dependency using `shouldFilterStableIdDependencyForCycleBreaking()`:
+- **CREATE phase**: Sequences should be created before tables (ownership set via `ALTER SEQUENCE OWNED BY` after both exist)
+- **DROP phase**: Prevents cycles when dropping sequences owned by tables that aren't being dropped
 
 **Visualization:**
 
@@ -209,52 +236,79 @@ Changes:
   [0] CreateTable(users)  creates: "table:public.users"
   [1] CreateTable(posts)  creates: "table:public.posts"
 
-Graph Edge:
-  0 ──────▶ 1
-  (users)   (posts)
+Constraint:
+  { sourceChangeIndex: 0, targetChangeIndex: 1, source: "catalog",
+    reason: { dependentStableId: "table:public.posts",
+              referencedStableId: "table:public.users" } }
 ```
 
-### 2. Explicit Creates/Requires Relationships
+### 2. Explicit Requirements
 
-Some dependencies aren't in `pg_depend` (e.g., privileges computed from default privileges). We handle these explicitly:
+Changes declare requirements via the `requires` getter. These are converted to Constraints:
 
 ```
+Change A creates:  ["table:public.posts"]
 Change A requires: ["role:admin"]
 Change B creates:  ["role:admin"]
 
 Algorithm:
   1. For each required ID in Change A
   2. Find changes that create that ID → [Change B]
-  3. Check if Change A accepts the dependency
-  4. Add edge: B → A (B must run before A)
+  3. If Change A creates IDs:
+     - For each created ID in Change A
+     - Apply cycle-breaking filters
+     - Create Constraint: B → A (with reason from created ID to required ID)
+  4. If Change A doesn't create anything:
+     - Create Constraint: B → A (with empty dependentStableId)
 ```
+
+**Filtering:**
+
+Cycle-breaking filters are applied during conversion in `convertExplicitRequirementsToConstraints()` for changes that create stable IDs.
 
 **Visualization:**
 
 ```
 Changes:
   [0] CreateRole(admin)     creates: "role:admin"
-  [1] CreateTable(posts)    requires: "role:admin"
+  [1] CreateTable(posts)     creates: "table:public.posts"
+                            requires: "role:admin"
 
-Graph Edge:
-  0 ──────▶ 1
-  (role)    (table)
+Constraint:
+  { sourceChangeIndex: 0, targetChangeIndex: 1, source: "explicit",
+    reason: { dependentStableId: "table:public.posts",
+              referencedStableId: "role:admin" } }
 ```
 
-### 3. Custom Constraint Specs
+### 3. Custom Constraints
 
 Domain-specific ordering rules that supplement the dependency graph:
 
 ```typescript
 // Example: ALTER DEFAULT PRIVILEGES must come before CREATE statements
-constraintSpecs: [{
-  pairwise: (a, b) => {
-    if (a is ALTER DEFAULT PRIVILEGES && b is CREATE && !b is CREATE ROLE/SCHEMA) {
-      return "a_before_b";
+const customConstraintGenerators: CustomConstraintGenerator[] = [
+  (changes: Change[], changeIndexByChange: Map<Change, number>) => {
+    const constraints: Constraint[] = [];
+    for (let i = 0; i < changes.length; i++) {
+      for (let j = 0; j < changes.length; j++) {
+        if (i === j) continue;
+        const a = changes[i];
+        const b = changes[j];
+        if (a is ALTER DEFAULT PRIVILEGES && b is CREATE && !b is CREATE ROLE/SCHEMA) {
+          constraints.push({
+            sourceChangeIndex: changeIndexByChange.get(a)!,
+            targetChangeIndex: changeIndexByChange.get(b)!,
+            source: "constraint_spec",
+          });
+        }
+      }
     }
+    return constraints;
   }
-}]
+];
 ```
+
+These are converted to Constraints via `convertCustomConstraintsToConstraints()`.
 
 **Visualization:**
 
@@ -263,30 +317,34 @@ Changes:
   [0] AlterDefaultPrivileges(...)
   [1] CreateTable(posts)
 
-Constraint Edge:
-  0 ──────▶ 1
+Constraint:
+  { sourceChangeIndex: 0, targetChangeIndex: 1, source: "constraint_spec" }
 ```
 
 ### Edge Inversion for DROP Phase
 
-In the DROP phase, edges are **inverted**:
+In the DROP phase, edges are **inverted** when converting Constraints to edges:
 
 ```
 CREATE Phase (forward):
-  CreateTable(users) → CreateTable(posts)
-  (users must exist before posts)
+  Constraint: { sourceChangeIndex: 0, targetChangeIndex: 1 }
+  Edge: [0, 1]  (users must exist before posts)
 
 DROP Phase (inverted):
-  DropTable(posts) → DropTable(users)
-  (posts must be dropped before users)
+  Constraint: { sourceChangeIndex: 0, targetChangeIndex: 1 }
+  Edge: [1, 0]  (posts must be dropped before users)
 ```
 
-This is handled by the `invert` option:
+This is handled by the `invert` option in `registerEdge`:
 
 ```typescript
-registerEdge(producerIndex, consumerIndex);
-// In DROP phase: stores [consumerIndex, producerIndex] instead
-// In CREATE phase: stores [producerIndex, consumerIndex]
+const registerEdge = (sourceIndex: number, targetIndex: number) => {
+  graphEdges.push(
+    options.invert 
+      ? [targetIndex, sourceIndex]  // DROP phase: invert
+      : [sourceIndex, targetIndex]   // CREATE phase: forward
+  );
+};
 ```
 
 ## Topological Sorting
@@ -356,7 +414,7 @@ Error message includes:
 
 ### Multiple Created IDs
 
-Some changes create multiple stable IDs (e.g., `CreateTable` creates the table + all columns). All dependencies are accepted - cycle-breaking filters are applied at the graph construction level before edges are created.
+Some changes create multiple stable IDs (e.g., `CreateTable` creates the table + all columns). When converting explicit requirements to Constraints, if a change creates IDs, Constraints are created from each created ID to each required ID (with cycle-breaking filters applied).
 
 ### Unknown Dependencies
 
@@ -376,15 +434,15 @@ These typically occur when objects don't exist in the catalog or cannot be uniqu
 **Input:**
 ```typescript
 [
-  CreateTable(posts),      // requires: ["role:admin"]
+  CreateTable(posts),      // creates: ["table:public.posts"], requires: ["role:admin"]
   CreateRole(admin),       // creates: ["role:admin"]
-  CreateTable(users)        // no requirements
+  CreateTable(users)        // creates: ["table:public.users"], no requirements
 ]
 ```
 
 **Graph Construction:**
 ```
-Step 1: Build data structures
+Step 1: Build graph data
   createdStableIdSets:
     [0] → {"table:public.posts"}
     [1] → {"role:admin"}
@@ -394,13 +452,25 @@ Step 1: Build data structures
     [0] → {"role:admin"}
     [1] → {}
     [2] → {}
+  
+  changeIndexesByCreatedId:
+    "table:public.posts" → {0}
+    "role:admin" → {1}
+    "table:public.users" → {2}
 
-Step 2: Add edges from explicit requirements
-  Change[0] requires "role:admin"
-  Change[1] creates "role:admin"
-  → Edge: 1 → 0
+Step 2: Convert to Constraints
+  Explicit requirements:
+    Change[0] creates "table:public.posts", requires "role:admin"
+    Change[1] creates "role:admin"
+    → Constraint: { sourceChangeIndex: 1, targetChangeIndex: 0,
+                    source: "explicit",
+                    reason: { dependentStableId: "table:public.posts",
+                              referencedStableId: "role:admin" } }
 
-Step 3: Topological sort
+Step 3: Convert Constraints to edges
+  Edge: [1, 0]
+
+Step 4: Topological sort
   In-degrees: [0: 1, 1: 0, 2: 0]
   Queue: [1, 2] → sorted: [1, 2]
   Process 1: decrement 0 → [0: 0], add 0 to queue → [2, 0]
@@ -435,17 +505,28 @@ posts depends on users
 
 **Graph Construction:**
 ```
-Step 1: Build data structures (with invert=true)
+Step 1: Build graph data (with invert=true)
   createdStableIdSets:
     [0] → {"table:public.users"}  // includes drops in invert mode
     [1] → {"table:public.posts"}
+  
+  changeIndexesByCreatedId:
+    "table:public.users" → {0}
+    "table:public.posts" → {1}
 
-Step 2: Add edges from pg_depend
-  posts depends on users
-  → Normal edge would be: 0 → 1 (users before posts)
-  → Inverted edge: 1 → 0 (posts before users)
+Step 2: Convert to Constraints
+  Catalog dependencies (filtered):
+    posts depends on users
+    → Constraint: { sourceChangeIndex: 0, targetChangeIndex: 1,
+                    source: "catalog",
+                    reason: { dependentStableId: "table:public.posts",
+                              referencedStableId: "table:public.users" } }
 
-Step 3: Topological sort
+Step 3: Convert Constraints to edges (with invert=true)
+  Constraint: { sourceChangeIndex: 0, targetChangeIndex: 1 }
+  → Inverted edge: [1, 0]  (posts before users)
+
+Step 4: Topological sort
   Result: [1, 0]
 ```
 
@@ -468,29 +549,48 @@ Step 3: Topological sort
 ]
 ```
 
-**Constraint Spec:**
+**Custom Constraint Generator:**
 ```typescript
-{
-  pairwise: (a, b) => {
-    if (a is AlterDefaultPrivileges && b is Create && !b is CreateRole) {
-      return "a_before_b";
+const customConstraintGenerators: CustomConstraintGenerator[] = [
+  (changes: Change[], changeIndexByChange: Map<Change, number>) => {
+    const constraints: Constraint[] = [];
+    for (let i = 0; i < changes.length; i++) {
+      for (let j = 0; j < changes.length; j++) {
+        if (i === j) continue;
+        const a = changes[i];
+        const b = changes[j];
+        if (a is AlterDefaultPrivileges && b is Create && !b is CreateRole) {
+          constraints.push({
+            sourceChangeIndex: changeIndexByChange.get(a)!,
+            targetChangeIndex: changeIndexByChange.get(b)!,
+            source: "constraint_spec",
+          });
+        }
+      }
     }
+    return constraints;
   }
-}
+];
 ```
 
 **Graph Construction:**
 ```
-Step 1: Dependency edges (none in this example)
+Step 1: Build graph data
+  (no dependencies in this example)
 
-Step 2: Constraint edges
-  AlterDefaultPrivileges vs CreateTable(posts)
-  → Edge: 1 → 0
-  
-  AlterDefaultPrivileges vs CreateRole(admin)
-  → No edge (CreateRole excluded)
+Step 2: Convert to Constraints
+  Custom constraints:
+    AlterDefaultPrivileges vs CreateTable(posts)
+    → Constraint: { sourceChangeIndex: 1, targetChangeIndex: 0,
+                    source: "constraint_spec" }
+    
+    AlterDefaultPrivileges vs CreateRole(admin)
+    → No constraint (CreateRole excluded)
 
-Step 3: Topological sort
+Step 3: Convert Constraints to edges
+  Edge: [1, 0]
+
+Step 4: Topological sort
   Result: [1, 2, 0]
 ```
 
@@ -515,7 +615,7 @@ Step 3: Topological sort
                       ▼
          ┌────────────────────────┐
          │ Partition into Phases   │
-         │ - DROP (has drops)      │
+         │ - DROP (getExecutionPhase)│
          │ - CREATE/ALTER (else)   │
          └────────┬─────────────────┘
                   │
@@ -531,34 +631,43 @@ Step 3: Topological sort
        └─▶│ sortPhaseChanges │◀┘
           └────────┬──────────┘
                    │
-        ┌──────────┴──────────┐
-        │                     │
-        ▼                     ▼
-┌──────────────────┐  ┌──────────────────────┐
-│ buildGraphData   │  │ Build Edges:          │
-│ - created IDs    │  │ 1. pg_depend          │
-│ - required IDs   │  │ 2. explicit requires  │
-│ - reverse indexes│  │ 3. constraint specs   │
-└────────┬─────────┘  └──────────┬─────────────┘
-         │                      │
-         └──────────┬───────────┘
-                    │
-                    ▼
+                   ▼
          ┌──────────────────────┐
-         │ dedupeEdges           │
-         │ (remove duplicates)   │
+         │ Step 1: buildGraphData │
+         │ - createdStableIdSets  │
+         │ - explicitRequirementSets│
+         │ - reverse indexes      │
          └──────────┬────────────┘
                     │
                     ▼
          ┌──────────────────────┐
+         │ Step 2: Convert to     │
+         │        Constraints    │
+         │ - Catalog deps        │
+         │   (with filtering)    │
+         │ - Explicit requires   │
+         │   (with filtering)    │
+         │ - Constraint specs    │
+         └──────────┬────────────┘
+                    │
+                    ▼
+         ┌──────────────────────┐
+         │ Step 3: Convert       │
+         │        Constraints   │
+         │        to Edges      │
+         │ (apply inversion)    │
+         └──────────┬────────────┘
+                    │
+                    ▼
+         ┌──────────────────────┐
+         │ Step 4: dedupeEdges   │
          │ performStableTopoSort │
-         │ (Kahn's algorithm)    │
          └──────────┬────────────┘
                     │
                     ▼
          ┌──────────────────────┐
-         │ Validate & Return    │
-         │ - Check for cycles    │
+         │ Step 5: Validate     │
+         │ - Check for cycles   │
          │ - Map indices→changes │
          └──────────────────────┘
 ```
@@ -567,9 +676,9 @@ Step 3: Topological sort
 
 ```python
 function sortChanges(changes, catalogs):
-    # 1. Partition
-    drop_changes = [c for c in changes if c.drops.length > 0]
-    create_changes = [c for c in changes if c.drops.length == 0]
+    # 1. Partition using getExecutionPhase()
+    drop_changes = [c for c in changes if getExecutionPhase(c) == "drop"]
+    create_changes = [c for c in changes if getExecutionPhase(c) == "create_alter_object"]
     
     # 2. Sort each phase
     sorted_drops = sortPhaseChanges(
@@ -591,31 +700,37 @@ function sortPhaseChanges(changes, dependency_rows, invert=False):
     if changes.length <= 1:
         return changes
     
-    # Build graph data structures
-    graph_data = buildGraphData(changes, dependency_rows, invert)
+    # Step 1: Build graph data structures
+    graph_data = buildGraphData(changes, invert)
     
+    # Step 2: Convert all sources to Constraints
+    catalog_constraints = convertCatalogDependenciesToConstraints(
+        dependency_rows, changes, graph_data
+    )  # Filtering happens inside
+    
+    explicit_constraints = convertExplicitRequirementsToConstraints(
+        changes, graph_data
+    )  # Filtering happens inside
+    
+    custom_constraints = convertCustomConstraintsToConstraints(
+        changes, custom_constraint_generators
+    )
+    
+    all_constraints = catalog_constraints + explicit_constraints + custom_constraints
+    
+    # Step 3: Convert Constraints to edges
     edges = []
+    for constraint in all_constraints:
+        if invert:
+            edges.append([constraint.targetChangeIndex, constraint.sourceChangeIndex])
+        else:
+            edges.append([constraint.sourceChangeIndex, constraint.targetChangeIndex])
     
-    # Add edges from pg_depend (with cycle-breaking filters applied)
-    buildEdgesFromCatalogDependencies(
-        dependency_rows, changes, graph_data, edges
-    )
-    
-    # Add edges from explicit requirements
-    buildEdgesFromExplicitRequirements(changes, graph_data, edges)
-    
-    # Add edges from constraints
-    edges += generateConstraintEdges(changes, constraint_specs)
-    
-    # Deduplicate
+    # Step 4: Deduplicate and sort
     edges = dedupeEdges(edges)
+    sorted_indices = performStableTopologicalSort(changes.length, edges)
     
-    # Topological sort
-    sorted_indices = performStableTopologicalSort(
-        changes.length, edges
-    )
-    
-    # Validate
+    # Step 5: Validate
     if sorted_indices.length != changes.length:
         throw CycleError
     
@@ -627,15 +742,15 @@ function sortPhaseChanges(changes, dependency_rows, invert=False):
 
 The sorting algorithm:
 
-1. **Partitions** changes into DROP and CREATE/ALTER phases
-2. **Builds** a dependency graph from three sources:
-   - PostgreSQL's `pg_depend` catalog (with cycle-breaking filters applied)
-   - Explicit `creates`/`requires` declarations
-   - Custom constraint specs
-3. **Filters** cycle-causing dependencies before building edges (e.g., sequence ownership dependencies)
-4. **Inverts** edges in the DROP phase
-5. **Sorts** topologically while preserving input order (stability)
+1. **Partitions** changes into DROP and CREATE/ALTER phases using `getExecutionPhase()`
+2. **Builds** graph data structures (change sets and reverse indexes)
+3. **Converts** all dependency sources to Constraints:
+   - PostgreSQL's `pg_depend` catalog → Constraints (filtering applied during conversion)
+   - Explicit `requires` declarations → Constraints (filtering applied during conversion)
+   - Custom constraint specs → Constraints
+4. **Converts** Constraints to graph edges (inverting in DROP phase)
+5. **Deduplicates** edges and performs stable topological sort
 6. **Validates** for cycles and provides helpful error messages
 
-This approach ensures migrations execute in the correct order while staying aligned with PostgreSQL's native dependency system and handling edge cases that would create cycles.
+This constraint-based approach unifies all dependency sources into a single abstraction, making the algorithm easier to understand and maintain while ensuring migrations execute in the correct order.
 

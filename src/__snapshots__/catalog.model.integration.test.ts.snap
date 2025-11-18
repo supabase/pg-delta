@@ -1,5 +1,179 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`catalog extraction (pg17) > extract database objects > catalog-empty-pg17 1`] = `
+"{
+  "aggregates": {},
+  "collations": {},
+  "compositeTypes": {},
+  "domains": {},
+  "enums": {},
+  "extensions": {
+    "extension:plpgsql": {
+      "name": "plpgsql",
+      "schema": "pg_catalog",
+      "relocatable": false,
+      "version": "1.0",
+      "owner": "postgres",
+      "comment": "PL/pgSQL procedural language",
+      "members": [
+        "procedure:pg_catalog.plpgsql_call_handler()",
+        "procedure:pg_catalog.plpgsql_inline_handler(internal)",
+        "procedure:pg_catalog.plpgsql_validator(oid)"
+      ]
+    }
+  },
+  "procedures": {},
+  "indexes": {},
+  "materializedViews": {},
+  "subscriptions": {},
+  "publications": {},
+  "rlsPolicies": {},
+  "roles": {
+    "role:postgres": {
+      "name": "postgres",
+      "is_superuser": true,
+      "can_inherit": true,
+      "can_create_roles": true,
+      "can_create_databases": true,
+      "can_login": true,
+      "can_replicate": true,
+      "connection_limit": -1,
+      "can_bypass_rls": true,
+      "config": null,
+      "comment": null,
+      "members": [],
+      "default_privileges": []
+    }
+  },
+  "schemas": {
+    "schema:public": {
+      "name": "public",
+      "owner": "pg_database_owner",
+      "comment": "standard public schema",
+      "privileges": [
+        {
+          "grantee": "PUBLIC",
+          "privilege": "USAGE",
+          "grantable": false
+        },
+        {
+          "grantee": "pg_database_owner",
+          "privilege": "CREATE",
+          "grantable": false
+        },
+        {
+          "grantee": "pg_database_owner",
+          "privilege": "USAGE",
+          "grantable": false
+        }
+      ]
+    }
+  },
+  "sequences": {},
+  "tables": {},
+  "triggers": {},
+  "eventTriggers": {},
+  "rules": {},
+  "ranges": {},
+  "views": {},
+  "depends": [
+    {
+      "dependent_stable_id": "acl:schema:public::grantee:pg_database_owner",
+      "referenced_stable_id": "role:pg_database_owner",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "acl:schema:public::grantee:pg_database_owner",
+      "referenced_stable_id": "schema:public",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "acl:schema:public::grantee:PUBLIC",
+      "referenced_stable_id": "role:PUBLIC",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "acl:schema:public::grantee:PUBLIC",
+      "referenced_stable_id": "schema:public",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "comment:extension:plpgsql",
+      "referenced_stable_id": "extension:plpgsql",
+      "deptype": "a"
+    },
+    {
+      "dependent_stable_id": "comment:language:plpgsql",
+      "referenced_stable_id": "language:plpgsql",
+      "deptype": "a"
+    },
+    {
+      "dependent_stable_id": "comment:language:sql",
+      "referenced_stable_id": "language:sql",
+      "deptype": "a"
+    },
+    {
+      "dependent_stable_id": "language:plpgsql",
+      "referenced_stable_id": "procedure:pg_catalog.plpgsql_call_handler()",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "language:plpgsql",
+      "referenced_stable_id": "procedure:pg_catalog.plpgsql_inline_handler(internal)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "language:plpgsql",
+      "referenced_stable_id": "procedure:pg_catalog.plpgsql_validator(oid)",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "language:plpgsql",
+      "referenced_stable_id": "role:postgres",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_read_all_settings->pg_monitor",
+      "referenced_stable_id": "role:pg_monitor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_read_all_settings->pg_monitor",
+      "referenced_stable_id": "role:pg_read_all_settings",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_read_all_stats->pg_monitor",
+      "referenced_stable_id": "role:pg_monitor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_read_all_stats->pg_monitor",
+      "referenced_stable_id": "role:pg_read_all_stats",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_stat_scan_tables->pg_monitor",
+      "referenced_stable_id": "role:pg_monitor",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "membership:pg_stat_scan_tables->pg_monitor",
+      "referenced_stable_id": "role:pg_stat_scan_tables",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "schema:public",
+      "referenced_stable_id": "role:pg_database_owner",
+      "deptype": "n"
+    }
+  ],
+  "indexableObjects": {},
+  "version": 170006,
+  "currentUser": "postgres"
+}"
+`;
+
 exports[`extract empty catalog > catalog-empty-pg15 1`] = `
 "{
   "aggregates": {},
