@@ -1,49 +1,12 @@
 import type { Change } from "../change.types.ts";
-import { stableId } from "../objects/utils.ts";
+import { findConsumerIndexes } from "./graph-utils.ts";
 import type {
   Dependency,
+  EdgeBuildingContext,
   GraphData,
   PgDependRow,
   PhaseSortOptions,
 } from "./types.ts";
-
-/**
- * Filter out dependencies that should not be processed.
- *
- * This applies all filtering logic:
- * - Unknown dependencies (with "unknown:" prefix)
- * - Sequence ownership dependencies (to prevent cycles)
- * - Any other filters as needed
- */
-function filterDependencies(
-  dependencies: Dependency[],
-  phaseChanges: Change[],
-  graphData: GraphData,
-): Dependency[] {
-  return dependencies.filter((dependency) => {
-    // Filter out unknown dependencies
-    if (
-      dependency.referenced_stable_id.startsWith("unknown:") ||
-      dependency.dependent_stable_id.startsWith("unknown:")
-    ) {
-      return false;
-    }
-
-    // Filter out sequence ownership dependencies to prevent cycles
-    if (
-      shouldFilterSequenceOwnershipDependency(
-        dependency.dependent_stable_id,
-        dependency.referenced_stable_id,
-        phaseChanges,
-        graphData,
-      )
-    ) {
-      return false;
-    }
-
-    return true;
-  });
-}
 
 /**
  * Convert catalog dependencies (PgDependRow) to dependencies.
@@ -59,6 +22,43 @@ export function convertCatalogDependencies(
 }
 
 /**
+ * Build the sets of created and required stable IDs from changes.
+ *
+ * This is a lightweight operation that only depends on the changes themselves,
+ * not on dependencies. Used for converting explicit requirements before building
+ * the full graph data.
+ */
+export function buildChangeSets(
+  phaseChanges: Change[],
+  options: PhaseSortOptions,
+): {
+  createdStableIdSets: Array<Set<string>>;
+  explicitRequirementSets: Array<Set<string>>;
+} {
+  // For each change, collect the stable IDs it creates.
+  // In DROP phase (invert=true), we also include dropped IDs since drops
+  // need to be ordered based on what they remove.
+  const createdStableIdSets: Array<Set<string>> = phaseChanges.map(
+    (changeItem) => {
+      const createdIds = new Set<string>(changeItem.creates);
+      if (options.invert) {
+        for (const droppedId of changeItem.drops ?? []) {
+          createdIds.add(droppedId);
+        }
+      }
+      return createdIds;
+    },
+  );
+
+  // For each change, collect the stable IDs it explicitly requires.
+  const explicitRequirementSets: Array<Set<string>> = phaseChanges.map(
+    (changeItem) => new Set<string>(changeItem.requires ?? []),
+  );
+
+  return { createdStableIdSets, explicitRequirementSets };
+}
+
+/**
  * Convert explicit requirements to dependencies.
  *
  * For each change that explicitly requires something:
@@ -69,7 +69,8 @@ export function convertCatalogDependencies(
  */
 export function convertExplicitRequirements(
   phaseChanges: Change[],
-  graphData: GraphData,
+  createdStableIdSets: Array<Set<string>>,
+  explicitRequirementSets: Array<Set<string>>,
 ): Dependency[] {
   const dependencies: Dependency[] = [];
 
@@ -78,8 +79,8 @@ export function convertExplicitRequirements(
     consumerIndex < phaseChanges.length;
     consumerIndex++
   ) {
-    const createdIds = graphData.createdStableIdSets[consumerIndex];
-    const requiredIds = graphData.explicitRequirementSets[consumerIndex];
+    const createdIds = createdStableIdSets[consumerIndex];
+    const requiredIds = explicitRequirementSets[consumerIndex];
 
     if (requiredIds.size === 0) continue;
 
@@ -103,64 +104,16 @@ export function convertExplicitRequirements(
 
 /**
  * Build the graph data structures from phase changes and dependency rows.
+ *
+ * This builds the full graph data including reverse indexes needed for building edges.
+ * The createdStableIdSets and explicitRequirementSets are built from changes,
+ * and the reverse indexes are built from those sets.
  */
 export function buildGraphData(
   phaseChanges: Change[],
-  dependencyRows: PgDependRow[],
-  options: PhaseSortOptions,
+  createdStableIdSets: Array<Set<string>>,
+  explicitRequirementSets: Array<Set<string>>,
 ): GraphData {
-  // Note: We still use PgDependRow here for the initial build, but will convert
-  // to Dependency when building edges
-  const filteredDependencyRows = dependencyRows.filter(
-    (row) =>
-      !row.referenced_stable_id.startsWith("unknown:") &&
-      !row.dependent_stable_id.startsWith("unknown:"),
-  );
-
-  // Build map of referenced_id -> set of dependent_ids (from pg_depend)
-  // Used for debug visualization and understanding dependency relationships
-  const dependenciesByReferencedId = new Map<string, Set<string>>();
-  for (const dependencyRow of filteredDependencyRows) {
-    let dependentIds = dependenciesByReferencedId.get(
-      dependencyRow.referenced_stable_id,
-    );
-    if (!dependentIds) {
-      dependentIds = new Set<string>();
-      dependenciesByReferencedId.set(
-        dependencyRow.referenced_stable_id,
-        dependentIds,
-      );
-    }
-    dependentIds.add(dependencyRow.dependent_stable_id);
-  }
-
-  // For each change, collect the stable IDs it creates.
-  // In DROP phase (invert=true), we also include dropped IDs since drops
-  // need to be ordered based on what they remove.
-  const createdStableIdSets: Array<Set<string>> = phaseChanges.map(
-    (changeItem) => {
-      const createdIds = new Set<string>(changeItem.creates);
-      if (options.invert) {
-        for (const droppedId of changeItem.drops ?? []) {
-          createdIds.add(droppedId);
-        }
-      }
-      return createdIds;
-    },
-  );
-
-  // For each change, collect the stable IDs it explicitly requires.
-  const explicitRequirementSets: Array<Set<string>> = phaseChanges.map(
-    (changeItem) => new Set<string>(changeItem.requires ?? []),
-  );
-
-  // Track all requirements (explicit + inferred from pg_depend).
-  // This starts as a copy of explicit requirements and will be extended
-  // as we process pg_depend rows.
-  const requirementSets: Array<Set<string>> = explicitRequirementSets.map(
-    (explicitRequirements) => new Set<string>(explicitRequirements),
-  );
-
   // Build reverse index: stable_id -> set of change indices that create it
   const changeIndexesByCreatedId = new Map<string, Set<number>>();
   for (let changeIndex = 0; changeIndex < phaseChanges.length; changeIndex++) {
@@ -195,234 +148,146 @@ export function buildGraphData(
   return {
     createdStableIdSets,
     explicitRequirementSets,
-    requirementSets,
     changeIndexesByCreatedId,
     changeIndexesByExplicitRequirementId,
-    dependenciesByReferencedId,
   };
 }
 
 /**
- * Find all change indices that could be consumers for a given dependent stable ID.
+ * Add edges from producers to consumers for a given requirement.
  *
- * A consumer is either:
- * 1. A change that explicitly requires the dependent ID, OR
- * 2. A change that creates the dependent ID (since creating something implies
- *    it depends on its own dependencies)
+ * This helper function:
+ * 1. Finds all changes that create the required stable ID (producers)
+ * 2. Finds all changes that need the required stable ID (consumers)
+ * 3. Creates edges: producer → consumer (ensuring producers run before consumers)
+ *
+ * Example:
+ *   If CreateTable requires role:admin, and CreateRole creates role:admin:
+ *   CreateRole (producer) → CreateTable (consumer)
  */
-function findConsumerIndexes(
-  dependentStableId: string,
-  graphData: GraphData,
-): Set<number> {
-  const consumerIndexes = new Set<number>();
+function addEdgesForRequirement(
+  requiredId: string,
+  consumerIndexes: Set<number>,
+  changeIndexesByCreatedId: Map<string, Set<number>>,
+  registerEdge: (sourceIndex: number, targetIndex: number) => void,
+): void {
+  // Find all changes that create the required ID (producers)
+  const producerIndexes = changeIndexesByCreatedId.get(requiredId);
+  if (!producerIndexes || producerIndexes.size === 0) return;
 
-  // Add changes that explicitly require this ID
-  const explicitConsumerIndexes =
-    graphData.changeIndexesByExplicitRequirementId.get(dependentStableId);
-  if (explicitConsumerIndexes) {
-    for (const consumerIndex of explicitConsumerIndexes) {
-      consumerIndexes.add(consumerIndex);
+  // For each consumer, add edges from all producers
+  for (const consumerIndex of consumerIndexes) {
+    // Create edges: producer → consumer
+    for (const producerIndex of producerIndexes) {
+      if (producerIndex === consumerIndex) continue; // Skip self-loops
+      registerEdge(producerIndex, consumerIndex);
     }
   }
-
-  // Add changes that create this ID (they are consumers of dependencies)
-  const dependentProducers =
-    graphData.changeIndexesByCreatedId.get(dependentStableId);
-  if (dependentProducers) {
-    for (const producerIndex of dependentProducers) {
-      consumerIndexes.add(producerIndex);
-    }
-  }
-
-  return consumerIndexes;
-}
-
-/**
- * Check if a sequence is owned by a given table or column.
- *
- * This is used to identify sequence ownership dependencies that should be filtered
- * to prevent cycles when sequences are used by table columns (SERIAL columns).
- *
- * @param sequence - The sequence object to check
- * @param referencedStableId - The stable ID being referenced (table or column)
- * @returns true if the sequence is owned by the referenced table/column
- */
-function isSequenceOwnedBy(
-  sequence: {
-    owned_by_schema: string | null;
-    owned_by_table: string | null;
-    owned_by_column: string | null;
-  },
-  referencedStableId: string,
-): boolean {
-  if (
-    !sequence.owned_by_schema ||
-    !sequence.owned_by_table ||
-    !sequence.owned_by_column
-  ) {
-    return false;
-  }
-
-  const ownedByTableId = stableId.table(
-    sequence.owned_by_schema,
-    sequence.owned_by_table,
-  );
-  const ownedByColumnId = stableId.column(
-    sequence.owned_by_schema,
-    sequence.owned_by_table,
-    sequence.owned_by_column,
-  );
-
-  return (
-    referencedStableId === ownedByTableId ||
-    referencedStableId === ownedByColumnId
-  );
-}
-
-/**
- * Check if a sequence ownership dependency should be filtered out to prevent cycles.
- *
- * When a sequence is owned by a table column that also uses the sequence (via DEFAULT),
- * this creates a cycle:
- * - sequence → table/column (ownership)
- * - table/column → sequence (column default)
- *
- * This cycle would occur in both CREATE and DROP phases:
- * - CREATE: sequence → table (ownership) and table → sequence (column default)
- * - DROP (inverted): table → sequence (ownership) and sequence → table (column default)
- *
- * We filter out the ownership dependency because:
- * - CREATE phase: sequences should be created before tables (ownership set via ALTER SEQUENCE OWNED BY after both exist)
- * - DROP phase: prevents cycles when dropping sequences owned by tables that aren't being dropped
- *
- * Note: We only filter CreateSequence, not AlterSequenceSetOwnedBy, because the ALTER
- * needs to wait for the table/column to exist before it can set OWNED BY.
- *
- * @param sequenceStableId - The stable ID of the sequence (dependent)
- * @param referencedStableId - The stable ID being referenced (table or column)
- * @param phaseChanges - All changes in the current phase
- * @param graphData - Graph data structures for finding consumers
- * @returns true if this dependency should be filtered out (skipped)
- */
-function shouldFilterSequenceOwnershipDependency(
-  sequenceStableId: string,
-  referencedStableId: string,
-  phaseChanges: Change[],
-  graphData: GraphData,
-): boolean {
-  // Pattern match: sequence → table/column
-  if (
-    !sequenceStableId.startsWith("sequence:") ||
-    (!referencedStableId.startsWith("table:") &&
-      !referencedStableId.startsWith("column:"))
-  ) {
-    return false;
-  }
-
-  // Find all consumers of the sequence and check if any match
-  const sequenceConsumers = findConsumerIndexes(sequenceStableId, graphData);
-
-  for (const consumerIndex of sequenceConsumers) {
-    const change = phaseChanges[consumerIndex];
-    // Only filter CreateSequence, not AlterSequenceSetOwnedBy
-    if (change.constructor.name !== "CreateSequence") {
-      continue;
-    }
-
-    // Check if this is a sequence change (create or drop) with ownership matching the referenced ID
-    if (change.objectType === "sequence" && "sequence" in change) {
-      if (isSequenceOwnedBy(change.sequence, referencedStableId)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
 }
 
 /**
  * Build edges from dependencies (catalog + explicit).
  *
- * This function processes all dependencies uniformly:
- * 1. Filters out dependencies that should be skipped (unknown, sequence ownership, etc.)
- * 2. Finds producers that create the referenced ID
- * 3. Finds consumers that depend on the dependent ID
- * 4. Adds edges from producers to consumers
+ * This function builds the dependency graph by connecting producers (changes that create
+ * stable IDs) to consumers (changes that require those stable IDs).
  *
- * Additionally, it handles changes that don't create anything but require something
- * by directly iterating over their requirements.
+ * There are two cases we handle:
+ *
+ * CASE 1: Dependencies where the dependent_stable_id is something that gets created
+ * ---------------------------------------------------------------------------------
+ * Example: CreateTable creates table:public.users and requires role:admin
+ *   Dependency: table:public.users → role:admin
+ *   Producers of role:admin: [CreateRole]
+ *   Consumers of table:public.users: [CreateTable] (found via findConsumerIndexes)
+ *   Result: CreateRole → CreateTable
+ *
+ *   Dependency structure:
+ *     dependent_stable_id: table:public.users  (something that gets created)
+ *     referenced_stable_id: role:admin         (something required)
+ *
+ * CASE 2: Changes that don't create anything but require something
+ * -----------------------------------------------------------------
+ * Example: AlterSequenceSetOwnedBy requires sequence:public.seq and column:public.tbl.id
+ *   This change doesn't create any stable IDs, so it doesn't appear in dependencies.
+ *   We iterate directly over changes and their requirements.
+ *
+ *   Change: AlterSequenceSetOwnedBy (creates: [], requires: [sequence:public.seq, column:public.tbl.id])
+ *   Producers of sequence:public.seq: [CreateSequence]
+ *   Consumer: AlterSequenceSetOwnedBy (the change itself)
+ *   Result: CreateSequence → AlterSequenceSetOwnedBy
  */
 export function buildEdgesFromDependencies(
-  dependencies: Dependency[],
+  context: EdgeBuildingContext,
+  filteredDependencies: Dependency[],
   phaseChanges: Change[],
-  graphData: GraphData,
-  registerEdge: (sourceIndex: number, targetIndex: number) => void,
 ): void {
-  // Apply all filtering logic in one place
-  const filteredDependencies = filterDependencies(
-    dependencies,
-    phaseChanges,
-    graphData,
-  );
-
-  // Process dependencies from catalog and explicit requirements (for changes that create IDs)
+  // CASE 1: Process dependencies where dependent_stable_id is something that gets created
+  // --------------------------------------------------------------------------------------
+  // These dependencies have the form: created_id → required_id
+  // We find consumers via findConsumerIndexes, which looks up changes that create or
+  // require the dependent_stable_id.
+  //
+  // Example flow:
+  //   Dependency: table:public.users → role:admin
+  //   → Find producers of role:admin: [CreateRole@index=0]
+  //   → Find consumers of table:public.users: [CreateTable@index=1] (creates it)
+  //   → Add edge: CreateRole → CreateTable
   for (const dependency of filteredDependencies) {
-    // Find producers that create the referenced ID
-    const referencedProducers = graphData.changeIndexesByCreatedId.get(
+    // Find all changes that create the referenced ID (what's required)
+    const producerIndexes = context.changeIndexesByCreatedId.get(
       dependency.referenced_stable_id,
     );
-    if (!referencedProducers || referencedProducers.size === 0) continue;
+    if (!producerIndexes || producerIndexes.size === 0) continue;
 
-    // Find consumers that depend on the dependent ID
-    // This works for both catalog and explicit dependencies
+    // Find all changes that depend on the dependent ID (changes that create or require it)
     const consumerIndexes = findConsumerIndexes(
       dependency.dependent_stable_id,
-      graphData,
+      context.changeIndexesByCreatedId,
+      context.changeIndexesByExplicitRequirementId,
     );
-
     if (consumerIndexes.size === 0) continue;
 
-    // Add edges from all producers to all consumers
-    for (const consumerIndex of consumerIndexes) {
-      // Track that this consumer requires the referenced ID
-      graphData.requirementSets[consumerIndex].add(
-        dependency.referenced_stable_id,
-      );
-
-      for (const producerIndex of referencedProducers) {
-        if (producerIndex === consumerIndex) continue;
-        registerEdge(producerIndex, consumerIndex);
-      }
-    }
+    // Add edges: producer → consumer
+    addEdgesForRequirement(
+      dependency.referenced_stable_id,
+      consumerIndexes,
+      context.changeIndexesByCreatedId,
+      context.registerEdge,
+    );
   }
 
-  // Handle changes that don't create anything but require something
-  // These aren't represented in dependencies, so we process them directly
+  // CASE 2: Handle changes that don't create anything but require something
+  // ------------------------------------------------------------------------
+  // These changes don't appear in dependencies because they have no created IDs to
+  // use as dependent_stable_id. We iterate directly over changes and process their
+  // requirements.
+  //
+  // Example flow:
+  //   Change: AlterSequenceSetOwnedBy@index=2 (creates: [], requires: [sequence:public.seq])
+  //   → Find producers of sequence:public.seq: [CreateSequence@index=0]
+  //   → Consumer: AlterSequenceSetOwnedBy@index=2 (the change itself)
+  //   → Add edge: CreateSequence → AlterSequenceSetOwnedBy
   for (
     let consumerIndex = 0;
     consumerIndex < phaseChanges.length;
     consumerIndex++
   ) {
-    const createdIds = graphData.createdStableIdSets[consumerIndex];
-    const requiredIds = graphData.explicitRequirementSets[consumerIndex];
+    const createdIds = context.createdStableIdSets[consumerIndex];
+    const requiredIds = context.explicitRequirementSets[consumerIndex];
 
-    // Skip changes that create IDs (already handled above) or have no requirements
+    // Skip changes that create IDs (handled in CASE 1) or have no requirements
     if (createdIds.size > 0 || requiredIds.size === 0) continue;
 
     // For each requirement, find producers and add edges
+    // The consumer is the change itself (since it doesn't create anything)
+    const consumerIndexes = new Set<number>([consumerIndex]);
     for (const requiredId of requiredIds) {
-      const referencedProducers =
-        graphData.changeIndexesByCreatedId.get(requiredId);
-      if (!referencedProducers || referencedProducers.size === 0) continue;
-
-      // Track that this consumer requires the referenced ID
-      graphData.requirementSets[consumerIndex].add(requiredId);
-
-      // Add edges from all producers to this consumer
-      for (const producerIndex of referencedProducers) {
-        if (producerIndex === consumerIndex) continue;
-        registerEdge(producerIndex, consumerIndex);
-      }
+      addEdgesForRequirement(
+        requiredId,
+        consumerIndexes,
+        context.changeIndexesByCreatedId,
+        context.registerEdge,
+      );
     }
   }
 }

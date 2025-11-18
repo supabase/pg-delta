@@ -78,18 +78,34 @@ export interface PhaseSortOptions {
 
 /**
  * Data structures for building the dependency graph.
+ *
+ * Note: requirementSets and dependenciesByReferencedId are only needed for debug visualization
+ * and are built just-in-time in the debug function.
  */
 export interface GraphData {
   /** Maps each change index to the set of stable IDs it creates. */
   createdStableIdSets: Array<Set<string>>;
   /** Maps each change index to the set of stable IDs it explicitly requires. */
   explicitRequirementSets: Array<Set<string>>;
-  /** Maps each change index to the set of stable IDs it requires (includes both explicit and inferred from pg_depend). */
-  requirementSets: Array<Set<string>>;
   /** Maps a stable ID to the set of change indices that create it. */
   changeIndexesByCreatedId: Map<string, Set<number>>;
   /** Maps a stable ID to the set of change indices that explicitly require it. */
   changeIndexesByExplicitRequirementId: Map<string, Set<number>>;
-  /** Maps a referenced stable ID to the set of dependent stable IDs (from pg_depend). */
-  dependenciesByReferencedId: Map<string, Set<string>>;
+}
+
+/**
+ * Context for building edges from dependencies.
+ * Contains all the data structures and callbacks needed for edge building.
+ */
+export interface EdgeBuildingContext {
+  /** Maps a stable ID to the set of change indices that create it. */
+  changeIndexesByCreatedId: Map<string, Set<number>>;
+  /** Maps a stable ID to the set of change indices that explicitly require it. */
+  changeIndexesByExplicitRequirementId: Map<string, Set<number>>;
+  /** Maps each change index to the set of stable IDs it creates. */
+  createdStableIdSets: Array<Set<string>>;
+  /** Maps each change index to the set of stable IDs it explicitly requires. */
+  explicitRequirementSets: Array<Set<string>>;
+  /** Callback to register an edge from source to target. */
+  registerEdge: (sourceIndex: number, targetIndex: number) => void;
 }

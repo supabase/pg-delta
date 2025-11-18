@@ -29,7 +29,9 @@ import {
 } from "../objects/role/changes/role.privilege.ts";
 import { generateConstraintEdges } from "./constraint-specs.ts";
 import { printDebugGraph } from "./debug-visualization.ts";
+import { filterDependencies } from "./dependency-filter.ts";
 import {
+  buildChangeSets,
   buildEdgesFromDependencies,
   buildGraphData,
   convertCatalogDependencies,
@@ -236,10 +238,39 @@ function sortPhaseChanges(
 ): Change[] {
   if (phaseChanges.length <= 1) return phaseChanges;
 
-  // Build graph data structures
-  const graphData = buildGraphData(phaseChanges, dependencyRows, options);
+  // Step 1: Build change sets (created and required IDs) from changes
+  // These only depend on the changes themselves, not on dependencies
+  const { createdStableIdSets, explicitRequirementSets } = buildChangeSets(
+    phaseChanges,
+    options,
+  );
 
-  // Build edges
+  // Step 2: Convert all dependencies (catalog + explicit) into a single format
+  const catalogDeps = convertCatalogDependencies(dependencyRows);
+  const explicitDeps = convertExplicitRequirements(
+    phaseChanges,
+    createdStableIdSets,
+    explicitRequirementSets,
+  );
+  const allDependencies = [...catalogDeps, ...explicitDeps];
+
+  // Step 3: Build graph data structures (needed for filtering and building edges)
+  // This builds reverse indexes from the change sets, which are needed by both
+  // the filter (for findConsumerIndexes) and edge building logic
+  const graphData = buildGraphData(
+    phaseChanges,
+    createdStableIdSets,
+    explicitRequirementSets,
+  );
+
+  // Step 4: Filter dependencies (remove unknown, sequence ownership cycles, etc.)
+  const filteredDependencies = filterDependencies(
+    allDependencies,
+    phaseChanges,
+    graphData,
+  );
+
+  // Step 5: Build edges from filtered dependencies
   const graphEdges: Array<[number, number]> = [];
   const registerEdge = (sourceIndex: number, targetIndex: number) => {
     if (sourceIndex === targetIndex) return;
@@ -248,18 +279,17 @@ function sortPhaseChanges(
     );
   };
 
-  // Convert and merge all dependencies (catalog + explicit) into a single format
-  const catalogDeps = convertCatalogDependencies(dependencyRows);
-  const explicitDeps = convertExplicitRequirements(phaseChanges, graphData);
-  const allDependencies = [...catalogDeps, ...explicitDeps];
-
-  // Build edges from dependencies
-  // This processes both catalog and explicit dependencies uniformly
   buildEdgesFromDependencies(
-    allDependencies,
+    {
+      changeIndexesByCreatedId: graphData.changeIndexesByCreatedId,
+      changeIndexesByExplicitRequirementId:
+        graphData.changeIndexesByExplicitRequirementId,
+      createdStableIdSets: graphData.createdStableIdSets,
+      explicitRequirementSets: graphData.explicitRequirementSets,
+      registerEdge,
+    },
+    filteredDependencies,
     phaseChanges,
-    graphData,
-    registerEdge,
   );
 
   // Add edges from constraint specs
@@ -274,8 +304,14 @@ function sortPhaseChanges(
     deduplicatedEdges,
   );
 
-  // Debug visualization
-  printDebugGraph(phaseChanges, graphData, deduplicatedEdges);
+  // Debug visualization (builds debug-only data just-in-time)
+  printDebugGraph(
+    phaseChanges,
+    graphData,
+    deduplicatedEdges,
+    dependencyRows,
+    allDependencies,
+  );
 
   // Validate no cycles
   if (!topologicalOrder || topologicalOrder.length !== phaseChanges.length) {
