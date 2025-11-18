@@ -3,7 +3,7 @@ import {
   GrantRoleDefaultPrivileges,
   RevokeRoleDefaultPrivileges,
 } from "../objects/role/changes/role.privilege.ts";
-import type { Constraint, CustomConstraint } from "./types.ts";
+import type { Constraint, CustomConstraintFunction } from "./types.ts";
 
 /**
  * Ensure ALTER DEFAULT PRIVILEGES comes before CREATE statements.
@@ -36,7 +36,7 @@ function defaultPrivilegesBeforeCreate(
  *
  * Add new constraints here to extend the sorting behavior.
  */
-export const customConstraints: CustomConstraint[] = [
+export const customConstraints: CustomConstraintFunction[] = [
   defaultPrivilegesBeforeCreate,
 ];
 

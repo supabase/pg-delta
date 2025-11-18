@@ -158,7 +158,7 @@ export function formatCycleError(
         const constraint = edge.constraint;
         let edgeInfo = `\n  [${sourceIndex}] → [${targetIndex}] (source: ${constraint.source})`;
         
-        if (constraint.reason) {
+        if (constraint.source === "catalog" || constraint.source === "explicit") {
           if (constraint.reason.dependentStableId) {
             edgeInfo += `\n    Dependency: ${constraint.reason.dependentStableId} → ${constraint.reason.referencedStableId}`;
           } else {
@@ -169,7 +169,7 @@ export function formatCycleError(
         // Add why it wasn't filtered
         if (constraint.source === "custom") {
           edgeInfo += `\n    Reason: Custom constraint (never filtered)`;
-        } else if (!constraint.reason?.dependentStableId) {
+        } else if (constraint.source === "explicit" && !constraint.reason.dependentStableId) {
           edgeInfo += `\n    Reason: Explicit requirement without created IDs (not filtered)`;
         } else {
           edgeInfo += `\n    Reason: Cycle-breaking filter did not match (edge preserved)`;

@@ -144,8 +144,6 @@ GraphData {
 }
 ```
 
-Note: `dependenciesByReferencedId` is only built for debug visualization, not part of the main `GraphData` structure.
-
 ### Stable IDs
 
 **Stable IDs** are unique identifiers for database objects that remain constant across dumps/restores. Examples:
@@ -178,17 +176,46 @@ The algorithm uses a unified **Constraint** abstraction to represent all orderin
 
 ### Constraint Interface
 
+Constraints use a **discriminated union** type to represent different sources of ordering requirements:
+
 ```typescript
-interface Constraint {
+type Constraint = CatalogConstraint | ExplicitConstraint | CustomConstraint;
+
+// Base properties shared by all constraints
+interface BaseConstraint {
   sourceChangeIndex: number;  // Change that must come first
   targetChangeIndex: number;  // Change that must come after
-  source: "catalog" | "explicit" | "custom";
-  reason?: {
-    dependentStableId: string;
-    referencedStableId: string;
+}
+
+// Constraint from catalog dependencies (pg_depend)
+interface CatalogConstraint extends BaseConstraint {
+  source: "catalog";
+  reason: {
+    dependentStableId: string;    // The stable ID that depends on referencedStableId
+    referencedStableId: string;   // The stable ID being depended upon
   };
 }
+
+// Constraint from explicit requirements (Change.requires)
+interface ExplicitConstraint extends BaseConstraint {
+  source: "explicit";
+  reason: {
+    dependentStableId?: string;  // Optional: undefined if change doesn't create anything
+    referencedStableId: string;   // The stable ID being required
+  };
+}
+
+// Constraint from custom constraint functions
+interface CustomConstraint extends BaseConstraint {
+  source: "custom";
+  description?: string;  // Optional description for debugging
+}
 ```
+
+**Key Points:**
+- `CatalogConstraint` always has both `dependentStableId` and `referencedStableId`
+- `ExplicitConstraint` may have `dependentStableId` undefined if the change doesn't create anything
+- `CustomConstraint` has no `reason` field since these are direct change-to-change rules
 
 ## Constraint Sources
 
@@ -285,33 +312,54 @@ Constraint:
 
 ### 3. Custom Constraints
 
-Domain-specific ordering rules that supplement the dependency graph:
+Domain-specific ordering rules that supplement the dependency graph. Custom constraints are implemented as functions that decide pairwise ordering between changes:
 
 ```typescript
+// Custom constraint function type
+type CustomConstraintFunction = (
+  a: Change,
+  b: Change,
+) => "a_before_b" | "b_before_a" | undefined;
+
 // Example: ALTER DEFAULT PRIVILEGES must come before CREATE statements
-const customConstraintGenerators: CustomConstraintGenerator[] = [
-  (changes: Change[], changeIndexByChange: Map<Change, number>) => {
-    const constraints: Constraint[] = [];
-    for (let i = 0; i < changes.length; i++) {
-      for (let j = 0; j < changes.length; j++) {
-        if (i === j) continue;
-        const a = changes[i];
-        const b = changes[j];
-        if (a is ALTER DEFAULT PRIVILEGES && b is CREATE && !b is CREATE ROLE/SCHEMA) {
-          constraints.push({
-            sourceChangeIndex: changeIndexByChange.get(a)!,
-            targetChangeIndex: changeIndexByChange.get(b)!,
-            source: "custom",
-          });
-        }
-      }
-    }
-    return constraints;
+function defaultPrivilegesBeforeCreate(
+  a: Change,
+  b: Change,
+): "a_before_b" | undefined {
+  const aIsDefaultPriv =
+    a instanceof GrantRoleDefaultPrivileges ||
+    a instanceof RevokeRoleDefaultPrivileges;
+  const bIsCreate = b.operation === "create" && b.scope === "object";
+  
+  // Exclude CREATE ROLE and CREATE SCHEMA since they are dependencies
+  const bIsRoleOrSchema =
+    bIsCreate && (b.objectType === "role" || b.objectType === "schema");
+  
+  if (aIsDefaultPriv && bIsCreate && !bIsRoleOrSchema) {
+    return "a_before_b";
   }
+  
+  return undefined;  // No constraint between these changes
+}
+
+// All custom constraints
+export const customConstraints: CustomConstraintFunction[] = [
+  defaultPrivilegesBeforeCreate,
 ];
 ```
 
-These are converted to Constraints via `generateCustomConstraints()`.
+**How it works:**
+
+1. `generateCustomConstraints()` iterates through all pairs of changes
+2. For each pair, applies all custom constraint functions
+3. If a function returns `"a_before_b"` or `"b_before_a"`, creates a `CustomConstraint`
+4. Returns all generated constraints
+
+**Key Properties:**
+
+- Custom constraints are **never filtered** during cycle breaking (they represent hard ordering requirements)
+- They operate on change instances, not stable IDs
+- They can inspect any property of the changes to make decisions
 
 **Visualization:**
 
@@ -324,6 +372,18 @@ Constraint:
   { sourceChangeIndex: 0, targetChangeIndex: 1, source: "custom" }
 ```
 
+### Edge Structure
+
+Edges carry their originating constraint for filtering purposes:
+
+```typescript
+interface Edge {
+  sourceIndex: number;      // Change index that must come first
+  targetIndex: number;      // Change index that must come after
+  constraint: Constraint;    // The constraint that created this edge
+}
+```
+
 ### Edge Inversion for DROP Phase
 
 In the DROP phase, edges are **inverted** when converting Constraints to edges:
@@ -331,23 +391,34 @@ In the DROP phase, edges are **inverted** when converting Constraints to edges:
 ```
 CREATE Phase (forward):
   Constraint: { sourceChangeIndex: 0, targetChangeIndex: 1 }
-  Edge: [0, 1]  (users must exist before posts)
+  Edge: { sourceIndex: 0, targetIndex: 1, constraint: ... }
+  → Edge pair: [0, 1]  (users must exist before posts)
 
 DROP Phase (inverted):
   Constraint: { sourceChangeIndex: 0, targetChangeIndex: 1 }
-  Edge: [1, 0]  (posts must be dropped before users)
+  Edge: { sourceIndex: 1, targetIndex: 0, constraint: ... }
+  → Edge pair: [1, 0]  (posts must be dropped before users)
 ```
 
-This is handled by the `invert` option in `registerEdge`:
+This is handled by the `invert` option in `convertConstraintsToEdges()`:
 
 ```typescript
-const registerEdge = (sourceIndex: number, targetIndex: number) => {
-  graphEdges.push(
-    options.invert 
-      ? [targetIndex, sourceIndex]  // DROP phase: invert
-      : [sourceIndex, targetIndex]   // CREATE phase: forward
-  );
-};
+export function convertConstraintsToEdges(
+  constraints: Constraint[],
+  options: PhaseSortOptions,
+): Edge[] {
+  const edges: Edge[] = [];
+  for (const constraint of constraints) {
+    const sourceIndex = options.invert
+      ? constraint.targetChangeIndex  // DROP phase: invert
+      : constraint.sourceChangeIndex;  // CREATE phase: forward
+    const targetIndex = options.invert
+      ? constraint.sourceChangeIndex   // DROP phase: invert
+      : constraint.targetChangeIndex;  // CREATE phase: forward
+    edges.push({ sourceIndex, targetIndex, constraint });
+  }
+  return edges;
+}
 ```
 
 ## Topological Sorting
@@ -453,16 +524,30 @@ Iteration 3:
 
 **Error Handling:**
 
-If a cycle is encountered that we've seen before, it means our filtering didn't break it:
+If a cycle is encountered that we've seen before, it means our filtering didn't break it. The error message includes detailed information:
 
 ```
-Cycle detected: A → B → C → A
-Error: This cycle was detected before but filtering didn't break it.
-Error message includes:
-  - Which changes are in the cycle
-  - Their class names and created IDs
-  - Helpful debugging information
+CycleError: dependency graph contains a cycle involving 2 changes:
+  1. [0] CreateTable (creates: table:test_schema.events, column:test_schema.events.id...)
+  2. [3] CreateSequence (creates: sequence:test_schema.events_id_seq)
+
+Cycle path (edges forming the cycle):
+  [0] → [3] (source: catalog)
+    Dependency: sequence:test_schema.events_id_seq → column:test_schema.events.id
+    Reason: Cycle-breaking filter did not match (edge preserved)
+  [3] → [0] (source: catalog)
+    Dependency: column:test_schema.events.id → sequence:test_schema.events_id_seq
+    Reason: Cycle-breaking filter did not match (edge preserved)
+
+This usually indicates a circular dependency in the schema changes that cannot be resolved.
+The cycle-breaking filters were unable to break this cycle.
 ```
+
+The error message shows:
+- Which changes are in the cycle (with indices and class names)
+- The cycle path (edges forming the cycle)
+- For each edge: the constraint source, dependency details, and why it wasn't filtered
+- This helps identify which dependencies are causing unresolvable cycles
 
 ## Key Concepts
 
@@ -611,28 +696,24 @@ Step 5: Topological sort
 ]
 ```
 
-**Custom Constraint Generator:**
+**Custom Constraint Function:**
 ```typescript
-const customConstraintGenerators: CustomConstraintGenerator[] = [
-  (changes: Change[], changeIndexByChange: Map<Change, number>) => {
-    const constraints: Constraint[] = [];
-    for (let i = 0; i < changes.length; i++) {
-      for (let j = 0; j < changes.length; j++) {
-        if (i === j) continue;
-        const a = changes[i];
-        const b = changes[j];
-        if (a is AlterDefaultPrivileges && b is Create && !b is CreateRole) {
-          constraints.push({
-            sourceChangeIndex: changeIndexByChange.get(a)!,
-            targetChangeIndex: changeIndexByChange.get(b)!,
-            source: "custom",
-          });
-        }
-      }
-    }
-    return constraints;
+function defaultPrivilegesBeforeCreate(
+  a: Change,
+  b: Change,
+): "a_before_b" | undefined {
+  const aIsDefaultPriv =
+    a instanceof GrantRoleDefaultPrivileges ||
+    a instanceof RevokeRoleDefaultPrivileges;
+  const bIsCreate = b.operation === "create" && b.scope === "object";
+  const bIsRoleOrSchema =
+    bIsCreate && (b.objectType === "role" || b.objectType === "schema");
+  
+  if (aIsDefaultPriv && bIsCreate && !bIsRoleOrSchema) {
+    return "a_before_b";
   }
-];
+  return undefined;
+}
 ```
 
 **Graph Construction:**
@@ -814,7 +895,8 @@ function sortPhaseChanges(changes, dependency_rows, invert=False):
         cycle_signature = normalizeCycle(cycle_node_indexes)
         if cycle_signature in seen_cycles:
             # We've seen this cycle before - filtering didn't break it
-            throw CycleError(cycle_node_indexes, changes)
+            cycle_edges = getEdgesInCycle(cycle_node_indexes, unique_edges)
+            throw CycleError(cycle_node_indexes, changes, cycle_edges)
         
         # Track this cycle
         seen_cycles.add(cycle_signature)

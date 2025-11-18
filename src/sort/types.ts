@@ -32,7 +32,7 @@ export type PgDependRow = {
 export type Constraint =
   | CatalogConstraint
   | ExplicitConstraint
-  | ConstraintSpecConstraint;
+  | CustomConstraint;
 
 /**
  * Base constraint properties shared by all constraint types.
@@ -76,10 +76,10 @@ export interface ExplicitConstraint extends BaseConstraint {
 }
 
 /**
- * Constraint from custom constraint specs.
+ * Constraint from custom constraint functions.
  * No reason field since these are direct change-to-change ordering rules.
  */
-export interface ConstraintSpecConstraint extends BaseConstraint {
+export interface CustomConstraint extends BaseConstraint {
   source: "custom";
   /** Optional description for debugging */
   description?: string;
@@ -91,12 +91,12 @@ export interface ConstraintSpecConstraint extends BaseConstraint {
 export type PairwiseOrder = "a_before_b" | "b_before_a";
 
 /**
- * Custom constraint that decides ordering between two changes.
+ * Custom constraint function that decides ordering between two changes.
  *
  * Takes two changes and returns whether a should come before b, b should come before a,
  * or undefined if there's no ordering constraint between them.
  */
-export type CustomConstraint = (
+export type CustomConstraintFunction = (
   a: Change,
   b: Change,
 ) => PairwiseOrder | undefined;
