@@ -1,3 +1,5 @@
+import type { Edge } from "./types.ts";
+
 /**
  * Find all change indices that could be consumers for a given dependent stable ID.
  *
@@ -5,11 +7,6 @@
  * 1. A change that explicitly requires the dependent ID, OR
  * 2. A change that creates the dependent ID (since creating something implies
  *    it depends on its own dependencies)
- *
- * @param dependentStableId - The stable ID to find consumers for
- * @param changeIndexesByCreatedId - Map of stable ID to change indices that create it
- * @param changeIndexesByExplicitRequirementId - Map of stable ID to change indices that require it
- * @returns Set of change indices that are consumers
  */
 export function findConsumerIndexes(
   dependentStableId: string,
@@ -36,4 +33,19 @@ export function findConsumerIndexes(
   }
 
   return consumerIndexes;
+}
+
+/**
+ * Deduplicate edges, keeping the first occurrence.
+ */
+export function dedupeEdges(edges: Edge[]): Edge[] {
+  const seenEdges = new Set<string>();
+  const uniqueEdges: Edge[] = [];
+  for (const edge of edges) {
+    const edgeKey = `${edge.sourceIndex}->${edge.targetIndex}`;
+    if (seenEdges.has(edgeKey)) continue;
+    seenEdges.add(edgeKey);
+    uniqueEdges.push(edge);
+  }
+  return uniqueEdges;
 }

@@ -109,7 +109,7 @@ function buildRequirementSets(
   // then the target change requires the referenced ID
   for (const constraint of constraints) {
     // Only process catalog/explicit constraints (constraint specs don't affect requirements)
-    if (constraint.source === "constraint_spec" || !constraint.reason) continue;
+    if (constraint.source === "custom" || !constraint.reason) continue;
 
     const referencedProducers = changeIndexesByCreatedId.get(
       constraint.reason.referencedStableId,

@@ -13,16 +13,18 @@
 
 import type { Catalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
-import { generateCustomConstraints } from "./constraint-specs.ts";
+import { generateCustomConstraints } from "./custom-constraints.ts";
 import { printDebugGraph } from "./debug-visualization.ts";
+import { filterEdgesForCycleBreaking } from "./dependency-filter.ts";
 import {
   buildGraphData,
   convertCatalogDependenciesToConstraints,
   convertConstraintsToEdges,
   convertExplicitRequirementsToConstraints,
+  edgesToPairs,
 } from "./graph-builder.ts";
+import { dedupeEdges } from "./graph-utils.ts";
 import {
-  dedupeEdges,
   findCycle,
   formatCycleError,
   performStableTopologicalSort,
@@ -184,7 +186,6 @@ function sortPhaseChanges(
   // Step 2: Convert all sources to Constraints
   const catalogConstraints = convertCatalogDependenciesToConstraints(
     dependencyRows,
-    phaseChanges,
     graphData,
   );
   const explicitConstraints = convertExplicitRequirementsToConstraints(
@@ -199,40 +200,83 @@ function sortPhaseChanges(
   ];
 
   // Step 3: Convert constraints to edges
-  const graphEdges: Array<[number, number]> = [];
-  const registerEdge = (sourceIndex: number, targetIndex: number) => {
-    if (sourceIndex === targetIndex) return;
-    graphEdges.push(
-      options.invert ? [targetIndex, sourceIndex] : [sourceIndex, targetIndex],
+  let edges = convertConstraintsToEdges(allConstraints, options);
+
+  // Step 4: Iteratively detect and break cycles
+  // Track cycles we've seen to detect when filtering fails to break a cycle.
+  // The only way we loop indefinitely is if we encounter a cycle we've already seen,
+  // which means filtering didn't break it. Otherwise, we continue until all cycles are broken.
+  const seenCycles = new Set<string>();
+
+  /**
+   * Normalize a cycle by rotating it to start with the smallest node index.
+   * This allows us to compare cycles regardless of where they start.
+   */
+  function normalizeCycle(cycleNodeIndexes: number[]): string {
+    if (cycleNodeIndexes.length === 0) return "";
+    const minIndex = Math.min(...cycleNodeIndexes);
+    const minIndexPos = cycleNodeIndexes.indexOf(minIndex);
+    const rotated = [
+      ...cycleNodeIndexes.slice(minIndexPos),
+      ...cycleNodeIndexes.slice(0, minIndexPos),
+    ];
+    return rotated.join(",");
+  }
+
+  while (true) {
+    // Deduplicate edges (keep first occurrence)
+    const uniqueEdges = dedupeEdges(edges);
+    const edgePairs = edgesToPairs(uniqueEdges);
+
+    // Detect cycles
+    const cycleNodeIndexes = findCycle(phaseChanges.length, edgePairs);
+
+    if (!cycleNodeIndexes) {
+      // No cycles found, we're done
+      edges = uniqueEdges;
+      break;
+    }
+
+    // Normalize cycle to check if we've seen it before
+    const cycleSignature = normalizeCycle(cycleNodeIndexes);
+    if (seenCycles.has(cycleSignature)) {
+      // We've seen this cycle before - filtering didn't break it
+      throw new Error(formatCycleError(cycleNodeIndexes, phaseChanges));
+    }
+
+    // Track this cycle
+    seenCycles.add(cycleSignature);
+
+    // Filter only edges involved in the cycle to break it
+    edges = filterEdgesForCycleBreaking(
+      uniqueEdges,
+      cycleNodeIndexes,
+      phaseChanges,
+      graphData,
     );
-  };
+  }
 
-  convertConstraintsToEdges(allConstraints, registerEdge);
-
-  // Step 4: Deduplicate edges and perform stable topological sort
-  const deduplicatedEdges = dedupeEdges(graphEdges);
-  const topologicalOrder = performStableTopologicalSort(
-    phaseChanges.length,
-    deduplicatedEdges,
-  );
+  const finalEdgePairs = edgesToPairs(edges);
 
   if (process.env.GRAPH_DEBUG) {
     // Debug visualization
     printDebugGraph(
       phaseChanges,
       graphData,
-      deduplicatedEdges,
+      finalEdgePairs,
       dependencyRows,
       allConstraints,
     );
   }
 
-  // Step 5: Validate no cycles exist
+  // Step 5: Perform stable topological sort (no cycles, so this will succeed)
+  const topologicalOrder = performStableTopologicalSort(
+    phaseChanges.length,
+    finalEdgePairs,
+  );
+
   if (!topologicalOrder || topologicalOrder.length !== phaseChanges.length) {
-    const cycleNodeIndexes = findCycle(phaseChanges.length, deduplicatedEdges);
-    if (cycleNodeIndexes) {
-      throw new Error(formatCycleError(cycleNodeIndexes, phaseChanges));
-    }
+    // This should never happen if findCycle returned null, but guard anyway
     throw new Error("CycleError: dependency graph contains a cycle");
   }
 

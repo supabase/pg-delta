@@ -182,7 +182,7 @@ The algorithm uses a unified **Constraint** abstraction to represent all orderin
 interface Constraint {
   sourceChangeIndex: number;  // Change that must come first
   targetChangeIndex: number;  // Change that must come after
-  source: "catalog" | "explicit" | "constraint_spec";
+  source: "catalog" | "explicit" | "custom";
   reason?: {
     dependentStableId: string;
     referencedStableId: string;
@@ -213,9 +213,10 @@ Algorithm:
 
 **Filtering:**
 
-Filtering happens inside `convertCatalogDependenciesToConstraints()`:
+Basic validation happens inside `convertCatalogDependenciesToConstraints()`:
 - Unknown stable IDs (with "unknown:" prefix) are filtered out
-- Cycle-breaking filters are applied (e.g., sequence ownership dependencies)
+
+Cycle-breaking filters are **not** applied during constraint conversion. They are applied later when cycles are detected (see [Cycle Detection and Breaking](#cycle-detection-and-breaking)).
 
 **Cycle-Breaking Filters:**
 
@@ -226,6 +227,8 @@ When a sequence is owned by a table column that also uses the sequence (via DEFA
 We filter out the ownership dependency using `shouldFilterStableIdDependencyForCycleBreaking()`:
 - **CREATE phase**: Sequences should be created before tables (ownership set via `ALTER SEQUENCE OWNED BY` after both exist)
 - **DROP phase**: Prevents cycles when dropping sequences owned by tables that aren't being dropped
+
+These filters are applied only to edges involved in detected cycles, not during initial constraint conversion.
 
 **Visualization:**
 
@@ -264,7 +267,7 @@ Algorithm:
 
 **Filtering:**
 
-Cycle-breaking filters are applied during conversion in `convertExplicitRequirementsToConstraints()` for changes that create stable IDs.
+Cycle-breaking filters are **not** applied during constraint conversion. They are applied later when cycles are detected (see [Cycle Detection and Breaking](#cycle-detection-and-breaking)).
 
 **Visualization:**
 
@@ -298,7 +301,7 @@ const customConstraintGenerators: CustomConstraintGenerator[] = [
           constraints.push({
             sourceChangeIndex: changeIndexByChange.get(a)!,
             targetChangeIndex: changeIndexByChange.get(b)!,
-            source: "constraint_spec",
+            source: "custom",
           });
         }
       }
@@ -308,7 +311,7 @@ const customConstraintGenerators: CustomConstraintGenerator[] = [
 ];
 ```
 
-These are converted to Constraints via `convertCustomConstraintsToConstraints()`.
+These are converted to Constraints via `generateCustomConstraints()`.
 
 **Visualization:**
 
@@ -318,7 +321,7 @@ Changes:
   [1] CreateTable(posts)
 
 Constraint:
-  { sourceChangeIndex: 0, targetChangeIndex: 1, source: "constraint_spec" }
+  { sourceChangeIndex: 0, targetChangeIndex: 1, source: "custom" }
 ```
 
 ### Edge Inversion for DROP Phase
@@ -397,13 +400,64 @@ Without stability: Could be [A, C, B] or [A, B, C]
 With stability:    Always [A, B, C] (B comes before C if no dependency)
 ```
 
-### Cycle Detection
+### Cycle Detection and Breaking
 
-If the graph contains a cycle, the algorithm detects it and throws an error:
+The algorithm iteratively detects and breaks cycles:
+
+1. **Detect cycles** - Find any cycle in the graph
+2. **Track seen cycles** - Normalize and track cycles we've encountered
+3. **Filter cycle edges** - Apply cycle-breaking filters only to edges involved in the detected cycle
+4. **Repeat** - Continue until no cycles remain
+
+**Termination Conditions:**
+
+- **Success**: No cycles found → proceed to topological sort
+- **Failure**: Encounter a cycle we've seen before → filtering didn't break it, throw error
+
+**Key Properties:**
+
+- Only edges involved in cycles are filtered (non-cycle edges are preserved)
+- Cycles are normalized (rotated to start with smallest node index) for comparison
+- No arbitrary iteration limit - continues until all cycles are broken or a cycle can't be broken
+- Multiple cycles are handled iteratively (one at a time until all are resolved)
+
+**Cycle-Breaking Filter Application:**
+
+When a cycle is detected:
+1. Identify edges that form the cycle
+2. For each cycle edge:
+   - If it's a custom constraint → never filtered
+   - If it has a stable ID dependency → apply cycle-breaking filters
+   - If filtering criteria match → remove the edge to break the cycle
+
+**Example:**
+
+```
+Initial graph has cycle: A → B → C → A
+
+Iteration 1:
+  - Detect cycle [A, B, C]
+  - Track cycle signature "A,B,C"
+  - Filter edges in cycle (e.g., remove B → C if it matches filter criteria)
+  - Result: Cycle broken, graph becomes A → B, C → A
+
+Iteration 2:
+  - Detect cycle [A, C] (new cycle)
+  - Track cycle signature "A,C"
+  - Filter edges in cycle
+  - Result: Cycle broken
+
+Iteration 3:
+  - No cycles found → success
+```
+
+**Error Handling:**
+
+If a cycle is encountered that we've seen before, it means our filtering didn't break it:
 
 ```
 Cycle detected: A → B → C → A
-
+Error: This cycle was detected before but filtering didn't break it.
 Error message includes:
   - Which changes are in the cycle
   - Their class names and created IDs
@@ -414,7 +468,7 @@ Error message includes:
 
 ### Multiple Created IDs
 
-Some changes create multiple stable IDs (e.g., `CreateTable` creates the table + all columns). When converting explicit requirements to Constraints, if a change creates IDs, Constraints are created from each created ID to each required ID (with cycle-breaking filters applied).
+Some changes create multiple stable IDs (e.g., `CreateTable` creates the table + all columns). When converting explicit requirements to Constraints, if a change creates IDs, Constraints are created from each created ID to each required ID. Cycle-breaking filters are applied later when cycles are detected, not during constraint conversion.
 
 ### Unknown Dependencies
 
@@ -470,7 +524,11 @@ Step 2: Convert to Constraints
 Step 3: Convert Constraints to edges
   Edge: [1, 0]
 
-Step 4: Topological sort
+Step 4: Cycle detection and breaking
+  Detect cycles: No cycles found
+  Continue to topological sort
+
+Step 5: Topological sort
   In-degrees: [0: 1, 1: 0, 2: 0]
   Queue: [1, 2] → sorted: [1, 2]
   Process 1: decrement 0 → [0: 0], add 0 to queue → [2, 0]
@@ -515,7 +573,7 @@ Step 1: Build graph data (with invert=true)
     "table:public.posts" → {1}
 
 Step 2: Convert to Constraints
-  Catalog dependencies (filtered):
+  Catalog dependencies (basic validation only):
     posts depends on users
     → Constraint: { sourceChangeIndex: 0, targetChangeIndex: 1,
                     source: "catalog",
@@ -526,7 +584,11 @@ Step 3: Convert Constraints to edges (with invert=true)
   Constraint: { sourceChangeIndex: 0, targetChangeIndex: 1 }
   → Inverted edge: [1, 0]  (posts before users)
 
-Step 4: Topological sort
+Step 4: Cycle detection and breaking
+  Detect cycles: No cycles found
+  Continue to topological sort
+
+Step 5: Topological sort
   Result: [1, 0]
 ```
 
@@ -563,7 +625,7 @@ const customConstraintGenerators: CustomConstraintGenerator[] = [
           constraints.push({
             sourceChangeIndex: changeIndexByChange.get(a)!,
             targetChangeIndex: changeIndexByChange.get(b)!,
-            source: "constraint_spec",
+            source: "custom",
           });
         }
       }
@@ -582,7 +644,7 @@ Step 2: Convert to Constraints
   Custom constraints:
     AlterDefaultPrivileges vs CreateTable(posts)
     → Constraint: { sourceChangeIndex: 1, targetChangeIndex: 0,
-                    source: "constraint_spec" }
+                    source: "custom" }
     
     AlterDefaultPrivileges vs CreateRole(admin)
     → No constraint (CreateRole excluded)
@@ -590,7 +652,11 @@ Step 2: Convert to Constraints
 Step 3: Convert Constraints to edges
   Edge: [1, 0]
 
-Step 4: Topological sort
+Step 4: Cycle detection and breaking
+  Detect cycles: No cycles found
+  Continue to topological sort
+
+Step 5: Topological sort
   Result: [1, 2, 0]
 ```
 
@@ -644,10 +710,9 @@ Step 4: Topological sort
          │ Step 2: Convert to     │
          │        Constraints    │
          │ - Catalog deps        │
-         │   (with filtering)    │
+         │   (basic validation)  │
          │ - Explicit requires   │
-         │   (with filtering)    │
-         │ - Constraint specs    │
+         │ - Custom constraints  │
          └──────────┬────────────┘
                     │
                     ▼
@@ -660,15 +725,25 @@ Step 4: Topological sort
                     │
                     ▼
          ┌──────────────────────┐
-         │ Step 4: dedupeEdges   │
+         │ Step 4: Cycle         │
+         │        Detection &   │
+         │        Breaking      │
+         │ - Detect cycles      │
+         │ - Track seen cycles  │
+         │ - Filter cycle edges │
+         │ - Repeat until done  │
+         └──────────┬────────────┘
+                    │
+                    ▼
+         ┌──────────────────────┐
+         │ Step 5: dedupeEdges   │
          │ performStableTopoSort │
          └──────────┬────────────┘
                     │
                     ▼
          ┌──────────────────────┐
-         │ Step 5: Validate     │
-         │ - Check for cycles   │
-         │ - Map indices→changes │
+         │ Step 6: Map           │
+         │        indices→changes│
          └──────────────────────┘
 ```
 
@@ -705,34 +780,60 @@ function sortPhaseChanges(changes, dependency_rows, invert=False):
     
     # Step 2: Convert all sources to Constraints
     catalog_constraints = convertCatalogDependenciesToConstraints(
-        dependency_rows, changes, graph_data
-    )  # Filtering happens inside
+        dependency_rows, graph_data
+    )  # Only basic validation (unknown IDs)
     
     explicit_constraints = convertExplicitRequirementsToConstraints(
         changes, graph_data
-    )  # Filtering happens inside
+    )  # No filtering during conversion
     
-    custom_constraints = convertCustomConstraintsToConstraints(
-        changes, custom_constraint_generators
-    )
+    custom_constraints = generateCustomConstraints(changes)
     
     all_constraints = catalog_constraints + explicit_constraints + custom_constraints
     
     # Step 3: Convert Constraints to edges
-    edges = []
-    for constraint in all_constraints:
-        if invert:
-            edges.append([constraint.targetChangeIndex, constraint.sourceChangeIndex])
-        else:
-            edges.append([constraint.sourceChangeIndex, constraint.targetChangeIndex])
+    edges = convertConstraintsToEdges(all_constraints, invert)
     
-    # Step 4: Deduplicate and sort
-    edges = dedupeEdges(edges)
-    sorted_indices = performStableTopologicalSort(changes.length, edges)
+    # Step 4: Iteratively detect and break cycles
+    seen_cycles = Set()
     
-    # Step 5: Validate
+    while True:
+        # Deduplicate edges
+        unique_edges = dedupeEdges(edges)
+        edge_pairs = edgesToPairs(unique_edges)
+        
+        # Detect cycles
+        cycle_node_indexes = findCycle(changes.length, edge_pairs)
+        
+        if not cycle_node_indexes:
+            # No cycles found, we're done
+            edges = unique_edges
+            break
+        
+        # Normalize cycle to check if we've seen it before
+        cycle_signature = normalizeCycle(cycle_node_indexes)
+        if cycle_signature in seen_cycles:
+            # We've seen this cycle before - filtering didn't break it
+            throw CycleError(cycle_node_indexes, changes)
+        
+        # Track this cycle
+        seen_cycles.add(cycle_signature)
+        
+        # Filter only edges involved in the cycle to break it
+        edges = filterEdgesForCycleBreaking(
+            unique_edges,
+            cycle_node_indexes,
+            changes,
+            graph_data
+        )
+    
+    # Step 5: Deduplicate and sort (no cycles remain)
+    edge_pairs = edgesToPairs(edges)
+    sorted_indices = performStableTopologicalSort(changes.length, edge_pairs)
+    
+    # Step 6: Validate and map
     if sorted_indices.length != changes.length:
-        throw CycleError
+        throw CycleError  # Should never happen
     
     # Map indices to changes
     return [changes[i] for i in sorted_indices]
@@ -745,12 +846,24 @@ The sorting algorithm:
 1. **Partitions** changes into DROP and CREATE/ALTER phases using `getExecutionPhase()`
 2. **Builds** graph data structures (change sets and reverse indexes)
 3. **Converts** all dependency sources to Constraints:
-   - PostgreSQL's `pg_depend` catalog → Constraints (filtering applied during conversion)
-   - Explicit `requires` declarations → Constraints (filtering applied during conversion)
-   - Custom constraint specs → Constraints
+   - PostgreSQL's `pg_depend` catalog → Constraints (only basic validation for unknown IDs)
+   - Explicit `requires` declarations → Constraints (no filtering during conversion)
+   - Custom constraints → Constraints
 4. **Converts** Constraints to graph edges (inverting in DROP phase)
-5. **Deduplicates** edges and performs stable topological sort
-6. **Validates** for cycles and provides helpful error messages
+5. **Iteratively detects and breaks cycles**:
+   - Detects cycles in the graph
+   - Tracks seen cycles to detect when filtering fails
+   - Filters only edges involved in cycles (applies cycle-breaking filters)
+   - Continues until no cycles remain or a cycle can't be broken
+6. **Deduplicates** edges and performs stable topological sort
+7. **Maps** indices back to changes
+
+**Key Design Principles:**
+
+- **No premature filtering**: Cycle-breaking filters are applied only when cycles are detected, not during constraint conversion
+- **Targeted filtering**: Only edges involved in detected cycles are filtered, preserving the rest of the graph
+- **Cycle tracking**: Tracks seen cycles to detect when filtering fails to break a cycle, preventing infinite loops
+- **Iterative resolution**: Handles multiple cycles by breaking them one at a time until all are resolved
 
 This constraint-based approach unifies all dependency sources into a single abstraction, making the algorithm easier to understand and maintain while ensuring migrations execute in the correct order.
 

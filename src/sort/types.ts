@@ -29,24 +29,59 @@ export type PgDependRow = {
  * - Explicit requirements (from Change.requires) → Constraints
  * - Constraint specs (change-to-change rules) → Constraints
  */
-export interface Constraint {
+export type Constraint =
+  | CatalogConstraint
+  | ExplicitConstraint
+  | ConstraintSpecConstraint;
+
+/**
+ * Base constraint properties shared by all constraint types.
+ */
+interface BaseConstraint {
   /** Index of the change that must come first */
   sourceChangeIndex: number;
   /** Index of the change that must come after */
   targetChangeIndex: number;
-  /** Where this constraint came from */
-  source: "catalog" | "explicit" | "constraint_spec";
-  /**
-   * Why this constraint exists (for catalog/explicit sources).
-   * Represents the stable ID dependency that led to this change-to-change constraint.
-   */
-  reason?: {
+}
+
+/**
+ * Constraint from catalog dependencies (pg_depend).
+ * Always has both dependent and referenced stable IDs.
+ */
+export interface CatalogConstraint extends BaseConstraint {
+  source: "catalog";
+  /** The stable ID dependency that led to this constraint */
+  reason: {
     /** The stable ID that depends on referencedStableId */
     dependentStableId: string;
     /** The stable ID being depended upon */
     referencedStableId: string;
   };
-  /** Optional description for custom constraints */
+}
+
+/**
+ * Constraint from explicit requirements (Change.requires).
+ * Always has referencedStableId, but dependentStableId is optional
+ * if the change doesn't create anything.
+ */
+export interface ExplicitConstraint extends BaseConstraint {
+  source: "explicit";
+  /** The stable ID dependency that led to this constraint */
+  reason: {
+    /** The stable ID that depends on referencedStableId (undefined if change doesn't create anything) */
+    dependentStableId?: string;
+    /** The stable ID being depended upon */
+    referencedStableId: string;
+  };
+}
+
+/**
+ * Constraint from custom constraint specs.
+ * No reason field since these are direct change-to-change ordering rules.
+ */
+export interface ConstraintSpecConstraint extends BaseConstraint {
+  source: "custom";
+  /** Optional description for debugging */
   description?: string;
 }
 
@@ -69,6 +104,15 @@ export type CustomConstraint = (
 export interface PhaseSortOptions {
   /** If true, invert edges so drops run in reverse dependency order. */
   invert?: boolean;
+}
+
+/**
+ * Edge with its originating constraint for filtering purposes.
+ */
+export interface Edge {
+  sourceIndex: number;
+  targetIndex: number;
+  constraint: Constraint;
 }
 
 /**

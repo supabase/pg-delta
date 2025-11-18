@@ -2,7 +2,7 @@ import type { Change } from "../change.types.ts";
 import { CreateSequence } from "../objects/sequence/changes/sequence.create.ts";
 import { stableId } from "../objects/utils.ts";
 import { findConsumerIndexes } from "./graph-utils.ts";
-import type { GraphData, PgDependRow } from "./types.ts";
+import type { Edge, GraphData } from "./types.ts";
 
 /**
  * Check if a sequence is owned by a given table or column.
@@ -113,34 +113,80 @@ export function shouldFilterStableIdDependencyForCycleBreaking(
 }
 
 /**
- * Filter catalog dependencies before converting to Constraints.
+ * Identify edges that are part of a cycle.
  *
- * Filters out unknown stable IDs and applies cycle-breaking filters.
+ * Given cycle node indices, returns edges where both source and target are in the cycle
+ * and form consecutive nodes in the cycle path.
  */
-export function filterCatalogDependencies(
-  dependencyRows: PgDependRow[],
+function getEdgesInCycle(cycleNodeIndexes: number[], edges: Edge[]): Edge[] {
+  const cycleEdges: Edge[] = [];
+
+  // Create a map of edges for quick lookup
+  const edgeMap = new Map<string, Edge>();
+  for (const edge of edges) {
+    const key = `${edge.sourceIndex}->${edge.targetIndex}`;
+    edgeMap.set(key, edge);
+  }
+
+  // Find edges that connect consecutive nodes in the cycle
+  for (let i = 0; i < cycleNodeIndexes.length; i++) {
+    const sourceIndex = cycleNodeIndexes[i];
+    const targetIndex = cycleNodeIndexes[(i + 1) % cycleNodeIndexes.length];
+    const key = `${sourceIndex}->${targetIndex}`;
+    const edge = edgeMap.get(key);
+    if (edge) {
+      cycleEdges.push(edge);
+    }
+  }
+
+  return cycleEdges;
+}
+
+/**
+ * Filter edges involved in cycles based on their constraint's cycle-breaking rules.
+ *
+ * This is applied when cycles are detected to break them by removing problematic edges.
+ * Only filters edges that:
+ * 1. Are part of the detected cycle(s)
+ * 2. Have a reason (stable ID dependency) - custom constraints are never filtered
+ * 3. Match the cycle-breaking filter criteria
+ */
+export function filterEdgesForCycleBreaking(
+  edges: Edge[],
+  cycleNodeIndexes: number[],
   phaseChanges: Change[],
   graphData: GraphData,
-): PgDependRow[] {
-  return dependencyRows.filter((row) => {
-    if (
-      row.referenced_stable_id.startsWith("unknown:") ||
-      row.dependent_stable_id.startsWith("unknown:")
-    ) {
-      return false;
+): Edge[] {
+  // Get edges that are part of the cycle
+  const cycleEdges = getEdgesInCycle(cycleNodeIndexes, edges);
+  // Use string keys for comparison since Set.has() uses reference equality
+  const cycleEdgeKeys = new Set(
+    cycleEdges.map((e) => `${e.sourceIndex}->${e.targetIndex}`),
+  );
+
+  return edges.filter((edge) => {
+    const edgeKey = `${edge.sourceIndex}->${edge.targetIndex}`;
+    // If edge is not in the cycle, keep it
+    if (!cycleEdgeKeys.has(edgeKey)) {
+      return true;
     }
 
-    if (
-      shouldFilterStableIdDependencyForCycleBreaking(
-        row.dependent_stable_id,
-        row.referenced_stable_id,
-        phaseChanges,
-        graphData,
-      )
-    ) {
-      return false;
-    }
+    // Edge is in cycle - check if it should be filtered
+    const constraint = edge.constraint;
 
-    return true;
+    // Custom constraints are never filtered
+    if (constraint.source === "custom") return true;
+
+    const { dependentStableId, referencedStableId } = constraint.reason;
+    // Skip if dependentStableId is undefined (explicit requirement without created IDs)
+    if (!dependentStableId) return true;
+
+    // Apply cycle-breaking filters - return false to filter out this edge
+    return !shouldFilterStableIdDependencyForCycleBreaking(
+      dependentStableId,
+      referencedStableId,
+      phaseChanges,
+      graphData,
+    );
   });
 }

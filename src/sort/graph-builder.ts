@@ -1,11 +1,8 @@
 import type { Change } from "../change.types.ts";
-import {
-  filterCatalogDependencies,
-  shouldFilterStableIdDependencyForCycleBreaking,
-} from "./dependency-filter.ts";
 import { findConsumerIndexes } from "./graph-utils.ts";
 import type {
   Constraint,
+  Edge,
   GraphData,
   PgDependRow,
   PhaseSortOptions,
@@ -17,22 +14,23 @@ import type {
  * For each catalog dependency (stable ID → stable ID), finds the changes that
  * create/require those stable IDs and creates Constraints between them.
  *
- * Filters out unknown stable IDs and applies cycle-breaking filters before conversion.
+ * Filters out unknown stable IDs (basic validation).
+ * Cycle-breaking filters are applied later when detecting cycles.
  */
 export function convertCatalogDependenciesToConstraints(
   dependencyRows: PgDependRow[],
-  phaseChanges: Change[],
   graphData: GraphData,
 ): Constraint[] {
-  const filteredDependencies = filterCatalogDependencies(
-    dependencyRows,
-    phaseChanges,
-    graphData,
-  );
-
   const constraints: Constraint[] = [];
 
-  for (const row of filteredDependencies) {
+  for (const row of dependencyRows) {
+    // Filter out unknown stable IDs (basic validation)
+    if (
+      row.referenced_stable_id.startsWith("unknown:") ||
+      row.dependent_stable_id.startsWith("unknown:")
+    ) {
+      continue;
+    }
     const producerIndexes = graphData.changeIndexesByCreatedId.get(
       row.referenced_stable_id,
     );
@@ -71,7 +69,7 @@ export function convertCatalogDependenciesToConstraints(
  * - If the change creates stable IDs, creates Constraints from producers of required IDs to this change
  * - If the change doesn't create anything but requires something, creates Constraints from producers to this change
  *
- * Applies cycle-breaking filters during conversion for changes that create stable IDs.
+ * Cycle-breaking filters are applied later when detecting cycles.
  */
 export function convertExplicitRequirementsToConstraints(
   phaseChanges: Change[],
@@ -96,17 +94,6 @@ export function convertExplicitRequirementsToConstraints(
 
       if (createdIds.size > 0) {
         for (const createdId of createdIds) {
-          if (
-            shouldFilterStableIdDependencyForCycleBreaking(
-              createdId,
-              requiredId,
-              phaseChanges,
-              graphData,
-            )
-          ) {
-            continue;
-          }
-
           for (const producerIndex of producerIndexes) {
             if (producerIndex === consumerIndex) continue;
             constraints.push({
@@ -129,7 +116,6 @@ export function convertExplicitRequirementsToConstraints(
             targetChangeIndex: consumerIndex,
             source: "explicit",
             reason: {
-              dependentStableId: "",
               referencedStableId: requiredId,
             },
           });
@@ -205,13 +191,33 @@ export function buildGraphData(
 }
 
 /**
- * Convert Constraints to graph edges.
+ * Convert Constraints to edges.
  */
 export function convertConstraintsToEdges(
   constraints: Constraint[],
-  registerEdge: (sourceIndex: number, targetIndex: number) => void,
-): void {
+  options: PhaseSortOptions,
+): Edge[] {
+  const edges: Edge[] = [];
   for (const constraint of constraints) {
-    registerEdge(constraint.sourceChangeIndex, constraint.targetChangeIndex);
+    if (constraint.sourceChangeIndex === constraint.targetChangeIndex) continue;
+    const sourceIndex = options.invert
+      ? constraint.targetChangeIndex
+      : constraint.sourceChangeIndex;
+    const targetIndex = options.invert
+      ? constraint.sourceChangeIndex
+      : constraint.targetChangeIndex;
+    edges.push({
+      sourceIndex,
+      targetIndex,
+      constraint,
+    });
   }
+  return edges;
+}
+
+/**
+ * Convert edges to simple edge pairs for cycle detection and sorting.
+ */
+export function edgesToPairs(edges: Edge[]): Array<[number, number]> {
+  return edges.map((edge) => [edge.sourceIndex, edge.targetIndex]);
 }
