@@ -27,12 +27,11 @@ import {
   GrantRoleDefaultPrivileges,
   RevokeRoleDefaultPrivileges,
 } from "../objects/role/changes/role.privilege.ts";
-import { generateConstraintEdges } from "./constraint-specs.ts";
+import { convertConstraintSpecsToUnifiedDependencies } from "./constraint-specs.ts";
 import { printDebugGraph } from "./debug-visualization.ts";
-import { filterDependencies } from "./dependency-filter.ts";
+import { filterUnifiedDependencies } from "./dependency-filter.ts";
 import {
-  buildChangeSets,
-  buildEdgesFromDependencies,
+  buildEdgesFromUnifiedDependencies,
   buildGraphData,
   convertCatalogDependencies,
   convertExplicitRequirements,
@@ -219,14 +218,11 @@ function sortChangesByPhasedGraph(
  * Build the per-phase graph from catalog edges and optional constraint specs, then
  * run a stable topological sort.
  *
- * The algorithm:
- * 1. Build graph data structures (created IDs, required IDs, indexes)
- * 2. Add edges from pg_depend catalog rows
- * 3. Add edges from explicit creates/requires relationships
- * 4. Add edges from constraint specs (if any)
- * 5. Deduplicate edges
- * 6. Perform stable topological sort
- * 7. Validate no cycles exist
+ * The algorithm follows these clear steps:
+ * 1. Unify all sources of dependency information into a single format
+ * 2. Filter the unified dependencies to prevent potential cycles
+ * 3. Build edges from the filtered unified dependencies
+ * 4. Topologically sort the graph
  *
  * In DROP phase, edges are inverted so drops run opposite to creation order.
  */
@@ -238,39 +234,40 @@ function sortPhaseChanges(
 ): Change[] {
   if (phaseChanges.length <= 1) return phaseChanges;
 
-  // Step 1: Build change sets (created and required IDs) from changes
-  // These only depend on the changes themselves, not on dependencies
-  const { createdStableIdSets, explicitRequirementSets } = buildChangeSets(
-    phaseChanges,
-    options,
-  );
+  // Step 1: Build graph data structures (needed for filtering and building edges)
+  // This builds change sets and reverse indexes from the changes, which are needed by both
+  // the filter (for findConsumerIndexes) and edge building logic
+  const graphData = buildGraphData(phaseChanges, options);
 
-  // Step 2: Convert all dependencies (catalog + explicit) into a single format
+  // Step 2: Unify all sources of dependency information into a single format
+  // - Catalog dependencies (from pg_depend)
+  // - Explicit requirements (from Change.requires)
+  // - Constraint specs (change-to-change ordering rules)
   const catalogDeps = convertCatalogDependencies(dependencyRows);
   const explicitDeps = convertExplicitRequirements(
     phaseChanges,
-    createdStableIdSets,
-    explicitRequirementSets,
+    graphData.createdStableIdSets,
+    graphData.explicitRequirementSets,
   );
-  const allDependencies = [...catalogDeps, ...explicitDeps];
-
-  // Step 3: Build graph data structures (needed for filtering and building edges)
-  // This builds reverse indexes from the change sets, which are needed by both
-  // the filter (for findConsumerIndexes) and edge building logic
-  const graphData = buildGraphData(
+  const constraintDeps = convertConstraintSpecsToUnifiedDependencies(
     phaseChanges,
-    createdStableIdSets,
-    explicitRequirementSets,
+    constraintSpecs,
   );
+  const allUnifiedDependencies = [
+    ...catalogDeps,
+    ...explicitDeps,
+    ...constraintDeps,
+  ];
 
-  // Step 4: Filter dependencies (remove unknown, sequence ownership cycles, etc.)
-  const filteredDependencies = filterDependencies(
-    allDependencies,
+  // Step 3: Filter unified dependencies to prevent potential cycles
+  // This removes unknown dependencies, sequence ownership cycles, etc.
+  const filteredDependencies = filterUnifiedDependencies(
+    allUnifiedDependencies,
     phaseChanges,
     graphData,
   );
 
-  // Step 5: Build edges from filtered dependencies
+  // Step 4: Build edges from filtered unified dependencies
   const graphEdges: Array<[number, number]> = [];
   const registerEdge = (sourceIndex: number, targetIndex: number) => {
     if (sourceIndex === targetIndex) return;
@@ -279,7 +276,7 @@ function sortPhaseChanges(
     );
   };
 
-  buildEdgesFromDependencies(
+  buildEdgesFromUnifiedDependencies(
     {
       changeIndexesByCreatedId: graphData.changeIndexesByCreatedId,
       changeIndexesByExplicitRequirementId:
@@ -292,12 +289,7 @@ function sortPhaseChanges(
     phaseChanges,
   );
 
-  // Add edges from constraint specs
-  if (constraintSpecs.length > 0) {
-    graphEdges.push(...generateConstraintEdges(phaseChanges, constraintSpecs));
-  }
-
-  // Deduplicate and sort
+  // Step 5: Deduplicate edges and perform stable topological sort
   const deduplicatedEdges = dedupeEdges(graphEdges);
   const topologicalOrder = performStableTopologicalSort(
     phaseChanges.length,
@@ -310,10 +302,10 @@ function sortPhaseChanges(
     graphData,
     deduplicatedEdges,
     dependencyRows,
-    allDependencies,
+    allUnifiedDependencies,
   );
 
-  // Validate no cycles
+  // Step 6: Validate no cycles exist
   if (!topologicalOrder || topologicalOrder.length !== phaseChanges.length) {
     const cycleNodeIndexes = findCycle(phaseChanges.length, deduplicatedEdges);
     if (cycleNodeIndexes) {

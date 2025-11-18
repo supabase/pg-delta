@@ -1,6 +1,6 @@
 import type { Change } from "../change.types.ts";
 import { findCycle } from "./topological-sort.ts";
-import type { Dependency, GraphData, PgDependRow } from "./types.ts";
+import type { GraphData, PgDependRow, UnifiedDependency } from "./types.ts";
 
 /**
  * Generate a Mermaid diagram representation of the dependency graph for debugging.
@@ -90,11 +90,12 @@ function generateMermaidDiagram(
  * Build requirementSets from explicit requirements and dependencies (for debug visualization).
  *
  * This reconstructs what requirements were inferred from dependencies by looking at
- * the dependencies that were processed.
+ * the dependencies that were processed. Only processes stable_id dependencies, as
+ * change-to-change constraints don't affect requirement sets.
  */
 function buildRequirementSets(
   explicitRequirementSets: Array<Set<string>>,
-  dependencies: Dependency[],
+  dependencies: UnifiedDependency[],
   changeIndexesByCreatedId: Map<string, Set<number>>,
   changeIndexesByExplicitRequirementId: Map<string, Set<number>>,
 ): Array<Set<string>> {
@@ -103,10 +104,13 @@ function buildRequirementSets(
     (explicitRequirements) => new Set<string>(explicitRequirements),
   );
 
-  // Add requirements inferred from dependencies
+  // Add requirements inferred from stable_id dependencies
   // For each dependency, if the referenced ID is created by some change,
   // then the consumers of the dependent ID require the referenced ID
   for (const dependency of dependencies) {
+    // Only process stable_id dependencies (change-to-change constraints don't affect requirements)
+    if (dependency.type !== "stable_id") continue;
+
     const referencedProducers = changeIndexesByCreatedId.get(
       dependency.referenced_stable_id,
     );
@@ -225,7 +229,7 @@ export function printDebugGraph(
   graphData: GraphData,
   edges: Array<[number, number]>,
   dependencyRows: PgDependRow[],
-  dependencies: Dependency[],
+  dependencies: UnifiedDependency[],
 ): void {
   if (!process.env.GRAPH_DEBUG) return;
 

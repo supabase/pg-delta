@@ -1,20 +1,21 @@
 import type { Change } from "../change.types.ts";
 import { findConsumerIndexes } from "./graph-utils.ts";
 import type {
-  Dependency,
   EdgeBuildingContext,
   GraphData,
   PgDependRow,
   PhaseSortOptions,
+  UnifiedDependency,
 } from "./types.ts";
 
 /**
- * Convert catalog dependencies (PgDependRow) to dependencies.
+ * Convert catalog dependencies (PgDependRow) to unified dependencies.
  */
 export function convertCatalogDependencies(
   dependencyRows: PgDependRow[],
-): Dependency[] {
+): UnifiedDependency[] {
   return dependencyRows.map((row) => ({
+    type: "stable_id",
     dependent_stable_id: row.dependent_stable_id,
     referenced_stable_id: row.referenced_stable_id,
     source: "catalog" as const,
@@ -22,57 +23,22 @@ export function convertCatalogDependencies(
 }
 
 /**
- * Build the sets of created and required stable IDs from changes.
- *
- * This is a lightweight operation that only depends on the changes themselves,
- * not on dependencies. Used for converting explicit requirements before building
- * the full graph data.
- */
-export function buildChangeSets(
-  phaseChanges: Change[],
-  options: PhaseSortOptions,
-): {
-  createdStableIdSets: Array<Set<string>>;
-  explicitRequirementSets: Array<Set<string>>;
-} {
-  // For each change, collect the stable IDs it creates.
-  // In DROP phase (invert=true), we also include dropped IDs since drops
-  // need to be ordered based on what they remove.
-  const createdStableIdSets: Array<Set<string>> = phaseChanges.map(
-    (changeItem) => {
-      const createdIds = new Set<string>(changeItem.creates);
-      if (options.invert) {
-        for (const droppedId of changeItem.drops ?? []) {
-          createdIds.add(droppedId);
-        }
-      }
-      return createdIds;
-    },
-  );
-
-  // For each change, collect the stable IDs it explicitly requires.
-  const explicitRequirementSets: Array<Set<string>> = phaseChanges.map(
-    (changeItem) => new Set<string>(changeItem.requires ?? []),
-  );
-
-  return { createdStableIdSets, explicitRequirementSets };
-}
-
-/**
- * Convert explicit requirements to dependencies.
+ * Convert explicit requirements to unified dependencies.
  *
  * For each change that explicitly requires something:
  * - If the change creates stable IDs, we create dependencies from each created ID to each required ID
  * - If the change doesn't create anything but requires something, we skip creating dependencies here
- *   because these are handled directly in buildEdgesFromDependencies by iterating over changes
+ *   because these are handled directly in buildEdgesFromUnifiedDependencies by iterating over changes
  *   and their requirements (via changeIndexesByExplicitRequirementId)
+ *
+ * Requires the change sets to be built first (via buildGraphData or separately).
  */
 export function convertExplicitRequirements(
   phaseChanges: Change[],
   createdStableIdSets: Array<Set<string>>,
   explicitRequirementSets: Array<Set<string>>,
-): Dependency[] {
-  const dependencies: Dependency[] = [];
+): UnifiedDependency[] {
+  const dependencies: UnifiedDependency[] = [];
 
   for (
     let consumerIndex = 0;
@@ -85,11 +51,12 @@ export function convertExplicitRequirements(
     if (requiredIds.size === 0) continue;
 
     // Only create dependencies for changes that create stable IDs
-    // Changes that don't create anything are handled directly in buildEdgesFromDependencies
+    // Changes that don't create anything are handled directly in buildEdgesFromUnifiedDependencies
     if (createdIds.size > 0) {
       for (const requiredId of requiredIds) {
         for (const createdId of createdIds) {
           dependencies.push({
+            type: "stable_id",
             dependent_stable_id: createdId,
             referenced_stable_id: requiredId,
             source: "explicit" as const,
@@ -103,17 +70,32 @@ export function convertExplicitRequirements(
 }
 
 /**
- * Build the graph data structures from phase changes and dependency rows.
+ * Build the graph data structures from phase changes.
  *
- * This builds the full graph data including reverse indexes needed for building edges.
- * The createdStableIdSets and explicitRequirementSets are built from changes,
- * and the reverse indexes are built from those sets.
+ * This builds the full graph data including:
+ * - Change sets (createdStableIdSets and explicitRequirementSets) from changes
+ * - Reverse indexes needed for building edges (changeIndexesByCreatedId and changeIndexesByExplicitRequirementId)
  */
 export function buildGraphData(
   phaseChanges: Change[],
-  createdStableIdSets: Array<Set<string>>,
-  explicitRequirementSets: Array<Set<string>>,
+  options: PhaseSortOptions,
 ): GraphData {
+  // Build change sets (created and required IDs) from changes
+  const createdStableIdSets: Array<Set<string>> = phaseChanges.map(
+    (changeItem) => {
+      const createdIds = new Set<string>(changeItem.creates);
+      if (options.invert) {
+        for (const droppedId of changeItem.drops ?? []) {
+          createdIds.add(droppedId);
+        }
+      }
+      return createdIds;
+    },
+  );
+
+  const explicitRequirementSets: Array<Set<string>> = phaseChanges.map(
+    (changeItem) => new Set<string>(changeItem.requires ?? []),
+  );
   // Build reverse index: stable_id -> set of change indices that create it
   const changeIndexesByCreatedId = new Map<string, Set<number>>();
   for (let changeIndex = 0; changeIndex < phaseChanges.length; changeIndex++) {
@@ -186,12 +168,15 @@ function addEdgesForRequirement(
 }
 
 /**
- * Build edges from dependencies (catalog + explicit).
+ * Build edges from unified dependencies.
  *
- * This function builds the dependency graph by connecting producers (changes that create
- * stable IDs) to consumers (changes that require those stable IDs).
+ * This function converts unified dependencies (stable ID dependencies and change-to-change constraints)
+ * into graph edges. It handles:
  *
- * There are two cases we handle:
+ * 1. Stable ID dependencies: Converts them to edges by finding producers and consumers
+ * 2. Change-to-change constraints: Directly converts them to edges
+ *
+ * For stable ID dependencies, there are two cases:
  *
  * CASE 1: Dependencies where the dependent_stable_id is something that gets created
  * ---------------------------------------------------------------------------------
@@ -201,38 +186,36 @@ function addEdgesForRequirement(
  *   Consumers of table:public.users: [CreateTable] (found via findConsumerIndexes)
  *   Result: CreateRole → CreateTable
  *
- *   Dependency structure:
- *     dependent_stable_id: table:public.users  (something that gets created)
- *     referenced_stable_id: role:admin         (something required)
- *
  * CASE 2: Changes that don't create anything but require something
  * -----------------------------------------------------------------
  * Example: AlterSequenceSetOwnedBy requires sequence:public.seq and column:public.tbl.id
  *   This change doesn't create any stable IDs, so it doesn't appear in dependencies.
  *   We iterate directly over changes and their requirements.
- *
- *   Change: AlterSequenceSetOwnedBy (creates: [], requires: [sequence:public.seq, column:public.tbl.id])
- *   Producers of sequence:public.seq: [CreateSequence]
- *   Consumer: AlterSequenceSetOwnedBy (the change itself)
- *   Result: CreateSequence → AlterSequenceSetOwnedBy
  */
-export function buildEdgesFromDependencies(
+export function buildEdgesFromUnifiedDependencies(
   context: EdgeBuildingContext,
-  filteredDependencies: Dependency[],
+  filteredDependencies: UnifiedDependency[],
   phaseChanges: Change[],
 ): void {
-  // CASE 1: Process dependencies where dependent_stable_id is something that gets created
-  // --------------------------------------------------------------------------------------
-  // These dependencies have the form: created_id → required_id
-  // We find consumers via findConsumerIndexes, which looks up changes that create or
-  // require the dependent_stable_id.
-  //
-  // Example flow:
-  //   Dependency: table:public.users → role:admin
-  //   → Find producers of role:admin: [CreateRole@index=0]
-  //   → Find consumers of table:public.users: [CreateTable@index=1] (creates it)
-  //   → Add edge: CreateRole → CreateTable
+  // Separate stable ID dependencies from change-to-change constraints
+  const stableIdDependencies: Array<
+    Extract<UnifiedDependency, { type: "stable_id" }>
+  > = [];
+  const changeConstraints: Array<
+    Extract<UnifiedDependency, { type: "change" }>
+  > = [];
+
   for (const dependency of filteredDependencies) {
+    if (dependency.type === "change") {
+      changeConstraints.push(dependency);
+    } else {
+      stableIdDependencies.push(dependency);
+    }
+  }
+
+  // Process stable ID dependencies
+  // CASE 1: Process dependencies where dependent_stable_id is something that gets created
+  for (const dependency of stableIdDependencies) {
     // Find all changes that create the referenced ID (what's required)
     const producerIndexes = context.changeIndexesByCreatedId.get(
       dependency.referenced_stable_id,
@@ -257,16 +240,9 @@ export function buildEdgesFromDependencies(
   }
 
   // CASE 2: Handle changes that don't create anything but require something
-  // ------------------------------------------------------------------------
   // These changes don't appear in dependencies because they have no created IDs to
   // use as dependent_stable_id. We iterate directly over changes and process their
   // requirements.
-  //
-  // Example flow:
-  //   Change: AlterSequenceSetOwnedBy@index=2 (creates: [], requires: [sequence:public.seq])
-  //   → Find producers of sequence:public.seq: [CreateSequence@index=0]
-  //   → Consumer: AlterSequenceSetOwnedBy@index=2 (the change itself)
-  //   → Add edge: CreateSequence → AlterSequenceSetOwnedBy
   for (
     let consumerIndex = 0;
     consumerIndex < phaseChanges.length;
@@ -287,6 +263,16 @@ export function buildEdgesFromDependencies(
         consumerIndexes,
         context.changeIndexesByCreatedId,
         context.registerEdge,
+      );
+    }
+  }
+
+  // Process change-to-change constraints (directly convert to edges)
+  for (const constraint of changeConstraints) {
+    if (constraint.type === "change") {
+      context.registerEdge(
+        constraint.dependent_index,
+        constraint.referenced_index,
       );
     }
   }

@@ -2,7 +2,7 @@ import type { Change } from "../change.types.ts";
 import { CreateSequence } from "../objects/sequence/changes/sequence.create.ts";
 import { stableId } from "../objects/utils.ts";
 import { findConsumerIndexes } from "./graph-utils.ts";
-import type { Dependency, GraphData } from "./types.ts";
+import type { GraphData, UnifiedDependency } from "./types.ts";
 
 /**
  * Check if a sequence is owned by a given table or column.
@@ -113,22 +113,27 @@ function shouldFilterSequenceOwnershipDependency(
  * Filter out dependencies that should not be processed.
  *
  * This applies all filtering logic:
- * - Unknown dependencies (with "unknown:" prefix)
- * - Sequence ownership dependencies (to prevent cycles)
- * - Any other filters as needed
+ * - Unknown dependencies (with "unknown:" prefix) - only applies to stable_id dependencies
+ * - Sequence ownership dependencies (to prevent cycles) - only applies to stable_id dependencies
+ * - Change-to-change constraints are not filtered (they're already validated)
  *
- * @param dependencies - The dependencies to filter
+ * @param dependencies - The unified dependencies to filter
  * @param phaseChanges - All changes in the current phase
  * @param graphData - Graph data structures for finding consumers
  * @returns Filtered dependencies that should be processed
  */
-export function filterDependencies(
-  dependencies: Dependency[],
+export function filterUnifiedDependencies(
+  dependencies: UnifiedDependency[],
   phaseChanges: Change[],
   graphData: GraphData,
-): Dependency[] {
+): UnifiedDependency[] {
   return dependencies.filter((dependency) => {
-    // Filter out unknown dependencies
+    // Change-to-change constraints don't need filtering based on stable IDs
+    if (dependency.type === "change") {
+      return true;
+    }
+
+    // Filter out unknown dependencies (only for stable_id dependencies)
     if (
       dependency.referenced_stable_id.startsWith("unknown:") ||
       dependency.dependent_stable_id.startsWith("unknown:")

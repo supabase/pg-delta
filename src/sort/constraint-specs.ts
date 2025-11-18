@@ -1,5 +1,5 @@
 import type { Change } from "../change.types.ts";
-import type { ConstraintSpec, Edge } from "./types.ts";
+import type { ConstraintSpec, Edge, UnifiedDependency } from "./types.ts";
 
 /**
  * Predicate for selecting changes targeted by a constraint spec.
@@ -9,23 +9,26 @@ type ChangeFilter =
   | ((change: Change) => boolean);
 
 /**
- * Build edges from user-defined constraint specs (applied within the phase).
+ * Convert constraint specs to unified dependencies.
+ *
+ * This converts constraint specs (which define change-to-change ordering) into
+ * the unified dependency format so they can be processed alongside stable ID dependencies.
  *
  * The algorithm:
  * - Select the items via spec.filter (or all items if not provided)
  * - Optionally partition by spec.groupBy, then apply edges within each group
  * - buildEdges can provide explicit edges; pairwise can declare local ordering
  */
-export function generateConstraintEdges(
+export function convertConstraintSpecsToUnifiedDependencies(
   items: Change[],
   specs: ConstraintSpec<Change>[],
-): Array<[number, number]> {
+): UnifiedDependency[] {
   const globalIndexByChange = new Map<Change, number>();
   for (let changeIndex = 0; changeIndex < items.length; changeIndex++) {
     globalIndexByChange.set(items[changeIndex], changeIndex);
   }
 
-  const edges: Array<[number, number]> = [];
+  const dependencies: UnifiedDependency[] = [];
   for (const spec of specs) {
     const filteredItems = items.filter((changeItem) =>
       changeMatchesFilter(changeItem, spec.filter),
@@ -42,7 +45,12 @@ export function generateConstraintEdges(
       if (groupItems.length <= 1) continue;
       if (spec.buildEdges) {
         for (const edge of spec.buildEdges(groupItems)) {
-          addEdgeFromSpec(edge, groupItems, globalIndexByChange, edges);
+          addDependencyFromSpec(
+            edge,
+            groupItems,
+            globalIndexByChange,
+            dependencies,
+          );
         }
       }
 
@@ -68,49 +76,54 @@ export function generateConstraintEdges(
             ) {
               continue;
             }
-            edges.push(
-              decision === "a_before_b"
-                ? [sourceIndex, targetIndex]
-                : [targetIndex, sourceIndex],
-            );
+            dependencies.push({
+              type: "change",
+              dependent_index:
+                decision === "a_before_b" ? sourceIndex : targetIndex,
+              referenced_index:
+                decision === "a_before_b" ? targetIndex : sourceIndex,
+              source: "constraint",
+            });
           }
         }
       }
     }
   }
-  return edges;
+  return dependencies;
 }
 
 /**
- * Add an edge from a constraint spec to the edges array.
+ * Add a dependency from a constraint spec edge to the unified dependencies array.
  */
-function addEdgeFromSpec(
+function addDependencyFromSpec(
   edge: Edge<Change>,
   groupItems: Change[],
   globalIndexByChange: Map<Change, number>,
-  edges: Array<[number, number]>,
+  dependencies: UnifiedDependency[],
 ): void {
+  let sourceIndex: number | undefined;
+  let targetIndex: number | undefined;
+
   if (Array.isArray(edge)) {
     const [sourceLocalIndex, targetLocalIndex] = edge;
-    const sourceIndex = globalIndexByChange.get(groupItems[sourceLocalIndex]);
-    const targetIndex = globalIndexByChange.get(groupItems[targetLocalIndex]);
-    if (
-      sourceIndex !== undefined &&
-      targetIndex !== undefined &&
-      sourceIndex !== targetIndex
-    ) {
-      edges.push([sourceIndex, targetIndex]);
-    }
+    sourceIndex = globalIndexByChange.get(groupItems[sourceLocalIndex]);
+    targetIndex = globalIndexByChange.get(groupItems[targetLocalIndex]);
   } else {
-    const sourceIndex = globalIndexByChange.get(edge.from);
-    const targetIndex = globalIndexByChange.get(edge.to);
-    if (
-      sourceIndex !== undefined &&
-      targetIndex !== undefined &&
-      sourceIndex !== targetIndex
-    ) {
-      edges.push([sourceIndex, targetIndex]);
-    }
+    sourceIndex = globalIndexByChange.get(edge.from);
+    targetIndex = globalIndexByChange.get(edge.to);
+  }
+
+  if (
+    sourceIndex !== undefined &&
+    targetIndex !== undefined &&
+    sourceIndex !== targetIndex
+  ) {
+    dependencies.push({
+      type: "change",
+      dependent_index: sourceIndex,
+      referenced_index: targetIndex,
+      source: "constraint",
+    });
   }
 }
 

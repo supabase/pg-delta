@@ -22,22 +22,39 @@ export type PgDependRow = {
 };
 
 /**
- * Dependency representation that combines catalog dependencies and explicit requirements.
+ * Unified dependency format that represents all sources of dependency information.
  *
- * This allows us to process both types of dependencies uniformly.
+ * This format unifies:
+ * - Stable ID dependencies (from catalog and explicit requirements)
+ * - Change-to-change constraints (from constraint specs)
+ *
+ * All dependency sources are converted to this format before filtering and edge building.
  */
-export type Dependency = {
-  /** Object that depends on `referenced_stable_id`. */
-  dependent_stable_id: string;
-  /** Object being depended upon. */
-  referenced_stable_id: string;
-  /**
-   * Source of the dependency.
-   * - "catalog": From pg_depend (PostgreSQL catalog)
-   * - "explicit": From explicit requires declarations in Change objects
-   */
-  source: "catalog" | "explicit";
-};
+export type UnifiedDependency =
+  | {
+      /** Stable ID-based dependency */
+      type: "stable_id";
+      /** Object that depends on `referenced_stable_id`. */
+      dependent_stable_id: string;
+      /** Object being depended upon. */
+      referenced_stable_id: string;
+      /**
+       * Source of the dependency.
+       * - "catalog": From pg_depend (PostgreSQL catalog)
+       * - "explicit": From explicit requires declarations in Change objects
+       */
+      source: "catalog" | "explicit";
+    }
+  | {
+      /** Change-to-change constraint */
+      type: "change";
+      /** Index of the change that must come first. */
+      dependent_index: number;
+      /** Index of the change that must come after. */
+      referenced_index: number;
+      /** Source is always "constraint" for change-to-change dependencies */
+      source: "constraint";
+    };
 
 /**
  * Pairwise decision for additional constraint edges.
