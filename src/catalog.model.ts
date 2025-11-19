@@ -145,200 +145,91 @@ export class Catalog {
   }
 }
 
-const ENABLED_CATALOG_FEATURES: Array<
-  Exclude<keyof CatalogProps, "indexableObjects">
-> = [
-  "aggregates",
-  "collations",
-  "compositeTypes",
-  "domains",
-  "enums",
-  "extensions",
-  "procedures",
-  "indexes",
-  "materializedViews",
-  "subscriptions",
-  "publications",
-  "rlsPolicies",
-  "roles",
-  "schemas",
-  "sequences",
-  "tables",
-  "triggers",
-  "eventTriggers",
-  "rules",
-  "ranges",
-  "views",
-  "depends",
-  "version",
-  "currentUser",
-];
+export async function extractCatalog(sql: Sql) {
+  const [
+    aggregates,
+    collations,
+    compositeTypes,
+    domains,
+    enums,
+    extensions,
+    indexes,
+    materializedViews,
+    subscriptions,
+    publications,
+    procedures,
+    rlsPolicies,
+    roles,
+    schemas,
+    sequences,
+    tables,
+    triggers,
+    eventTriggers,
+    rules,
+    ranges,
+    views,
+    depends,
+    version,
+    currentUser,
+  ] = await Promise.all([
+    extractAggregates(sql).then(listToRecord),
+    extractCollations(sql).then(listToRecord),
+    extractCompositeTypes(sql).then(listToRecord),
+    extractDomains(sql).then(listToRecord),
+    extractEnums(sql).then(listToRecord),
+    extractExtensions(sql).then(listToRecord),
+    extractIndexes(sql).then(listToRecord),
+    extractMaterializedViews(sql).then(listToRecord),
+    extractSubscriptions(sql).then(listToRecord),
+    extractPublications(sql).then(listToRecord),
+    extractProcedures(sql).then(listToRecord),
+    extractRlsPolicies(sql).then(listToRecord),
+    extractRoles(sql).then(listToRecord),
+    extractSchemas(sql).then(listToRecord),
+    extractSequences(sql).then(listToRecord),
+    extractTables(sql).then(listToRecord),
+    extractTriggers(sql).then(listToRecord),
+    extractEventTriggers(sql).then(listToRecord),
+    extractRules(sql).then(listToRecord),
+    extractRanges(sql).then(listToRecord),
+    extractViews(sql).then(listToRecord),
+    extractDepends(sql),
+    extractVersion(sql),
+    extractCurrentUser(sql),
+  ]);
 
-const FEATURES_TO_CONVERT_TO_RECORD: Set<keyof CatalogProps> = new Set([
-  "aggregates",
-  "collations",
-  "compositeTypes",
-  "domains",
-  "enums",
-  "extensions",
-  "procedures",
-  "indexes",
-  "materializedViews",
-  "subscriptions",
-  "publications",
-  "rlsPolicies",
-  "roles",
-  "schemas",
-  "sequences",
-  "tables",
-  "triggers",
-  "eventTriggers",
-  "rules",
-  "ranges",
-  "views",
-]);
+  const indexableObjects = {
+    ...tables,
+    ...materializedViews,
+  };
 
-const ALL_CATALOG_FEATURES: Record<
-  Exclude<keyof CatalogProps, "indexableObjects">,
-  {
-    shouldConvertToRecord: boolean;
-    extractor: (sql: Sql) => Promise<unknown>;
-  }
-> = {
-  aggregates: {
-    shouldConvertToRecord: true,
-    extractor: extractAggregates,
-  },
-  collations: {
-    shouldConvertToRecord: true,
-    extractor: extractCollations,
-  },
-  compositeTypes: {
-    shouldConvertToRecord: true,
-    extractor: extractCompositeTypes,
-  },
-  domains: {
-    shouldConvertToRecord: true,
-    extractor: extractDomains,
-  },
-  enums: {
-    shouldConvertToRecord: true,
-    extractor: extractEnums,
-  },
-  extensions: {
-    shouldConvertToRecord: true,
-    extractor: extractExtensions,
-  },
-  procedures: {
-    shouldConvertToRecord: true,
-    extractor: extractProcedures,
-  },
-  indexes: {
-    shouldConvertToRecord: true,
-    extractor: extractIndexes,
-  },
-  materializedViews: {
-    shouldConvertToRecord: true,
-    extractor: extractMaterializedViews,
-  },
-  subscriptions: {
-    shouldConvertToRecord: true,
-    extractor: extractSubscriptions,
-  },
-  publications: {
-    shouldConvertToRecord: true,
-    extractor: extractPublications,
-  },
-  rlsPolicies: {
-    shouldConvertToRecord: true,
-    extractor: extractRlsPolicies,
-  },
-  roles: {
-    shouldConvertToRecord: true,
-    extractor: extractRoles,
-  },
-  schemas: {
-    shouldConvertToRecord: true,
-    extractor: extractSchemas,
-  },
-  sequences: {
-    shouldConvertToRecord: true,
-    extractor: extractSequences,
-  },
-  tables: {
-    shouldConvertToRecord: true,
-    extractor: extractTables,
-  },
-  triggers: {
-    shouldConvertToRecord: true,
-    extractor: extractTriggers,
-  },
-  eventTriggers: {
-    shouldConvertToRecord: true,
-    extractor: extractEventTriggers,
-  },
-  rules: {
-    shouldConvertToRecord: true,
-    extractor: extractRules,
-  },
-  ranges: {
-    shouldConvertToRecord: true,
-    extractor: extractRanges,
-  },
-  views: {
-    shouldConvertToRecord: true,
-    extractor: extractViews,
-  },
-  depends: {
-    shouldConvertToRecord: false,
-    extractor: extractDepends,
-  },
-  version: {
-    shouldConvertToRecord: false,
-    extractor: extractVersion,
-  },
-  currentUser: {
-    shouldConvertToRecord: false,
-    extractor: extractCurrentUser,
-  },
-};
-
-export async function extractCatalog(sql: Sql): Promise<Catalog> {
-  // Extract all enabled features concurrently
-  const extractionResults = await Promise.all(
-    ENABLED_CATALOG_FEATURES.map((feature) =>
-      ALL_CATALOG_FEATURES[feature].extractor(sql)
-    )
-  );
-
-  // Assemble catalog data
-  const catalogData: Partial<CatalogProps> = {};
-  ENABLED_CATALOG_FEATURES.forEach((feature, index) => {
-    const result = extractionResults[index];
-    if (FEATURES_TO_CONVERT_TO_RECORD.has(feature)) {
-      catalogData[feature] = listToRecord(
-        result as unknown as BasePgModel[]
-      ) as never;
-    } else {
-      catalogData[feature] = result as never;
-    }
+  return new Catalog({
+    aggregates,
+    collations,
+    compositeTypes,
+    domains,
+    enums,
+    extensions,
+    procedures,
+    indexes,
+    materializedViews,
+    subscriptions,
+    publications,
+    rlsPolicies,
+    roles,
+    schemas,
+    sequences,
+    tables,
+    triggers,
+    eventTriggers,
+    rules,
+    ranges,
+    views,
+    depends,
+    indexableObjects,
+    version,
+    currentUser,
   });
-
-  // Build indexableObjects map
-  const indexableObjects: Record<string, TableLikeObject> = {};
-  for (const tableId in catalogData.tables as Record<string, Table>) {
-    indexableObjects[tableId] = catalogData.tables![tableId];
-  }
-  for (const mvId in catalogData.materializedViews as Record<
-    string,
-    MaterializedView
-  >) {
-    indexableObjects[mvId] = catalogData.materializedViews![mvId];
-  }
-
-  return new Catalog(
-    Object.assign(catalogData, { indexableObjects }) as CatalogProps
-  );
 }
 
 function listToRecord<T extends BasePgModel>(list: T[]) {
