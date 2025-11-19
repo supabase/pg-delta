@@ -145,6 +145,34 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
             JOIN extension_object_oids eo
               ON eo.classid = p.classoid AND eo.objid = p.objoid
             JOIN LATERAL aclexplode(p.initprivs) AS g ON TRUE
+            WHERE g.grantee NOT IN (
+              -- Exclude roles that own any objects (they have real purpose)
+              SELECT DISTINCT d.refobjid
+              FROM pg_shdepend d
+              WHERE d.deptype = 'o'
+                AND d.refclassid = 'pg_authid'::regclass
+            )
+            AND g.grantee NOT IN (
+              -- Exclude roles with significant attributes (superuser, login, etc.)
+              SELECT oid
+              FROM pg_roles
+              WHERE rolsuper
+                 OR rolcanlogin
+                 OR rolcreaterole
+                 OR rolcreatedb
+                 OR rolreplication
+                 OR rolbypassrls
+            )
+            AND g.grantee NOT IN (
+              -- Exclude roles that have members (they're real roles)
+              SELECT DISTINCT roleid
+              FROM pg_auth_members
+            )
+            AND g.grantee NOT IN (
+              -- Exclude roles with default privileges (they have real purpose)
+              SELECT DISTINCT defaclrole
+              FROM pg_default_acl
+            )
           ),
           role_owned_objects AS (
             SELECT
@@ -285,6 +313,34 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
             JOIN extension_object_oids eo
               ON eo.classid = p.classoid AND eo.objid = p.objoid
             JOIN LATERAL aclexplode(p.initprivs) AS g ON true
+            WHERE g.grantee NOT IN (
+              -- Exclude roles that own any objects (they have real purpose)
+              SELECT DISTINCT d.refobjid
+              FROM pg_shdepend d
+              WHERE d.deptype = 'o'
+                AND d.refclassid = 'pg_authid'::regclass
+            )
+            AND g.grantee NOT IN (
+              -- Exclude roles with significant attributes (superuser, login, etc.)
+              SELECT oid
+              FROM pg_roles
+              WHERE rolsuper
+                 OR rolcanlogin
+                 OR rolcreaterole
+                 OR rolcreatedb
+                 OR rolreplication
+                 OR rolbypassrls
+            )
+            AND g.grantee NOT IN (
+              -- Exclude roles that have members (they're real roles)
+              SELECT DISTINCT roleid
+              FROM pg_auth_members
+            )
+            AND g.grantee NOT IN (
+              -- Exclude roles with default privileges (they have real purpose)
+              SELECT DISTINCT defaclrole
+              FROM pg_default_acl
+            )
           ),
           role_owned_objects AS (
             SELECT
