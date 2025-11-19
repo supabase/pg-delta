@@ -6,26 +6,32 @@ This document explains how the `sortChanges` function orders an array of `Change
 
 1. [Overview](#overview)
 2. [High-Level Architecture](#high-level-architecture)
-3. [Phase Partitioning](#phase-partitioning)
-4. [Dependency Graph Construction](#dependency-graph-construction)
-5. [Edge Sources](#edge-sources)
-6. [Topological Sorting](#topological-sorting)
-7. [Key Concepts](#key-concepts)
-8. [Examples](#examples)
-9. [Algorithm Flow](#algorithm-flow)
+3. [Pass 1: Logical Pre-Sorting](#pass-1-logical-pre-sorting)
+4. [Pass 2: Dependency-Based Topological Sorting](#pass-2-dependency-based-topological-sorting)
+   - [Phase Partitioning](#phase-partitioning)
+   - [Dependency Graph Construction](#dependency-graph-construction)
+   - [Constraint Sources](#constraint-sources)
+   - [Topological Sorting](#topological-sorting)
+5. [Key Concepts](#key-concepts)
+6. [Examples](#examples)
+7. [Complete Algorithm Flow](#complete-algorithm-flow)
+8. [Logical Organization](#logical-organization)
 
 ## Overview
 
-The sorting algorithm ensures that schema changes are executed in the correct order by:
+The sorting algorithm uses a **two-pass approach** to order schema changes:
 
-1. **Respecting PostgreSQL's dependency system** - Uses `pg_depend` catalog data to understand object dependencies
-2. **Handling explicit requirements** - Changes declare what they require via the `requires` getter
-3. **Applying custom constraints** - Domain-specific ordering rules (e.g., ALTER DEFAULT PRIVILEGES before CREATE)
-4. **Maintaining stability** - Preserves input order when dependencies don't dictate a stricter ordering
+1. **Logical Pre-Sorting** - Groups related changes together by schema, object type, stable ID, and scope to create readable, logically organized migration scripts
+2. **Dependency-Based Topological Sorting** - Ensures correct execution order by respecting:
+   - PostgreSQL's dependency system (`pg_depend` catalog data)
+   - Explicit requirements (changes declare what they require via the `requires` getter)
+   - Custom constraints (domain-specific ordering rules, e.g., ALTER DEFAULT PRIVILEGES before CREATE)
+
+The algorithm maintains **stability** by preserving input order when dependencies don't dictate a stricter ordering.
 
 ## High-Level Architecture
 
-The algorithm operates in **two phases** that mirror how PostgreSQL applies DDL:
+The algorithm uses a **two-pass sorting strategy**:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -35,21 +41,46 @@ The algorithm operates in **two phases** that mirror how PostgreSQL applies DDL:
                       │
                       ▼
          ┌────────────────────────┐
+         │  Pass 1: Logical        │
+         │  Pre-Sorting            │
+         │  Groups by:              │
+         │  - Schema               │
+         │  - Object type          │
+         │  - Stable ID            │
+         │  - Scope                │
+         └────────┬─────────────────┘
+                  │
+                  ▼
+         ┌────────────────────────┐
+         │  Logically Grouped      │
+         │  Changes Array          │
+         └────────┬─────────────────┘
+                  │
+                  ▼
+         ┌────────────────────────┐
+         │  Pass 2: Dependency-    │
+         │  Based Sorting          │
+         │  (applied per phase)   │
+         └────────┬─────────────────┘
+                  │
+                  ▼
+         ┌────────────────────────┐
          │   Phase Partitioning    │
+         │   (DROP vs CREATE/ALTER)│
          └────────┬─────────────────┘
                   │
         ┌─────────┴─────────┐
         │                   │
         ▼                   ▼
 ┌──────────────┐    ┌──────────────────────┐
-│  DROP Phase  │    │ CREATE/ALTER Phase   │
-│  (inverted)  │    │   (forward)          │
+│  DROP Phase  │    │ CREATE/ALTER Phase  │
+│  (inverted)  │    │   (forward)         │
 └──────┬───────┘    └──────────┬───────────┘
        │                       │
        │  ┌─────────────────┐ │
-       └─▶│ Graph Building   │◀┘
-          │ & Topological    │
-          │    Sort          │
+       └─▶│ Build Graph &    │◀┘
+          │ Topological Sort │
+          │ (from Constraints)│
           └────────┬──────────┘
                    │
                    ▼
@@ -60,12 +91,52 @@ The algorithm operates in **two phases** that mirror how PostgreSQL applies DDL:
         └───────────────────────┘
 ```
 
-### Why Two Phases?
+### Two-Pass Strategy
+
+**Pass 1: Logical Pre-Sorting**
+- Groups related changes together (e.g., all changes for `table:public.users` together)
+- Sub-entities (indexes, triggers, RLS policies, rules) are grouped with their parent objects
+- Creates a readable, logically organized structure
+- Preserves relative order within groups (stability)
+
+**Pass 2: Dependency-Based Topological Sorting**
+- Ensures correct execution order by respecting dependencies
+- Applied separately to DROP and CREATE/ALTER phases
+- Uses constraints derived from catalog dependencies, explicit requirements, and custom rules
+- Reorders changes only when necessary to satisfy dependencies
+
+### Why Two Phases (DROP vs CREATE/ALTER)?
 
 - **DROP Phase**: Destructive operations must run in **reverse dependency order**. If table A depends on table B, we must drop A before B.
 - **CREATE/ALTER Phase**: Constructive operations run in **forward dependency order**. If table A depends on table B, we must create B before A.
 
-## Phase Partitioning
+## Pass 1: Logical Pre-Sorting
+
+Before applying dependency-based sorting, changes are logically pre-sorted to group related operations together. This makes migration scripts more readable and maintainable.
+
+The logical pre-sorting groups changes by:
+1. **Phase** (DROP vs CREATE/ALTER) - Separated first
+2. **Schema** - Objects within the same schema are grouped together
+3. **Effective object type** - Parent type for sub-entities (only when schemas differ)
+4. **Main stable ID** - All changes for a specific object (e.g., `table:public.users`) are grouped together
+5. **Actual object type** - Orders sub-entities within their parent group
+6. **Scope** - Orders by operation scope (object, comment, privilege, etc.)
+7. **Operation** - Orders by operation type (create, alter, drop)
+8. **Original order** - Preserves stability within groups
+
+**Key Features:**
+- Sub-entities (indexes, triggers, RLS policies, rules) are grouped with their parent objects
+- All changes for a specific table/view are kept together
+- Comments and privileges are grouped with their target objects
+- Non-schema objects (roles, languages, etc.) are sorted first
+
+For detailed implementation notes, see the [Logical Organization](#logical-organization) section.
+
+## Pass 2: Dependency-Based Topological Sorting
+
+After logical pre-sorting, dependency-based topological sorting ensures changes execute in the correct order. This pass operates separately on DROP and CREATE/ALTER phases.
+
+### Phase Partitioning
 
 Changes are partitioned using `getExecutionPhase()` which inspects change properties:
 
@@ -103,7 +174,7 @@ Partitioned:
   CREATE/ALTER:   [CreateTable(posts), CreateRole(admin), AlterTableAddColumn(users)]
 ```
 
-## Dependency Graph Construction
+### Dependency Graph Construction
 
 For each phase, we build a **directed acyclic graph (DAG)** where:
 - **Nodes** = Change indices (0, 1, 2, ...)
@@ -217,7 +288,7 @@ interface CustomConstraint extends BaseConstraint {
 - `ExplicitConstraint` may have `dependentStableId` undefined if the change doesn't create anything
 - `CustomConstraint` has no `reason` field since these are direct change-to-change rules
 
-## Constraint Sources
+### Constraint Sources
 
 The dependency graph is built from **three sources**, all converted to Constraints:
 
@@ -426,7 +497,7 @@ export function convertConstraintsToEdges(
 }
 ```
 
-## Topological Sorting
+### Topological Sorting
 
 Once the graph is built, we perform a **stable topological sort**:
 
@@ -755,9 +826,9 @@ Step 5: Topological sort
 ]
 ```
 
-## Algorithm Flow
+## Complete Algorithm Flow
 
-### Complete Flow Diagram
+### Flow Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -766,9 +837,29 @@ Step 5: Topological sort
                       │
                       ▼
          ┌────────────────────────┐
-         │ Partition into Phases   │
-         │ - DROP (getExecutionPhase)│
-         │ - CREATE/ALTER (else)   │
+         │  PASS 1: Logical        │
+         │  Pre-Sorting            │
+         │  Groups by schema,      │
+         │  object type, stable ID │
+         └────────┬─────────────────┘
+                  │
+                  ▼
+         ┌────────────────────────┐
+         │  Logically Grouped      │
+         │  Changes                │
+         └────────┬─────────────────┘
+                  │
+                  ▼
+         ┌────────────────────────┐
+         │  PASS 2: Dependency-    │
+         │  Based Sorting          │
+         └────────┬─────────────────┘
+                  │
+                  ▼
+         ┌────────────────────────┐
+         │ Partition into Phases  │
+         │ - DROP                │
+         │ - CREATE/ALTER        │
          └────────┬─────────────────┘
                   │
         ┌─────────┴─────────┐
@@ -840,11 +931,18 @@ Step 5: Topological sort
 
 ```python
 function sortChanges(changes, catalogs):
-    # 1. Partition using getExecutionPhase()
+    # PASS 1: Logical pre-sorting
+    logically_sorted = logicalSort(changes)
+    
+    # PASS 2: Dependency-based topological sorting
+    return sortChangesByPhasedGraph(catalogs, logically_sorted)
+
+function sortChangesByPhasedGraph(catalogs, changes):
+    # Partition into phases
     drop_changes = [c for c in changes if getExecutionPhase(c) == "drop"]
     create_changes = [c for c in changes if getExecutionPhase(c) == "create_alter_object"]
     
-    # 2. Sort each phase
+    # Sort each phase using dependency information
     sorted_drops = sortPhaseChanges(
         drop_changes,
         catalogs.mainCatalog.depends,
@@ -857,7 +955,7 @@ function sortChanges(changes, catalogs):
         invert=False
     )
     
-    # 3. Combine
+    # Combine phases
     return sorted_drops + sorted_creates
 
 function sortPhaseChanges(changes, dependency_rows, invert=False):
@@ -931,18 +1029,16 @@ function sortPhaseChanges(changes, dependency_rows, invert=False):
 
 ## Logical Organization
 
-While dependency resolution ensures that changes execute in a valid order, **logical organization** makes migration scripts more readable and maintainable by grouping related operations together.
+This section provides detailed implementation notes for **Pass 1: Logical Pre-Sorting**.
 
-### Two-Pass Sorting Strategy
+The logical pre-sorting step groups related changes together to create readable, logically organized migration scripts. While dependency resolution (Pass 2) ensures that changes execute in a valid order, logical organization makes migration scripts more maintainable.
 
-The sorting process operates in two passes:
-
-1. **First Pass: Logical Pre-Sorting** - Groups changes by object type and operation scope to create a logical structure
-2. **Second Pass: Dependency Resolution** - Applies the topological sort algorithm to ensure valid execution order
+### Benefits of Two-Pass Approach
 
 This approach combines the benefits of:
-- **Human readability** - Related changes are grouped together
+- **Human readability** - Related changes are grouped together (e.g., all changes for `table:public.users`)
 - **Correctness** - Dependencies are still respected within and across groups
+- **Maintainability** - Developers can easily see all changes related to a specific object in one place
 
 ### Object Type Ordering
 
@@ -1220,9 +1316,15 @@ This makes migration scripts much more readable - developers can see all changes
 
 ## Summary
 
-The sorting algorithm:
+The sorting algorithm operates in **two passes**:
 
-1. **Partitions** changes into DROP and CREATE/ALTER phases using `getExecutionPhase()`
+### Pass 1: Logical Pre-Sorting
+1. **Partitions** changes into DROP and CREATE/ALTER phases
+2. **Groups** changes by schema, effective object type, stable ID, actual object type, scope, and operation
+3. **Preserves** relative order within groups (stability)
+
+### Pass 2: Dependency-Based Topological Sorting
+1. **Partitions** logically sorted changes into DROP and CREATE/ALTER phases using `getExecutionPhase()`
 2. **Builds** graph data structures (change sets and reverse indexes)
 3. **Converts** all dependency sources to Constraints:
    - PostgreSQL's `pg_depend` catalog → Constraints (only basic validation for unknown IDs)
