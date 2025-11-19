@@ -15,9 +15,7 @@ const test = getTest(17);
 
 // Test to run manually.
 // Don't forget to define the DATABASE_URL environment variable to connect to the remote Supabase instance.
-test.skip("dump empty remote supabase into vanilla postgres", async ({
-  db,
-}) => {
+test("dump empty remote supabase into vanilla postgres", async ({ db }) => {
   const { main } = db;
 
   // biome-ignore lint/style/noNonNullAssertion: DATABASE_URL is set in the environment
@@ -41,7 +39,7 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
     },
   };
 
-  const filteredChanges = options.filter
+  let filteredChanges = options.filter
     ? changes.filter((change) =>
         // biome-ignore lint/style/noNonNullAssertion: options.filter is guaranteed to be defined
         options.filter!({ mainCatalog, branchCatalog }, change),
@@ -53,7 +51,7 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
   }
 
   // force messages_inserted_at_topic_index index to be first in the list of changes before sorting
-  let sortedChanges = filteredChanges.sort((a, b) => {
+  filteredChanges = filteredChanges.sort((a, b) => {
     const priority = (change: Change) => {
       if (
         change.objectType === "index" &&
@@ -67,7 +65,10 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
     return priority(a) - priority(b);
   });
 
-  sortedChanges = sortChanges({ mainCatalog, branchCatalog }, filteredChanges);
+  const sortedChanges = sortChanges(
+    { mainCatalog, branchCatalog },
+    filteredChanges,
+  );
 
   const hasRoutineChanges = sortedChanges.some(
     (change) =>
