@@ -3,7 +3,6 @@ import { join } from "node:path";
 import postgres from "postgres";
 import { diffCatalogs } from "../../src/catalog.diff.ts";
 import { extractCatalog } from "../../src/catalog.model.ts";
-import type { Change } from "../../src/change.types.ts";
 import type { MainOptions } from "../../src/main.ts";
 import { postgresConfig } from "../../src/main.ts";
 import { AlterRoleSetOptions } from "../../src/objects/role/changes/role.alter.ts";
