@@ -1,5 +1,3 @@
-import type { Change } from "../change.types.ts";
-
 /**
  * pg_depend rows that matter for ordering.
  *
@@ -84,22 +82,6 @@ interface CustomConstraint extends BaseConstraint {
   /** Optional description for debugging */
   description?: string;
 }
-
-/**
- * Pairwise ordering decision for two changes.
- */
-type PairwiseOrder = "a_before_b" | "b_before_a";
-
-/**
- * Custom constraint function that decides ordering between two changes.
- *
- * Takes two changes and returns whether a should come before b, b should come before a,
- * or undefined if there's no ordering constraint between them.
- */
-export type CustomConstraintFunction = (
-  a: Change,
-  b: Change,
-) => PairwiseOrder | undefined;
 
 export interface PhaseSortOptions {
   /** If true, invert edges so drops run in reverse dependency order. */

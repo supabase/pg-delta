@@ -34,7 +34,7 @@ import {
   performStableTopologicalSort,
 } from "./topological-sort.ts";
 import type { PgDependRow, PhaseSortOptions } from "./types.ts";
-import { type Phase, getExecutionPhase } from "./utils.ts";
+import { getExecutionPhase, type Phase } from "./utils.ts";
 
 /**
  * Sort changes using dependency information from catalogs and custom constraints.

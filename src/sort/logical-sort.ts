@@ -11,11 +11,7 @@
 
 import type { Change } from "../change.types.ts";
 import { getSchema } from "../filter/utils.ts";
-import {
-  type Phase,
-  getExecutionPhase,
-  isMetadataStableId,
-} from "./utils.ts";
+import { getExecutionPhase, isMetadataStableId, type Phase } from "./utils.ts";
 
 /**
  * Object type ordering for logical grouping.

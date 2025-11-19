@@ -65,4 +65,3 @@ export function getExecutionPhase(change: Change): Phase {
   // Safe default
   return "create_alter_object";
 }
-
