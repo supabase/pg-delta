@@ -15,7 +15,9 @@ const test = getTest(17);
 
 // Test to run manually.
 // Don't forget to define the DATABASE_URL environment variable to connect to the remote Supabase instance.
-test("dump empty remote supabase into vanilla postgres", async ({ db }) => {
+test.skip("dump empty remote supabase into vanilla postgres", async ({
+  db,
+}) => {
   const { main } = db;
 
   // biome-ignore lint/style/noNonNullAssertion: DATABASE_URL is set in the environment
