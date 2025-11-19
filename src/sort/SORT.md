@@ -128,8 +128,6 @@ This pass groups changes to maximize readability. It does **not** verify depende
     *   Sub-entities (e.g., `Columns`, `Indexes`, `Triggers` linked to that table)
 4.  **Scope**: `CREATE` -> `ALTER` -> `COMMENT` -> `GRANT`.
 
-*Implementation:* `src/sort/logical-sort.ts`
-
 ### Pass 2: Topological Sorting
 
 This pass ensures correctness. It builds a Directed Acyclic Graph (DAG) where nodes are changes and edges are "must run before" constraints.
@@ -159,17 +157,3 @@ For the **DROP** phase, we simply **invert** the graph edges.
 *   If `A depends on B`, normally `B` comes before `A`.
 *   In DROP phase, `A` must be dropped before `B`.
 *   The algorithm handles this by flipping `source` and `target` indices during edge construction.
-
-*Implementation:* `src/sort/sort-changes.ts`
-
----
-
-## Debugging
-
-If you encounter ordering issues, you can enable debug visualization to see the graph structure:
-
-```bash
-GRAPH_DEBUG=1 yarn test
-```
-
-This will print the adjacency list and constraint sources for the generated dependency graph.
