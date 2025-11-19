@@ -232,9 +232,10 @@ pg_depend row: {
 }
 
 Algorithm:
-  1. Filter catalog dependencies (unknown IDs, cycle-breaking filters)
+  1. Filter catalog dependencies (unknown IDs only - cycle-breaking filters applied later)
   2. Find changes that create "table:public.users" → [Change A]
-  3. Find changes that create/require "table:public.posts" → [Change B]
+  3. Find changes that create or explicitly require "table:public.posts" → [Change B]
+     (Uses `findConsumerIndexes` which finds both explicit requirements and changes that create the ID)
   4. Create Constraint: A → B
 ```
 
@@ -322,6 +323,7 @@ type CustomConstraintFunction = (
 ) => "a_before_b" | "b_before_a" | undefined;
 
 // Example: ALTER DEFAULT PRIVILEGES must come before CREATE statements
+// (simplified - actual implementation includes schema and objtype matching)
 function defaultPrivilegesBeforeCreate(
   a: Change,
   b: Change,
@@ -336,6 +338,9 @@ function defaultPrivilegesBeforeCreate(
     bIsCreate && (b.objectType === "role" || b.objectType === "schema");
   
   if (aIsDefaultPriv && bIsCreate && !bIsRoleOrSchema) {
+    // Actual implementation also checks:
+    // - Schema matching (default privilege schema matches CREATE schema, or default privilege is global)
+    // - Object type matching (default privilege objtype matches CREATE object type)
     return "a_before_b";
   }
   
@@ -809,6 +814,7 @@ Step 5: Topological sort
          │ Step 4: Cycle         │
          │        Detection &   │
          │        Breaking      │
+         │ - Deduplicate edges  │
          │ - Detect cycles      │
          │ - Track seen cycles  │
          │ - Filter cycle edges │
@@ -817,8 +823,10 @@ Step 5: Topological sort
                     │
                     ▼
          ┌──────────────────────┐
-         │ Step 5: dedupeEdges   │
-         │ performStableTopoSort │
+         │ Step 5: performStable│
+         │        TopoSort      │
+         │ (edges already       │
+         │  deduplicated)       │
          └──────────┬────────────┘
                     │
                     ▼
@@ -879,7 +887,7 @@ function sortPhaseChanges(changes, dependency_rows, invert=False):
     seen_cycles = Set()
     
     while True:
-        # Deduplicate edges
+        # Deduplicate edges (happens inside loop, before each cycle check)
         unique_edges = dedupeEdges(edges)
         edge_pairs = edgesToPairs(unique_edges)
         
@@ -909,7 +917,7 @@ function sortPhaseChanges(changes, dependency_rows, invert=False):
             graph_data
         )
     
-    # Step 5: Deduplicate and sort (no cycles remain)
+    # Step 5: Sort (edges already deduplicated, no cycles remain)
     edge_pairs = edgesToPairs(edges)
     sorted_indices = performStableTopologicalSort(changes.length, edge_pairs)
     
@@ -1051,20 +1059,21 @@ Within each object type, metadata operations follow a specific order:
 
 ### Implementation Notes
 
-The logical pre-sorting function should:
+The logical pre-sorting function:
 
-1. **Partition by phase** - Separate DROP and CREATE/ALTER phases first
-2. **Group by object type** - Within each phase, group by `objectType` property
-   - **Parent-child grouping**: Sub-entities (indexes, triggers, rls_policies, rules) should be grouped immediately after their parent objects (tables, views, materialized_views)
-   - For indexes: determine parent from the index's `table_name` property to group with either `table` or `materialized_view`
-   - For triggers, rls_policies, rules: determine parent from the object's table/view reference to group accordingly
-   - **Event triggers**: Group by their function's schema (event triggers don't have their own schema but always reference a function)
-3. **Group by schema** - Group objects by their schema first (ensures schemas are created before objects within them)
-   - For most objects: Use the object's schema property
-   - For event triggers: Use the function's schema (`change.eventTrigger.function_schema`)
-   - For default_privilege changes: Use the `inSchema` property
-   - For non-schema objects (roles, languages, etc.): These come first (sorted before schema objects)
-4. **Group by main stable ID** - Within each object type group, further group by the main stable ID being touched:
+1. **Partitions by phase** - Separates DROP and CREATE/ALTER phases first
+2. **Groups by schema** - Within each phase, groups objects by their schema first
+   - For most objects: Uses the object's schema property
+   - For event triggers: Uses the function's schema (`change.eventTrigger.function_schema`)
+   - For default_privilege changes: Uses the `inSchema` property
+   - For non-schema objects (roles, languages, publications, subscriptions): These come first (sorted before schema objects using special prefix)
+3. **Groups by effective object type** - When schemas differ, orders by effective object type (parent type for sub-entities)
+   - **Parent-child grouping**: Sub-entities (indexes, triggers, rls_policies, rules) use their parent's object type for grouping
+   - For indexes: Determines parent from `change.requires` (looks for `table:` or `materializedView:` prefix)
+   - For triggers, rls_policies, rules: Determines parent from `change.requires` (looks for `table:`, `view:`, or `materializedView:` prefix)
+   - **Event triggers**: Grouped by their function's schema (event triggers don't have their own schema but always reference a function)
+   - Within the same schema, this comparison is skipped (all objects in same schema grouped together)
+4. **Groups by main stable ID** - Within each schema/object type group, further groups by the main stable ID being touched:
    - **For CREATE operations**: Use the primary stable ID from `creates` (e.g., `table:public.users` for CreateTable)
    - **For DROP operations**: Use the stable ID from `drops` (e.g., `table:public.users` for DropTable)
    - **For ALTER operations**: Use the stable ID being altered (from `creates` if creating, or `requires` if modifying)
@@ -1074,11 +1083,14 @@ The logical pre-sorting function should:
      - Trigger on `table:public.users` → group by `table:public.users` (not `trigger:public.users.updated`)
      - RLS Policy on `table:public.users` → group by `table:public.users` (not `rlsPolicy:public.users.policy_name`)
      - Rule on `table:public.users` → group by `table:public.users` (not `rule:public.users.rule_name`)
-5. **Order by scope** - Within each stable ID group, order by scope:
+5. **Orders by actual object type** - Within each stable ID group, orders sub-entities by their actual object type (index, trigger, rls_policy, rule)
+6. **Orders by scope** - Within each stable ID/object type group, orders by scope:
    - CREATE/ALTER: `default_privilege` → `object` → `comment` → `privilege` → `membership`
    - DROP: `privilege` → `comment` → `object`
-6. **Preserve relative order** - Within each scope group, preserve the original order (stability)
-7. **Pass to dependency resolver** - After logical pre-sorting, pass the array to `sortChanges()` for dependency resolution
+   - Special cases: Comments come after CREATE object but before ALTER object; table comments before column comments
+7. **Orders by operation** - Within same stable ID, scope, and object type: `create` → `alter` → `drop`
+8. **Preserves relative order** - Within each group, preserves the original order (stability)
+9. **Passes to dependency resolver** - After logical pre-sorting, passes the array to `sortChanges()` for dependency resolution
 
 **Schema Extraction Details:**
 
@@ -1103,14 +1115,16 @@ The logical pre-sorting function should:
   - For rules: Extract relation stable ID from `change.requires` (look for `table:`, `view:`, or `materializedView:` prefix)
   - For event triggers: Group by their function's schema (ensures they appear after procedures in the same schema)
 
-- **Grouping hierarchy**:
+- **Grouping hierarchy** (comparator order):
   ```
   Phase (DROP vs CREATE/ALTER)
-    └─ Schema (public, auth, extensions, etc.)
-        └─ Object Type (table, index, trigger, etc.)
+    └─ Schema (public, auth, extensions, etc., or null for non-schema objects)
+        └─ Effective Object Type (parent type for sub-entities, only when schemas differ)
             └─ Main Stable ID (table:public.users, table:public.posts, etc.)
-                └─ Scope (object, comment, privilege)
-                    └─ Original order (stability)
+                └─ Actual Object Type (index, trigger, rls_policy, rule for sub-entities)
+                    └─ Scope (object, comment, privilege, with special cases)
+                        └─ Operation (create, alter, drop)
+                            └─ Original order (stability)
   ```
   
   **Special cases:**
@@ -1216,11 +1230,12 @@ The sorting algorithm:
    - Custom constraints → Constraints
 4. **Converts** Constraints to graph edges (inverting in DROP phase)
 5. **Iteratively detects and breaks cycles**:
+   - Deduplicates edges before each cycle check
    - Detects cycles in the graph
    - Tracks seen cycles to detect when filtering fails
    - Filters only edges involved in cycles (applies cycle-breaking filters)
    - Continues until no cycles remain or a cycle can't be broken
-6. **Deduplicates** edges and performs stable topological sort
+6. **Performs stable topological sort** (edges already deduplicated)
 7. **Maps** indices back to changes
 
 **Key Design Principles:**
@@ -1229,6 +1244,7 @@ The sorting algorithm:
 - **Targeted filtering**: Only edges involved in detected cycles are filtered, preserving the rest of the graph
 - **Cycle tracking**: Tracks seen cycles to detect when filtering fails to break a cycle, preventing infinite loops
 - **Iterative resolution**: Handles multiple cycles by breaking them one at a time until all are resolved
+- **Edge deduplication**: Edges are deduplicated inside the cycle detection loop (before each cycle check), ensuring we work with unique edges throughout
 
 This constraint-based approach unifies all dependency sources into a single abstraction, making the algorithm easier to understand and maintain while ensuring migrations execute in the correct order.
 
