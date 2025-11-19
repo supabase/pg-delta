@@ -168,9 +168,9 @@ export async function roundtripFidelityTest(
     : [];
 
   const sqlStatements = sortedChanges.map((change) => change.serialize());
-  const migrationScript = [...migrationSessionConfig, ...sqlStatements].join(
+  const migrationScript = `${[...migrationSessionConfig, ...sqlStatements].join(
     ";\n\n",
-  );
+  )};`;
 
   // Verify expected terms are the same as the generated SQL
   if (expectedSqlTerms) {
