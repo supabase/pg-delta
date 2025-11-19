@@ -43,7 +43,7 @@ export class GrantRoleMembership extends CreateRoleChange {
   }
 
   get creates() {
-    return [`membership:${this.role.name}->${this.member}`];
+    return [stableId.membership(this.role.name, this.member)];
   }
 
   get requires() {
@@ -83,12 +83,12 @@ export class RevokeRoleMembership extends DropRoleChange {
   }
 
   get drops() {
-    return [`membership:${this.role.name}->${this.member}`];
+    return [stableId.membership(this.role.name, this.member)];
   }
 
   get requires() {
     return [
-      `membership:${this.role.name}->${this.member}`,
+      stableId.membership(this.role.name, this.member),
       stableId.role(this.member),
       this.role.stableId,
     ];
@@ -132,7 +132,7 @@ export class RevokeRoleMembershipOptions extends DropRoleChange {
 
   get requires() {
     return [
-      `membership:${this.role.name}->${this.member}`,
+      stableId.membership(this.role.name, this.member),
       stableId.role(this.member),
       this.role.stableId,
     ];
@@ -248,16 +248,24 @@ export class RevokeRoleDefaultPrivileges extends DropRoleChange {
   }
 
   get drops() {
-    const scope = this.inSchema ? `schema:${this.inSchema}` : "global";
     return [
-      `defacl:${this.role.name}:${this.objtype}:${scope}:grantee:${this.grantee}`,
+      stableId.defacl(
+        this.role.name,
+        this.objtype,
+        this.inSchema,
+        this.grantee,
+      ),
     ];
   }
 
   get requires() {
-    const scope = this.inSchema ? `schema:${this.inSchema}` : "global";
     return [
-      `defacl:${this.role.name}:${this.objtype}:${scope}:grantee:${this.grantee}`,
+      stableId.defacl(
+        this.role.name,
+        this.objtype,
+        this.inSchema,
+        this.grantee,
+      ),
       this.role.stableId,
       stableId.role(this.grantee),
       ...(this.inSchema ? [stableId.schema(this.inSchema)] : []),

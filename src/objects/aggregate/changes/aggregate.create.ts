@@ -41,9 +41,7 @@ export class CreateAggregate extends CreateAggregateChange {
       this.aggregate.transition_function,
     );
     if (transProc) {
-      dependencies.add(
-        `procedure:${transProc.schema}.${transProc.name}()` as string,
-      );
+      dependencies.add(stableId.procedure(transProc.schema, transProc.name));
     }
 
     // State data type dependency (if user-defined)
@@ -56,9 +54,7 @@ export class CreateAggregate extends CreateAggregateChange {
     if (this.aggregate.final_function) {
       const finalProc = parseProcedureReference(this.aggregate.final_function);
       if (finalProc) {
-        dependencies.add(
-          `procedure:${finalProc.schema}.${finalProc.name}()` as string,
-        );
+        dependencies.add(stableId.procedure(finalProc.schema, finalProc.name));
       }
     }
 
@@ -69,7 +65,7 @@ export class CreateAggregate extends CreateAggregateChange {
       );
       if (combineProc) {
         dependencies.add(
-          `procedure:${combineProc.schema}.${combineProc.name}()` as string,
+          stableId.procedure(combineProc.schema, combineProc.name),
         );
       }
     }
@@ -81,7 +77,7 @@ export class CreateAggregate extends CreateAggregateChange {
       );
       if (serialProc) {
         dependencies.add(
-          `procedure:${serialProc.schema}.${serialProc.name}()` as string,
+          stableId.procedure(serialProc.schema, serialProc.name),
         );
       }
     }
@@ -93,7 +89,7 @@ export class CreateAggregate extends CreateAggregateChange {
       );
       if (deserialProc) {
         dependencies.add(
-          `procedure:${deserialProc.schema}.${deserialProc.name}()` as string,
+          stableId.procedure(deserialProc.schema, deserialProc.name),
         );
       }
     }
@@ -105,7 +101,7 @@ export class CreateAggregate extends CreateAggregateChange {
       );
       if (movingTransProc) {
         dependencies.add(
-          `procedure:${movingTransProc.schema}.${movingTransProc.name}()` as string,
+          stableId.procedure(movingTransProc.schema, movingTransProc.name),
         );
       }
     }
@@ -117,7 +113,7 @@ export class CreateAggregate extends CreateAggregateChange {
       );
       if (movingInvProc) {
         dependencies.add(
-          `procedure:${movingInvProc.schema}.${movingInvProc.name}()` as string,
+          stableId.procedure(movingInvProc.schema, movingInvProc.name),
         );
       }
     }
@@ -141,7 +137,7 @@ export class CreateAggregate extends CreateAggregateChange {
       );
       if (movingFinalProc) {
         dependencies.add(
-          `procedure:${movingFinalProc.schema}.${movingFinalProc.name}()` as string,
+          stableId.procedure(movingFinalProc.schema, movingFinalProc.name),
         );
       }
     }

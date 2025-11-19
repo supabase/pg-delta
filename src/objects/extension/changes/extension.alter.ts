@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { stableId } from "../../utils.ts";
 import type { Extension } from "../extension.model.ts";
 import { AlterExtensionChange } from "./extension.base.ts";
 
@@ -63,7 +64,7 @@ export class AlterExtensionSetSchema extends AlterExtensionChange {
   }
 
   get requires() {
-    return [this.extension.stableId, `schema:${this.schema}`];
+    return [this.extension.stableId, stableId.schema(this.schema)];
   }
 
   serialize(): string {

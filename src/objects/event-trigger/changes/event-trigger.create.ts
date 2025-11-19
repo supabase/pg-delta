@@ -42,9 +42,7 @@ export class CreateEventTrigger extends CreateEventTriggerChange {
     );
     if (procRef) {
       // Event trigger functions have no arguments, so stableId is procedure:schema.name()
-      dependencies.add(
-        `procedure:${procRef.schema}.${procRef.name}()` as string,
-      );
+      dependencies.add(stableId.procedure(procRef.schema, procRef.name));
     }
 
     return Array.from(dependencies);

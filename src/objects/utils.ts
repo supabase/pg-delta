@@ -83,6 +83,12 @@ export const stableId = {
   collation(schema: string, name: string) {
     return `collation:${schema}.${name}` as const;
   },
+  procedure(schema: string, name: string, args: string = "") {
+    return `procedure:${schema}.${name}(${args})` as const;
+  },
+  membership(role: string, member: string) {
+    return `membership:${role}->${member}` as const;
+  },
 };
 
 /**

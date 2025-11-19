@@ -68,9 +68,7 @@ export class CreateRange extends CreateRangeChange {
         `${this.range.canonical_function_schema}.${this.range.canonical_function_name}()`,
       );
       if (procRef) {
-        dependencies.add(
-          `procedure:${procRef.schema}.${procRef.name}()` as string,
-        );
+        dependencies.add(stableId.procedure(procRef.schema, procRef.name));
       }
     }
 
@@ -80,9 +78,7 @@ export class CreateRange extends CreateRangeChange {
         `${this.range.subtype_diff_schema}.${this.range.subtype_diff_name}()`,
       );
       if (procRef) {
-        dependencies.add(
-          `procedure:${procRef.schema}.${procRef.name}()` as string,
-        );
+        dependencies.add(stableId.procedure(procRef.schema, procRef.name));
       }
     }
 
