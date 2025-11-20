@@ -52,6 +52,18 @@ export function diffCompositeTypes(
   for (const compositeTypeId of created) {
     const ct = branch[compositeTypeId];
     changes.push(new CreateCompositeType({ compositeType: ct }));
+
+    // OWNER: If the composite type should be owned by someone other than the current user,
+    // emit ALTER TYPE ... OWNER TO after creation
+    if (ct.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterCompositeTypeChangeOwner({
+          compositeType: ct,
+          owner: ct.owner,
+        }),
+      );
+    }
+
     // Type comment on creation
     if (ct.comment !== null) {
       changes.push(new CreateCommentOnCompositeType({ compositeType: ct }));

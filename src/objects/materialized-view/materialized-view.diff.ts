@@ -53,6 +53,22 @@ export function diffMaterializedViews(
         materializedView: mv,
       }),
     );
+
+    // OWNER: If the materialized view should be owned by someone other than the current user,
+    // emit ALTER MATERIALIZED VIEW ... OWNER TO after creation
+    if (mv.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterMaterializedViewChangeOwner({
+          materializedView: mv,
+          owner: mv.owner,
+        }),
+      );
+    }
+
+    // Note: RLS (row_security, force_row_security) is a non-alterable property for materialized views.
+    // If RLS needs to be enabled, the materialized view must be dropped and recreated, which is
+    // handled in the "altered" section when non-alterable properties change.
+
     // Materialized view comment on creation
     if (mv.comment !== null) {
       changes.push(

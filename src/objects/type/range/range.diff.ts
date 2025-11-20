@@ -45,6 +45,18 @@ export function diffRanges(
   for (const id of created) {
     const createdRange = branch[id];
     changes.push(new CreateRange({ range: createdRange }));
+
+    // OWNER: If the range type should be owned by someone other than the current user,
+    // emit ALTER TYPE ... OWNER TO after creation
+    if (createdRange.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterRangeChangeOwner({
+          range: createdRange,
+          owner: createdRange.owner,
+        }),
+      );
+    }
+
     if (createdRange.comment !== null) {
       changes.push(new CreateCommentOnRange({ range: createdRange }));
     }

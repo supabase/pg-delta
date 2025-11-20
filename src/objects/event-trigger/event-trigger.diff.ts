@@ -16,11 +16,13 @@ import type { EventTrigger } from "./event-trigger.model.ts";
 /**
  * Diff two sets of event triggers from main and branch catalogs.
  *
+ * @param ctx - Context containing currentUser
  * @param main - The event triggers in the main catalog.
  * @param branch - The event triggers in the branch catalog.
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffEventTriggers(
+  ctx: { currentUser: string },
   main: Record<string, EventTrigger>,
   branch: Record<string, EventTrigger>,
 ): EventTriggerChange[] {
@@ -31,6 +33,18 @@ export function diffEventTriggers(
   for (const eventTriggerId of created) {
     const eventTrigger = branch[eventTriggerId];
     changes.push(new CreateEventTrigger({ eventTrigger }));
+
+    // OWNER: If the event trigger should be owned by someone other than the current user,
+    // emit ALTER EVENT TRIGGER ... OWNER TO after creation
+    if (eventTrigger.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterEventTriggerChangeOwner({
+          eventTrigger,
+          owner: eventTrigger.owner,
+        }),
+      );
+    }
+
     if (eventTrigger.comment !== null) {
       changes.push(new CreateCommentOnEventTrigger({ eventTrigger }));
     }

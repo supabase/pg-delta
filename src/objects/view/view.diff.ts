@@ -48,6 +48,13 @@ export function diffViews(
   for (const viewId of created) {
     const v = branch[viewId];
     changes.push(new CreateView({ view: v }));
+
+    // OWNER: If the view should be owned by someone other than the current user,
+    // emit ALTER VIEW ... OWNER TO after creation
+    if (v.owner !== ctx.currentUser) {
+      changes.push(new AlterViewChangeOwner({ view: v, owner: v.owner }));
+    }
+
     if (v.comment !== null) {
       changes.push(new CreateCommentOnView({ view: v }));
     }

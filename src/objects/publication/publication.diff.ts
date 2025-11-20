@@ -22,6 +22,7 @@ import type {
 } from "./publication.model.ts";
 
 export function diffPublications(
+  ctx: { currentUser: string },
   main: Record<string, Publication>,
   branch: Record<string, Publication>,
 ): PublicationChange[] {
@@ -31,6 +32,18 @@ export function diffPublications(
   for (const id of created) {
     const publication = branch[id];
     changes.push(new CreatePublication({ publication }));
+
+    // OWNER: If the publication should be owned by someone other than the current user,
+    // emit ALTER PUBLICATION ... OWNER TO after creation
+    if (publication.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterPublicationSetOwner({
+          publication,
+          owner: publication.owner,
+        }),
+      );
+    }
+
     if (publication.comment !== null) {
       changes.push(new CreateCommentOnPublication({ publication }));
     }

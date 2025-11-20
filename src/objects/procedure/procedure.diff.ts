@@ -53,6 +53,18 @@ export function diffProcedures(
   for (const procedureId of created) {
     const proc = branch[procedureId];
     changes.push(new CreateProcedure({ procedure: proc }));
+
+    // OWNER: If the procedure should be owned by someone other than the current user,
+    // emit ALTER FUNCTION/PROCEDURE ... OWNER TO after creation
+    if (proc.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterProcedureChangeOwner({
+          procedure: proc,
+          owner: proc.owner,
+        }),
+      );
+    }
+
     if (proc.comment !== null) {
       changes.push(new CreateCommentOnProcedure({ procedure: proc }));
     }

@@ -47,6 +47,18 @@ export function diffEnums(
   for (const enumId of created) {
     const createdEnum = branch[enumId];
     changes.push(new CreateEnum({ enum: createdEnum }));
+
+    // OWNER: If the enum should be owned by someone other than the current user,
+    // emit ALTER TYPE ... OWNER TO after creation
+    if (createdEnum.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterEnumChangeOwner({
+          enum: createdEnum,
+          owner: createdEnum.owner,
+        }),
+      );
+    }
+
     if (createdEnum.comment !== null) {
       changes.push(new CreateCommentOnEnum({ enum: createdEnum }));
     }

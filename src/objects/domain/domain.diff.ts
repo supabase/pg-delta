@@ -53,6 +53,18 @@ export function diffDomains(
   for (const domainId of created) {
     const newDomain = branch[domainId];
     changes.push(new CreateDomain({ domain: newDomain }));
+
+    // OWNER: If the domain should be owned by someone other than the current user,
+    // emit ALTER DOMAIN ... OWNER TO after creation
+    if (newDomain.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterDomainChangeOwner({
+          domain: newDomain,
+          owner: newDomain.owner,
+        }),
+      );
+    }
+
     if (newDomain.comment !== null) {
       changes.push(new CreateCommentOnDomain({ domain: newDomain }));
     }

@@ -13,9 +13,7 @@ const test = getTest(17);
 
 // Test to run manually.
 // Don't forget to define the DATABASE_URL environment variable to connect to the remote Supabase instance.
-test.skip("dump empty remote supabase into vanilla postgres", async ({
-  db,
-}) => {
+test("dump empty remote supabase into vanilla postgres", async ({ db }) => {
   const { main } = db;
 
   // biome-ignore lint/style/noNonNullAssertion: DATABASE_URL is set in the environment
@@ -88,6 +86,91 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
 
   try {
     await main.unsafe(migrationScript);
+
+    // Verify that the migration was successful by diffing again
+    const [mainCatalogAfter, branchCatalogAfter] = await Promise.all([
+      extractCatalog(main),
+      extractCatalog(remote),
+    ]);
+
+    const changesAfter = diffCatalogs(mainCatalogAfter, branchCatalogAfter);
+
+    const filteredChangesAfter = options.filter
+      ? changesAfter.filter((change) =>
+          // biome-ignore lint/style/noNonNullAssertion: options.filter is guaranteed to be defined
+          options.filter!(
+            {
+              mainCatalog: mainCatalogAfter,
+              branchCatalog: branchCatalogAfter,
+            },
+            change,
+          ),
+        )
+      : changesAfter;
+
+    // Verify that there are no remaining changes
+    if (filteredChangesAfter.length > 0) {
+      // Generate second migration script for remaining changes
+      const sortedChangesAfter = sortChanges(
+        { mainCatalog: mainCatalogAfter, branchCatalog: branchCatalogAfter },
+        filteredChangesAfter,
+      );
+
+      const hasRoutineChangesAfter = sortedChangesAfter.some(
+        (change) =>
+          change.objectType === "procedure" ||
+          change.objectType === "aggregate",
+      );
+      const sessionConfigAfter = hasRoutineChangesAfter
+        ? ["SET check_function_bodies = false"]
+        : [];
+
+      const secondMigrationScript = `${[
+        ...sessionConfigAfter,
+        ...sortedChangesAfter.map((change) => {
+          return (
+            options.serialize?.(
+              {
+                mainCatalog: mainCatalogAfter,
+                branchCatalog: branchCatalogAfter,
+              },
+              change,
+            ) ?? change.serialize()
+          );
+        }),
+      ].join(";\n\n")};`;
+
+      // Save error report with both migration scripts
+      const errorFilename = `error-dump-empty-remote-supabase-into-vanilla-postgres.md`;
+      const errorFilepath = join(reportDir, errorFilename);
+      const errorContent = `
+# Migration Error Report
+
+## Error
+
+\`\`\`
+Migration verification failed: Found ${filteredChangesAfter.length} remaining changes after migration
+\`\`\`
+
+## First Migration Script
+
+\`\`\`sql
+${migrationScript}
+\`\`\`
+
+## Second Migration Script (Remaining Changes)
+
+\`\`\`sql
+${secondMigrationScript}
+\`\`\`
+`;
+      await writeFile(errorFilepath, errorContent);
+
+      throw new Error(
+        `Migration verification failed: Found ${filteredChangesAfter.length} remaining changes after migration`,
+      );
+    }
+
     // Save success report
     const successFilename = `success-dump-empty-remote-supabase-into-vanilla-postgres.md`;
     const successFilepath = join(reportDir, successFilename);
@@ -99,28 +182,38 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
 \`\`\`sql
 ${migrationScript}
 \`\`\`
+
+## Verification
+
+After running the migration, the databases were diffed again and verified to have no remaining changes.
 `;
     await writeFile(successFilepath, successContent);
   } catch (error) {
-    // Save error report
-    const errorFilename = `error-dump-empty-remote-supabase-into-vanilla-postgres.md`;
-    const errorFilepath = join(reportDir, errorFilename);
-    const errorContent = `
+    // Only save error report if it hasn't been saved already (i.e., migration execution failed)
+    if (
+      error instanceof Error &&
+      !error.message.includes("Migration verification failed")
+    ) {
+      // Save error report
+      const errorFilename = `error-dump-empty-remote-supabase-into-vanilla-postgres.md`;
+      const errorFilepath = join(reportDir, errorFilename);
+      const errorContent = `
 # Migration Error Report
 
 ## Error
 
 \`\`\`
-${error instanceof Error ? error.message : String(error)}
+${error.message}
 \`\`\`
 
-## Migration Script
+## First Migration Script
 
 \`\`\`sql
 ${migrationScript}
 \`\`\`
 `;
-    await writeFile(errorFilepath, errorContent);
+      await writeFile(errorFilepath, errorContent);
+    }
     throw error;
   } finally {
     await remote.end();

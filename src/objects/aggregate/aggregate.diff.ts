@@ -37,6 +37,18 @@ export function diffAggregates(
   for (const aggregateId of created) {
     const aggregate = branch[aggregateId];
     changes.push(new CreateAggregate({ aggregate }));
+
+    // OWNER: If the aggregate should be owned by someone other than the current user,
+    // emit ALTER AGGREGATE ... OWNER TO after creation
+    if (aggregate.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterAggregateChangeOwner({
+          aggregate,
+          owner: aggregate.owner,
+        }),
+      );
+    }
+
     if (aggregate.comment !== null) {
       changes.push(new CreateCommentOnAggregate({ aggregate }));
     }

@@ -76,7 +76,13 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(
     ...diffAggregates(diffContext, main.aggregates, branch.aggregates),
   );
-  changes.push(...diffCollations(main.collations, branch.collations));
+  changes.push(
+    ...diffCollations(
+      { currentUser: main.currentUser },
+      main.collations,
+      branch.collations,
+    ),
+  );
   changes.push(
     ...diffCompositeTypes(
       diffContext,
@@ -97,8 +103,20 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
       branch.materializedViews,
     ),
   );
-  changes.push(...diffSubscriptions(main.subscriptions, branch.subscriptions));
-  changes.push(...diffPublications(main.publications, branch.publications));
+  changes.push(
+    ...diffSubscriptions(
+      { currentUser: main.currentUser },
+      main.subscriptions,
+      branch.subscriptions,
+    ),
+  );
+  changes.push(
+    ...diffPublications(
+      { currentUser: main.currentUser },
+      main.publications,
+      branch.publications,
+    ),
+  );
   changes.push(
     ...diffProcedures(diffContext, main.procedures, branch.procedures),
   );
@@ -116,7 +134,13 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(
     ...diffTriggers(main.triggers, branch.triggers, branch.indexableObjects),
   );
-  changes.push(...diffEventTriggers(main.eventTriggers, branch.eventTriggers));
+  changes.push(
+    ...diffEventTriggers(
+      { currentUser: main.currentUser },
+      main.eventTriggers,
+      branch.eventTriggers,
+    ),
+  );
   changes.push(...diffRules(main.rules, branch.rules));
   changes.push(...diffRanges(diffContext, main.ranges, branch.ranges));
   changes.push(...diffViews(diffContext, main.views, branch.views));

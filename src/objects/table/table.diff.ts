@@ -237,6 +237,32 @@ export function diffTables(
   for (const tableId of created) {
     changes.push(new CreateTable({ table: branch[tableId] }));
     const branchTable = branch[tableId];
+
+    // OWNER: If the table should be owned by someone other than the current user,
+    // emit ALTER TABLE ... OWNER TO after creation
+    if (branchTable.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterTableChangeOwner({
+          table: branchTable,
+          owner: branchTable.owner,
+        }),
+      );
+    }
+
+    // ROW LEVEL SECURITY: If RLS should be enabled, emit ALTER TABLE ... ENABLE ROW LEVEL SECURITY
+    if (branchTable.row_security) {
+      changes.push(
+        new AlterTableEnableRowLevelSecurity({ table: branchTable }),
+      );
+    }
+
+    // FORCE ROW LEVEL SECURITY: If force RLS should be enabled, emit ALTER TABLE ... FORCE ROW LEVEL SECURITY
+    if (branchTable.force_row_security) {
+      changes.push(
+        new AlterTableForceRowLevelSecurity({ table: branchTable }),
+      );
+    }
+
     changes.push(
       ...createAlterConstraintChange(
         // Create a dummy table with no constraints do diff constraints against
