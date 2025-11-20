@@ -65,6 +65,32 @@ export function diffRoles(
         }),
       );
     }
+    // DEFAULT PRIVILEGES: Grant default privileges immediately after role creation
+    for (const defaultPriv of role.default_privileges) {
+      if (defaultPriv.privileges.length === 0) continue;
+      const grantGroups = new Map<
+        boolean,
+        { privilege: string; grantable: boolean }[]
+      >();
+      for (const p of defaultPriv.privileges) {
+        const arr = grantGroups.get(p.grantable) ?? [];
+        arr.push(p);
+        grantGroups.set(p.grantable, arr);
+      }
+      for (const [grantable, list] of grantGroups) {
+        void grantable;
+        changes.push(
+          new GrantRoleDefaultPrivileges({
+            role,
+            inSchema: defaultPriv.in_schema,
+            objtype: defaultPriv.objtype,
+            grantee: defaultPriv.grantee,
+            privileges: list,
+            version: ctx.version,
+          }),
+        );
+      }
+    }
   }
 
   for (const roleId of dropped) {
