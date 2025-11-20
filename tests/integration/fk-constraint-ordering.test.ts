@@ -14,19 +14,21 @@ import { roundtripFidelityTest } from "./roundtrip.ts";
 for (const pgVersion of POSTGRES_VERSIONS) {
   const test = getTest(pgVersion);
 
-  describe.concurrent(`FK constraint ordering validation (pg${pgVersion})`, () => {
-    test("FK constraint created before referenced table - should fail without stableId fix", async ({
-      db,
-    }) => {
-      // This test reproduces the exact scenario mentioned in the PR
-      // where the FK constraint was being created before the referenced table
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+  describe.concurrent(
+    `FK constraint ordering validation (pg${pgVersion})`,
+    () => {
+      test("FK constraint created before referenced table - should fail without stableId fix", async ({
+        db,
+      }) => {
+        // This test reproduces the exact scenario mentioned in the PR
+        // where the FK constraint was being created before the referenced table
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
         `,
-        testSql: `
+          testSql: `
           -- Create the referencing table first (this is the problematic scenario)
           CREATE TABLE test_schema.orders (
             id integer PRIMARY KEY,
@@ -47,21 +49,21 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT orders_customer_fkey 
           FOREIGN KEY (customer_id) REFERENCES test_schema.customers(id);
         `,
-        description:
-          "FK constraint created before referenced table - should fail without stableId fix",
+          description:
+            "FK constraint created before referenced table - should fail without stableId fix",
+        });
       });
-    });
 
-    test("complex FK constraint chain with multiple references", async ({
-      db,
-    }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+      test("complex FK constraint chain with multiple references", async ({
+        db,
+      }) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA ecommerce;
         `,
-        testSql: `
+          testSql: `
           -- Create tables in a potentially problematic order
           CREATE TABLE ecommerce.order_items (
             id integer PRIMARY KEY,
@@ -102,17 +104,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT order_items_product_fkey 
           FOREIGN KEY (product_id) REFERENCES ecommerce.products(id);
         `,
+        });
       });
-    });
 
-    test("FK constraint with deferred validation", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+      test("FK constraint with deferred validation", async ({ db }) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
         `,
-        testSql: `
+          testSql: `
           -- Create tables
           CREATE TABLE test_schema.parent (
             id integer PRIMARY KEY,
@@ -131,17 +133,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOREIGN KEY (parent_id) REFERENCES test_schema.parent(id)
           DEFERRABLE INITIALLY DEFERRED;
         `,
+        });
       });
-    });
 
-    test("self-referencing FK constraint", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+      test("self-referencing FK constraint", async ({ db }) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
         `,
-        testSql: `
+          testSql: `
           -- Create a table with self-referencing foreign key
           CREATE TABLE test_schema.categories (
             id integer PRIMARY KEY,
@@ -154,17 +156,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT categories_parent_fkey 
           FOREIGN KEY (parent_id) REFERENCES test_schema.categories(id);
         `,
+        });
       });
-    });
 
-    test("FK constraint with ON DELETE/UPDATE actions", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+      test("FK constraint with ON DELETE/UPDATE actions", async ({ db }) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
         `,
-        testSql: `
+          testSql: `
           -- Create tables
           CREATE TABLE test_schema.users (
             id integer PRIMARY KEY,
@@ -183,7 +185,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOREIGN KEY (user_id) REFERENCES test_schema.users(id)
           ON DELETE CASCADE ON UPDATE CASCADE;
         `,
+        });
       });
-    });
-  });
+    },
+  );
 }

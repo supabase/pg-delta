@@ -97,37 +97,4 @@ export class StartedSupabasePostgreSqlContainer extends AbstractStartedContainer
     url.password = this.getPassword();
     return url.toString();
   }
-
-  /**
-   * Executes a series of SQL commands against the Postgres database
-   *
-   * @param commands Array of SQL commands to execute in sequence
-   * @throws Error if any command fails to execute with details of the failure
-   */
-  private async execCommandsSQL(commands: string[]): Promise<void> {
-    for (const command of commands) {
-      try {
-        const result = await this.exec([
-          "psql",
-          "-v",
-          "ON_ERROR_STOP=1",
-          "-U",
-          this.getUsername(),
-          "-d",
-          "postgres",
-          "-c",
-          command,
-        ]);
-
-        if (result.exitCode !== 0) {
-          throw new Error(
-            `Command failed with exit code ${result.exitCode}: ${result.output}`,
-          );
-        }
-      } catch (error) {
-        console.error(`Failed to execute command: ${command}`, error);
-        throw error;
-      }
-    }
-  }
 }

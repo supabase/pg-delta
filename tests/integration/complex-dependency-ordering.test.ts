@@ -14,17 +14,19 @@ import { roundtripFidelityTest } from "./roundtrip.ts";
 for (const pgVersion of POSTGRES_VERSIONS) {
   const test = getTestIsolated(pgVersion);
 
-  describe.concurrent(`complex dependency ordering validation (pg${pgVersion})`, () => {
-    test("complete e-commerce scenario with all dependency types", async ({
-      db,
-    }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+  describe.concurrent(
+    `complex dependency ordering validation (pg${pgVersion})`,
+    () => {
+      test("complete e-commerce scenario with all dependency types", async ({
+        db,
+      }) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA ecommerce;
         `,
-        testSql: `
+          testSql: `
           -- Create roles
           CREATE ROLE ecommerce_admin WITH LOGIN;
           CREATE ROLE ecommerce_user WITH LOGIN;
@@ -179,19 +181,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER VIEW ecommerce.product_sales OWNER TO analytics_user;
           ALTER MATERIALIZED VIEW ecommerce.daily_sales OWNER TO analytics_user;
         `,
+        });
       });
-    });
 
-    test("circular dependency scenario - should fail gracefully", async ({
-      db,
-    }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+      test("circular dependency scenario - should fail gracefully", async ({
+        db,
+      }) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
         `,
-        testSql: `
+          testSql: `
           -- Create tables that will have circular dependencies
           CREATE TABLE test_schema.table_a (
             id integer PRIMARY KEY,
@@ -212,14 +214,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT table_b_a_fkey 
           FOREIGN KEY (a_id) REFERENCES test_schema.table_a(id);
         `,
+        });
       });
-    });
 
-    test("mixed operation types with complex dependencies", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+      test("mixed operation types with complex dependencies", async ({
+        db,
+      }) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           
           -- Create initial state
@@ -230,7 +234,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           
           CREATE ROLE existing_role WITH LOGIN;
         `,
-        testSql: `
+          testSql: `
           -- Create new role
           CREATE ROLE new_role WITH LOGIN;
           
@@ -283,7 +287,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.new_table OWNER TO new_role;
           ALTER VIEW test_schema.combined_view OWNER TO new_role;
         `,
+        });
       });
-    });
-  });
+    },
+  );
 }
