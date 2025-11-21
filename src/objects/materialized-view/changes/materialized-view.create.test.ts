@@ -29,7 +29,7 @@ describe("materialized-view", () => {
     const change = new CreateMaterializedView({ materializedView: mv });
 
     expect(change.serialize()).toBe(
-      "CREATE MATERIALIZED VIEW public.test_mv AS SELECT * FROM test_table",
+      "CREATE MATERIALIZED VIEW public.test_mv AS SELECT * FROM test_table WITH NO DATA",
     );
   });
 
