@@ -84,7 +84,7 @@ export async function extractRlsPolicies(sql: Sql): Promise<RlsPolicy[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
     const policyRows = await sql`
-with extension_oids as (
+with extension_policy_oids as (
   select
     objid
   from
@@ -92,6 +92,16 @@ with extension_oids as (
   where
     d.refclassid = 'pg_extension'::regclass
     and d.classid = 'pg_policy'::regclass
+),
+extension_table_oids as (
+  select
+    objid
+  from
+    pg_depend d
+  where
+    d.refclassid = 'pg_extension'::regclass
+    and d.classid = 'pg_class'::regclass
+    and d.deptype = 'e'
 )
 select
   tc.relnamespace::regnamespace::text as schema,
@@ -115,9 +125,11 @@ select
 from
   pg_catalog.pg_policy p
   inner join pg_catalog.pg_class tc on tc.oid = p.polrelid
-  left outer join extension_oids e on p.oid = e.objid
+  left outer join extension_policy_oids e_policy on p.oid = e_policy.objid
+  left outer join extension_table_oids e_table on tc.oid = e_table.objid
   where not tc.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
-  and e.objid is null
+  and e_policy.objid is null
+  and e_table.objid is null
 order by
   1, 2;
     `;

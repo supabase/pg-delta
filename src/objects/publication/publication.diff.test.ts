@@ -35,6 +35,7 @@ describe.concurrent("publication.diff", () => {
   test("create and drop publication", () => {
     const publication = new Publication(base);
     const created = diffPublications(
+      { currentUser: "postgres" },
       {},
       { [publication.stableId]: publication },
     );
@@ -43,6 +44,7 @@ describe.concurrent("publication.diff", () => {
     );
 
     const dropped = diffPublications(
+      { currentUser: "postgres" },
       { [publication.stableId]: publication },
       {},
     );
@@ -66,6 +68,7 @@ describe.concurrent("publication.diff", () => {
     });
 
     const changes = diffPublications(
+      { currentUser: "postgres" },
       {},
       { [publication.stableId]: publication },
     );
@@ -92,6 +95,7 @@ describe.concurrent("publication.diff", () => {
       publish_delete: false,
     });
     const changes = diffPublications(
+      { currentUser: "postgres" },
       { [mainPublication.stableId]: mainPublication },
       { [branchPublication.stableId]: branchPublication },
     );
@@ -107,6 +111,7 @@ describe.concurrent("publication.diff", () => {
       all_tables: true,
     });
     const changes = diffPublications(
+      { currentUser: "postgres" },
       { [mainPublication.stableId]: mainPublication },
       { [branchPublication.stableId]: branchPublication },
     );
@@ -134,6 +139,7 @@ describe.concurrent("publication.diff", () => {
       ],
     });
     const changes = diffPublications(
+      { currentUser: "postgres" },
       { [mainPublication.stableId]: mainPublication },
       { [branchPublication.stableId]: branchPublication },
     );
@@ -159,6 +165,7 @@ describe.concurrent("publication.diff", () => {
       ],
     });
     const addChanges = diffPublications(
+      { currentUser: "postgres" },
       { [mainPublication.stableId]: mainPublication },
       { [branchPublication.stableId]: branchPublication },
     );
@@ -174,6 +181,7 @@ describe.concurrent("publication.diff", () => {
     );
 
     const dropChanges = diffPublications(
+      { currentUser: "postgres" },
       { [branchPublication.stableId]: branchPublication },
       { [mainPublication.stableId]: mainPublication },
     );
@@ -208,6 +216,7 @@ describe.concurrent("publication.diff", () => {
       ],
     });
     const changes = diffPublications(
+      { currentUser: "postgres" },
       { [mainPublication.stableId]: mainPublication },
       { [branchPublication.stableId]: branchPublication },
     );
@@ -226,6 +235,7 @@ describe.concurrent("publication.diff", () => {
       schemas: ["public"],
     });
     const addChanges = diffPublications(
+      { currentUser: "postgres" },
       { [mainPublication.stableId]: mainPublication },
       { [branchPublication.stableId]: branchPublication },
     );
@@ -234,6 +244,7 @@ describe.concurrent("publication.diff", () => {
     ).toBe(true);
 
     const dropChanges = diffPublications(
+      { currentUser: "postgres" },
       { [branchPublication.stableId]: branchPublication },
       { [mainPublication.stableId]: mainPublication },
     );
@@ -252,6 +263,7 @@ describe.concurrent("publication.diff", () => {
       comment: "replication publication",
     });
     const changes = diffPublications(
+      { currentUser: "postgres" },
       { [mainPublication.stableId]: mainPublication },
       { [branchPublication.stableId]: branchPublication },
     );
@@ -267,6 +279,7 @@ describe.concurrent("publication.diff", () => {
       comment: null,
     });
     const dropCommentChanges = diffPublications(
+      { currentUser: "postgres" },
       { [branchPublication.stableId]: branchPublication },
       { [removeCommentPublication.stableId]: removeCommentPublication },
     );

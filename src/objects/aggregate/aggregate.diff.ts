@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
+import type { Role } from "../role/role.model.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import type { Aggregate } from "./aggregate.model.ts";
 import { AlterAggregateChangeOwner } from "./changes/aggregate.alter.ts";
@@ -26,6 +27,7 @@ export function diffAggregates(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, Aggregate>,
   branch: Record<string, Aggregate>,
@@ -37,6 +39,18 @@ export function diffAggregates(
   for (const aggregateId of created) {
     const aggregate = branch[aggregateId];
     changes.push(new CreateAggregate({ aggregate }));
+
+    // OWNER: If the aggregate should be owned by someone other than the current user,
+    // emit ALTER AGGREGATE ... OWNER TO after creation
+    if (aggregate.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterAggregateChangeOwner({
+          aggregate,
+          owner: aggregate.owner,
+        }),
+      );
+    }
+
     if (aggregate.comment !== null) {
       changes.push(new CreateCommentOnAggregate({ aggregate }));
     }
@@ -58,9 +72,13 @@ export function diffAggregates(
       "aggregate",
       aggregate.privileges,
     );
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use the aggregate owner as the reference.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      aggregate.owner,
+      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -193,9 +211,25 @@ export function diffAggregates(
       }
     }
 
-    const privilegeResults = diffPrivileges(
+    // PRIVILEGES
+    // Filter out PUBLIC's built-in default EXECUTE privilege from main catalog
+    // (PostgreSQL grants it automatically, so we shouldn't compare it)
+    const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
+      "aggregate",
       mainAggregate.privileges,
+    );
+    // Filter out PUBLIC's built-in default EXECUTE privilege from branch catalog
+    const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
+      "aggregate",
       branchAggregate.privileges,
+    );
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use branch owner as the reference.
+    const privilegeResults = diffPrivileges(
+      mainPrivilegesFiltered,
+      branchPrivilegesFiltered,
+      branchAggregate.owner,
+      ctx.mainRoles,
     );
 
     for (const [grantee, result] of privilegeResults) {

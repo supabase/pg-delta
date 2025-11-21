@@ -1,3 +1,4 @@
+import { stableId } from "../../utils.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 import { CreateRlsPolicyChange } from "./rls-policy.base.ts";
 
@@ -27,6 +28,23 @@ export class CreateRlsPolicy extends CreateRlsPolicyChange {
 
   get creates() {
     return [this.policy.stableId];
+  }
+
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.policy.schema));
+
+    // Table dependency
+    dependencies.add(
+      stableId.table(this.policy.schema, this.policy.table_name),
+    );
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.policy.owner));
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {

@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { parseProcedureReference, stableId } from "../../utils.ts";
 import type { EventTrigger } from "../event-trigger.model.ts";
 import { CreateEventTriggerChange } from "./event-trigger.base.ts";
 
@@ -26,6 +27,25 @@ export class CreateEventTrigger extends CreateEventTriggerChange {
 
   get creates() {
     return [this.eventTrigger.stableId];
+  }
+
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.eventTrigger.owner));
+
+    // Function dependency
+    // Note: Event triggers call functions with no arguments, so we can build the stableId
+    const procRef = parseProcedureReference(
+      `${this.eventTrigger.function_schema}.${this.eventTrigger.function_name}()`,
+    );
+    if (procRef) {
+      // Event trigger functions have no arguments, so stableId is procedure:schema.name()
+      dependencies.add(stableId.procedure(procRef.schema, procRef.name));
+    }
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {

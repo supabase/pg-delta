@@ -4,6 +4,8 @@ import {
   diffPrivileges,
   groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
+import type { Role } from "../role/role.model.ts";
+import type { Table } from "../table/table.model.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterSequenceSetOptions,
@@ -29,6 +31,7 @@ import type { Sequence } from "./sequence.model.ts";
  * @param ctx - Context containing version, currentUser, and defaultPrivilegeState
  * @param main - The sequences in the main catalog.
  * @param branch - The sequences in the branch catalog.
+ * @param branchTables - The tables in the branch catalog (used to check if owning tables are being dropped).
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffSequences(
@@ -36,9 +39,11 @@ export function diffSequences(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, Sequence>,
   branch: Record<string, Sequence>,
+  branchTables: Record<string, Table> = {},
 ): SequenceChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
@@ -79,9 +84,14 @@ export function diffSequences(
       createdSeq.schema ?? "",
     );
     const desiredPrivileges = createdSeq.privileges;
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use the sequence owner as the reference.
+    // Superuser privileges are filtered inside diffPrivileges.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      createdSeq.owner,
+      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -132,7 +142,23 @@ export function diffSequences(
   }
 
   for (const sequenceId of dropped) {
-    changes.push(new DropSequence({ sequence: main[sequenceId] }));
+    const sequence = main[sequenceId];
+    // Skip generating DROP SEQUENCE if the sequence is owned by a table that's being dropped.
+    // PostgreSQL automatically drops sequences owned by tables when the table is dropped,
+    // so generating DROP SEQUENCE would cause an error (sequence doesn't exist).
+    if (
+      sequence.owned_by_schema &&
+      sequence.owned_by_table &&
+      sequence.owned_by_column
+    ) {
+      const ownedByTableId = `table:${sequence.owned_by_schema}.${sequence.owned_by_table}`;
+      // If the owning table doesn't exist in branch catalog, it's being dropped
+      // and will auto-drop this sequence, so skip generating DROP SEQUENCE
+      if (!(ownedByTableId in branchTables)) {
+        continue;
+      }
+    }
+    changes.push(new DropSequence({ sequence }));
   }
 
   for (const sequenceId of altered) {
@@ -267,9 +293,14 @@ export function diffSequences(
       }
 
       // PRIVILEGES
+      // Filter out owner privileges - owner always has ALL privileges implicitly
+      // and shouldn't be compared. Use branch owner as the reference.
+      // Superuser privileges are filtered inside diffPrivileges.
       const privilegeResults = diffPrivileges(
         mainSequence.privileges,
         branchSequence.privileges,
+        branchSequence.owner,
+        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

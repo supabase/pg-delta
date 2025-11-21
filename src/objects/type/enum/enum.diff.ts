@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../../base.privilege-diff.ts";
+import type { Role } from "../../role/role.model.ts";
 import {
   AlterEnumAddValue,
   AlterEnumChangeOwner,
@@ -36,6 +37,7 @@ export function diffEnums(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, Enum>,
   branch: Record<string, Enum>,
@@ -47,6 +49,18 @@ export function diffEnums(
   for (const enumId of created) {
     const createdEnum = branch[enumId];
     changes.push(new CreateEnum({ enum: createdEnum }));
+
+    // OWNER: If the enum should be owned by someone other than the current user,
+    // emit ALTER TYPE ... OWNER TO after creation
+    if (createdEnum.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterEnumChangeOwner({
+          enum: createdEnum,
+          owner: createdEnum.owner,
+        }),
+      );
+    }
+
     if (createdEnum.comment !== null) {
       changes.push(new CreateCommentOnEnum({ enum: createdEnum }));
     }
@@ -68,9 +82,13 @@ export function diffEnums(
       "enum",
       createdEnum.privileges,
     );
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use the enum owner as the reference.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      createdEnum.owner,
+      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -151,9 +169,24 @@ export function diffEnums(
     }
 
     // PRIVILEGES
-    const privilegeResults = diffPrivileges(
+    // Filter out PUBLIC's built-in default USAGE privilege from main catalog
+    // (PostgreSQL grants it automatically, so we shouldn't compare it)
+    const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
+      "enum",
       mainEnum.privileges,
+    );
+    // Filter out PUBLIC's built-in default USAGE privilege from branch catalog
+    const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
+      "enum",
       branchEnum.privileges,
+    );
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use branch owner as the reference.
+    const privilegeResults = diffPrivileges(
+      mainPrivilegesFiltered,
+      branchPrivilegesFiltered,
+      branchEnum.owner,
+      ctx.mainRoles,
     );
 
     for (const [grantee, result] of privilegeResults) {

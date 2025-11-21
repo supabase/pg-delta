@@ -1,4 +1,5 @@
 import type { TableLikeObject } from "../../base.model.ts";
+import { stableId } from "../../utils.ts";
 import type { Trigger } from "../trigger.model.ts";
 import { CreateTriggerChange } from "./trigger.base.ts";
 
@@ -45,6 +46,29 @@ export class CreateTrigger extends CreateTriggerChange {
 
   get creates() {
     return [this.trigger.stableId];
+  }
+
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.trigger.schema));
+
+    // Table dependency
+    dependencies.add(
+      stableId.table(this.trigger.schema, this.trigger.table_name),
+    );
+
+    // Function dependency
+    // Note: We can't build the exact procedure stableId without argument types.
+    // The trigger definition contains the full function call, but parsing it would be complex.
+    // For now, we rely on pg_depend extraction for procedure dependencies.
+    // If needed, we could parse the trigger definition to extract the full function signature.
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.trigger.owner));
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {

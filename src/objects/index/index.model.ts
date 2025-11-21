@@ -140,7 +140,9 @@ export class Index extends BasePgModel {
       immediate: this.immediate,
       is_clustered: this.is_clustered,
       is_replica_identity: this.is_replica_identity,
-      key_columns: this.key_columns,
+      // key_columns excluded: contains attribute numbers that can differ between databases
+      // even when indexes are logically identical. The definition field already captures
+      // the logical structure using column names, so we compare by definition instead.
       column_collations: this.column_collations,
       operator_classes: this.operator_classes,
       column_options: this.column_options,

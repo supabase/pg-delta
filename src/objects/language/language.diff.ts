@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
+import type { Role } from "../role/role.model.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import { AlterLanguageChangeOwner } from "./changes/language.alter.ts";
 import {
@@ -29,7 +30,7 @@ import type { Language } from "./language.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffLanguages(
-  ctx: { version: number },
+  ctx: { version: number; mainRoles?: Record<string, Role> },
   main: Record<string, Language>,
   branch: Record<string, Language>,
 ): Change[] {
@@ -103,16 +104,24 @@ export function diffLanguages(
       // a name change would be handled as drop + create by diffObjects()
 
       // PRIVILEGES
-      // Filter out PUBLIC's built-in default USAGE privilege (PostgreSQL grants it automatically)
-      // Reference: https://www.postgresql.org/docs/17/ddl-priv.html Table 5.2
-      // This prevents generating unnecessary "GRANT USAGE TO PUBLIC" statements
-      const filteredBranchPrivileges = filterPublicBuiltInDefaults(
+      // Filter out PUBLIC's built-in default USAGE privilege from main catalog
+      // (PostgreSQL grants it automatically, so we shouldn't compare it)
+      const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
+        "language",
+        mainLanguage.privileges,
+      );
+      // Filter out PUBLIC's built-in default USAGE privilege from branch catalog
+      const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
         "language",
         branchLanguage.privileges,
       );
+      // Filter out owner privileges - owner always has ALL privileges implicitly
+      // and shouldn't be compared. Use branch owner as the reference.
       const privilegeResults = diffPrivileges(
-        mainLanguage.privileges,
-        filteredBranchPrivileges,
+        mainPrivilegesFiltered,
+        branchPrivilegesFiltered,
+        branchLanguage.owner,
+        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

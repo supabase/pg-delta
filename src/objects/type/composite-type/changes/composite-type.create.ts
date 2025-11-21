@@ -1,3 +1,4 @@
+import { isUserDefinedTypeSchema, stableId } from "../../../utils.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 import { CreateCompositeTypeChange } from "./composite-type.base.ts";
 
@@ -23,6 +24,45 @@ export class CreateCompositeType extends CreateCompositeTypeChange {
 
   get creates() {
     return [this.compositeType.stableId];
+  }
+
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.compositeType.schema));
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.compositeType.owner));
+
+    // Column type dependencies (user-defined types only)
+    for (const col of this.compositeType.columns) {
+      if (
+        col.is_custom_type &&
+        col.custom_type_schema &&
+        col.custom_type_name
+      ) {
+        dependencies.add(
+          stableId.type(col.custom_type_schema, col.custom_type_name),
+        );
+      }
+
+      // Collation dependency (if non-default)
+      if (col.collation) {
+        const unquotedCollation = col.collation.replace(/^"|"$/g, "");
+        const collationParts = unquotedCollation.split(".");
+        if (collationParts.length === 2) {
+          const [collationSchema, collationName] = collationParts;
+          if (isUserDefinedTypeSchema(collationSchema)) {
+            dependencies.add(
+              stableId.collation(collationSchema, collationName),
+            );
+          }
+        }
+      }
+    }
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {

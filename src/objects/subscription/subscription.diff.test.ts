@@ -42,6 +42,7 @@ describe.concurrent("subscription.diff", () => {
   test("create and drop subscription", () => {
     const subscription = new Subscription(baseProps);
     const created = diffSubscriptions(
+      { currentUser: "postgres" },
       {},
       { [subscription.stableId]: subscription },
     );
@@ -50,6 +51,7 @@ describe.concurrent("subscription.diff", () => {
     );
 
     const dropped = diffSubscriptions(
+      { currentUser: "postgres" },
       { [subscription.stableId]: subscription },
       {},
     );
@@ -65,6 +67,7 @@ describe.concurrent("subscription.diff", () => {
       conninfo: "host=replica port=5433 dbname=postgres",
     });
     const changes = diffSubscriptions(
+      { currentUser: "postgres" },
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );
@@ -82,6 +85,7 @@ describe.concurrent("subscription.diff", () => {
       publications: ["pub_a", "pub_b"],
     });
     const changes = diffSubscriptions(
+      { currentUser: "postgres" },
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );
@@ -99,6 +103,7 @@ describe.concurrent("subscription.diff", () => {
       enabled: false,
     });
     const disableChanges = diffSubscriptions(
+      { currentUser: "postgres" },
       { [mainSubscription.stableId]: mainSubscription },
       { [branchDisabled.stableId]: branchDisabled },
     );
@@ -109,6 +114,7 @@ describe.concurrent("subscription.diff", () => {
     ).toBe(true);
 
     const enableChanges = diffSubscriptions(
+      { currentUser: "postgres" },
       { [branchDisabled.stableId]: branchDisabled },
       { [mainSubscription.stableId]: mainSubscription },
     );
@@ -133,6 +139,7 @@ describe.concurrent("subscription.diff", () => {
       slot_is_none: false,
     });
     const changes = diffSubscriptions(
+      { currentUser: "postgres" },
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );
@@ -154,6 +161,7 @@ describe.concurrent("subscription.diff", () => {
       replication_slot_created: false,
     });
     const changes = diffSubscriptions(
+      { currentUser: "postgres" },
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );
@@ -174,6 +182,7 @@ describe.concurrent("subscription.diff", () => {
       comment: "replication subscription",
     });
     const changes = diffSubscriptions(
+      { currentUser: "postgres" },
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );
@@ -189,6 +198,7 @@ describe.concurrent("subscription.diff", () => {
       comment: null,
     });
     const dropCommentChanges = diffSubscriptions(
+      { currentUser: "postgres" },
       { [branchSubscription.stableId]: branchSubscription },
       { [removeCommentSubscription.stableId]: removeCommentSubscription },
     );
@@ -206,6 +216,7 @@ describe.concurrent("subscription.diff", () => {
       two_phase: true,
     });
     const changes = diffSubscriptions(
+      { currentUser: "postgres" },
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );

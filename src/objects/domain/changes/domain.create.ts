@@ -1,3 +1,4 @@
+import { isUserDefinedTypeSchema, stableId } from "../../utils.ts";
 import type { Domain } from "../domain.model.ts";
 import { CreateDomainChange } from "./domain.base.ts";
 
@@ -30,6 +31,40 @@ export class CreateDomain extends CreateDomainChange {
 
   get creates() {
     return [this.domain.stableId];
+  }
+
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.domain.schema));
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.domain.owner));
+
+    // Base type dependency (if user-defined)
+    if (
+      this.domain.base_type_schema &&
+      isUserDefinedTypeSchema(this.domain.base_type_schema)
+    ) {
+      dependencies.add(
+        stableId.type(this.domain.base_type_schema, this.domain.base_type),
+      );
+    }
+
+    // Collation dependency (if non-default and user-defined)
+    if (this.domain.collation) {
+      const unquotedCollation = this.domain.collation.replace(/^"|"$/g, "");
+      const collationParts = unquotedCollation.split(".");
+      if (collationParts.length === 2) {
+        const [collationSchema, collationName] = collationParts;
+        if (isUserDefinedTypeSchema(collationSchema)) {
+          dependencies.add(stableId.collation(collationSchema, collationName));
+        }
+      }
+    }
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {

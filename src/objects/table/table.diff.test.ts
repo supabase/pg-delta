@@ -55,6 +55,7 @@ const testContext = {
   version: 150014,
   currentUser: "postgres",
   defaultPrivilegeState: new DefaultPrivilegeState({}),
+  mainRoles: {},
 };
 
 describe.concurrent("table.diff", () => {

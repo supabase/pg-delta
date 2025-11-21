@@ -1,3 +1,4 @@
+import { stableId } from "../../utils.ts";
 import type { Extension } from "../extension.model.ts";
 import { CreateExtensionChange } from "./extension.base.ts";
 
@@ -25,6 +26,18 @@ export class CreateExtension extends CreateExtensionChange {
 
   get creates() {
     return [this.extension.stableId, ...this.extension.members];
+  }
+
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.extension.schema));
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.extension.owner));
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {

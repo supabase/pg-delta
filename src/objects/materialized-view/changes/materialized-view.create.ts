@@ -22,7 +22,8 @@ import { CreateMaterializedViewChange } from "./materialized-view.base.ts";
  * - (column_name, ...) list is derived from the SELECT query; we don't emit it.
  * - TABLESPACE is not currently modeled/extracted and is not emitted.
  * - WITH (options) is emitted only when non-empty.
- * - WITH NO DATA is PostgreSQL's default and is omitted; WITH DATA is emitted only when requested.
+ * - WITH NO DATA is always emitted when is_populated is false to ensure correct state.
+ * - WITH DATA is emitted when is_populated is true.
  */
 export class CreateMaterializedView extends CreateMaterializedViewChange {
   public readonly materializedView: MaterializedView;
@@ -46,6 +47,21 @@ export class CreateMaterializedView extends CreateMaterializedViewChange {
     ];
   }
 
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.materializedView.schema));
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.materializedView.owner));
+
+    // Note: Materialized view definition dependencies are handled via pg_depend
+    // for existing objects. For new objects, parsing the SQL definition would be complex.
+
+    return Array.from(dependencies);
+  }
+
   serialize(): string {
     const parts: string[] = ["CREATE MATERIALIZED VIEW"];
 
@@ -63,10 +79,13 @@ export class CreateMaterializedView extends CreateMaterializedViewChange {
     // Add AS query (definition is required)
     parts.push("AS", this.materializedView.definition.trim());
 
-    // Add population clause only when non-default
-    // Default in PostgreSQL is WITH NO DATA, so we omit it to keep output minimal
+    // Add population clause to match the desired state
+    // PostgreSQL defaults to WITH NO DATA, but we need to be explicit to ensure
+    // the created view matches the expected is_populated state
     if (this.materializedView.is_populated) {
       parts.push("WITH DATA");
+    } else {
+      parts.push("WITH NO DATA");
     }
 
     return parts.join(" ");

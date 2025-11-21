@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../../base.change.ts";
+import { stableId } from "../../../utils.ts";
 import type { Enum } from "../enum.model.ts";
 import { CreateEnumChange } from "./enum.base.ts";
 
@@ -23,6 +24,18 @@ export class CreateEnum extends CreateEnumChange {
 
   get creates() {
     return [this.enum.stableId];
+  }
+
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.enum.schema));
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.enum.owner));
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {

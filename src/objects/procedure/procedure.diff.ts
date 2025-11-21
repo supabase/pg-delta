@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
+import type { Role } from "../role/role.model.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterProcedureChangeOwner,
@@ -42,6 +43,7 @@ export function diffProcedures(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, Procedure>,
   branch: Record<string, Procedure>,
@@ -53,6 +55,18 @@ export function diffProcedures(
   for (const procedureId of created) {
     const proc = branch[procedureId];
     changes.push(new CreateProcedure({ procedure: proc }));
+
+    // OWNER: If the procedure should be owned by someone other than the current user,
+    // emit ALTER FUNCTION/PROCEDURE ... OWNER TO after creation
+    if (proc.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterProcedureChangeOwner({
+          procedure: proc,
+          owner: proc.owner,
+        }),
+      );
+    }
+
     if (proc.comment !== null) {
       changes.push(new CreateCommentOnProcedure({ procedure: proc }));
     }
@@ -74,9 +88,14 @@ export function diffProcedures(
       "procedure",
       proc.privileges,
     );
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Note: we use the final owner (proc.owner), not the
+    // current user, because ownership change happens before privilege diffing.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      proc.owner,
+      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -313,9 +332,24 @@ export function diffProcedures(
       // a name change would be handled as drop + create by diffObjects()
 
       // PRIVILEGES
-      const privilegeResults = diffPrivileges(
+      // Filter out PUBLIC's built-in default EXECUTE privilege from main catalog
+      // (PostgreSQL grants it automatically, so we shouldn't compare it)
+      const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
+        "procedure",
         mainProcedure.privileges,
+      );
+      // Filter out PUBLIC's built-in default EXECUTE privilege from branch catalog
+      const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
+        "procedure",
         branchProcedure.privileges,
+      );
+      // Filter out owner privileges - owner always has ALL privileges implicitly
+      // and shouldn't be compared. Use branch owner as the reference.
+      const privilegeResults = diffPrivileges(
+        mainPrivilegesFiltered,
+        branchPrivilegesFiltered,
+        branchProcedure.owner,
+        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

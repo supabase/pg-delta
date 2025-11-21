@@ -34,6 +34,9 @@ export class CreateRule extends CreateRuleChange {
       `CREATE ${this.orReplace ? "OR REPLACE " : ""}`,
     );
 
+    // Remove trailing semicolons (pg_get_ruledef includes them, but we add our own)
+    definition = definition.replace(/;+\s*$/, "");
+
     return definition;
   }
 }

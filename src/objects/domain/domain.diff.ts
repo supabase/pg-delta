@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
+import type { Role } from "../role/role.model.ts";
 import {
   AlterDomainAddConstraint,
   AlterDomainChangeOwner,
@@ -42,6 +43,7 @@ export function diffDomains(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, Domain>,
   branch: Record<string, Domain>,
@@ -53,6 +55,18 @@ export function diffDomains(
   for (const domainId of created) {
     const newDomain = branch[domainId];
     changes.push(new CreateDomain({ domain: newDomain }));
+
+    // OWNER: If the domain should be owned by someone other than the current user,
+    // emit ALTER DOMAIN ... OWNER TO after creation
+    if (newDomain.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterDomainChangeOwner({
+          domain: newDomain,
+          owner: newDomain.owner,
+        }),
+      );
+    }
+
     if (newDomain.comment !== null) {
       changes.push(new CreateCommentOnDomain({ domain: newDomain }));
     }
@@ -92,9 +106,13 @@ export function diffDomains(
       "domain",
       newDomain.privileges,
     );
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use the domain owner as the reference.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      newDomain.owner,
+      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -269,9 +287,24 @@ export function diffDomains(
     }
 
     // PRIVILEGES
-    const privilegeResults = diffPrivileges(
+    // Filter out PUBLIC's built-in default USAGE privilege from main catalog
+    // (PostgreSQL grants it automatically, so we shouldn't compare it)
+    const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
+      "domain",
       mainDomain.privileges,
+    );
+    // Filter out PUBLIC's built-in default USAGE privilege from branch catalog
+    const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
+      "domain",
       branchDomain.privileges,
+    );
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use branch owner as the reference.
+    const privilegeResults = diffPrivileges(
+      mainPrivilegesFiltered,
+      branchPrivilegesFiltered,
+      branchDomain.owner,
+      ctx.mainRoles,
     );
 
     for (const [grantee, result] of privilegeResults) {

@@ -1,3 +1,4 @@
+import { parseTypeString, stableId } from "../../utils.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { CreateProcedureChange } from "./procedure.base.ts";
 
@@ -42,6 +43,39 @@ export class CreateProcedure extends CreateProcedureChange {
 
   get creates() {
     return [this.procedure.stableId];
+  }
+
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.procedure.schema));
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.procedure.owner));
+
+    // Language dependency (if user-defined)
+    // Note: Most languages are built-in (plpgsql, sql, etc.), but custom languages
+    // can be created. We can't reliably determine if a language is user-defined
+    // from just the name, so we rely on pg_depend for language dependencies.
+
+    // Return type dependency (if user-defined)
+    const returnType = parseTypeString(this.procedure.return_type);
+    if (returnType) {
+      dependencies.add(stableId.type(returnType.schema, returnType.name));
+    }
+
+    // Argument type dependencies (if user-defined)
+    if (this.procedure.argument_types) {
+      for (const argType of this.procedure.argument_types) {
+        const parsedType = parseTypeString(argType);
+        if (parsedType) {
+          dependencies.add(stableId.type(parsedType.schema, parsedType.name));
+        }
+      }
+    }
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {

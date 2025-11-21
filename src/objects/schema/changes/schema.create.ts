@@ -1,3 +1,4 @@
+import { stableId } from "../../utils.ts";
 import type { Schema } from "../schema.model.ts";
 import { CreateSchemaChange } from "./schema.base.ts";
 
@@ -24,6 +25,10 @@ export class CreateSchema extends CreateSchemaChange {
 
   get creates() {
     return [this.schema.stableId];
+  }
+
+  get requires() {
+    return [stableId.role(this.schema.owner)];
   }
 
   serialize(options?: { skipAuthorization?: boolean }): string {

@@ -1,3 +1,8 @@
+import {
+  isUserDefinedTypeSchema,
+  parseProcedureReference,
+  stableId,
+} from "../../../utils.ts";
 import type { Range } from "../range.model.ts";
 import { CreateRangeChange } from "./range.base.ts";
 
@@ -31,6 +36,65 @@ export class CreateRange extends CreateRangeChange {
 
   get creates() {
     return [this.range.stableId];
+  }
+
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.range.schema));
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.range.owner));
+
+    // Subtype dependency (if user-defined)
+    if (
+      this.range.subtype_schema &&
+      isUserDefinedTypeSchema(this.range.subtype_schema)
+    ) {
+      // subtype_str is the type name without schema (e.g., "integer", "text")
+      // subtype_schema is the schema name
+      dependencies.add(
+        stableId.type(this.range.subtype_schema, this.range.subtype_str),
+      );
+    }
+
+    // Canonical function dependency
+    if (
+      this.range.canonical_function_schema &&
+      this.range.canonical_function_name
+    ) {
+      const procRef = parseProcedureReference(
+        `${this.range.canonical_function_schema}.${this.range.canonical_function_name}()`,
+      );
+      if (procRef) {
+        dependencies.add(stableId.procedure(procRef.schema, procRef.name));
+      }
+    }
+
+    // Subtype diff function dependency
+    if (this.range.subtype_diff_schema && this.range.subtype_diff_name) {
+      const procRef = parseProcedureReference(
+        `${this.range.subtype_diff_schema}.${this.range.subtype_diff_name}()`,
+      );
+      if (procRef) {
+        dependencies.add(stableId.procedure(procRef.schema, procRef.name));
+      }
+    }
+
+    // Collation dependency (if non-default and user-defined)
+    if (this.range.collation) {
+      const unquotedCollation = this.range.collation.replace(/^"|"$/g, "");
+      const collationParts = unquotedCollation.split(".");
+      if (collationParts.length === 2) {
+        const [collationSchema, collationName] = collationParts;
+        if (isUserDefinedTypeSchema(collationSchema)) {
+          dependencies.add(stableId.collation(collationSchema, collationName));
+        }
+      }
+    }
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {

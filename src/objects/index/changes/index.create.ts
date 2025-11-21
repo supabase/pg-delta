@@ -1,4 +1,5 @@
 import type { TableLikeObject } from "../../base.model.ts";
+import { stableId } from "../../utils.ts";
 import type { Index } from "../index.model.ts";
 import { CreateIndexChange } from "./index.base.ts";
 import { checkIsSerializable } from "./utils.ts";
@@ -33,6 +34,21 @@ export class CreateIndex extends CreateIndexChange {
 
   get creates() {
     return [this.index.stableId];
+  }
+
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.index.schema));
+
+    // Table dependency
+    dependencies.add(stableId.table(this.index.schema, this.index.table_name));
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.index.owner));
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {

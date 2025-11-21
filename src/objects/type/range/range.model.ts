@@ -76,8 +76,8 @@ export class Range extends BasePgModel {
     this.privileges = props.privileges;
   }
 
-  get stableId(): `range:${string}` {
-    return `range:${this.schema}.${this.name}`;
+  get stableId(): `type:${string}` {
+    return `type:${this.schema}.${this.name}`;
   }
 
   get identityFields() {

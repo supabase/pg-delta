@@ -49,17 +49,6 @@ export abstract class BaseChange {
   }
 
   /**
-   * Whether this change should inherit a dependency edge from a catalog entry
-   * linking {@code dependentId} to {@code referencedId}.
-   *
-   * Subclasses can override to ignore dependencies that are represented by a
-   * separate change (e.g., ALTER statements that wire up ownership).
-   */
-  acceptsDependency(_dependentId: string, _referencedId: string): boolean {
-    return true;
-  }
-
-  /**
    * Serialize the change into a single SQL statement.
    */
   abstract serialize(options?: Record<string, unknown>): string;

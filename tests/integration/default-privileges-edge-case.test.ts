@@ -556,7 +556,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         expectedSqlTerms: [
           "CREATE TYPE public.test_composite AS (field1 integer, field2 text)",
-          "REVOKE ALL ON TYPE public.test_composite FROM postgres",
           "REVOKE ALL ON TYPE public.test_composite FROM anon",
           "REVOKE ALL ON TYPE public.test_composite FROM authenticated",
           "REVOKE ALL ON TYPE public.test_composite FROM service_role",

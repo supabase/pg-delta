@@ -16,11 +16,13 @@ import type { Collation } from "./collation.model.ts";
 /**
  * Diff two sets of collations from main and branch catalogs.
  *
+ * @param ctx - Context containing currentUser
  * @param main - The collations in the main catalog.
  * @param branch - The collations in the branch catalog.
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffCollations(
+  ctx: { currentUser: string },
   main: Record<string, Collation>,
   branch: Record<string, Collation>,
 ): CollationChange[] {
@@ -31,6 +33,18 @@ export function diffCollations(
   for (const collationId of created) {
     const coll = branch[collationId];
     changes.push(new CreateCollation({ collation: coll }));
+
+    // OWNER: If the collation should be owned by someone other than the current user,
+    // emit ALTER COLLATION ... OWNER TO after creation
+    if (coll.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterCollationChangeOwner({
+          collation: coll,
+          owner: coll.owner,
+        }),
+      );
+    }
+
     if (coll.comment !== null) {
       changes.push(new CreateCommentOnCollation({ collation: coll }));
     }

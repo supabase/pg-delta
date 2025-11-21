@@ -4,6 +4,7 @@ import {
   diffPrivileges,
   groupPrivilegesByColumns,
 } from "../base.privilege-diff.ts";
+import type { Role } from "../role/role.model.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterViewChangeOwner,
@@ -37,6 +38,7 @@ export function diffViews(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, View>,
   branch: Record<string, View>,
@@ -48,6 +50,13 @@ export function diffViews(
   for (const viewId of created) {
     const v = branch[viewId];
     changes.push(new CreateView({ view: v }));
+
+    // OWNER: If the view should be owned by someone other than the current user,
+    // emit ALTER VIEW ... OWNER TO after creation
+    if (v.owner !== ctx.currentUser) {
+      changes.push(new AlterViewChangeOwner({ view: v, owner: v.owner }));
+    }
+
     if (v.comment !== null) {
       changes.push(new CreateCommentOnView({ view: v }));
     }
@@ -63,9 +72,13 @@ export function diffViews(
       v.schema ?? "",
     );
     const desiredPrivileges = v.privileges;
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use the view owner as the reference.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      v.owner,
+      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -246,9 +259,13 @@ export function diffViews(
       // a name change would be handled as drop + create by diffObjects()
 
       // PRIVILEGES (unified object and column privileges)
+      // Filter out owner privileges - owner always has ALL privileges implicitly
+      // and shouldn't be compared. Use branch owner as the reference.
       const privilegeResults = diffPrivileges(
         mainView.privileges,
         branchView.privileges,
+        branchView.owner,
+        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

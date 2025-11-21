@@ -77,4 +77,83 @@ export const stableId = {
   role(role: string) {
     return `role:${role}` as const;
   },
+  type(schema: string, name: string) {
+    return `type:${schema}.${name}` as const;
+  },
+  collation(schema: string, name: string) {
+    return `collation:${schema}.${name}` as const;
+  },
+  procedure(schema: string, name: string, args: string = "") {
+    return `procedure:${schema}.${name}(${args})` as const;
+  },
+  membership(role: string, member: string) {
+    return `membership:${role}->${member}` as const;
+  },
 };
+
+/**
+ * Check if a schema name represents a user-defined type (not pg_catalog or information_schema).
+ * Used to filter out system types when building dependency lists.
+ */
+export function isUserDefinedTypeSchema(
+  schema: string | null | undefined,
+): boolean {
+  return (
+    schema != null && schema !== "pg_catalog" && schema !== "information_schema"
+  );
+}
+
+/**
+ * Parse a procedure reference string (from regprocedure::text) to extract schema and function name.
+ * Format: "schema.function_name(argtypes)" or "function_name(argtypes)"
+ * Returns null if parsing fails or if it's a system procedure.
+ */
+export function parseProcedureReference(
+  procRef: string | null | undefined,
+): { schema: string; name: string } | null {
+  if (!procRef) return null;
+
+  // Format is "schema.function_name(argtypes)" or "function_name(argtypes)"
+  // Extract everything before the opening parenthesis
+  const match = procRef.match(/^([^(]+)\(/);
+  if (!match) return null;
+
+  const qualifiedName = match[1];
+  const parts = qualifiedName.split(".");
+  if (parts.length === 1) {
+    // No schema prefix - assume current schema (we can't determine it here)
+    // For now, skip these as we need schema info
+    return null;
+  }
+  if (parts.length === 2) {
+    const [schema, name] = parts;
+    if (isUserDefinedTypeSchema(schema)) {
+      return { schema, name };
+    }
+  }
+  return null;
+}
+
+/**
+ * Parse a type string (from format_type) to extract schema and type name if it's schema-qualified.
+ * Format: "type_name" or "schema.type_name" or "schema.type_name[]"
+ * Returns null if it's not schema-qualified or if it's a system type.
+ */
+export function parseTypeString(
+  typeStr: string | null | undefined,
+): { schema: string; name: string } | null {
+  if (!typeStr) return null;
+
+  // Remove array brackets for parsing
+  const baseType = typeStr.replace(/\[\]+$/, "");
+
+  // Check if it's schema-qualified (contains a dot)
+  const parts = baseType.split(".");
+  if (parts.length === 2) {
+    const [schema, name] = parts;
+    if (isUserDefinedTypeSchema(schema)) {
+      return { schema, name };
+    }
+  }
+  return null;
+}

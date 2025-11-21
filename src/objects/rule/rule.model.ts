@@ -100,7 +100,7 @@ export async function extractRules(sql: Sql): Promise<Rule[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
     const ruleRows = await sql`
-      WITH extension_oids AS (
+      WITH extension_rule_oids AS (
         SELECT
           objid
         FROM
@@ -108,6 +108,16 @@ export async function extractRules(sql: Sql): Promise<Rule[]> {
         WHERE
           d.refclassid = 'pg_extension'::regclass
           AND d.classid = 'pg_rewrite'::regclass
+      ),
+      extension_relation_oids AS (
+        SELECT
+          objid
+        FROM
+          pg_depend d
+        WHERE
+          d.refclassid = 'pg_extension'::regclass
+          AND d.classid = 'pg_class'::regclass
+          AND d.deptype = 'e'
       )
       SELECT
         c.relnamespace::regnamespace::text AS schema,
@@ -145,10 +155,12 @@ export async function extractRules(sql: Sql): Promise<Rule[]> {
       FROM
         pg_catalog.pg_rewrite r
         JOIN pg_catalog.pg_class c ON c.oid = r.ev_class
-        LEFT JOIN extension_oids e ON r.oid = e.objid
+        LEFT JOIN extension_rule_oids e_rule ON r.oid = e_rule.objid
+        LEFT JOIN extension_relation_oids e_rel ON c.oid = e_rel.objid
       WHERE
         NOT c.relnamespace::regnamespace::text LIKE ANY (ARRAY['pg\\_%', 'information\\_schema'])
-        AND e.objid IS NULL
+        AND e_rule.objid IS NULL
+        AND e_rel.objid IS NULL
         AND r.rulename <> '_RETURN'
       ORDER BY
         1, 3, 2;

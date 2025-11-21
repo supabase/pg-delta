@@ -3,7 +3,7 @@ import { diffCatalogs } from "./catalog.diff.ts";
 import type { Catalog } from "./catalog.model.ts";
 import { extractCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
-import { sortChanges } from "./sort/phased-graph-sort.ts";
+import { sortChanges } from "./sort/sort-changes.ts";
 
 // Custom type handler for specifics corner cases
 export const postgresConfig: postgres.Options<
@@ -105,7 +105,7 @@ export async function main(
     ? ["SET check_function_bodies = false"]
     : [];
 
-  const migrationScript = [
+  const migrationScript = `${[
     ...sessionConfig,
     ...sortedChanges.map((change) => {
       return (
@@ -113,7 +113,7 @@ export async function main(
         change.serialize()
       );
     }),
-  ].join(";\n\n");
+  ].join(";\n\n")};`;
 
   console.log(migrationScript);
 

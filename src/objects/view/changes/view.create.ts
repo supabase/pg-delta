@@ -35,6 +35,23 @@ export class CreateView extends CreateViewChange {
     ];
   }
 
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.view.schema));
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.view.owner));
+
+    // Note: View definition dependencies (tables, types, procedures referenced in the query)
+    // are handled via pg_depend for existing objects. For new objects, parsing the SQL
+    // definition would be complex and error-prone, so we rely on pg_depend extraction
+    // for those dependencies.
+
+    return Array.from(dependencies);
+  }
+
   serialize(): string {
     const parts: string[] = [
       `CREATE${this.orReplace ? " OR REPLACE" : ""} VIEW`,

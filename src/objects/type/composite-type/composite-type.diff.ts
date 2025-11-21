@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../../base.privilege-diff.ts";
+import type { Role } from "../../role/role.model.ts";
 import { deepEqual, hasNonAlterableChanges } from "../../utils.ts";
 import {
   AlterCompositeTypeAddAttribute,
@@ -41,6 +42,7 @@ export function diffCompositeTypes(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, CompositeType>,
   branch: Record<string, CompositeType>,
@@ -52,6 +54,18 @@ export function diffCompositeTypes(
   for (const compositeTypeId of created) {
     const ct = branch[compositeTypeId];
     changes.push(new CreateCompositeType({ compositeType: ct }));
+
+    // OWNER: If the composite type should be owned by someone other than the current user,
+    // emit ALTER TYPE ... OWNER TO after creation
+    if (ct.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterCompositeTypeChangeOwner({
+          compositeType: ct,
+          owner: ct.owner,
+        }),
+      );
+    }
+
     // Type comment on creation
     if (ct.comment !== null) {
       changes.push(new CreateCommentOnCompositeType({ compositeType: ct }));
@@ -85,9 +99,12 @@ export function diffCompositeTypes(
       "composite_type",
       ct.privileges,
     );
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use the composite type owner as the reference.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      ct.owner,
     );
 
     // Generate grant changes
@@ -279,9 +296,24 @@ export function diffCompositeTypes(
       }
 
       // PRIVILEGES
-      const privilegeResults = diffPrivileges(
+      // Filter out PUBLIC's built-in default USAGE privilege from main catalog
+      // (PostgreSQL grants it automatically, so we shouldn't compare it)
+      const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
+        "composite_type",
         mainCompositeType.privileges,
+      );
+      // Filter out PUBLIC's built-in default USAGE privilege from branch catalog
+      const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
+        "composite_type",
         branchCompositeType.privileges,
+      );
+      // Filter out owner privileges - owner always has ALL privileges implicitly
+      // and shouldn't be compared. Use branch owner as the reference.
+      const privilegeResults = diffPrivileges(
+        mainPrivilegesFiltered,
+        branchPrivilegesFiltered,
+        branchCompositeType.owner,
+        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

@@ -21,16 +21,24 @@ describe.concurrent("collation.diff", () => {
       locale: "en_US",
       icu_rules: null,
       version: "1.0",
-      owner: "owner1",
+      owner: "postgres",
       comment: null,
     };
     const c = new Collation(props);
 
-    const created = diffCollations({}, { [c.stableId]: c });
+    const created = diffCollations(
+      { currentUser: "postgres" },
+      {},
+      { [c.stableId]: c },
+    );
     expect(created).toHaveLength(1);
     expect(created[0]).toBeInstanceOf(CreateCollation);
 
-    const dropped = diffCollations({ [c.stableId]: c }, {});
+    const dropped = diffCollations(
+      { currentUser: "postgres" },
+      { [c.stableId]: c },
+      {},
+    );
     expect(dropped).toHaveLength(1);
     expect(dropped[0]).toBeInstanceOf(DropCollation);
   });
@@ -52,6 +60,7 @@ describe.concurrent("collation.diff", () => {
     const branch = new Collation({ ...base, version: "2.0", owner: "o2" });
 
     const changes = diffCollations(
+      { currentUser: "postgres" },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -80,6 +89,7 @@ describe.concurrent("collation.diff", () => {
     const main = new Collation({ ...base, provider: "c" });
     const branch = new Collation({ ...base, provider: "i" });
     const changes = diffCollations(
+      { currentUser: "postgres" },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

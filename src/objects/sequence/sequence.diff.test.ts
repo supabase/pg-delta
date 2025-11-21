@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { DefaultPrivilegeState } from "../base.default-privileges.ts";
+import type { Table } from "../table/table.model.ts";
 import {
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
@@ -32,6 +33,7 @@ const testContext = {
   version: 170000,
   currentUser: "postgres",
   defaultPrivilegeState: new DefaultPrivilegeState({}),
+  mainRoles: {},
 };
 
 describe.concurrent("sequence.diff", () => {
@@ -94,5 +96,46 @@ describe.concurrent("sequence.diff", () => {
     );
     expect(changes[0]).toBeInstanceOf(DropSequence);
     expect(changes[1]).toBeInstanceOf(CreateSequence);
+  });
+
+  test("skip DROP SEQUENCE when owned by table being dropped", () => {
+    const ownedSequence = new Sequence({
+      ...base,
+      owned_by_schema: "public",
+      owned_by_table: "users",
+      owned_by_column: "id",
+    });
+    // When the owning table is not in branch catalog (being dropped),
+    // DROP SEQUENCE should not be generated (PostgreSQL auto-drops it)
+    const changes = diffSequences(
+      testContext,
+      { [ownedSequence.stableId]: ownedSequence },
+      {}, // branch has no sequences (sequence was auto-dropped)
+      {}, // branch has no tables (table is being dropped)
+    );
+    // Should not generate DROP SEQUENCE since table is being dropped
+    expect(changes).toHaveLength(0);
+  });
+
+  test("generate DROP SEQUENCE when owned by table that still exists", () => {
+    const ownedSequence = new Sequence({
+      ...base,
+      owned_by_schema: "public",
+      owned_by_table: "users",
+      owned_by_column: "id",
+    });
+    // When the owning table still exists in branch catalog,
+    // DROP SEQUENCE should be generated
+    const changes = diffSequences(
+      testContext,
+      { [ownedSequence.stableId]: ownedSequence },
+      {}, // branch has no sequences
+      {
+        "table:public.users": {} as Table, // table still exists
+      },
+    );
+    // Should generate DROP SEQUENCE since table still exists
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toBeInstanceOf(DropSequence);
   });
 });

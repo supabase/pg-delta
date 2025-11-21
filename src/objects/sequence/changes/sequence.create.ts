@@ -28,31 +28,37 @@ export class CreateSequence extends CreateSequenceChange {
     return [this.sequence.stableId];
   }
 
-  override acceptsDependency(
-    dependentId: string,
-    referencedId: string,
-  ): boolean {
-    if (dependentId === this.sequence.stableId) {
-      const ownedByIds: string[] = [];
-      const {
-        owned_by_schema: schema,
-        owned_by_table: table,
-        owned_by_column: column,
-      } = this.sequence;
+  get requires() {
+    const dependencies = new Set<string>();
 
-      if (schema && table) {
-        ownedByIds.push(`table:${schema}.${table}`);
-        if (column) {
-          ownedByIds.push(stableId.column(schema, table, column));
-        }
-      }
+    // Schema dependency
+    dependencies.add(stableId.schema(this.sequence.schema));
 
-      if (ownedByIds.some((candidateId) => candidateId === referencedId)) {
-        return false;
-      }
+    // Owner dependency
+    dependencies.add(stableId.role(this.sequence.owner));
+
+    // Owned by table/column dependency (if set)
+    if (
+      this.sequence.owned_by_schema &&
+      this.sequence.owned_by_table &&
+      this.sequence.owned_by_column
+    ) {
+      dependencies.add(
+        stableId.table(
+          this.sequence.owned_by_schema,
+          this.sequence.owned_by_table,
+        ),
+      );
+      dependencies.add(
+        stableId.column(
+          this.sequence.owned_by_schema,
+          this.sequence.owned_by_table,
+          this.sequence.owned_by_column,
+        ),
+      );
     }
 
-    return super.acceptsDependency(dependentId, referencedId);
+    return Array.from(dependencies);
   }
 
   serialize(): string {

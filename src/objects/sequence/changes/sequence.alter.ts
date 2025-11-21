@@ -1,3 +1,4 @@
+import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { AlterSequenceChange } from "./sequence.base.ts";
 
@@ -47,7 +48,11 @@ export class AlterSequenceSetOwnedBy extends AlterSequenceChange {
       this.sequence.stableId,
       ...(this.ownedBy
         ? [
-            `column:${this.ownedBy.schema}.${this.ownedBy.table}.${this.ownedBy.column}`,
+            stableId.column(
+              this.ownedBy.schema,
+              this.ownedBy.table,
+              this.ownedBy.column,
+            ),
           ]
         : []),
     ];

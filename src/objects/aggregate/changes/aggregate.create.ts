@@ -1,4 +1,9 @@
 import { quoteLiteral } from "../../base.change.ts";
+import {
+  parseProcedureReference,
+  parseTypeString,
+  stableId,
+} from "../../utils.ts";
 import type { Aggregate } from "../aggregate.model.ts";
 import { CreateAggregateChange } from "./aggregate.base.ts";
 
@@ -20,6 +25,145 @@ export class CreateAggregate extends CreateAggregateChange {
 
   get creates() {
     return [this.aggregate.stableId];
+  }
+
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.aggregate.schema));
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.aggregate.owner));
+
+    // Transition function dependency
+    const transProc = parseProcedureReference(
+      this.aggregate.transition_function,
+    );
+    if (transProc) {
+      dependencies.add(stableId.procedure(transProc.schema, transProc.name));
+    }
+
+    // State data type dependency (if user-defined)
+    const stateType = parseTypeString(this.aggregate.state_data_type);
+    if (stateType) {
+      dependencies.add(stableId.type(stateType.schema, stateType.name));
+    }
+
+    // Final function dependency
+    if (this.aggregate.final_function) {
+      const finalProc = parseProcedureReference(this.aggregate.final_function);
+      if (finalProc) {
+        dependencies.add(stableId.procedure(finalProc.schema, finalProc.name));
+      }
+    }
+
+    // Combine function dependency
+    if (this.aggregate.combine_function) {
+      const combineProc = parseProcedureReference(
+        this.aggregate.combine_function,
+      );
+      if (combineProc) {
+        dependencies.add(
+          stableId.procedure(combineProc.schema, combineProc.name),
+        );
+      }
+    }
+
+    // Serial function dependency
+    if (this.aggregate.serial_function) {
+      const serialProc = parseProcedureReference(
+        this.aggregate.serial_function,
+      );
+      if (serialProc) {
+        dependencies.add(
+          stableId.procedure(serialProc.schema, serialProc.name),
+        );
+      }
+    }
+
+    // Deserial function dependency
+    if (this.aggregate.deserial_function) {
+      const deserialProc = parseProcedureReference(
+        this.aggregate.deserial_function,
+      );
+      if (deserialProc) {
+        dependencies.add(
+          stableId.procedure(deserialProc.schema, deserialProc.name),
+        );
+      }
+    }
+
+    // Moving transition function dependency
+    if (this.aggregate.moving_transition_function) {
+      const movingTransProc = parseProcedureReference(
+        this.aggregate.moving_transition_function,
+      );
+      if (movingTransProc) {
+        dependencies.add(
+          stableId.procedure(movingTransProc.schema, movingTransProc.name),
+        );
+      }
+    }
+
+    // Moving inverse function dependency
+    if (this.aggregate.moving_inverse_function) {
+      const movingInvProc = parseProcedureReference(
+        this.aggregate.moving_inverse_function,
+      );
+      if (movingInvProc) {
+        dependencies.add(
+          stableId.procedure(movingInvProc.schema, movingInvProc.name),
+        );
+      }
+    }
+
+    // Moving state data type dependency (if user-defined)
+    if (this.aggregate.moving_state_data_type) {
+      const movingStateType = parseTypeString(
+        this.aggregate.moving_state_data_type,
+      );
+      if (movingStateType) {
+        dependencies.add(
+          stableId.type(movingStateType.schema, movingStateType.name),
+        );
+      }
+    }
+
+    // Moving final function dependency
+    if (this.aggregate.moving_final_function) {
+      const movingFinalProc = parseProcedureReference(
+        this.aggregate.moving_final_function,
+      );
+      if (movingFinalProc) {
+        dependencies.add(
+          stableId.procedure(movingFinalProc.schema, movingFinalProc.name),
+        );
+      }
+    }
+
+    // Return type dependency (if user-defined)
+    if (this.aggregate.return_type_schema) {
+      const returnType = parseTypeString(this.aggregate.return_type);
+      if (returnType) {
+        dependencies.add(stableId.type(returnType.schema, returnType.name));
+      }
+    }
+
+    // Argument type dependencies (if user-defined)
+    if (this.aggregate.argument_types) {
+      for (const argType of this.aggregate.argument_types) {
+        const parsedType = parseTypeString(argType);
+        if (parsedType) {
+          dependencies.add(stableId.type(parsedType.schema, parsedType.name));
+        }
+      }
+    }
+
+    // Note: Sort operator dependencies are complex (they reference operators which
+    // may reference types/functions). For now, we rely on pg_depend for these.
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {

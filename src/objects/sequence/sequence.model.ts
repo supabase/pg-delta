@@ -105,7 +105,7 @@ export async function extractSequences(sql: Sql): Promise<Sequence[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
     const sequenceRows = await sql`
-with extension_oids as (
+with extension_sequence_oids as (
   select
     objid
   from
@@ -113,6 +113,16 @@ with extension_oids as (
   where
     d.refclassid = 'pg_extension'::regclass
     and d.classid = 'pg_class'::regclass
+),
+extension_table_oids as (
+  select
+    objid
+  from
+    pg_depend d
+  where
+    d.refclassid = 'pg_extension'::regclass
+    and d.classid = 'pg_class'::regclass
+    and d.deptype = 'e'
 )
 select
   c.relnamespace::regnamespace::text as schema,
@@ -150,9 +160,11 @@ from
   left join pg_class t on t.oid = d.refobjid
   left join pg_namespace t_ns on t.relnamespace = t_ns.oid
   left join pg_attribute att on att.attrelid = t.oid and att.attnum = d.refobjsubid and d.refobjsubid > 0
-  left outer join extension_oids e on c.oid = e.objid
+  left outer join extension_sequence_oids e_seq on c.oid = e_seq.objid
+  left outer join extension_table_oids e_table on t.oid = e_table.objid
   where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
-  and e.objid is null
+  and e_seq.objid is null
+  and (t.oid is null or e_table.objid is null)
   and c.relkind = 'S'
   -- exclude sequences that are tied to an IDENTITY column
   and not exists (

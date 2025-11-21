@@ -4,6 +4,7 @@ import {
   diffPrivileges,
   groupPrivilegesByColumns,
 } from "../base.privilege-diff.ts";
+import type { Role } from "../role/role.model.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterMaterializedViewChangeOwner,
@@ -38,6 +39,7 @@ export function diffMaterializedViews(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, MaterializedView>,
   branch: Record<string, MaterializedView>,
@@ -53,6 +55,22 @@ export function diffMaterializedViews(
         materializedView: mv,
       }),
     );
+
+    // OWNER: If the materialized view should be owned by someone other than the current user,
+    // emit ALTER MATERIALIZED VIEW ... OWNER TO after creation
+    if (mv.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterMaterializedViewChangeOwner({
+          materializedView: mv,
+          owner: mv.owner,
+        }),
+      );
+    }
+
+    // Note: RLS (row_security, force_row_security) is a non-alterable property for materialized views.
+    // If RLS needs to be enabled, the materialized view must be dropped and recreated, which is
+    // handled in the "altered" section when non-alterable properties change.
+
     // Materialized view comment on creation
     if (mv.comment !== null) {
       changes.push(
@@ -84,9 +102,13 @@ export function diffMaterializedViews(
       mv.schema ?? "",
     );
     const desiredPrivileges = mv.privileges;
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use the materialized view owner as the reference.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      mv.owner,
+      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -323,9 +345,13 @@ export function diffMaterializedViews(
       }
 
       // PRIVILEGES (unified object and column privileges)
+      // Filter out owner privileges - owner always has ALL privileges implicitly
+      // and shouldn't be compared. Use branch owner as the reference.
       const privilegeResults = diffPrivileges(
         mainMaterializedView.privileges,
         branchMaterializedView.privileges,
+        branchMaterializedView.owner,
+        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

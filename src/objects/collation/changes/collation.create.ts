@@ -1,4 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { stableId } from "../../utils.ts";
 import type { Collation } from "../collation.model.ts";
 import { CreateCollationChange } from "./collation.base.ts";
 
@@ -33,6 +34,18 @@ export class CreateCollation extends CreateCollationChange {
 
   get creates() {
     return [this.collation.stableId];
+  }
+
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.collation.schema));
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.collation.owner));
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {

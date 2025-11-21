@@ -1,4 +1,4 @@
-import { stableId } from "../../utils.ts";
+import { isUserDefinedTypeSchema, stableId } from "../../utils.ts";
 import type { Table } from "../table.model.ts";
 import { CreateTableChange } from "./table.base.ts";
 
@@ -39,6 +39,54 @@ export class CreateTable extends CreateTableChange {
         stableId.column(this.table.schema, this.table.name, col.name),
       ),
     ];
+  }
+
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.table.schema));
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.table.owner));
+
+    // Parent table dependency (for inheritance or partitioning)
+    if (this.table.parent_schema && this.table.parent_name) {
+      dependencies.add(
+        stableId.table(this.table.parent_schema, this.table.parent_name),
+      );
+    }
+
+    // Column type dependencies (user-defined types only)
+    for (const col of this.table.columns) {
+      if (
+        col.is_custom_type &&
+        col.custom_type_schema &&
+        col.custom_type_name
+      ) {
+        dependencies.add(
+          stableId.type(col.custom_type_schema, col.custom_type_name),
+        );
+      }
+
+      // Collation dependency (if non-default)
+      if (col.collation) {
+        // Collations are stored as schema-qualified strings like "public.collation_name"
+        // Note: The collation string may be quoted, so we need to handle that
+        const unquotedCollation = col.collation.replace(/^"|"$/g, "");
+        const collationParts = unquotedCollation.split(".");
+        if (collationParts.length === 2) {
+          const [collationSchema, collationName] = collationParts;
+          if (isUserDefinedTypeSchema(collationSchema)) {
+            dependencies.add(
+              stableId.collation(collationSchema, collationName),
+            );
+          }
+        }
+      }
+    }
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {

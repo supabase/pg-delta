@@ -645,7 +645,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
-      expect(changes).toHaveLength(6);
+      expect(changes).toHaveLength(7);
     });
 
     test("complex scenario with multiple entity creations", async ({ db }) => {

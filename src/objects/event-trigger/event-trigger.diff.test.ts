@@ -28,6 +28,7 @@ describe.concurrent("event-trigger.diff", () => {
     const eventTrigger = new EventTrigger(base);
 
     const created = diffEventTriggers(
+      { currentUser: "postgres" },
       {},
       { [eventTrigger.stableId]: eventTrigger },
     );
@@ -35,6 +36,7 @@ describe.concurrent("event-trigger.diff", () => {
     expect(created[0]).toBeInstanceOf(CreateEventTrigger);
 
     const dropped = diffEventTriggers(
+      { currentUser: "postgres" },
       { [eventTrigger.stableId]: eventTrigger },
       {},
     );
@@ -50,6 +52,7 @@ describe.concurrent("event-trigger.diff", () => {
     });
 
     const changes = diffEventTriggers(
+      { currentUser: "postgres" },
       { [mainEventTrigger.stableId]: mainEventTrigger },
       { [branchEventTrigger.stableId]: branchEventTrigger },
     );
@@ -67,6 +70,7 @@ describe.concurrent("event-trigger.diff", () => {
     });
 
     const changes = diffEventTriggers(
+      { currentUser: "postgres" },
       { [mainEventTrigger.stableId]: mainEventTrigger },
       { [branchEventTrigger.stableId]: branchEventTrigger },
     );
@@ -83,6 +87,7 @@ describe.concurrent("event-trigger.diff", () => {
     });
 
     const changes = diffEventTriggers(
+      { currentUser: "postgres" },
       { [mainEventTrigger.stableId]: mainEventTrigger },
       { [branchEventTrigger.stableId]: branchEventTrigger },
     );
@@ -103,6 +108,7 @@ describe.concurrent("event-trigger.diff", () => {
     });
 
     const createCommentChanges = diffEventTriggers(
+      { currentUser: "postgres" },
       { [mainEventTrigger.stableId]: mainEventTrigger },
       { [branchWithComment.stableId]: branchWithComment },
     );
@@ -110,6 +116,7 @@ describe.concurrent("event-trigger.diff", () => {
     expect(createCommentChanges[0]).toBeInstanceOf(CreateCommentOnEventTrigger);
 
     const dropCommentChanges = diffEventTriggers(
+      { currentUser: "postgres" },
       { [branchWithComment.stableId]: branchWithComment },
       { [branchWithoutComment.stableId]: branchWithoutComment },
     );

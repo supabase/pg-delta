@@ -163,9 +163,9 @@ with
     select
       (case
         when typtype = 'd' then format('domain:%I.%I', schema_name, type_name)
-        when typtype = 'e' then format('enum:%I.%I', schema_name, type_name)
-        when typtype = 'r' then format('range:%I.%I', schema_name, type_name)
-        when typtype = 'c' then format('compositeType:%I.%I', schema_name, type_name)
+        when typtype = 'e' then format('type:%I.%I', schema_name, type_name)
+        when typtype = 'r' then format('type:%I.%I', schema_name, type_name)
+        when typtype = 'c' then format('type:%I.%I', schema_name, type_name)
         else null
       end) as target_stable_id,
       schema_name,
@@ -441,7 +441,7 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
                 WHEN 'm' THEN format('materializedView:%I.%I', ns.nspname, c.relname)
                 WHEN 'S' THEN format('sequence:%I.%I', ns.nspname, c.relname)
                 WHEN 'i' THEN format('index:%I.%I.%I', ns.nspname, tbl.relname, c.relname)
-                WHEN 'c' THEN format('compositeType:%I.%I', ns.nspname, c.relname)
+                WHEN 'c' THEN format('type:%I.%I', ns.nspname, c.relname)
                 ELSE format('unknown:%s.%s', 'pg_class', c.oid::text)
               END
           END AS stable_id
@@ -468,8 +468,8 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
           COALESCE(rns.nspname, ns.nspname) AS schema_name,  -- prefer owning rel's schema if present
           CASE t.typtype
             WHEN 'd' THEN format('domain:%I.%I', ns.nspname, t.typname)
-            WHEN 'e' THEN format('enum:%I.%I', ns.nspname, t.typname)
-            WHEN 'r' THEN format('range:%I.%I', ns.nspname, t.typname)
+            WHEN 'e' THEN format('type:%I.%I', ns.nspname, t.typname)
+            WHEN 'r' THEN format('type:%I.%I', ns.nspname, t.typname)
             WHEN 'm' THEN format('multirange:%I.%I', ns.nspname, t.typname)
 
             WHEN 'c' THEN
@@ -500,7 +500,7 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
                   END
 
                 /* Standalone composite type */
-                ELSE format('compositeType:%I.%I', ns.nspname, t.typname)
+                ELSE format('type:%I.%I', ns.nspname, t.typname)
               END
 
             WHEN 'p' THEN format('pseudoType:%I.%I', ns.nspname, t.typname)
@@ -726,9 +726,9 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     SELECT DISTINCT
       format(
         'comment:%s',
-        format('compositeType:%I.%I', n.nspname, t.relname)
+        format('type:%I.%I', n.nspname, t.relname)
       )                                                                                AS dependent_stable_id,
-      format('compositeType:%I.%I', n.nspname, t.relname)                              AS referenced_stable_id,
+      format('type:%I.%I', n.nspname, t.relname)                              AS referenced_stable_id,
       'a'::"char" AS deptype,
       n.nspname AS dep_schema,
       n.nspname AS ref_schema
@@ -782,9 +782,9 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     SELECT DISTINCT
       format(
         'comment:%s',
-        format('enum:%I.%I', t.typnamespace::regnamespace::text, t.typname)
+        format('type:%I.%I', t.typnamespace::regnamespace::text, t.typname)
       )                                                                                AS dependent_stable_id,
-      format('enum:%I.%I',    t.typnamespace::regnamespace::text, t.typname)            AS referenced_stable_id,
+      format('type:%I.%I',    t.typnamespace::regnamespace::text, t.typname)            AS referenced_stable_id,
       'a'::"char" AS deptype,
       t.typnamespace::regnamespace::text AS dep_schema,
       t.typnamespace::regnamespace::text AS ref_schema
@@ -798,9 +798,9 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     SELECT DISTINCT
       format(
         'comment:%s',
-        format('range:%I.%I', t.typnamespace::regnamespace::text, t.typname)
+        format('type:%I.%I', t.typnamespace::regnamespace::text, t.typname)
       )                                                                                AS dependent_stable_id,
-      format('range:%I.%I',   t.typnamespace::regnamespace::text, t.typname)            AS referenced_stable_id,
+      format('type:%I.%I',   t.typnamespace::regnamespace::text, t.typname)            AS referenced_stable_id,
       'a'::"char" AS deptype,
       t.typnamespace::regnamespace::text AS dep_schema,
       t.typnamespace::regnamespace::text AS ref_schema
@@ -869,9 +869,9 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     SELECT DISTINCT
       format(
         'comment:%s',
-        format('%s:%s', format('compositeType:%I.%I', n.nspname, t.relname), a.attname)
+        format('%s:%s', format('type:%I.%I', n.nspname, t.relname), a.attname)
       )                                                                                AS dependent_stable_id,
-      format('%s:%s', format('compositeType:%I.%I', n.nspname, t.relname), a.attname)  AS referenced_stable_id,
+      format('%s:%s', format('type:%I.%I', n.nspname, t.relname), a.attname)  AS referenced_stable_id,
       'a'::"char" AS deptype,
       n.nspname AS dep_schema,
       n.nspname AS ref_schema
@@ -1050,13 +1050,13 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
   type_usage_deps AS (
     -- Composite type attribute dependencies on user-defined types (domain/enum/range/multirange/composite)
     SELECT DISTINCT
-      format('compositeType:%I.%I', ns.nspname, comp.relname) AS dependent_stable_id,
+      format('type:%I.%I', ns.nspname, comp.relname) AS dependent_stable_id,
       CASE ref_t.typtype
         WHEN 'd' THEN format('domain:%I.%I',      refns.nspname, ref_t.typname)
-        WHEN 'e' THEN format('enum:%I.%I',        refns.nspname, ref_t.typname)
-        WHEN 'r' THEN format('range:%I.%I',       refns.nspname, ref_t.typname)
+        WHEN 'e' THEN format('type:%I.%I',        refns.nspname, ref_t.typname)
+        WHEN 'r' THEN format('type:%I.%I',       refns.nspname, ref_t.typname)
         WHEN 'm' THEN format('multirange:%I.%I',  refns.nspname, ref_t.typname)
-        WHEN 'c' THEN format('compositeType:%I.%I', refns.nspname, ref_comp.relname)
+        WHEN 'c' THEN format('type:%I.%I', refns.nspname, ref_comp.relname)
         ELSE NULL
       END AS referenced_stable_id,
       'n'::"char" AS deptype,
@@ -1299,7 +1299,7 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
 
     -- Composite type ownership dependencies
     SELECT DISTINCT
-      format('compositeType:%I.%I', n.nspname, c.relname) AS dependent_stable_id,
+      format('type:%I.%I', n.nspname, c.relname) AS dependent_stable_id,
       format('role:%s', c.relowner::regrole::text) AS referenced_stable_id,
       'n'::"char" AS deptype,
       n.nspname AS dep_schema,
@@ -1356,7 +1356,7 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
 
     -- Enum ownership dependencies
     SELECT DISTINCT
-      format('enum:%I.%I', n.nspname, t.typname) AS dependent_stable_id,
+      format('type:%I.%I', n.nspname, t.typname) AS dependent_stable_id,
       format('role:%s', t.typowner::regrole::text) AS referenced_stable_id,
       'n'::"char" AS deptype,
       n.nspname AS dep_schema,
@@ -1369,7 +1369,7 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
 
     -- Range type ownership dependencies
     SELECT DISTINCT
-      format('range:%I.%I', n.nspname, t.typname) AS dependent_stable_id,
+      format('type:%I.%I', n.nspname, t.typname) AS dependent_stable_id,
       format('role:%s', t.typowner::regrole::text) AS referenced_stable_id,
       'n'::"char" AS deptype,
       n.nspname AS dep_schema,

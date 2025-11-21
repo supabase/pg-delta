@@ -118,7 +118,7 @@ export async function extractTriggers(sql: Sql): Promise<Trigger[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
     const triggerRows = await sql`
-with extension_oids as (
+with extension_trigger_oids as (
   select
     objid
   from
@@ -126,6 +126,25 @@ with extension_oids as (
   where
     d.refclassid = 'pg_extension'::regclass
     and d.classid = 'pg_trigger'::regclass
+),
+extension_table_oids as (
+  select
+    objid
+  from
+    pg_depend d
+  where
+    d.refclassid = 'pg_extension'::regclass
+    and d.classid = 'pg_class'::regclass
+    and d.deptype = 'e'
+),
+extension_function_oids as (
+  select
+    objid
+  from
+    pg_depend d
+  where
+    d.refclassid = 'pg_extension'::regclass
+    and d.classid = 'pg_proc'::regclass
 )
 select
   tc.relnamespace::regnamespace::text as schema,
@@ -140,7 +159,6 @@ select
   t.tginitdeferred as initially_deferred,
   t.tgnargs as argument_count,
   t.tgattr as column_numbers,
-  case when t.tgnargs > 0 then array_fill(''::text, array[t.tgnargs]) else array[]::text[] end as arguments,
   case when t.tgnargs > 0
        then array_fill(''::text, array[t.tgnargs]) else array[]::text[] end as arguments,
   (
@@ -168,9 +186,13 @@ from
   pg_catalog.pg_trigger t
   inner join pg_catalog.pg_class tc on tc.oid = t.tgrelid
   inner join pg_catalog.pg_proc fc on fc.oid = t.tgfoid
-  left outer join extension_oids e on t.oid = e.objid
+  left outer join extension_trigger_oids e_trigger on t.oid = e_trigger.objid
+  left outer join extension_table_oids e_table on tc.oid = e_table.objid
+  left outer join extension_function_oids e_function on fc.oid = e_function.objid
   where not tc.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
-  and e.objid is null
+  and e_trigger.objid is null
+  and e_table.objid is null
+  and e_function.objid is null
   and not t.tgisinternal
 order by
   1, 2;

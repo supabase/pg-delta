@@ -78,8 +78,8 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
     this.privileges = props.privileges;
   }
 
-  get stableId(): `compositeType:${string}` {
-    return `compositeType:${this.schema}.${this.name}`;
+  get stableId(): `type:${string}` {
+    return `type:${this.schema}.${this.name}`;
   }
 
   get identityFields() {

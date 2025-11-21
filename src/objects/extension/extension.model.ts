@@ -126,7 +126,7 @@ export async function extractExtensions(sql: Sql): Promise<Extension[]> {
             when 'm' then format('materializedView:%I.%I', ns.nspname, c.relname)
             when 'S' then format('sequence:%I.%I', ns.nspname, c.relname)
             when 'i' then format('index:%I.%I.%I', ns.nspname, tbl.relname, c.relname)
-            when 'c' then format('compositeType:%I.%I', ns.nspname, c.relname)
+            when 'c' then format('type:%I.%I', ns.nspname, c.relname)
             else format('unknown:%s.%s', 'pg_class', c.oid::text)
           end as stable_id
     from pg_class c
@@ -150,15 +150,15 @@ export async function extractExtensions(sql: Sql): Promise<Extension[]> {
     select 'pg_type'::regclass, t.oid, 0::int2,
           case t.typtype
             when 'd' then format('domain:%I.%I', ns.nspname, t.typname)
-            when 'e' then format('enum:%I.%I', ns.nspname, t.typname)
-            when 'r' then format('range:%I.%I', ns.nspname, t.typname)
+            when 'e' then format('type:%I.%I', ns.nspname, t.typname)
+            when 'r' then format('type:%I.%I', ns.nspname, t.typname)
             when 'm' then format('multirange:%I.%I', ns.nspname, t.typname)
             when 'c' then
               case
                 when r.oid is not null and r.relkind in ('r','p','f') then format('table:%I.%I', rns.nspname, r.relname)
                 when r.oid is not null and r.relkind = 'v' then format('view:%I.%I', rns.nspname, r.relname)
                 when r.oid is not null and r.relkind = 'm' then format('materializedView:%I.%I', rns.nspname, r.relname)
-                else format('compositeType:%I.%I', ns.nspname, t.typname)
+                else format('type:%I.%I', ns.nspname, t.typname)
               end
             when 'p' then format('pseudoType:%I.%I', ns.nspname, t.typname)
             else format('type:%I.%I', ns.nspname, t.typname)

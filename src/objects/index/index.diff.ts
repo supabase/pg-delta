@@ -66,6 +66,9 @@ export function diffIndexes(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the index
+    // Note: key_columns is excluded because it contains attribute numbers that can differ
+    // between databases even when indexes are logically identical. The definition field
+    // already captures the logical structure using column names, so we compare by definition instead.
     const NON_ALTERABLE_FIELDS: Array<keyof Index> = [
       "index_type",
       "is_unique",
@@ -75,22 +78,27 @@ export function diffIndexes(
       "immediate",
       "is_clustered",
       "is_replica_identity",
-      "key_columns",
       "column_collations",
       "operator_classes",
       "column_options",
       "index_expressions",
       "partial_predicate",
+      "definition", // Compare by definition instead of key_columns
     ];
     const nonAlterablePropsChanged = hasNonAlterableChanges(
       mainIndex,
       branchIndex,
       NON_ALTERABLE_FIELDS,
       {
-        key_columns: deepEqual,
         column_collations: deepEqual,
         operator_classes: deepEqual,
         column_options: deepEqual,
+        definition: (a, b) => {
+          // Normalize definitions by removing "USING btree" (default) for comparison
+          const normalize = (def: string) =>
+            def.replace(/\s+USING\s+btree/gi, "");
+          return normalize(a as string) === normalize(b as string);
+        },
       },
     );
 

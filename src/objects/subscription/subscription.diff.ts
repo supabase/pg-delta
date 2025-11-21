@@ -35,6 +35,7 @@ const SETTABLE_OPTIONS: SubscriptionSettableOption[] = [
 ];
 
 export function diffSubscriptions(
+  ctx: { currentUser: string },
   main: Record<string, Subscription>,
   branch: Record<string, Subscription>,
 ): SubscriptionChange[] {
@@ -44,6 +45,18 @@ export function diffSubscriptions(
   for (const id of created) {
     const subscription = branch[id];
     changes.push(new CreateSubscription({ subscription }));
+
+    // OWNER: If the subscription should be owned by someone other than the current user,
+    // emit ALTER SUBSCRIPTION ... OWNER TO after creation
+    if (subscription.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterSubscriptionSetOwner({
+          subscription,
+          owner: subscription.owner,
+        }),
+      );
+    }
+
     if (subscription.comment !== null) {
       changes.push(new CreateCommentOnSubscription({ subscription }));
     }

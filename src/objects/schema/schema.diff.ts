@@ -4,6 +4,7 @@ import {
   diffPrivileges,
   groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
+import type { Role } from "../role/role.model.ts";
 import { AlterSchemaChangeOwner } from "./changes/schema.alter.ts";
 import {
   CreateCommentOnSchema,
@@ -32,6 +33,7 @@ export function diffSchemas(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, Schema>,
   branch: Record<string, Schema>,
@@ -59,9 +61,13 @@ export function diffSchemas(
       "",
     );
     const desiredPrivileges = sc.privileges;
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use the schema owner as the reference.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      sc.owner,
+      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -139,9 +145,13 @@ export function diffSchemas(
     }
 
     // PRIVILEGES
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use branch owner as the reference.
     const privilegeResults = diffPrivileges(
       mainSchema.privileges,
       branchSchema.privileges,
+      branchSchema.owner,
+      ctx.mainRoles,
     );
 
     for (const [grantee, result] of privilegeResults) {
