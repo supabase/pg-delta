@@ -5,7 +5,11 @@ import { findConsumerIndexes } from "./graph-utils.ts";
 import type { Edge, GraphData } from "./types.ts";
 
 /**
- * Check if a sequence is owned by a given table or column.
+ * Check if a sequence is owned by a given column.
+ *
+ * @param sequence - The sequence object with ownership information
+ * @param referencedStableId - The column stable ID to check against
+ * @returns true if the sequence is owned by the referenced column
  */
 function isSequenceOwnedBy(
   sequence: {
@@ -23,33 +27,41 @@ function isSequenceOwnedBy(
     return false;
   }
 
-  const ownedByTableId = stableId.table(
-    sequence.owned_by_schema,
-    sequence.owned_by_table,
-  );
   const ownedByColumnId = stableId.column(
     sequence.owned_by_schema,
     sequence.owned_by_table,
     sequence.owned_by_column,
   );
 
-  return (
-    referencedStableId === ownedByTableId ||
-    referencedStableId === ownedByColumnId
-  );
+  return referencedStableId === ownedByColumnId;
 }
 
 /**
  * Check if a sequence ownership dependency should be filtered to prevent cycles.
  *
+ * CYCLE SCENARIO:
  * When a sequence is owned by a table column that also uses the sequence (via DEFAULT),
- * pg_depend creates a cycle:
- * - sequence → table/column (ownership)
- * - table/column → sequence (column default)
+ * PostgreSQL's pg_depend creates a bidirectional dependency cycle:
+ *   1. column → sequence (column default depends on sequence)
+ *   2. sequence → column (sequence ownership depends on column)
  *
- * We filter out the ownership dependency because:
- * - CREATE phase: sequences should be created before tables (ownership set via ALTER SEQUENCE OWNED BY after both exist)
- * - DROP phase: prevents cycles when dropping sequences owned by tables that aren't being dropped
+ * This creates: sequence → column → sequence (cycle!)
+ *
+ * HOW WE BREAK THE CYCLE:
+ * We filter out the ownership dependency edge (sequence → column) because:
+ *   - CREATE phase: Sequences should be created before tables. Ownership is set later
+ *     via ALTER SEQUENCE OWNED BY after both the sequence and table exist.
+ *   - DROP phase: Prevents cycles when dropping sequences owned by tables that
+ *     aren't being dropped.
+ *
+ * PARAMETERS:
+ * @param dependentStableId - The sequence stable ID (e.g., "sequence:schema.seq_name")
+ * @param referencedStableId - The column stable ID (e.g., "column:schema.table.col")
+ *   Note: PostgreSQL's pg_depend creates sequence ownership dependencies on columns (not tables)
+ *   when refobjsubid > 0, so we only check for column dependencies
+ * @param phaseChanges - All changes in the current phase
+ * @param graphData - Graph data structures for looking up changes
+ * @returns true if this ownership dependency should be filtered (removed) to break the cycle
  */
 function shouldFilterSequenceOwnershipDependency(
   dependentStableId: string,
@@ -57,33 +69,43 @@ function shouldFilterSequenceOwnershipDependency(
   phaseChanges: Change[],
   graphData: GraphData,
 ): boolean {
+  // Early exit: only filter edges FROM sequences TO columns
+  // Note: PostgreSQL's pg_depend creates sequence ownership dependencies on columns (not tables)
+  // when refobjsubid > 0, so we only need to check for column dependencies
   if (
     !dependentStableId.startsWith("sequence:") ||
-    (!referencedStableId.startsWith("table:") &&
-      !referencedStableId.startsWith("column:"))
+    !referencedStableId.startsWith("column:")
   ) {
     return false;
   }
 
-  const sequenceConsumers = findConsumerIndexes(
+  // Find all changes that create or consume this sequence
+  // (includes the CreateSequence change that creates it)
+  const changesInvolvingSequence = findConsumerIndexes(
     dependentStableId,
     graphData.changeIndexesByCreatedId,
     graphData.changeIndexesByExplicitRequirementId,
   );
 
-  for (const consumerIndex of sequenceConsumers) {
-    const change = phaseChanges[consumerIndex];
-    // Only filter CreateSequence, not AlterSequenceSetOwnedBy
+  // Check if any CreateSequence change creates a sequence that is owned by
+  // the referenced table/column. If so, filter this ownership dependency edge.
+  for (const changeIndex of changesInvolvingSequence) {
+    const change = phaseChanges[changeIndex];
+
+    // Only filter edges from CreateSequence changes, not AlterSequenceSetOwnedBy.
+    // AlterSequenceSetOwnedBy is a separate change that sets ownership after
+    // both the sequence and table exist, so it doesn't create the cycle.
     if (!(change instanceof CreateSequence)) {
       continue;
     }
 
+    // Check if this CreateSequence creates a sequence owned by the referenced table/column
     if (isSequenceOwnedBy(change.sequence, referencedStableId)) {
-      return true;
+      return true; // Filter this edge to break the cycle
     }
   }
 
-  return false;
+  return false; // Don't filter - this is not a cycle-causing ownership dependency
 }
 
 /**
@@ -91,6 +113,12 @@ function shouldFilterSequenceOwnershipDependency(
  *
  * Prevents cycles that would occur due to special PostgreSQL behaviors.
  * Delegates to specific filter functions for each type of cycle.
+ *
+ * @param dependentStableId - The dependent object's stable ID
+ * @param referencedStableId - The referenced object's stable ID
+ * @param phaseChanges - All changes in the current phase
+ * @param graphData - Graph data structures for looking up changes
+ * @returns true if this dependency edge should be filtered (removed) to break a cycle
  */
 function shouldFilterStableIdDependencyForCycleBreaking(
   dependentStableId: string,
@@ -98,6 +126,7 @@ function shouldFilterStableIdDependencyForCycleBreaking(
   phaseChanges: Change[],
   graphData: GraphData,
 ): boolean {
+  // Filter sequence ownership dependencies that create cycles with column defaults
   if (
     shouldFilterSequenceOwnershipDependency(
       dependentStableId,
