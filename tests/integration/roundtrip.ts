@@ -202,50 +202,58 @@ export async function roundtripFidelityTest(
   }
   const mainCatalogAfter = await extractCatalog(mainSession);
 
-  // Verify semantic equality between main and branch catalogs
-  catalogsSemanticalyEqual(branchCatalog, mainCatalogAfter);
-}
+  // Verify semantic equality by diffing the catalogs again
+  // This ensures the migration produced a database state identical to the target
+  const changesAfter = diffCatalogs(mainCatalogAfter, branchCatalog);
 
-/**
- * Simple semantic equality check between catalogs.
- * This is a simplified version - in a real implementation you would
- * need more sophisticated equality checking.
- */
-function catalogsSemanticalyEqual(catalog1: Catalog, catalog2: Catalog) {
-  // For now, we'll do a basic check by comparing the serialized forms
-  // of all objects in the catalog. In a real implementation, this would
-  // be more sophisticated.
-
-  const getObjectKeys = (cat: Catalog) => {
-    const keys = new Set<string>();
-    for (const key of Object.keys(cat)) {
-      // Skip depends introspection results
-      if (key === "depends") {
-        continue;
-      }
-
-      for (const subKey of Object.keys(cat[key as keyof Catalog] || {})) {
-        keys.add(`${key}:${subKey}`);
-      }
-    }
-    return keys;
-  };
-
-  const keys1 = getObjectKeys(catalog1);
-  const keys2 = getObjectKeys(catalog2);
-
-  if (process.env.DEBUG) {
-    console.log(keys1.difference(keys2));
-  }
-
-  // Check if both catalogs have the same set of keys
-  expect(keys2).toEqual(keys1);
-
-  // Check if both catalogs have the same set of objects
-  for (const key of keys1) {
-    expect(catalog2[key as keyof Catalog]).toEqual(
-      catalog1[key as keyof Catalog],
+  if (changesAfter.length > 0) {
+    // Sort the remaining changes for better debugging
+    const sortedChangesAfter = sortChanges(
+      { mainCatalog: mainCatalogAfter, branchCatalog },
+      changesAfter,
     );
+
+    const remainingSqlStatements = sortedChangesAfter.map((change) =>
+      change.serialize(),
+    );
+    const remainingMigrationScript = remainingSqlStatements.join(";\n\n");
+
+    // Build detailed error message
+    const changeDetails = sortedChangesAfter.map((change, idx) => {
+      const parts = [
+        `${idx + 1}. ${change.constructor.name}`,
+        `   Operation: ${change.operation}`,
+        `   Object Type: ${change.objectType}`,
+        `   Scope: ${change.scope || "object"}`,
+      ];
+
+      if (change.creates.length > 0) {
+        parts.push(`   Creates: ${change.creates.join(", ")}`);
+      }
+      if (change.drops.length > 0) {
+        parts.push(`   Drops: ${change.drops.join(", ")}`);
+      }
+      if (change.requires.length > 0) {
+        parts.push(`   Requires: ${change.requires.join(", ")}`);
+      }
+
+      return parts.join("\n");
+    });
+
+    const errorMessage = [
+      `Migration verification failed: Found ${changesAfter.length} remaining changes after migration`,
+      "",
+      "=== Remaining Changes ===",
+      ...changeDetails,
+      "",
+      "=== SQL for Remaining Changes ===",
+      remainingMigrationScript || "(no SQL generated)",
+      "",
+      "=== Original Migration Script ===",
+      migrationScript || "(no migration script)",
+    ].join("\n");
+
+    throw new Error(errorMessage);
   }
 }
 
