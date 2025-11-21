@@ -31,23 +31,10 @@ export default defineConfig({
             "**/*.integration.test.ts",
           ],
           retry: process.env.CI ? 1 : 0,
-          pool: "forks",
-          poolOptions: {
-            forks: {
-              singleFork: true, // Share containers across integration tests
-            },
-          },
+          maxWorkers: 1,
           sequence: {
             concurrent: true,
           },
-        },
-      },
-      {
-        extends: true,
-        test: {
-          // Unit tests - run with full parallelism for maximum speed
-          name: "supabase",
-          include: ["tests/supabase/supabase.test.ts"],
         },
       },
     ],

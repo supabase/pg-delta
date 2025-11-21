@@ -14,19 +14,17 @@ import { roundtripFidelityTest } from "./roundtrip.ts";
 for (const pgVersion of POSTGRES_VERSIONS) {
   const test = getTest(pgVersion);
 
-  describe.concurrent(
-    `CHECK constraint ordering validation (pg${pgVersion})`,
-    () => {
-      test("CHECK constraint referencing function created later", async ({
-        db,
-      }) => {
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-          initialSetup: `
+  describe.concurrent(`CHECK constraint ordering validation (pg${pgVersion})`, () => {
+    test("CHECK constraint referencing function created later", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
           CREATE SCHEMA test_schema;
         `,
-          testSql: `
+        testSql: `
           -- Create a table with CHECK constraint that references a function
           -- that will be created later
           CREATE TABLE test_schema.products (
@@ -60,19 +58,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT products_status_valid 
           CHECK (test_schema.validate_status(status));
         `,
-        });
       });
+    });
 
-      test("CHECK constraint referencing custom type created later", async ({
-        db,
-      }) => {
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-          initialSetup: `
+    test("CHECK constraint referencing custom type created later", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
           CREATE SCHEMA test_schema;
         `,
-          testSql: `
+        testSql: `
           -- Create a table that will reference a custom type
           CREATE TABLE test_schema.orders (
             id integer PRIMARY KEY,
@@ -93,8 +91,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT orders_priority_valid 
           CHECK (priority::test_schema.priority_level IS NOT NULL);
         `,
-        });
       });
-    },
-  );
+    });
+  });
 }
