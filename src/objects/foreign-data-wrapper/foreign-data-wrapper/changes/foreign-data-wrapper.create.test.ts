@@ -123,4 +123,3 @@ describe("foreign-data-wrapper", () => {
     );
   });
 });
-

@@ -38,9 +38,6 @@ describe("foreign-table", () => {
       foreignTable,
     });
 
-    expect(change.serialize()).toBe(
-      "DROP FOREIGN TABLE public.test_table",
-    );
+    expect(change.serialize()).toBe("DROP FOREIGN TABLE public.test_table");
   });
 });
-

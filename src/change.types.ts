@@ -3,6 +3,7 @@ import type { CollationChange } from "./objects/collation/changes/collation.type
 import type { DomainChange } from "./objects/domain/changes/domain.types.ts";
 import type { EventTriggerChange } from "./objects/event-trigger/changes/event-trigger.types.ts";
 import type { ExtensionChange } from "./objects/extension/changes/extension.types.ts";
+import type { ForeignDataWrapperChange } from "./objects/foreign-data-wrapper/foreign-data-wrapper.types.ts";
 import type { IndexChange } from "./objects/index/changes/index.types.ts";
 import type { LanguageChange } from "./objects/language/changes/language.types.ts";
 import type { MaterializedViewChange } from "./objects/materialized-view/changes/materialized-view.types.ts";
@@ -18,7 +19,6 @@ import type { TableChange } from "./objects/table/changes/table.types.ts";
 import type { TriggerChange } from "./objects/trigger/changes/trigger.types.ts";
 import type { TypeChange } from "./objects/type/type.types.ts";
 import type { ViewChange } from "./objects/view/changes/view.types.ts";
-import type { ForeignDataWrapperChange } from "./objects/foreign-data-wrapper/foreign-data-wrapper.types.ts";
 
 export type Change =
   | AggregateChange

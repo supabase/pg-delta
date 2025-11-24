@@ -307,4 +307,3 @@ describe.concurrent("foreign-table", () => {
     });
   });
 });
-

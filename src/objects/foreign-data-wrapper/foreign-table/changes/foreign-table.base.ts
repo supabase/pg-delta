@@ -18,4 +18,3 @@ export abstract class AlterForeignTableChange extends BaseForeignTableChange {
 export abstract class DropForeignTableChange extends BaseForeignTableChange {
   readonly operation = "drop" as const;
 }
-

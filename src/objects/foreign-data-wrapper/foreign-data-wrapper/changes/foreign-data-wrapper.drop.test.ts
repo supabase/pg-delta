@@ -21,4 +21,3 @@ describe("foreign-data-wrapper", () => {
     expect(change.serialize()).toBe("DROP FOREIGN DATA WRAPPER test_fdw");
   });
 });
-

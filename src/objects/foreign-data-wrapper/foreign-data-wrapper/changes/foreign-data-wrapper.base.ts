@@ -18,4 +18,3 @@ export abstract class AlterForeignDataWrapperChange extends BaseForeignDataWrapp
 export abstract class DropForeignDataWrapperChange extends BaseForeignDataWrapperChange {
   readonly operation = "drop" as const;
 }
-

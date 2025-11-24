@@ -32,14 +32,22 @@ describe.concurrent("foreign-data-wrapper.diff", () => {
     };
     const fdw = new ForeignDataWrapper(props);
 
-    const created = diffForeignDataWrappers(testContext, {}, {
-      [fdw.stableId]: fdw,
-    });
+    const created = diffForeignDataWrappers(
+      testContext,
+      {},
+      {
+        [fdw.stableId]: fdw,
+      },
+    );
     expect(created[0]).toBeInstanceOf(CreateForeignDataWrapper);
 
-    const dropped = diffForeignDataWrappers(testContext, {
-      [fdw.stableId]: fdw,
-    }, {});
+    const dropped = diffForeignDataWrappers(
+      testContext,
+      {
+        [fdw.stableId]: fdw,
+      },
+      {},
+    );
     expect(dropped[0]).toBeInstanceOf(DropForeignDataWrapper);
   });
 
@@ -131,9 +139,7 @@ describe.concurrent("foreign-data-wrapper.diff", () => {
       { [branch.stableId]: branch },
     );
     // Handler change should trigger drop + create
-    expect(changes.some((c) => c instanceof DropForeignDataWrapper)).toBe(
-      true,
-    );
+    expect(changes.some((c) => c instanceof DropForeignDataWrapper)).toBe(true);
     expect(changes.some((c) => c instanceof CreateForeignDataWrapper)).toBe(
       true,
     );
@@ -165,12 +171,9 @@ describe.concurrent("foreign-data-wrapper.diff", () => {
       { [branch.stableId]: branch },
     );
     // Validator change should trigger drop + create
-    expect(changes.some((c) => c instanceof DropForeignDataWrapper)).toBe(
-      true,
-    );
+    expect(changes.some((c) => c instanceof DropForeignDataWrapper)).toBe(true);
     expect(changes.some((c) => c instanceof CreateForeignDataWrapper)).toBe(
       true,
     );
   });
 });
-

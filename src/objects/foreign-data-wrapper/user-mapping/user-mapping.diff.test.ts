@@ -3,10 +3,7 @@ import { AlterUserMappingSetOptions } from "./changes/user-mapping.alter.ts";
 import { CreateUserMapping } from "./changes/user-mapping.create.ts";
 import { DropUserMapping } from "./changes/user-mapping.drop.ts";
 import { diffUserMappings } from "./user-mapping.diff.ts";
-import {
-  UserMapping,
-  type UserMappingProps,
-} from "./user-mapping.model.ts";
+import { UserMapping, type UserMappingProps } from "./user-mapping.model.ts";
 
 describe.concurrent("user-mapping.diff", () => {
   test("create and drop", () => {
@@ -73,4 +70,3 @@ describe.concurrent("user-mapping.diff", () => {
     );
   });
 });
-

@@ -47,9 +47,7 @@ describe.concurrent("server", () => {
         version: "2.0",
       });
 
-      expect(change.serialize()).toBe(
-        "ALTER SERVER test_server VERSION '2.0'",
-      );
+      expect(change.serialize()).toBe("ALTER SERVER test_server VERSION '2.0'");
     });
 
     test("set version to null", () => {
@@ -69,9 +67,7 @@ describe.concurrent("server", () => {
         version: null,
       });
 
-      expect(change.serialize()).toBe(
-        "ALTER SERVER test_server VERSION ''",
-      );
+      expect(change.serialize()).toBe("ALTER SERVER test_server VERSION ''");
     });
 
     test("set options ADD", () => {
@@ -170,4 +166,3 @@ describe.concurrent("server", () => {
     });
   });
 });
-

@@ -38,4 +38,3 @@ export class DropUserMapping extends DropUserMappingChange {
     ].join(" ");
   }
 }
-

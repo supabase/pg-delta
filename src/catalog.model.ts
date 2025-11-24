@@ -20,6 +20,22 @@ import {
   type Extension,
   extractExtensions,
 } from "./objects/extension/extension.model.ts";
+import {
+  extractForeignDataWrappers,
+  type ForeignDataWrapper,
+} from "./objects/foreign-data-wrapper/foreign-data-wrapper/foreign-data-wrapper.model.ts";
+import {
+  extractForeignTables,
+  type ForeignTable,
+} from "./objects/foreign-data-wrapper/foreign-table/foreign-table.model.ts";
+import {
+  extractServers,
+  type Server,
+} from "./objects/foreign-data-wrapper/server/server.model.ts";
+import {
+  extractUserMappings,
+  type UserMapping,
+} from "./objects/foreign-data-wrapper/user-mapping/user-mapping.model.ts";
 import { extractIndexes, type Index } from "./objects/index/index.model.ts";
 import {
   extractMaterializedViews,
@@ -60,22 +76,6 @@ import {
 import { type Enum, extractEnums } from "./objects/type/enum/enum.model.ts";
 import { extractRanges, type Range } from "./objects/type/range/range.model.ts";
 import { extractViews, type View } from "./objects/view/view.model.ts";
-import {
-  type ForeignDataWrapper,
-  extractForeignDataWrappers,
-} from "./objects/foreign-data-wrapper/foreign-data-wrapper/foreign-data-wrapper.model.ts";
-import {
-  type Server,
-  extractServers,
-} from "./objects/foreign-data-wrapper/server/server.model.ts";
-import {
-  type UserMapping,
-  extractUserMappings,
-} from "./objects/foreign-data-wrapper/user-mapping/user-mapping.model.ts";
-import {
-  type ForeignTable,
-  extractForeignTables,
-} from "./objects/foreign-data-wrapper/foreign-table/foreign-table.model.ts";
 
 interface CatalogProps {
   aggregates: Record<string, Aggregate>;

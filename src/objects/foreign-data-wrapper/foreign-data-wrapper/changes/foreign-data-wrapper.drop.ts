@@ -29,10 +29,8 @@ export class DropForeignDataWrapper extends DropForeignDataWrapperChange {
   }
 
   serialize(): string {
-    return [
-      "DROP FOREIGN DATA WRAPPER",
-      this.foreignDataWrapper.name,
-    ].join(" ");
+    return ["DROP FOREIGN DATA WRAPPER", this.foreignDataWrapper.name].join(
+      " ",
+    );
   }
 }
-

@@ -404,4 +404,3 @@ function diffOptions(
 
   return changes;
 }
-

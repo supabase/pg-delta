@@ -35,4 +35,3 @@ export class DropForeignTable extends DropForeignTableChange {
     ].join(" ");
   }
 }
-

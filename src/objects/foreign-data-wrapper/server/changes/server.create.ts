@@ -32,7 +32,9 @@ export class CreateServer extends CreateServerChange {
     const dependencies = new Set<string>();
 
     // Foreign Data Wrapper dependency
-    dependencies.add(stableId.foreignDataWrapper(this.server.foreign_data_wrapper));
+    dependencies.add(
+      stableId.foreignDataWrapper(this.server.foreign_data_wrapper),
+    );
 
     // Owner dependency
     dependencies.add(stableId.role(this.server.owner));
@@ -77,4 +79,3 @@ export class CreateServer extends CreateServerChange {
     return parts.join(" ");
   }
 }
-

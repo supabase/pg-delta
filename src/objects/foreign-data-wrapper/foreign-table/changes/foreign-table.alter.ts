@@ -1,6 +1,6 @@
 import { quoteLiteral } from "../../../base.change.ts";
-import { stableId } from "../../../utils.ts";
 import type { ColumnProps } from "../../../base.model.ts";
+import { stableId } from "../../../utils.ts";
 import type { ForeignTable } from "../foreign-table.model.ts";
 import { AlterForeignTableChange } from "./foreign-table.base.ts";
 
@@ -296,12 +296,20 @@ export class AlterForeignTableAlterColumnDropNotNull extends AlterForeignTableCh
  */
 export class AlterForeignTableSetOptions extends AlterForeignTableChange {
   public readonly foreignTable: ForeignTable;
-  public readonly options: Array<{ action: "ADD" | "SET" | "DROP"; option: string; value?: string }>;
+  public readonly options: Array<{
+    action: "ADD" | "SET" | "DROP";
+    option: string;
+    value?: string;
+  }>;
   public readonly scope = "object" as const;
 
   constructor(props: {
     foreignTable: ForeignTable;
-    options: Array<{ action: "ADD" | "SET" | "DROP"; option: string; value?: string }>;
+    options: Array<{
+      action: "ADD" | "SET" | "DROP";
+      option: string;
+      value?: string;
+    }>;
   }) {
     super();
     this.foreignTable = props.foreignTable;
@@ -331,4 +339,3 @@ export class AlterForeignTableSetOptions extends AlterForeignTableChange {
     ].join(" ");
   }
 }
-

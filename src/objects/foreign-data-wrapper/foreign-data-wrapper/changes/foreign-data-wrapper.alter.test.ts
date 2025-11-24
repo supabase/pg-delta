@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
-  type ForeignDataWrapperProps,
   ForeignDataWrapper,
+  type ForeignDataWrapperProps,
 } from "../foreign-data-wrapper.model.ts";
 import {
   AlterForeignDataWrapperChangeOwner,
@@ -123,4 +123,3 @@ describe.concurrent("foreign-data-wrapper", () => {
     });
   });
 });
-

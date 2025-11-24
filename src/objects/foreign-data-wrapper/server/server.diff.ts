@@ -19,8 +19,8 @@ import { CreateServer } from "./changes/server.create.ts";
 import { DropServer } from "./changes/server.drop.ts";
 import {
   GrantServerPrivileges,
-  RevokeServerPrivileges,
   RevokeGrantOptionServerPrivileges,
+  RevokeServerPrivileges,
 } from "./changes/server.privilege.ts";
 import type { ServerChange } from "./changes/server.types.ts";
 import type { Server } from "./server.model.ts";
@@ -63,9 +63,7 @@ export function diffServers(
     }
 
     if (createdServer.comment !== null) {
-      changes.push(
-        new CreateCommentOnServer({ server: createdServer }),
-      );
+      changes.push(new CreateCommentOnServer({ server: createdServer }));
     }
 
     // PRIVILEGES: Servers don't have default privileges
@@ -155,9 +153,7 @@ export function diffServers(
       changes.push(new DropServer({ server: mainServer }));
       changes.push(new CreateServer({ server: branchServer }));
       if (branchServer.comment !== null) {
-        changes.push(
-          new CreateCommentOnServer({ server: branchServer }),
-        );
+        changes.push(new CreateCommentOnServer({ server: branchServer }));
       }
       continue;
     }
@@ -173,7 +169,10 @@ export function diffServers(
     }
 
     // OPTIONS
-    const optionsChanged = diffOptions(mainServer.options, branchServer.options);
+    const optionsChanged = diffOptions(
+      mainServer.options,
+      branchServer.options,
+    );
     if (optionsChanged.length > 0) {
       changes.push(
         new AlterServerSetOptions({
@@ -186,13 +185,9 @@ export function diffServers(
     // COMMENT
     if (mainServer.comment !== branchServer.comment) {
       if (branchServer.comment === null) {
-        changes.push(
-          new DropCommentOnServer({ server: mainServer }),
-        );
+        changes.push(new DropCommentOnServer({ server: mainServer }));
       } else {
-        changes.push(
-          new CreateCommentOnServer({ server: branchServer }),
-        );
+        changes.push(new CreateCommentOnServer({ server: branchServer }));
       }
     }
 
@@ -320,4 +315,3 @@ function diffOptions(
 
   return changes;
 }
-

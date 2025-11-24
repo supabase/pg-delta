@@ -133,4 +133,3 @@ export async function extractServers(sql: Sql): Promise<Server[]> {
     return validatedRows.map((row: ServerProps) => new Server(row));
   });
 }
-

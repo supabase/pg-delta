@@ -10,4 +10,3 @@ export type ServerChange =
   | CreateServer
   | DropServer
   | ServerPrivilege;
-

@@ -1,5 +1,4 @@
 import { quoteLiteral } from "../../../base.change.ts";
-import { stableId } from "../../../utils.ts";
 import type { UserMapping } from "../user-mapping.model.ts";
 import { AlterUserMappingChange } from "./user-mapping.base.ts";
 
@@ -23,12 +22,20 @@ export type AlterUserMapping = AlterUserMappingSetOptions;
  */
 export class AlterUserMappingSetOptions extends AlterUserMappingChange {
   public readonly userMapping: UserMapping;
-  public readonly options: Array<{ action: "ADD" | "SET" | "DROP"; option: string; value?: string }>;
+  public readonly options: Array<{
+    action: "ADD" | "SET" | "DROP";
+    option: string;
+    value?: string;
+  }>;
   public readonly scope = "object" as const;
 
   constructor(props: {
     userMapping: UserMapping;
-    options: Array<{ action: "ADD" | "SET" | "DROP"; option: string; value?: string }>;
+    options: Array<{
+      action: "ADD" | "SET" | "DROP";
+      option: string;
+      value?: string;
+    }>;
   }) {
     super();
     this.userMapping = props.userMapping;
@@ -60,4 +67,3 @@ export class AlterUserMappingSetOptions extends AlterUserMappingChange {
     ].join(" ");
   }
 }
-

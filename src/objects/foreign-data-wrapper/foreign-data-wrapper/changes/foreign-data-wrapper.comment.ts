@@ -70,4 +70,3 @@ export class DropCommentOnForeignDataWrapper extends DropForeignDataWrapperChang
     ].join(" ");
   }
 }
-

@@ -32,4 +32,3 @@ export class DropServer extends DropServerChange {
     return ["DROP SERVER", this.server.name].join(" ");
   }
 }
-

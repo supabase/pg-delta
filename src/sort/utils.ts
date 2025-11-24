@@ -51,7 +51,9 @@ export function getExecutionPhase(change: Change): Phase {
 
     // Check if this ALTER drops actual objects (not metadata)
     const droppedIds = change.drops ?? [];
-    const dropsObjects = droppedIds.some((id: string) => !isMetadataStableId(id));
+    const dropsObjects = droppedIds.some(
+      (id: string) => !isMetadataStableId(id),
+    );
 
     if (dropsObjects) {
       // Destructive ALTER (DROP COLUMN, DROP CONSTRAINT, etc.) → drop phase

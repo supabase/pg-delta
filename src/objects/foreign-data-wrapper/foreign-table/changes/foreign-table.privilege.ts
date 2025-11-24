@@ -49,10 +49,7 @@ export class GrantForeignTablePrivileges extends AlterForeignTableChange {
   }
 
   get requires() {
-    return [
-      this.foreignTable.stableId,
-      stableId.role(this.grantee),
-    ];
+    return [this.foreignTable.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {
@@ -66,7 +63,11 @@ export class GrantForeignTablePrivileges extends AlterForeignTableChange {
     const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
     const kindPrefix = getObjectKindPrefix("FOREIGN TABLE");
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("FOREIGN TABLE", list, this.version);
+    const privSql = formatObjectPrivilegeList(
+      "FOREIGN TABLE",
+      list,
+      this.version,
+    );
     const tableName = `${this.foreignTable.schema}.${this.foreignTable.name}`;
     return `GRANT ${privSql} ${kindPrefix} ${tableName} TO ${this.grantee}${withGrant}`;
   }
@@ -122,7 +123,11 @@ export class RevokeForeignTablePrivileges extends AlterForeignTableChange {
   serialize(): string {
     const kindPrefix = getObjectKindPrefix("FOREIGN TABLE");
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("FOREIGN TABLE", list, this.version);
+    const privSql = formatObjectPrivilegeList(
+      "FOREIGN TABLE",
+      list,
+      this.version,
+    );
     const tableName = `${this.foreignTable.schema}.${this.foreignTable.name}`;
     return `REVOKE ${privSql} ${kindPrefix} ${tableName} FROM ${this.grantee}`;
   }
@@ -174,4 +179,3 @@ export class RevokeGrantOptionForeignTablePrivileges extends AlterForeignTableCh
     return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${tableName} FROM ${this.grantee}`;
   }
 }
-

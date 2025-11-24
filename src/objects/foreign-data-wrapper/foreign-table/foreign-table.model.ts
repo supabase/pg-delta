@@ -212,9 +212,6 @@ export async function extractForeignTables(sql: Sql): Promise<ForeignTable[]> {
       }
       return parsed;
     });
-    return validatedRows.map(
-      (row: ForeignTableProps) => new ForeignTable(row),
-    );
+    return validatedRows.map((row: ForeignTableProps) => new ForeignTable(row));
   });
 }
-

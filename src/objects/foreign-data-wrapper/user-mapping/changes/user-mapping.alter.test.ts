@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  UserMapping,
-  type UserMappingProps,
-} from "../user-mapping.model.ts";
+import { UserMapping, type UserMappingProps } from "../user-mapping.model.ts";
 import { AlterUserMappingSetOptions } from "./user-mapping.alter.ts";
 
 describe.concurrent("user-mapping", () => {
@@ -83,4 +80,3 @@ describe.concurrent("user-mapping", () => {
     });
   });
 });
-

@@ -65,9 +65,7 @@ describe.concurrent("server.diff", () => {
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
-    expect(changes.some((c) => c instanceof AlterServerChangeOwner)).toBe(
-      true,
-    );
+    expect(changes.some((c) => c instanceof AlterServerChangeOwner)).toBe(true);
   });
 
   test("alter: version change", () => {
@@ -166,4 +164,3 @@ describe.concurrent("server.diff", () => {
     expect(changes.some((c) => c instanceof CreateServer)).toBe(true);
   });
 });
-

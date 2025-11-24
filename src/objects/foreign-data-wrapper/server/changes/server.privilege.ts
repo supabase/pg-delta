@@ -1,7 +1,4 @@
-import {
-  formatObjectPrivilegeList,
-  getObjectKindPrefix,
-} from "../../../base.privilege.ts";
+import { formatObjectPrivilegeList } from "../../../base.privilege.ts";
 import { stableId } from "../../../utils.ts";
 import type { Server } from "../server.model.ts";
 import { AlterServerChange } from "./server.base.ts";
@@ -165,4 +162,3 @@ export class RevokeGrantOptionServerPrivileges extends AlterServerChange {
     return `REVOKE GRANT OPTION FOR ${privSql} ON SERVER ${this.server.name} FROM ${this.grantee}`;
   }
 }
-

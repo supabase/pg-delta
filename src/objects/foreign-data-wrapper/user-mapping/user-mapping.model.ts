@@ -93,9 +93,6 @@ export async function extractUserMappings(sql: Sql): Promise<UserMapping[]> {
       }
       return parsed;
     });
-    return validatedRows.map(
-      (row: UserMappingProps) => new UserMapping(row),
-    );
+    return validatedRows.map((row: UserMappingProps) => new UserMapping(row));
   });
 }
-

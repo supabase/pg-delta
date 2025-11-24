@@ -7,6 +7,10 @@ import { diffCollations } from "./objects/collation/collation.diff.ts";
 import { diffDomains } from "./objects/domain/domain.diff.ts";
 import { diffEventTriggers } from "./objects/event-trigger/event-trigger.diff.ts";
 import { diffExtensions } from "./objects/extension/extension.diff.ts";
+import { diffForeignDataWrappers } from "./objects/foreign-data-wrapper/foreign-data-wrapper/foreign-data-wrapper.diff.ts";
+import { diffForeignTables } from "./objects/foreign-data-wrapper/foreign-table/foreign-table.diff.ts";
+import { diffServers } from "./objects/foreign-data-wrapper/server/server.diff.ts";
+import { diffUserMappings } from "./objects/foreign-data-wrapper/user-mapping/user-mapping.diff.ts";
 import { diffIndexes } from "./objects/index/index.diff.ts";
 import { diffMaterializedViews } from "./objects/materialized-view/materialized-view.diff.ts";
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
@@ -28,10 +32,6 @@ import { diffEnums } from "./objects/type/enum/enum.diff.ts";
 import { diffRanges } from "./objects/type/range/range.diff.ts";
 import { stringifyWithBigInt } from "./objects/utils.ts";
 import { diffViews } from "./objects/view/view.diff.ts";
-import { diffForeignDataWrappers } from "./objects/foreign-data-wrapper/foreign-data-wrapper/foreign-data-wrapper.diff.ts";
-import { diffServers } from "./objects/foreign-data-wrapper/server/server.diff.ts";
-import { diffUserMappings } from "./objects/foreign-data-wrapper/user-mapping/user-mapping.diff.ts";
-import { diffForeignTables } from "./objects/foreign-data-wrapper/foreign-table/foreign-table.diff.ts";
 
 export function diffCatalogs(main: Catalog, branch: Catalog) {
   const changes: Change[] = [];
@@ -157,12 +157,8 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
       branch.foreignDataWrappers,
     ),
   );
-  changes.push(
-    ...diffServers(diffContext, main.servers, branch.servers),
-  );
-  changes.push(
-    ...diffUserMappings(main.userMappings, branch.userMappings),
-  );
+  changes.push(...diffServers(diffContext, main.servers, branch.servers));
+  changes.push(...diffUserMappings(main.userMappings, branch.userMappings));
   changes.push(
     ...diffForeignTables(diffContext, main.foreignTables, branch.foreignTables),
   );
@@ -205,7 +201,9 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
         case "view":
           return !droppedObjectStableIds.has(change.view.stableId);
         case "foreign_data_wrapper":
-          return !droppedObjectStableIds.has(change.foreignDataWrapper.stableId);
+          return !droppedObjectStableIds.has(
+            change.foreignDataWrapper.stableId,
+          );
         case "server":
           return !droppedObjectStableIds.has(change.server.stableId);
         case "foreign_table":

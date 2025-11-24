@@ -73,7 +73,10 @@ export class CreateForeignDataWrapper extends CreateForeignDataWrapperChange {
     }
 
     // Add OPTIONS clause
-    if (this.foreignDataWrapper.options && this.foreignDataWrapper.options.length > 0) {
+    if (
+      this.foreignDataWrapper.options &&
+      this.foreignDataWrapper.options.length > 0
+    ) {
       const optionPairs: string[] = [];
       for (let i = 0; i < this.foreignDataWrapper.options.length; i += 2) {
         if (i + 1 < this.foreignDataWrapper.options.length) {
@@ -90,4 +93,3 @@ export class CreateForeignDataWrapper extends CreateForeignDataWrapperChange {
     return parts.join(" ");
   }
 }
-

@@ -18,4 +18,3 @@ export abstract class AlterUserMappingChange extends BaseUserMappingChange {
 export abstract class DropUserMappingChange extends BaseUserMappingChange {
   readonly operation = "drop" as const;
 }
-

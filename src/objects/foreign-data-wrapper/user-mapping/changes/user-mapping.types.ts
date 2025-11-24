@@ -6,4 +6,3 @@ export type UserMappingChange =
   | AlterUserMapping
   | CreateUserMapping
   | DropUserMapping;
-

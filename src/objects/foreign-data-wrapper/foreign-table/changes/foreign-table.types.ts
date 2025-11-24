@@ -10,4 +10,3 @@ export type ForeignTableChange =
   | CreateForeignTable
   | DropForeignTable
   | ForeignTablePrivilege;
-

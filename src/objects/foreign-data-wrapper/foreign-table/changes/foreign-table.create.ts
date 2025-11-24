@@ -1,6 +1,5 @@
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
-import type { ColumnProps } from "../../../base.model.ts";
 import type { ForeignTable } from "../foreign-table.model.ts";
 import { CreateForeignTableChange } from "./foreign-table.base.ts";
 
@@ -80,4 +79,3 @@ export class CreateForeignTable extends CreateForeignTableChange {
     return parts.join(" ");
   }
 }
-

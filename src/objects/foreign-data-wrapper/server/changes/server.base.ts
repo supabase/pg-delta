@@ -18,4 +18,3 @@ export abstract class AlterServerChange extends BaseServerChange {
 export abstract class DropServerChange extends BaseServerChange {
   readonly operation = "drop" as const;
 }
-

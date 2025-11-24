@@ -1,7 +1,4 @@
-import {
-  formatObjectPrivilegeList,
-  getObjectKindPrefix,
-} from "../../../base.privilege.ts";
+import { formatObjectPrivilegeList } from "../../../base.privilege.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
 import { AlterForeignDataWrapperChange } from "./foreign-data-wrapper.base.ts";
@@ -49,10 +46,7 @@ export class GrantForeignDataWrapperPrivileges extends AlterForeignDataWrapperCh
   }
 
   get requires() {
-    return [
-      this.foreignDataWrapper.stableId,
-      stableId.role(this.grantee),
-    ];
+    return [this.foreignDataWrapper.stableId, stableId.role(this.grantee)];
   }
 
   serialize(): string {
@@ -65,7 +59,11 @@ export class GrantForeignDataWrapperPrivileges extends AlterForeignDataWrapperCh
     }
     const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("FOREIGN DATA WRAPPER", list, this.version);
+    const privSql = formatObjectPrivilegeList(
+      "FOREIGN DATA WRAPPER",
+      list,
+      this.version,
+    );
     return `GRANT ${privSql} ON FOREIGN DATA WRAPPER ${this.foreignDataWrapper.name} TO ${this.grantee}${withGrant}`;
   }
 }
@@ -119,7 +117,11 @@ export class RevokeForeignDataWrapperPrivileges extends AlterForeignDataWrapperC
 
   serialize(): string {
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("FOREIGN DATA WRAPPER", list, this.version);
+    const privSql = formatObjectPrivilegeList(
+      "FOREIGN DATA WRAPPER",
+      list,
+      this.version,
+    );
     return `REVOKE ${privSql} ON FOREIGN DATA WRAPPER ${this.foreignDataWrapper.name} FROM ${this.grantee}`;
   }
 }
@@ -168,4 +170,3 @@ export class RevokeGrantOptionForeignDataWrapperPrivileges extends AlterForeignD
     return `REVOKE GRANT OPTION FOR ${privSql} ON FOREIGN DATA WRAPPER ${this.foreignDataWrapper.name} FROM ${this.grantee}`;
   }
 }
-

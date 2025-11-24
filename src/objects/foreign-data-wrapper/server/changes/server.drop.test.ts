@@ -22,4 +22,3 @@ describe("server", () => {
     expect(change.serialize()).toBe("DROP SERVER test_server");
   });
 });
-

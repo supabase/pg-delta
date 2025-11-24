@@ -1,10 +1,7 @@
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { Server } from "../server.model.ts";
-import {
-  CreateServerChange,
-  DropServerChange,
-} from "./server.base.ts";
+import { CreateServerChange, DropServerChange } from "./server.base.ts";
 
 /**
  * Create/drop comments on servers.
@@ -58,11 +55,6 @@ export class DropCommentOnServer extends DropServerChange {
   }
 
   serialize(): string {
-    return [
-      "COMMENT ON SERVER",
-      this.server.name,
-      "IS NULL",
-    ].join(" ");
+    return ["COMMENT ON SERVER", this.server.name, "IS NULL"].join(" ");
   }
 }
-

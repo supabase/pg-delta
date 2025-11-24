@@ -10,4 +10,3 @@ export type ForeignDataWrapperChange =
   | CreateForeignDataWrapper
   | DropForeignDataWrapper
   | ForeignDataWrapperPrivilege;
-

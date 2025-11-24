@@ -14,10 +14,7 @@ import {
 import { CreateForeignTable } from "./changes/foreign-table.create.ts";
 import { DropForeignTable } from "./changes/foreign-table.drop.ts";
 import { diffForeignTables } from "./foreign-table.diff.ts";
-import {
-  ForeignTable,
-  type ForeignTableProps,
-} from "./foreign-table.model.ts";
+import { ForeignTable, type ForeignTableProps } from "./foreign-table.model.ts";
 
 const testContext = {
   version: 170000,
@@ -59,13 +56,20 @@ describe.concurrent("foreign-table.diff", () => {
     };
     const table = new ForeignTable(props);
 
-    const created = diffForeignTables(testContext, {}, {
-      [table.stableId]: table,
-    });
+    const created = diffForeignTables(
+      testContext,
+      {},
+      {
+        [table.stableId]: table,
+      },
+    );
     expect(created[0]).toBeInstanceOf(CreateForeignTable);
 
-    const dropped = diffForeignTables(testContext, { [table.stableId]: table },
-      {});
+    const dropped = diffForeignTables(
+      testContext,
+      { [table.stableId]: table },
+      {},
+    );
     expect(dropped[0]).toBeInstanceOf(DropForeignTable);
   });
 
@@ -807,4 +811,3 @@ describe.concurrent("foreign-table.diff", () => {
     expect(changes.some((c) => c instanceof CreateForeignTable)).toBe(true);
   });
 });
-

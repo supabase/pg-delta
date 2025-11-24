@@ -1,7 +1,5 @@
 import { diffObjects } from "../../base.diff.ts";
-import {
-  AlterUserMappingSetOptions,
-} from "./changes/user-mapping.alter.ts";
+import { AlterUserMappingSetOptions } from "./changes/user-mapping.alter.ts";
 import { CreateUserMapping } from "./changes/user-mapping.create.ts";
 import { DropUserMapping } from "./changes/user-mapping.drop.ts";
 import type { UserMappingChange } from "./changes/user-mapping.types.ts";
@@ -28,9 +26,7 @@ export function diffUserMappings(
   }
 
   for (const mappingId of dropped) {
-    changes.push(
-      new DropUserMapping({ userMapping: main[mappingId] }),
-    );
+    changes.push(new DropUserMapping({ userMapping: main[mappingId] }));
   }
 
   for (const mappingId of altered) {
@@ -38,7 +34,10 @@ export function diffUserMappings(
     const branchMapping = branch[mappingId];
 
     // OPTIONS
-    const optionsChanged = diffOptions(mainMapping.options, branchMapping.options);
+    const optionsChanged = diffOptions(
+      mainMapping.options,
+      branchMapping.options,
+    );
     if (optionsChanged.length > 0) {
       changes.push(
         new AlterUserMappingSetOptions({
@@ -106,4 +105,3 @@ function diffOptions(
 
   return changes;
 }
-

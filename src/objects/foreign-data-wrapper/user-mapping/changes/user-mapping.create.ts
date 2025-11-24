@@ -64,4 +64,3 @@ export class CreateUserMapping extends CreateUserMappingChange {
     return parts.join(" ");
   }
 }
-

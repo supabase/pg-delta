@@ -70,4 +70,3 @@ export class DropCommentOnForeignTable extends DropForeignTableChange {
     ].join(" ");
   }
 }
-
