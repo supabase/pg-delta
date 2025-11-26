@@ -58,11 +58,11 @@ export class CreateUserMapping extends CreateUserMappingChange {
     const commentParts: string[] = [];
     const sqlParts: string[] = [];
 
-    // Add warning comment if sensitive options are present
+    // Add warning comment if options are present (all options are masked)
     if (sensitive.length > 0) {
-      const sensitiveKeys = sensitive.map((s) => s.field).join(", ");
+      const optionKeys = sensitive.map((s) => s.field).join(", ");
       commentParts.push(
-        `-- WARNING: User mapping contains sensitive options (${sensitiveKeys})`,
+        `-- WARNING: User mapping contains options (${optionKeys})`,
         `-- Replace placeholders below or run ALTER USER MAPPING after this script`,
       );
     }

@@ -91,7 +91,7 @@ describe.concurrent("server", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER SERVER test_server OPTIONS (ADD host 'localhost', ADD port '5432')",
+        "-- WARNING: Server options contain values (host, port)\n-- Replace placeholders below with actual values\nALTER SERVER test_server OPTIONS (ADD host '__OPTION_HOST__', ADD port '__OPTION_PORT__')",
       );
     });
 
@@ -113,7 +113,7 @@ describe.concurrent("server", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER SERVER test_server OPTIONS (SET host 'newhost')",
+        "-- WARNING: Server options contain values (host)\n-- Replace placeholders below with actual values\nALTER SERVER test_server OPTIONS (SET host '__OPTION_HOST__')",
       );
     });
 
@@ -161,7 +161,7 @@ describe.concurrent("server", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER SERVER test_server OPTIONS (ADD new_option 'new_value', SET existing_option 'updated_value', DROP old_option)",
+        "-- WARNING: Server options contain values (new_option, existing_option)\n-- Replace placeholders below with actual values\nALTER SERVER test_server OPTIONS (ADD new_option '__OPTION_NEW_OPTION__', SET existing_option '__OPTION_EXISTING_OPTION__', DROP old_option)",
       );
     });
   });

@@ -104,7 +104,7 @@ describe("server", () => {
     });
 
     expect(change.serialize()).toBe(
-      "CREATE SERVER test_server FOREIGN DATA WRAPPER test_fdw OPTIONS (host 'localhost', port '5432')",
+      "-- WARNING: Server contains options (host, port)\n-- Replace placeholders below or run ALTER SERVER test_server after this script\nCREATE SERVER test_server FOREIGN DATA WRAPPER test_fdw OPTIONS (host '__OPTION_HOST__', port '__OPTION_PORT__')",
     );
   });
 
@@ -125,7 +125,7 @@ describe("server", () => {
     });
 
     expect(change.serialize()).toBe(
-      "CREATE SERVER test_server TYPE 'postgres_fdw' VERSION '1.0' FOREIGN DATA WRAPPER test_fdw OPTIONS (host 'localhost', port '5432')",
+      "-- WARNING: Server contains options (host, port)\n-- Replace placeholders below or run ALTER SERVER test_server after this script\nCREATE SERVER test_server TYPE 'postgres_fdw' VERSION '1.0' FOREIGN DATA WRAPPER test_fdw OPTIONS (host '__OPTION_HOST__', port '__OPTION_PORT__')",
     );
   });
 });

@@ -2,6 +2,7 @@
  * Integration tests for PostgreSQL Foreign Data Wrapper operations.
  */
 
+import dedent from "dedent";
 import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTestIsolated } from "../utils.ts";
@@ -218,8 +219,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("alter user mapping options", async ({ db }) => {
-      // Note: user and password are env-dependent and will be filtered out during diff.
-      // This test verifies that non-env options can still be altered.
+      // SET actions are filtered out, but ADD actions are not.
       // Since postgres_fdw only supports user/password options, we test with a custom FDW.
       await roundtripFidelityTest({
         mainSession: db.main,
@@ -232,9 +232,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER USER MAPPING FOR CURRENT_USER SERVER test_server OPTIONS (ADD password 'secret', SET user 'new_user');
         `,
-        // user and password are env-dependent, so no ALTER should be generated
-        expectedSqlTerms: [],
-        skipMigrationExecution: false,
+        // SET actions are filtered out, but ADD actions generate ALTER
+        expectedSqlTerms: [
+          dedent`
+            -- WARNING: User mapping options contain values (password)
+            -- Replace placeholders below with actual values
+            ALTER USER MAPPING FOR postgres SERVER test_server OPTIONS (ADD password '__OPTION_PASSWORD__')
+          `,
+        ],
       });
     });
 

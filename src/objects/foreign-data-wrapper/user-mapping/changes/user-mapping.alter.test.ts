@@ -20,7 +20,7 @@ describe.concurrent("user-mapping", () => {
       });
 
       expect(change.serialize()).toBe(
-        "-- WARNING: User mapping options contain sensitive values (user, password)\n-- Replace placeholders below with actual values\nALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (ADD user '__SENSITIVE_USER__', ADD password '__SENSITIVE_PASSWORD__')",
+        "-- WARNING: User mapping options contain values (user, password)\n-- Replace placeholders below with actual values\nALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (ADD user '__OPTION_USER__', ADD password '__OPTION_PASSWORD__')",
       );
     });
 
@@ -37,7 +37,7 @@ describe.concurrent("user-mapping", () => {
       });
 
       expect(change.serialize()).toBe(
-        "-- WARNING: User mapping options contain sensitive values (password)\n-- Replace placeholders below with actual values\nALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (SET password '__SENSITIVE_PASSWORD__')",
+        "-- WARNING: User mapping options contain values (password)\n-- Replace placeholders below with actual values\nALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (SET password '__OPTION_PASSWORD__')",
       );
     });
 
@@ -75,7 +75,7 @@ describe.concurrent("user-mapping", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER USER MAPPING FOR PUBLIC SERVER test_server OPTIONS (ADD new_option 'new_value', SET existing_option 'updated_value', DROP old_option)",
+        "-- WARNING: User mapping options contain values (new_option, existing_option)\n-- Replace placeholders below with actual values\nALTER USER MAPPING FOR PUBLIC SERVER test_server OPTIONS (ADD new_option '__OPTION_NEW_OPTION__', SET existing_option '__OPTION_EXISTING_OPTION__', DROP old_option)",
       );
     });
   });

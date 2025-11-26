@@ -1,28 +1,9 @@
 import type { SensitiveInfo } from "./sensitive.types.ts";
 
 /**
- * Option keys that are considered sensitive and should be masked.
- * Common sensitive options include passwords, usernames, and SSL keys.
- */
-const SENSITIVE_OPTION_KEYS = [
-  "password",
-  "user",
-  "sslpassword",
-  "sslkey",
-] as const;
-
-/**
- * Check if an option key is sensitive.
- */
-function isSensitiveOptionKey(key: string): boolean {
-  return SENSITIVE_OPTION_KEYS.some(
-    (sensitiveKey) => sensitiveKey.toLowerCase() === key.toLowerCase(),
-  );
-}
-
-/**
- * Mask sensitive options in an array of option key-value pairs.
+ * Mask all options in an array of option key-value pairs with placeholders.
  * Options are expected to be in the format: [key1, value1, key2, value2, ...]
+ * All option values are replaced with placeholders that users need to fill in.
  *
  * @param options - Array of option strings (key-value pairs)
  * @param objectType - Type of object (e.g., "server", "user_mapping")
@@ -49,25 +30,22 @@ export function maskSensitiveOptions(
     if (i + 1 >= options.length) break;
 
     const key = options[i];
-    const value = options[i + 1];
+    const _value = options[i + 1];
 
-    if (isSensitiveOptionKey(key)) {
-      const placeholder = `__SENSITIVE_${key.toUpperCase()}__`;
-      masked.push(key, placeholder);
+    // Mask all options with placeholders
+    const placeholder = `__OPTION_${key.toUpperCase()}__`;
+    masked.push(key, placeholder);
 
-      const type =
-        objectType === "server" ? "server_option" : "user_mapping_option";
-      sensitive.push({
-        type,
-        objectType,
-        objectName,
-        field: key,
-        placeholder,
-        instruction: `Replace ${placeholder} with the actual ${key} value for ${objectType} ${objectName}, or run ALTER ${objectType.toUpperCase()} after this script.`,
-      });
-    } else {
-      masked.push(key, value);
-    }
+    const type =
+      objectType === "server" ? "server_option" : "user_mapping_option";
+    sensitive.push({
+      type,
+      objectType,
+      objectName,
+      field: key,
+      placeholder,
+      instruction: `Replace ${placeholder} with the actual ${key} value for ${objectType} ${objectName}, or run ALTER ${objectType.toUpperCase()} after this script.`,
+    });
   }
 
   return { masked, sensitive };

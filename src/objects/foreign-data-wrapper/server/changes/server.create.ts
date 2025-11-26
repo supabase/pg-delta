@@ -63,11 +63,11 @@ export class CreateServer extends CreateServerChange {
     const commentParts: string[] = [];
     const sqlParts: string[] = [];
 
-    // Add warning comment if sensitive options are present
+    // Add warning comment if options are present (all options are masked)
     if (sensitive.length > 0) {
-      const sensitiveKeys = sensitive.map((s) => s.field).join(", ");
+      const optionKeys = sensitive.map((s) => s.field).join(", ");
       commentParts.push(
-        `-- WARNING: Server contains sensitive options (${sensitiveKeys})`,
+        `-- WARNING: Server contains options (${optionKeys})`,
         `-- Replace placeholders below or run ALTER SERVER ${this.server.name} after this script`,
       );
     }
@@ -97,12 +97,7 @@ export class CreateServer extends CreateServerChange {
         if (i + 1 < maskedOptions.length) {
           const key = maskedOptions[i];
           const value = maskedOptions[i + 1];
-          // If it's a placeholder, don't quote it
-          if (value.startsWith("__SENSITIVE_") && value.endsWith("__")) {
-            optionPairs.push(`${key} ${quoteLiteral(value)}`);
-          } else {
-            optionPairs.push(`${key} ${quoteLiteral(value)}`);
-          }
+          optionPairs.push(`${key} ${quoteLiteral(value)}`);
         }
       }
       if (optionPairs.length > 0) {

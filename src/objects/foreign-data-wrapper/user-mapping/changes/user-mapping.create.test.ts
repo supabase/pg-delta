@@ -63,7 +63,7 @@ describe("user-mapping", () => {
     });
 
     expect(change.serialize()).toBe(
-      "-- WARNING: User mapping contains sensitive options (user, password)\n-- Replace placeholders below or run ALTER USER MAPPING after this script\nCREATE USER MAPPING FOR test_user SERVER test_server OPTIONS (user '__SENSITIVE_USER__', password '__SENSITIVE_PASSWORD__')",
+      "-- WARNING: User mapping contains options (user, password)\n-- Replace placeholders below or run ALTER USER MAPPING after this script\nCREATE USER MAPPING FOR test_user SERVER test_server OPTIONS (user '__OPTION_USER__', password '__OPTION_PASSWORD__')",
     );
   });
 
@@ -79,7 +79,7 @@ describe("user-mapping", () => {
     });
 
     expect(change.serialize()).toBe(
-      "-- WARNING: User mapping contains sensitive options (user, password)\n-- Replace placeholders below or run ALTER USER MAPPING after this script\nCREATE USER MAPPING FOR PUBLIC SERVER test_server OPTIONS (user '__SENSITIVE_USER__', password '__SENSITIVE_PASSWORD__')",
+      "-- WARNING: User mapping contains options (user, password)\n-- Replace placeholders below or run ALTER USER MAPPING after this script\nCREATE USER MAPPING FOR PUBLIC SERVER test_server OPTIONS (user '__OPTION_USER__', password '__OPTION_PASSWORD__')",
     );
   });
 });

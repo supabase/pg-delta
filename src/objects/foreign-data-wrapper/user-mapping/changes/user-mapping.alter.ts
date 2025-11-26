@@ -50,21 +50,14 @@ export class AlterUserMappingSetOptions extends AlterUserMappingChange {
   get sensitiveInfo(): SensitiveInfo[] {
     const sensitive: SensitiveInfo[] = [];
     for (const opt of this.options) {
-      if (
-        opt.action !== "DROP" &&
-        opt.value !== undefined &&
-        (opt.option.toLowerCase() === "password" ||
-          opt.option.toLowerCase() === "user" ||
-          opt.option.toLowerCase() === "sslpassword" ||
-          opt.option.toLowerCase() === "sslkey")
-      ) {
+      if (opt.action !== "DROP" && opt.value !== undefined) {
         sensitive.push({
           type: "user_mapping_option",
           objectType: "user_mapping",
           objectName: `${this.userMapping.server}:${this.userMapping.user}`,
           field: opt.option,
-          placeholder: `__SENSITIVE_${opt.option.toUpperCase()}__`,
-          instruction: `Replace __SENSITIVE_${opt.option.toUpperCase()}__ with the actual ${opt.option} value for user mapping ${this.userMapping.user}@${this.userMapping.server}.`,
+          placeholder: `__OPTION_${opt.option.toUpperCase()}__`,
+          instruction: `Replace __OPTION_${opt.option.toUpperCase()}__ with the actual ${opt.option} value for user mapping ${this.userMapping.user}@${this.userMapping.server}.`,
         });
       }
     }
@@ -73,23 +66,17 @@ export class AlterUserMappingSetOptions extends AlterUserMappingChange {
 
   serialize(): string {
     const optionParts: string[] = [];
-    const hasSensitive = this.sensitiveInfo.length > 0;
+    const hasOptions = this.sensitiveInfo.length > 0;
 
     for (const opt of this.options) {
       if (opt.action === "DROP") {
         optionParts.push(`DROP ${opt.option}`);
       } else {
-        let value = opt.value !== undefined ? opt.value : "";
-        // Mask sensitive values
-        if (
-          opt.value !== undefined &&
-          (opt.option.toLowerCase() === "password" ||
-            opt.option.toLowerCase() === "user" ||
-            opt.option.toLowerCase() === "sslpassword" ||
-            opt.option.toLowerCase() === "sslkey")
-        ) {
-          value = `__SENSITIVE_${opt.option.toUpperCase()}__`;
-        }
+        // Mask all option values with placeholders
+        const value =
+          opt.value !== undefined
+            ? `__OPTION_${opt.option.toUpperCase()}__`
+            : "";
         optionParts.push(`${opt.action} ${opt.option} ${quoteLiteral(value)}`);
       }
     }
@@ -97,11 +84,11 @@ export class AlterUserMappingSetOptions extends AlterUserMappingChange {
     const commentParts: string[] = [];
     const sqlParts: string[] = [];
 
-    // Add warning comment if sensitive options are present
-    if (hasSensitive) {
-      const sensitiveKeys = this.sensitiveInfo.map((s) => s.field).join(", ");
+    // Add warning comment if options are present
+    if (hasOptions) {
+      const optionKeys = this.sensitiveInfo.map((s) => s.field).join(", ");
       commentParts.push(
-        `-- WARNING: User mapping options contain sensitive values (${sensitiveKeys})`,
+        `-- WARNING: User mapping options contain values (${optionKeys})`,
         `-- Replace placeholders below with actual values`,
       );
     }
