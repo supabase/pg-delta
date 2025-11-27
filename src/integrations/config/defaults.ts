@@ -48,7 +48,7 @@ export const defaultConfig: IntegrationConfig = {
         {
           match: /.*/, // Match everything
           placeholder: (key, _mappingId) => `__OPTION_${key.toUpperCase()}__`,
-          instruction: (key, mappingId) =>
+          instruction: (key, _mappingId) =>
             `Set actual option values after migration execution using: ALTER USER MAPPING ... OPTIONS (SET ${key} '...');`,
         },
       ],
