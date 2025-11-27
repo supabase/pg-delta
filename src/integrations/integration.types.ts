@@ -1,50 +1,80 @@
 import type { ChangeFilter, ChangeSerializer } from "../main.ts";
 
 /**
- * Configuration for filtering out environment-dependent fields.
- * These cause the entire change to be dropped if it ONLY contains these fields.
+ * Unified configuration for integration behavior.
+ * Combines filtering (env-dependent) and masking (sensitive) configurations.
  */
-export interface EnvDependentConfig {
-  role?: ("password" | "validUntil")[];
-  subscription?: "conninfo"[];
-  server?: string[]; // FDW-specific, provided by integration
-  userMapping?: string[]; // FDW-specific, provided by integration
-}
-
-/**
- * Configuration for masking sensitive fields in output.
- * Maps field patterns to placeholder generators.
- */
-export interface SensitiveFieldsConfig {
+export interface IntegrationConfig {
   role?: {
-    password?: (roleName: string) => {
-      placeholder: string;
-      instruction: string;
+    /**
+     * Fields to filter out completely (env-dependent).
+     * These cause the entire change to be dropped if it ONLY contains these fields.
+     */
+    filter?: ("password" | "validUntil")[];
+    /**
+     * Fields to mask (sensitive).
+     * Maps field names to placeholder generators.
+     */
+    mask?: {
+      password?: (roleName: string) => {
+        placeholder: string;
+        instruction: string;
+      };
     };
   };
   subscription?: {
-    conninfo?: (subName: string) => {
-      placeholder: string;
-      instruction: string;
+    /**
+     * Fields to filter out completely (env-dependent).
+     */
+    filter?: "conninfo"[];
+    /**
+     * Fields to mask (sensitive).
+     */
+    mask?: {
+      conninfo?: (subName: string) => {
+        placeholder: string;
+        instruction: string;
+      };
     };
   };
   server?: {
-    // Pattern-based for unknown FDW options
-    patterns?: Array<{
-      match: RegExp;
-      placeholder: (key: string, serverName: string) => string;
-      instruction?: (key: string, serverName: string) => string;
-    }>;
-    // Or explicit keys
-    keys?: string[];
+    /**
+     * Fields to filter out completely (env-dependent).
+     * FDW-specific, provided by integration.
+     */
+    filter?: string[];
+    /**
+     * Fields to mask (sensitive).
+     * Pattern-based for unknown FDW options.
+     */
+    mask?: {
+      patterns?: Array<{
+        match: RegExp;
+        placeholder: (key: string, serverName: string) => string;
+        instruction?: (key: string, serverName: string) => string;
+      }>;
+      // Or explicit keys
+      keys?: string[];
+    };
   };
   userMapping?: {
-    patterns?: Array<{
-      match: RegExp;
-      placeholder: (key: string, mappingId: string) => string;
-      instruction?: (key: string, mappingId: string) => string;
-    }>;
-    keys?: string[];
+    /**
+     * Fields to filter out completely (env-dependent).
+     * FDW-specific, provided by integration.
+     */
+    filter?: string[];
+    /**
+     * Fields to mask (sensitive).
+     * Pattern-based for unknown FDW options.
+     */
+    mask?: {
+      patterns?: Array<{
+        match: RegExp;
+        placeholder: (key: string, mappingId: string) => string;
+        instruction?: (key: string, mappingId: string) => string;
+      }>;
+      keys?: string[];
+    };
   };
 }
 

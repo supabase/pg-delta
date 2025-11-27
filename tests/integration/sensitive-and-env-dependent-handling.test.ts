@@ -71,9 +71,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             `,
           expectedSqlTerms: [
             dedent`
-                -- WARNING: Connection string contains sensitive password
-                -- Replace __SENSITIVE_PASSWORD__ in the connection string with the actual password, or run ALTER SUBSCRIPTION sub_sensitive CONNECTION after this script
-                CREATE SUBSCRIPTION sub_sensitive CONNECTION 'dbname=${mainDbName} password=__SENSITIVE_PASSWORD__' PUBLICATION sub_sensitive_pub WITH (enabled = false, slot_name = NONE, create_slot = false, connect = false)`,
+                -- WARNING: Connection string is environment-dependent
+                -- Replace the placeholder values (__CONN_HOST__, __CONN_PORT__, __CONN_DBNAME__, __CONN_USER__, __CONN_PASSWORD__) in the connection string with actual values for subscription sub_sensitive, or run ALTER SUBSCRIPTION sub_sensitive CONNECTION after this script.
+                CREATE SUBSCRIPTION sub_sensitive CONNECTION 'host=__CONN_HOST__ port=__CONN_PORT__ dbname=__CONN_DBNAME__ user=__CONN_USER__ password=__CONN_PASSWORD__' PUBLICATION sub_sensitive_pub WITH (enabled = false, slot_name = NONE, create_slot = false, connect = false)`,
           ],
           postMigrationSql: `
               ALTER SUBSCRIPTION sub_sensitive CONNECTION 'dbname=${mainDbName} password=secret123';

@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import dedent from "dedent";
 import postgres from "postgres";
 import { test as baseTest, describe } from "vitest";
-import { supabase } from "../../src/integrations/supabase.ts";
+import { supabase } from "../../src/integrations/integrations/supabase.ts";
 import { main } from "../../src/main.ts";
 
 const exec = promisify(baseExec);
