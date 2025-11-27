@@ -10,7 +10,7 @@ export const defaultConfig: IntegrationConfig = {
     mask: {
       password: (roleName) => ({
         placeholder: "<your-password-here>",
-        instruction: `Role ${roleName} requires a password to be set manually. Run: ALTER ROLE ${roleName} PASSWORD '<your-password-here>';`,
+        instruction: `Set the password after migration execution using: ALTER ROLE ${roleName} PASSWORD '<your-password-here>';`,
       }),
     },
   },
@@ -20,7 +20,7 @@ export const defaultConfig: IntegrationConfig = {
       conninfo: (subName) => ({
         placeholder:
           "host=__CONN_HOST__ port=__CONN_PORT__ dbname=__CONN_DBNAME__ user=__CONN_USER__ password=__CONN_PASSWORD__",
-        instruction: `Replace the placeholder values (__CONN_HOST__, __CONN_PORT__, __CONN_DBNAME__, __CONN_USER__, __CONN_PASSWORD__) in the connection string with actual values for subscription ${subName}, or run ALTER SUBSCRIPTION ${subName} CONNECTION after this script.`,
+        instruction: `Set the connection string after migration execution using: ALTER SUBSCRIPTION ${subName} CONNECTION '...';`,
       }),
     },
   },
@@ -34,7 +34,7 @@ export const defaultConfig: IntegrationConfig = {
           match: /.*/, // Match everything
           placeholder: (key, _serverName) => `__OPTION_${key.toUpperCase()}__`,
           instruction: (key, serverName) =>
-            `Replace __OPTION_${key.toUpperCase()}__ with the actual ${key} value for server ${serverName}, or run ALTER SERVER ${serverName} after this script.`,
+            `Set actual option values after migration execution using: ALTER SERVER ${serverName} OPTIONS (SET ${key} '...');`,
         },
       ],
     },
@@ -49,7 +49,7 @@ export const defaultConfig: IntegrationConfig = {
           match: /.*/, // Match everything
           placeholder: (key, _mappingId) => `__OPTION_${key.toUpperCase()}__`,
           instruction: (key, mappingId) =>
-            `Replace __OPTION_${key.toUpperCase()}__ with the actual ${key} value for user mapping ${mappingId}, or run ALTER USER MAPPING after this script.`,
+            `Set actual option values after migration execution using: ALTER USER MAPPING ... OPTIONS (SET ${key} '...');`,
         },
       ],
     },

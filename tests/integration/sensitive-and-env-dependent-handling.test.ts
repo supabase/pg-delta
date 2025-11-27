@@ -28,7 +28,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             expectedSqlTerms: [
               dedent`
                   -- WARNING: Role requires password to be set manually
-                  -- Run: ALTER ROLE test_login_role PASSWORD '<your-password-here>';
+                  -- Set the password after migration execution using: ALTER ROLE test_login_role PASSWORD '<your-password-here>';
                   CREATE ROLE test_login_role WITH LOGIN
                 `,
             ],
@@ -72,7 +72,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           expectedSqlTerms: [
             dedent`
                 -- WARNING: Connection string is environment-dependent
-                -- Replace the placeholder values (__CONN_HOST__, __CONN_PORT__, __CONN_DBNAME__, __CONN_USER__, __CONN_PASSWORD__) in the connection string with actual values for subscription sub_sensitive, or run ALTER SUBSCRIPTION sub_sensitive CONNECTION after this script.
+                -- Set the connection string after migration execution using: ALTER SUBSCRIPTION sub_sensitive CONNECTION '...';
                 CREATE SUBSCRIPTION sub_sensitive CONNECTION 'host=__CONN_HOST__ port=__CONN_PORT__ dbname=__CONN_DBNAME__ user=__CONN_USER__ password=__CONN_PASSWORD__' PUBLICATION sub_sensitive_pub WITH (enabled = false, slot_name = NONE, create_slot = false, connect = false)`,
           ],
           postMigrationSql: `
@@ -96,8 +96,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           expectedSqlTerms: [
             "CREATE FOREIGN DATA WRAPPER test_sensitive_fdw NO HANDLER NO VALIDATOR",
             dedent`
-                -- WARNING: Server contains options (password, user, host)
-                -- Replace the placeholders in the OPTIONS clause with actual values, or run ALTER SERVER test_sensitive_server2 after this script
+                -- WARNING: Server contains sensitive/environment-dependent options (password, user, host)
+                -- Set actual option values after migration execution using: ALTER SERVER test_sensitive_server2 OPTIONS (SET ...);
                 CREATE SERVER test_sensitive_server2 FOREIGN DATA WRAPPER test_sensitive_fdw OPTIONS (password '__OPTION_PASSWORD__', user '__OPTION_USER__', host '__OPTION_HOST__')
               `,
           ],
@@ -124,13 +124,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             `,
           expectedSqlTerms: [
             dedent`
-                -- WARNING: Server contains options (host)
-                -- Replace the placeholders in the OPTIONS clause with actual values, or run ALTER SERVER test_um_server after this script
+                -- WARNING: Server contains sensitive/environment-dependent options (host)
+                -- Set actual option values after migration execution using: ALTER SERVER test_um_server OPTIONS (SET ...);
                 CREATE SERVER test_um_server FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host '__OPTION_HOST__')
               `,
             dedent`
-                -- WARNING: User mapping contains options (user, password)
-                -- Replace the placeholders in the OPTIONS clause with actual values, or run ALTER USER MAPPING after this script
+                -- WARNING: User mapping contains sensitive/environment-dependent options (user, password)
+                -- Set actual option values after migration execution using: ALTER USER MAPPING ... OPTIONS (SET ...);
                 CREATE USER MAPPING FOR postgres SERVER test_um_server OPTIONS (user '__OPTION_USER__', password '__OPTION_PASSWORD__')
               `,
           ],
@@ -295,8 +295,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           // ADD actions are not filtered, so ALTER should be generated
           expectedSqlTerms: [
             dedent`
-                -- WARNING: Server options contain values (host, port)
-                -- Replace the placeholders in the OPTIONS clause with actual values before executing
+                -- WARNING: Server options contain sensitive/environment-dependent values (host, port)
+                -- Set actual option values after migration execution using: ALTER SERVER test_env_server OPTIONS (SET ...);
                 ALTER SERVER test_env_server OPTIONS (ADD host '__OPTION_HOST__', ADD port '__OPTION_PORT__')
               `,
           ],

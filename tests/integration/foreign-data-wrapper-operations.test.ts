@@ -236,8 +236,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         // Note: SET user is filtered out, but ADD password remains and is masked
         expectedSqlTerms: [
           dedent`
-            -- WARNING: User mapping options contain values (password)
-            -- Replace the placeholders in the OPTIONS clause with actual values before executing
+            -- WARNING: User mapping options contain sensitive/environment-dependent values (password)
+            -- Set actual option values after migration execution using: ALTER USER MAPPING ... OPTIONS (SET ...);
             ALTER USER MAPPING FOR postgres SERVER test_server OPTIONS (ADD password '__OPTION_PASSWORD__')
           `,
         ],

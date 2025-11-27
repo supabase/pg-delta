@@ -74,7 +74,7 @@ export function createChangeSerializer(
         const maskConfig = config.role.mask.password(
           createRoleChange.role.name,
         );
-        warningComment = `-- WARNING: Role requires password to be set manually\n-- Run: ALTER ROLE ${createRoleChange.role.name} PASSWORD '${maskConfig.placeholder}';\n`;
+        warningComment = `-- WARNING: Role requires password to be set manually\n-- Set the password after migration execution using: ALTER ROLE ${createRoleChange.role.name} PASSWORD '${maskConfig.placeholder}';\n`;
         // No change instance needed - just add comment
       }
     }
@@ -128,7 +128,7 @@ export function createChangeSerializer(
         );
         if (masked.fields.length > 0) {
           const optionKeys = masked.fields.map((f) => f.field).join(", ");
-          warningComment = `-- WARNING: Server contains options (${optionKeys})\n-- Replace the placeholders in the OPTIONS clause with actual values, or run ALTER SERVER ${changeToProcess.server.name} after this script\n`;
+          warningComment = `-- WARNING: Server contains sensitive/environment-dependent options (${optionKeys})\n-- Set actual option values after migration execution using: ALTER SERVER ${changeToProcess.server.name} OPTIONS (SET ...);\n`;
           // Create masked server and change instance
           const maskedServer = new Server({
             ...changeToProcess.server.dataFields,
@@ -150,7 +150,7 @@ export function createChangeSerializer(
         );
         if (masked.fields.length > 0) {
           const optionKeys = masked.fields.map((f) => f.field).join(", ");
-          warningComment = `-- WARNING: Server options contain values (${optionKeys})\n-- Replace the placeholders in the OPTIONS clause with actual values before executing\n`;
+          warningComment = `-- WARNING: Server options contain sensitive/environment-dependent values (${optionKeys})\n-- Set actual option values after migration execution using: ALTER SERVER ${alterChange.server.name} OPTIONS (SET ...);\n`;
           // Create masked change instance with masked options
           transformedChange = new AlterServerSetOptions({
             server: alterChange.server,
@@ -174,7 +174,7 @@ export function createChangeSerializer(
         );
         if (masked.fields.length > 0) {
           const optionKeys = masked.fields.map((f) => f.field).join(", ");
-          warningComment = `-- WARNING: User mapping contains options (${optionKeys})\n-- Replace the placeholders in the OPTIONS clause with actual values, or run ALTER USER MAPPING after this script\n`;
+          warningComment = `-- WARNING: User mapping contains sensitive/environment-dependent options (${optionKeys})\n-- Set actual option values after migration execution using: ALTER USER MAPPING ... OPTIONS (SET ...);\n`;
           // Create masked user mapping and change instance
           const maskedUserMapping = new UserMapping({
             ...changeToProcess.userMapping.dataFields,
@@ -200,7 +200,7 @@ export function createChangeSerializer(
         );
         if (masked.fields.length > 0) {
           const optionKeys = masked.fields.map((f) => f.field).join(", ");
-          warningComment = `-- WARNING: User mapping options contain values (${optionKeys})\n-- Replace the placeholders in the OPTIONS clause with actual values before executing\n`;
+          warningComment = `-- WARNING: User mapping options contain sensitive/environment-dependent values (${optionKeys})\n-- Set actual option values after migration execution using: ALTER USER MAPPING ... OPTIONS (SET ...);\n`;
           // Create masked change instance with masked options
           transformedChange = new AlterUserMappingSetOptions({
             userMapping: alterChange.userMapping,
