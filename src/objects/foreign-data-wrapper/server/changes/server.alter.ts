@@ -107,7 +107,6 @@ export class AlterServerSetOptions extends AlterServerChange {
 
   serialize(): string {
     const optionParts: string[] = [];
-
     for (const opt of this.options) {
       if (opt.action === "DROP") {
         optionParts.push(`DROP ${opt.option}`);
