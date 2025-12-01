@@ -125,8 +125,6 @@ export async function main(
 
   const migrationScript = `${scriptParts.join(";\n\n")};`;
 
-  console.log(migrationScript);
-
   return {
     migrationScript,
   };
