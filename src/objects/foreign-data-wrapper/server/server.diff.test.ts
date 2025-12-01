@@ -99,13 +99,14 @@ describe.concurrent("server.diff", () => {
   });
 
   test("alter: options changes", () => {
+    // Use non-env-dependent options to test that option changes still work
     const main = new Server({
       name: "srv1",
       owner: "o1",
       foreign_data_wrapper: "fdw1",
       type: null,
       version: null,
-      options: ["host", "localhost"],
+      options: ["fetch_size", "100"],
       comment: null,
       privileges: [],
     });
@@ -115,7 +116,7 @@ describe.concurrent("server.diff", () => {
       foreign_data_wrapper: "fdw1",
       type: null,
       version: null,
-      options: ["host", "newhost", "port", "5432"],
+      options: ["fetch_size", "200", "use_remote_estimate", "true"],
       comment: null,
       privileges: [],
     });

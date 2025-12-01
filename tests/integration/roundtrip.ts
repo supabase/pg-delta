@@ -8,6 +8,8 @@ import { diffCatalogs } from "../../src/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
 import type { Change } from "../../src/change.types.ts";
 import type { PgDepend } from "../../src/depend.ts";
+import { base } from "../../src/integrations/base.ts";
+import type { Integration } from "../../src/integrations/integration.types.ts";
 import { sortChanges } from "../../src/sort/sort-changes.ts";
 import { DEBUG } from "../constants.ts";
 
@@ -31,6 +33,8 @@ interface RoundtripTestOptions {
   // List of stable_ids in the order they should appear in the generated changes.
   // This validates dependency resolution ordering.
   expectedOperationOrder?: Change[];
+  // Integration to use for filtering and serialization
+  integration?: Integration;
 }
 
 async function runOrDump(
@@ -74,6 +78,7 @@ export async function roundtripFidelityTest(
     expectedBranchDependencies,
     expectedOperationOrder,
     sortChangesCallback,
+    integration,
   } = options;
   // Silent warnings from PostgreSQL such as subscriptions created without a slot.
   const sessionConfig = ["SET LOCAL client_min_messages = error"];
@@ -140,7 +145,23 @@ export async function roundtripFidelityTest(
     }
   }
 
-  const sortedChanges = sortChanges({ mainCatalog, branchCatalog }, changes);
+  // Use integration for filtering and serialization
+  const testIntegration = integration ?? base;
+  const ctx = { mainCatalog, branchCatalog };
+
+  // Apply filter if provided (filters out env-dependent changes)
+  let filteredChanges = changes;
+  const integrationFilter = testIntegration.filter;
+  if (integrationFilter) {
+    filteredChanges = filteredChanges.filter((change) =>
+      integrationFilter(ctx, change),
+    );
+  }
+
+  const sortedChanges = sortChanges(
+    { mainCatalog, branchCatalog },
+    filteredChanges,
+  );
 
   if (process.env.DEPENDENCIES_DEBUG) {
     console.log("\n==== Sorted Changes ====");
@@ -167,7 +188,9 @@ export async function roundtripFidelityTest(
     ? ["SET check_function_bodies = false"]
     : [];
 
-  const sqlStatements = sortedChanges.map((change) => change.serialize());
+  const sqlStatements = sortedChanges.map((change) => {
+    return testIntegration.serialize?.(ctx, change) ?? change.serialize();
+  });
   const migrationScript = `${[...migrationSessionConfig, ...sqlStatements].join(
     ";\n\n",
   )};`;
@@ -184,6 +207,7 @@ export async function roundtripFidelityTest(
   if (DEBUG) {
     console.log("migrationScript: ", migrationScript);
   }
+
   // Apply migration to main database
   if (migrationScript.trim()) {
     await runOrDump(
@@ -204,13 +228,23 @@ export async function roundtripFidelityTest(
 
   // Verify semantic equality by diffing the catalogs again
   // This ensures the migration produced a database state identical to the target
+
   const changesAfter = diffCatalogs(mainCatalogAfter, branchCatalog);
 
-  if (changesAfter.length > 0) {
+  // Re-apply the filter to check for remaining changes (only changes that weren't filtered out)
+  let filteredChangesAfter = changesAfter;
+  if (integrationFilter) {
+    const ctxAfter = { mainCatalog: mainCatalogAfter, branchCatalog };
+    filteredChangesAfter = filteredChangesAfter.filter((change) =>
+      integrationFilter(ctxAfter, change),
+    );
+  }
+
+  if (filteredChangesAfter.length > 0) {
     // Sort the remaining changes for better debugging
     const sortedChangesAfter = sortChanges(
       { mainCatalog: mainCatalogAfter, branchCatalog },
-      changesAfter,
+      filteredChangesAfter,
     );
 
     const remainingSqlStatements = sortedChangesAfter.map((change) =>

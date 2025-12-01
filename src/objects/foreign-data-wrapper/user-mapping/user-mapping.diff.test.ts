@@ -22,6 +22,8 @@ describe.concurrent("user-mapping.diff", () => {
   });
 
   test("alter: options changes", () => {
+    // With the simplified approach, SET actions are filtered out, but ADD actions are not.
+    // Adding a new option (password) should generate an ALTER statement.
     const main = new UserMapping({
       user: "u1",
       server: "srv1",
@@ -37,11 +39,14 @@ describe.concurrent("user-mapping.diff", () => {
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
+    // ADD actions are not filtered, so ALTER should be generated
     const optionsChange = changes.find(
       (c) => c instanceof AlterUserMappingSetOptions,
     ) as AlterUserMappingSetOptions | undefined;
     expect(optionsChange).toBeDefined();
-    expect(optionsChange?.options.length).toBeGreaterThan(0);
+    expect(optionsChange?.options).toEqual([
+      { action: "ADD", option: "password", value: "secret" },
+    ]);
   });
 
   test("create with PUBLIC user", () => {

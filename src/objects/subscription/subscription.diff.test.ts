@@ -61,6 +61,7 @@ describe.concurrent("subscription.diff", () => {
   });
 
   test("detect connection string change", () => {
+    // conninfo changes are detected by diff, but filtered by integration filter
     const mainSubscription = new Subscription(baseProps);
     const branchSubscription = new Subscription({
       ...baseProps,
@@ -71,6 +72,7 @@ describe.concurrent("subscription.diff", () => {
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );
+    // conninfo changes are detected (filtering happens at integration level)
     expect(
       changes.some(
         (change) => change instanceof AlterSubscriptionSetConnection,

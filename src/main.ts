@@ -3,6 +3,8 @@ import { diffCatalogs } from "./catalog.diff.ts";
 import type { Catalog } from "./catalog.model.ts";
 import { extractCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
+import { base } from "./integrations/base.ts";
+import type { Integration } from "./integrations/integration.types.ts";
 import { sortChanges } from "./sort/sort-changes.ts";
 
 // Custom type handler for specifics corner cases
@@ -59,16 +61,17 @@ export type ChangeSerializer = (
   change: Change,
 ) => string | undefined;
 
-export interface MainOptions {
-  filter?: ChangeFilter;
-  serialize?: ChangeSerializer;
+export type MainOptions = Integration;
+
+export interface DiffResult {
+  migrationScript: string;
 }
 
 export async function main(
   mainDatabaseUrl: string,
   branchDatabaseUrl: string,
   options: MainOptions = {},
-) {
+): Promise<DiffResult | null> {
   const mainSql = postgres(mainDatabaseUrl, postgresConfig);
   const branchSql = postgres(branchDatabaseUrl, postgresConfig);
 
@@ -81,21 +84,25 @@ export async function main(
 
   const changes = diffCatalogs(mainCatalog, branchCatalog);
 
-  const filteredChanges = options.filter
-    ? changes.filter((change) =>
-        // biome-ignore lint/style/noNonNullAssertion: options.filter is guaranteed to be defined
-        options.filter!({ mainCatalog, branchCatalog }, change),
-      )
-    : changes;
+  // Use provided options as integration, or fall back to safe default
+  const integration = options ?? base;
+
+  // Apply filter if provided
+  const ctx = { mainCatalog, branchCatalog };
+  let filteredChanges = changes;
+
+  const integrationFilter = integration.filter;
+  if (integrationFilter) {
+    filteredChanges = filteredChanges.filter((change) =>
+      integrationFilter(ctx, change),
+    );
+  }
 
   if (filteredChanges.length === 0) {
     return null;
   }
 
-  const sortedChanges = sortChanges(
-    { mainCatalog, branchCatalog },
-    filteredChanges,
-  );
+  const sortedChanges = sortChanges(ctx, filteredChanges);
 
   const hasRoutineChanges = sortedChanges.some(
     (change) =>
@@ -105,17 +112,22 @@ export async function main(
     ? ["SET check_function_bodies = false"]
     : [];
 
-  const migrationScript = `${[
-    ...sessionConfig,
-    ...sortedChanges.map((change) => {
-      return (
-        options.serialize?.({ mainCatalog, branchCatalog }, change) ??
-        change.serialize()
-      );
-    }),
-  ].join(";\n\n")};`;
+  // Build migration script
+  const scriptParts: string[] = [];
+  scriptParts.push(...sessionConfig);
+
+  // Serialize changes using integration serialize hook (applies masking) or fallback
+  const changeStatements = sortedChanges.map((change) => {
+    return integration.serialize?.(ctx, change) ?? change.serialize();
+  });
+
+  scriptParts.push(...changeStatements);
+
+  const migrationScript = `${scriptParts.join(";\n\n")};`;
 
   console.log(migrationScript);
 
-  return migrationScript;
+  return {
+    migrationScript,
+  };
 }
