@@ -1,6 +1,6 @@
 import { describe, expect } from "vitest";
 import { POSTGRES_VERSIONS } from "../../tests/constants.ts";
-import { getTest } from "../tests/utils.ts";
+import { getTest } from "../../tests/utils.ts";
 import { diffCatalogs } from "./catalog.diff.ts";
 import { extractCatalog } from "./catalog.model.ts";
 

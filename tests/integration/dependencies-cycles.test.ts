@@ -7,7 +7,7 @@
  */
 
 import { describe } from "vitest";
-import type { PgDepend } from "../../src/depend.ts";
+import type { PgDepend } from "../../src/core/depend.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";

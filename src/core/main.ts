@@ -63,7 +63,7 @@ export type ChangeSerializer = (
 
 export type MainOptions = Integration;
 
-export interface DiffResult {
+interface DiffResult {
   migrationScript: string;
 }
 

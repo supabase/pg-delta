@@ -6,7 +6,8 @@ export default defineConfig({
     slowTestThreshold: 10_000,
     resolveSnapshotPath: (testPath: string, snapExtension: string) => {
       // Store all snapshots in tests/__snapshots__/
-      const testFileName = testPath.split("/").pop()?.replace(".test.ts", "") ?? "";
+      const testFileName =
+        testPath.split("/").pop()?.replace(".test.ts", "") ?? "";
       return `tests/__snapshots__/${testFileName}${snapExtension}`;
     },
     coverage: {

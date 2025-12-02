@@ -1,19 +1,19 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import postgres from "postgres";
-import { diffCatalogs } from "../../src/catalog.diff.ts";
-import { extractCatalog } from "../../src/catalog.model.ts";
-import type { MainOptions } from "../../src/main.ts";
-import { postgresConfig } from "../../src/main.ts";
-import { AlterRoleSetOptions } from "../../src/objects/role/changes/role.alter.ts";
-import { CreateRole } from "../../src/objects/role/changes/role.create.ts";
+import { diffCatalogs } from "../../src/core/catalog.diff.ts";
+import { extractCatalog } from "../../src/core/catalog.model.ts";
+import type { MainOptions } from "../../src/core/main.ts";
+import { postgresConfig } from "../../src/core/main.ts";
+import { AlterRoleSetOptions } from "../../src/core/objects/role/changes/role.alter.ts";
+import { CreateRole } from "../../src/core/objects/role/changes/role.create.ts";
 import {
   GrantRoleDefaultPrivileges,
   GrantRoleMembership,
   RevokeRoleDefaultPrivileges,
   RevokeRoleMembership,
-} from "../../src/objects/role/changes/role.privilege.ts";
-import { sortChanges } from "../../src/sort/sort-changes.ts";
+} from "../../src/core/objects/role/changes/role.privilege.ts";
+import { sortChanges } from "../../src/core/sort/sort-changes.ts";
 import { getTest } from "../utils.ts";
 
 const test = getTest(17);

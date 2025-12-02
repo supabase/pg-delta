@@ -4,11 +4,11 @@
  */
 
 import { describe } from "vitest";
-import type { Change } from "../../src/change.types.ts";
+import type { Change } from "../../src/core/change.types.ts";
 import {
   GrantRoleDefaultPrivileges,
   RevokeRoleDefaultPrivileges,
-} from "../../src/objects/role/changes/role.privilege.ts";
+} from "../../src/core/objects/role/changes/role.privilege.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { roundtripFidelityTest } from "../integration/roundtrip.ts";
 import { getTestIsolated } from "../utils.ts";

@@ -27,6 +27,7 @@
   },
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
+    "cli:dev": "node src/cli/bin/cli.ts",
     "dev": "docker compose up",
     "check": "biome check . --error-on-warnings",
     "format": "biome format . --error-on-warnings",

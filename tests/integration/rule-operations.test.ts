@@ -1,6 +1,6 @@
 import dedent from "dedent";
 import { describe } from "vitest";
-import type { Change } from "../../src/change.types.ts";
+import type { Change } from "../../src/core/change.types.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";

@@ -4,13 +4,13 @@
 
 import type postgres from "postgres";
 import { expect } from "vitest";
-import { diffCatalogs } from "../../src/catalog.diff.ts";
-import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
-import type { Change } from "../../src/change.types.ts";
-import type { PgDepend } from "../../src/depend.ts";
-import { base } from "../../src/integrations/base.ts";
-import type { Integration } from "../../src/integrations/integration.types.ts";
-import { sortChanges } from "../../src/sort/sort-changes.ts";
+import { diffCatalogs } from "../../src/core/catalog.diff.ts";
+import { type Catalog, extractCatalog } from "../../src/core/catalog.model.ts";
+import type { Change } from "../../src/core/change.types.ts";
+import type { PgDepend } from "../../src/core/depend.ts";
+import { base } from "../../src/core/integrations/base.ts";
+import type { Integration } from "../../src/core/integrations/integration.types.ts";
+import { sortChanges } from "../../src/core/sort/sort-changes.ts";
 import { DEBUG } from "../constants.ts";
 
 interface RoundtripTestOptions {
