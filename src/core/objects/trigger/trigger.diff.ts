@@ -48,12 +48,24 @@ export function diffTriggers(
   }
 
   for (const triggerId of dropped) {
-    changes.push(new DropTrigger({ trigger: main[triggerId] }));
+    const trigger = main[triggerId];
+
+    // Skip trigger clones on partitions - they are automatically dropped when the parent trigger is dropped
+    if (trigger.is_partition_clone) {
+      continue;
+    }
+
+    changes.push(new DropTrigger({ trigger }));
   }
 
   for (const triggerId of altered) {
     const mainTrigger = main[triggerId];
     const branchTrigger = branch[triggerId];
+
+    // Skip trigger clones on partitions - they are automatically updated when the parent trigger is updated
+    if (mainTrigger.is_partition_clone || branchTrigger.is_partition_clone) {
+      continue;
+    }
 
     const NON_ALTERABLE_FIELDS: Array<keyof Trigger> = [
       "function_schema",

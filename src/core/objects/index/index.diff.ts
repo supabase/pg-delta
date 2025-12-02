@@ -65,12 +65,23 @@ export function diffIndexes(
     ) {
       continue;
     }
+
+    // Skip index partitions - they are automatically dropped when the parent partitioned index is dropped
+    if (index.is_index_partition) {
+      continue;
+    }
+
     changes.push(new DropIndex({ index: main[indexId] }));
   }
 
   for (const indexId of altered) {
     const mainIndex = main[indexId];
     const branchIndex = branch[indexId];
+
+    // Skip index partitions - they are automatically updated when the parent partitioned index is updated
+    if (mainIndex.is_index_partition || branchIndex.is_index_partition) {
+      continue;
+    }
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the index
