@@ -1,0 +1,26 @@
+name: Release Pull Request
+
+on:
+  workflow_run:
+    workflows: ["Tests"]
+    types:
+      - completed
+
+jobs:
+  release-pull-request:
+    if: |
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    name: Release Pull Request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Release Pull Request
+        run: pnpm dlx pkg-pr-new publish
