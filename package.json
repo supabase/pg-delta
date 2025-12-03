@@ -49,18 +49,18 @@
   ],
   "author": "Supabase",
   "license": "MIT",
-  "packageManager": "pnpm@10.23.0",
+  "packageManager": "pnpm@10.24.0",
   "devDependencies": {
     "@biomejs/biome": "2.3.8",
     "@tsconfig/node-ts": "^23.6.2",
     "@tsconfig/node24": "^24.0.3",
     "@types/node": "^24.10.1",
-    "@vitest/coverage-v8": "4.0.14",
+    "@vitest/coverage-v8": "4.0.15",
     "dedent": "^1.7.0",
     "knip": "^5.71.0",
     "testcontainers": "^11.9.0",
     "typescript": "^5.9.3",
-    "vitest": "4.0.14"
+    "vitest": "4.0.15"
   },
   "dependencies": {
     "@stricli/core": "^1.2.4",
