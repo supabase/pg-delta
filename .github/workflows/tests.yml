@@ -99,3 +99,22 @@ jobs:
         env:
           PG_DIFF_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
         run: pnpm test --project=integration --coverage
+
+  release-preview:
+    needs:
+      - test-type-check
+      - test-format-and-lint
+      - test-knip
+      - test-unit
+      - test-integration
+    name: Release preview
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Release preview
+        run: pnpm dlx pkg-pr-new publish
