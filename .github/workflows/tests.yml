@@ -17,7 +17,7 @@ concurrency:
 jobs:
   test-type-check:
     if: github.event.pull_request.draft == false
-    name: Type check
+    name: Check types
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,12 +26,12 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
 
-      - name: Type check
-        run: pnpm typecheck
+      - name: Check types
+        run: pnpm check-types
 
   test-format-and-lint:
     if: github.event.pull_request.draft == false
-    name: Lint and format
+    name: Format and lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
