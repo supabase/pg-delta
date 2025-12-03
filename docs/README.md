@@ -46,6 +46,7 @@ if (result) {
 - [CLI Reference](./cli.md) - Complete CLI documentation
 - [API Reference](./api.md) - Programmatic API documentation
 - [Integrations](./integrations.md) - Using and creating integrations
+- [Sorting & Safety](./sorting.md) - How migrations are ordered for safety
 
 ## Use Cases
 
