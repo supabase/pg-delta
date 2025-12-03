@@ -9,10 +9,10 @@ const root = buildRouteMap({
   docs: {
     brief: "PostgreSQL migrations made easy",
     fullDescription:
-      "pg-delta generates migration scripts by comparing two PostgreSQL databases.",
+      "pgdelta generates migration scripts by comparing two PostgreSQL databases.",
   },
 });
 
 export const app = buildApplication(root, {
-  name: "pg-delta",
+  name: "pgdelta",
 });
