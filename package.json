@@ -39,6 +39,7 @@
     "format-and-lint": "biome check . --error-on-warnings",
     "knip": "knip",
     "pgdelta": "node src/cli/bin/cli.ts",
+    "prepublishOnly": "pnpm build",
     "test": "vitest"
   },
   "dependencies": {
