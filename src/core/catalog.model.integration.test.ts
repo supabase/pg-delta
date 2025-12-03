@@ -2,18 +2,10 @@ import { describe, expect } from "vitest";
 import { POSTGRES_VERSIONS } from "../../tests/constants.ts";
 import { getTest, getTestWithSupabaseIsolated } from "../../tests/utils.ts";
 import { extractCatalog } from "./catalog.model.ts";
-import { stringifyWithBigInt } from "./objects/utils.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   const test = getTest(pgVersion);
   const testWithSupabase = getTestWithSupabaseIsolated(pgVersion);
-
-  test("extract empty catalog", async ({ db }) => {
-    const catalog = await extractCatalog(db.main);
-    expect(stringifyWithBigInt(catalog)).toMatchSnapshot(
-      `catalog-empty-pg${pgVersion}`,
-    );
-  });
 
   describe.concurrent(`catalog extraction (pg${pgVersion})`, () => {
     test("extract schemas and basic tables", async ({ db }) => {

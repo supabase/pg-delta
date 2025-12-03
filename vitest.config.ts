@@ -4,12 +4,6 @@ export default defineConfig({
   test: {
     testTimeout: 60_000,
     slowTestThreshold: 10_000,
-    resolveSnapshotPath: (testPath: string, snapExtension: string) => {
-      // Store all snapshots in tests/__snapshots__/
-      const testFileName =
-        testPath.split("/").pop()?.replace(".test.ts", "") ?? "";
-      return `tests/__snapshots__/${testFileName}${snapExtension}`;
-    },
     coverage: {
       // Also report coverage if some tests fail
       reportOnFailure: true,
