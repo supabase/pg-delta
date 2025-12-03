@@ -20,25 +20,18 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "imports": {
     "#test": "./test.ts"
   },
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
+    "check-types": "tsc --noEmit",
     "cli:dev": "node src/cli/bin/cli.ts",
-    "dev": "docker compose up",
-    "check": "biome check . --error-on-warnings",
-    "format": "biome format . --error-on-warnings",
-    "lint": "biome lint . --error-on-warnings",
+    "format-and-lint": "biome check . --error-on-warnings",
     "knip": "knip",
-    "test": "vitest run",
-    "test:unit": "vitest --project unit",
-    "test:integration": "vitest --project integration",
-    "test:watch": "vitest",
-    "coverage": "vitest run --coverage --project=integration",
-    "typecheck": "tsc --noEmit"
+    "test": "vitest"
   },
   "keywords": [
     "pg",
@@ -60,7 +53,7 @@
     "knip": "^5.71.0",
     "testcontainers": "^11.9.0",
     "typescript": "^5.9.3",
-    "vitest": "4.0.15"
+    "vitest": "^4.0.15"
   },
   "dependencies": {
     "@stricli/core": "^1.2.4",

@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup
         uses: ./.github/actions/setup
@@ -29,19 +29,19 @@ jobs:
       - name: Type check
         run: pnpm typecheck
 
-  test-lint-and-format:
+  test-format-and-lint:
     if: github.event.pull_request.draft == false
     name: Lint and format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup
         uses: ./.github/actions/setup
 
-      - name: Lint and format
-        run: pnpm check
+      - name: Format and lint
+        run: pnpm format-and-lint
 
   test-knip:
     if: github.event.pull_request.draft == false
@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup
         uses: ./.github/actions/setup
@@ -57,22 +57,41 @@ jobs:
       - name: Knip
         run: pnpm knip
 
-  test:
+  test-unit:
     if: github.event.pull_request.draft == false
-    name: Tests
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    name: Unit tests
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup
         uses: ./.github/actions/setup
 
-      - name: Run tests
-        run: pnpm coverage
+      - name: Run unit tests
+        run: pnpm test --project=unit --coverage
 
       # TODO: Uncomment this when we have the repository made public
       # - uses: coverallsapp/github-action@v2
       #   with:
       #     github-token: ${{ secrets.GITHUB_TOKEN }}
       #     path-to-lcov: coverage/lcov.info
+
+  test-integration:
+    if: github.event.pull_request.draft == false
+    name: Integration tests (PostgreSQL ${{ matrix.postgres_version }})
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    strategy:
+      matrix:
+        postgres_version: [15, 17]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Run integration tests
+        env:
+          PG_DIFF_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
+        run: pnpm test --project=integration --coverage
