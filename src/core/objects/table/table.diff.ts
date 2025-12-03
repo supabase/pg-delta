@@ -5,7 +5,7 @@ import {
   groupPrivilegesByColumns,
 } from "../base.privilege-diff.ts";
 import type { Role } from "../role/role.model.ts";
-import { deepEqual, stableId } from "../utils.ts";
+import { deepEqual } from "../utils.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
