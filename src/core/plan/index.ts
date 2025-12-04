@@ -32,6 +32,7 @@ export {
 } from "./serialize.ts";
 // Types
 export type {
+  ChangeEntry,
   ChangeGroup,
   ChangeScope,
   ChangesByObjectType,

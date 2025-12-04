@@ -11,6 +11,9 @@ importers:
       '@stricli/core':
         specifier: ^1.2.4
         version: 1.2.4
+      chalk:
+        specifier: ^5.6.2
+        version: 5.6.2
       debug:
         specifier: ^4.3.7
         version: 4.4.3
@@ -806,6 +809,10 @@ packages:
   chai@6.2.1:
     resolution: {integrity: sha512-p4Z49OGG5W/WBCPSS/dH3jQ73kD6tiMmUM+bckNK6Jr5JHMG3k9bg/BvKR8lKmtVBKmOiuVaV2ws8s9oSbwysg==}
     engines: {node: '>=18'}
+
+  chalk@5.6.2:
+    resolution: {integrity: sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA==}
+    engines: {node: ^12.17.0 || ^14.13 || >=16.0.0}
 
   chownr@1.1.4:
     resolution: {integrity: sha512-jJ0bqzaylmJtVnNgzTeSOs8DPavpbYgEr/b0YL8/2GO3xJEhInFmhKMUnEJQjZumK7KXGFhUy89PrsJWlakBVg==}
@@ -2127,6 +2134,8 @@ snapshots:
   byline@5.0.0: {}
 
   chai@6.2.1: {}
+
+  chalk@5.6.2: {}
 
   chownr@1.1.4: {}
 

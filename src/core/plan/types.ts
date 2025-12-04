@@ -94,12 +94,20 @@ export interface ChangesByOperation {
 // ============================================================================
 
 /**
+ * A change entry storing both serialized and original change for instanceof checks.
+ */
+export interface ChangeEntry {
+  serialized: SerializedChange;
+  original: Change;
+}
+
+/**
  * A group of changes organized by operation.
  */
 export interface ChangeGroup {
-  create: SerializedChange[];
-  alter: SerializedChange[];
-  drop: SerializedChange[];
+  create: ChangeEntry[];
+  alter: ChangeEntry[];
+  drop: ChangeEntry[];
 }
 
 /**

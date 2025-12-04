@@ -9,7 +9,6 @@ import { diffCatalogs } from "../../core/catalog.diff.ts";
 import { extractCatalog } from "../../core/catalog.model.ts";
 import type { DiffContext } from "../../core/context.ts";
 import { base } from "../../core/integrations/base.ts";
-import type { Integration } from "../../core/integrations/integration.types.ts";
 import type { Plan, PlanStats } from "../../core/plan/index.ts";
 import {
   groupChangesHierarchically,
@@ -88,7 +87,7 @@ Exit codes:
       // Compute diff
       const changes = diffCatalogs(fromCatalog, toCatalog);
 
-      const integration: Integration = base;
+      const integration = base;
       const ctx: DiffContext = {
         mainCatalog: fromCatalog,
         branchCatalog: toCatalog,
@@ -164,7 +163,7 @@ Exit codes:
       const isSqlOutput = outputPath?.endsWith(".sql") ?? false;
 
       // If outputting SQL, just write the SQL script
-      if (isSqlOutput && outputPath) {
+      if (outputPath && isSqlOutput) {
         await writeFile(outputPath, plan.sql, "utf-8");
         this.process.stdout.write(`Migration SQL written to ${outputPath}\n`);
         process.exitCode = 2;

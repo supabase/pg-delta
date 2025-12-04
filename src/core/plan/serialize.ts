@@ -162,8 +162,13 @@ export function getObjectSchema(change: Change): string | null {
  */
 export function getParentInfo(change: Change): ParentInfo | null {
   switch (change.objectType) {
-    case "index":
-      return { type: "table", name: change.index.table_name };
+    case "index": {
+      // Indexes can belong to tables or materialized views
+      // Use table_relkind to determine the parent type: 'r' = table, 'm' = materialized view
+      const parentType =
+        change.index.table_relkind === "m" ? "materialized_view" : "table";
+      return { type: parentType, name: change.index.table_name };
+    }
     case "trigger":
       return { type: "table", name: change.trigger.table_name };
     case "rule":
