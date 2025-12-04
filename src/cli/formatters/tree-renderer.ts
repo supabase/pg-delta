@@ -159,30 +159,27 @@ export function renderTree(root: TreeGroup): string {
   }
 
   // Render root groups at top level (no extra wrapper indentation)
-  for (let i = 0; i < rootGroups.length; i++) {
-    const group = rootGroups[i];
+  const flattenedGroups: TreeGroup[] = [];
+
+  for (const group of rootGroups) {
     const { base: label } = splitNameCount(group.name);
     if (label === "cluster") {
-      const summary = formatCounts(summarizeShallow(group.groups, group.items));
-      const header = colorizeName(label);
-      lines.push(summary ? `${header} ${summary}` : header);
-      renderChildren(group.items, group.groups, 1, lines);
-      if (i !== rootGroups.length - 1) {
-        lines.push("");
+      // Move cluster children to root
+      if (group.items) {
+        flattenedGroups.push(...group.items.map((it) => ({ name: it.name })));
       }
-      continue;
-    }
-
-    if (label === "schemas") {
-      const header = colorizeName(label);
-      lines.push(header);
-      renderChildren(group.items, group.groups, 1, lines);
-      if (i !== rootGroups.length - 1) {
-        lines.push("");
+      if (group.groups) {
+        flattenedGroups.push(...group.groups);
       }
-      continue;
+    } else {
+      flattenedGroups.push(group);
     }
+  }
 
+  const processedGroups = flattenedGroups;
+
+  for (let i = 0; i < processedGroups.length; i++) {
+    const group = processedGroups[i];
     renderFlatGroup(group, 0, lines);
   }
 
