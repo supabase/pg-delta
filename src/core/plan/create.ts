@@ -7,19 +7,16 @@ import { diffCatalogs } from "../catalog.diff.ts";
 import { extractCatalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
+import {
+  buildPlanScopeFingerprint,
+  hashStableIds,
+  sha256,
+} from "../fingerprint.ts";
 import { base } from "../integrations/base.ts";
 import type { Integration } from "../integrations/integration.types.ts";
 import { postgresConfig } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
-import { serializeChange } from "./serialize.ts";
-import type {
-  ChangesByObjectType,
-  ChangesByOperation,
-  CreatePlanOptions,
-  Plan,
-  PlanStats,
-  SerializedChange,
-} from "./types.ts";
+import type { CreatePlanOptions, Plan } from "./types.ts";
 
 // ============================================================================
 // Plan Creation
@@ -84,15 +81,23 @@ function buildPlan(
   changes: Change[],
   integration: Integration,
 ): Plan {
-  const serializedChanges = changes.map((change) =>
-    serializeChange(ctx, change, integration),
-  );
-
   const sql = generateSqlScript(ctx, changes, integration);
-  const stats = computeStats(serializedChanges);
+  const stats = computeStats(changes);
+
+  const { hash: fingerprintFrom, stableIds } = buildPlanScopeFingerprint(
+    ctx.mainCatalog,
+    changes,
+  );
+  const fingerprintTo = hashStableIds(ctx.branchCatalog, stableIds);
+  const sqlHash = sha256(sql);
 
   return {
-    changes: serializedChanges,
+    version: 1,
+    integration: { id: integration === base ? "base" : "custom" },
+    stableIds,
+    fingerprintFrom,
+    fingerprintTo,
+    sqlHash,
     sql,
     stats,
   };
@@ -128,8 +133,20 @@ function generateSqlScript(
 /**
  * Compute statistics about the changes.
  */
-function computeStats(changes: SerializedChange[]): PlanStats {
-  const stats: PlanStats = {
+function computeStats(changes: Change[]): {
+  total: number;
+  creates: number;
+  alters: number;
+  drops: number;
+  byObjectType: Record<string, number>;
+} {
+  const stats: {
+    total: number;
+    creates: number;
+    alters: number;
+    drops: number;
+    byObjectType: Record<string, number>;
+  } = {
     total: changes.length,
     creates: 0,
     alters: 0,
@@ -160,40 +177,3 @@ function computeStats(changes: SerializedChange[]): PlanStats {
 // ============================================================================
 // Flat Organization Helpers
 // ============================================================================
-
-/**
- * Group changes by object type (flat structure).
- */
-export function groupChangesByObjectType(
-  changes: SerializedChange[],
-): ChangesByObjectType {
-  const grouped: ChangesByObjectType = {};
-
-  for (const change of changes) {
-    if (!grouped[change.objectType]) {
-      grouped[change.objectType] = [];
-    }
-    grouped[change.objectType].push(change);
-  }
-
-  return grouped;
-}
-
-/**
- * Group changes by operation (flat structure).
- */
-export function groupChangesByOperation(
-  changes: SerializedChange[],
-): ChangesByOperation {
-  const grouped: ChangesByOperation = {
-    create: [],
-    alter: [],
-    drop: [],
-  };
-
-  for (const change of changes) {
-    grouped[change.operation].push(change);
-  }
-
-  return grouped;
-}

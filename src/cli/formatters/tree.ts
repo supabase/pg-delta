@@ -15,7 +15,9 @@ export function formatTree(plan: HierarchicalPlan, stats: PlanStats): string {
 
   // Summary
   lines.push(
-    chalk.bold(`📋 Migration Plan: ${stats.total} change${stats.total !== 1 ? "s" : ""}`),
+    chalk.bold(
+      `📋 Migration Plan: ${stats.total} change${stats.total !== 1 ? "s" : ""}`,
+    ),
   );
   const summary = buildSummaryLine(plan, stats);
   if (summary) {
@@ -32,7 +34,9 @@ export function formatTree(plan: HierarchicalPlan, stats: PlanStats): string {
 
   // Legend
   lines.push("");
-  lines.push(`Legend:  ${chalk.green("+")} create   ${chalk.red("-")} drop   ${chalk.yellow("~")} alter`);
+  lines.push(
+    `Legend:  ${chalk.green("+")} create   ${chalk.red("-")} drop   ${chalk.yellow("~")} alter`,
+  );
 
   return lines.join("\n");
 }
@@ -40,7 +44,7 @@ export function formatTree(plan: HierarchicalPlan, stats: PlanStats): string {
 /**
  * Build summary as a table showing counts by entity type and operation.
  */
-function buildSummaryLine(plan: HierarchicalPlan, stats: PlanStats): string {
+function buildSummaryLine(plan: HierarchicalPlan, _stats: PlanStats): string {
   // Count by object type
   const byType: Record<
     string,
@@ -67,9 +71,18 @@ function buildSummaryLine(plan: HierarchicalPlan, stats: PlanStats): string {
     const typeStr = type.replace(/_/g, "-");
     maxNameWidth = Math.max(maxNameWidth, typeStr.length);
     // For width calculation, use "1" instead of "0" since we'll show "-" for zeros
-    maxCreateWidth = Math.max(maxCreateWidth, counts.create > 0 ? counts.create.toString().length : 1);
-    maxAlterWidth = Math.max(maxAlterWidth, counts.alter > 0 ? counts.alter.toString().length : 1);
-    maxDropWidth = Math.max(maxDropWidth, counts.drop > 0 ? counts.drop.toString().length : 1);
+    maxCreateWidth = Math.max(
+      maxCreateWidth,
+      counts.create > 0 ? counts.create.toString().length : 1,
+    );
+    maxAlterWidth = Math.max(
+      maxAlterWidth,
+      counts.alter > 0 ? counts.alter.toString().length : 1,
+    );
+    maxDropWidth = Math.max(
+      maxDropWidth,
+      counts.drop > 0 ? counts.drop.toString().length : 1,
+    );
   }
 
   // Ensure minimum widths for headers
@@ -95,17 +108,20 @@ function buildSummaryLine(plan: HierarchicalPlan, stats: PlanStats): string {
     const createDisplay = counts.create > 0 ? counts.create.toString() : "-";
     const alterDisplay = counts.alter > 0 ? counts.alter.toString() : "-";
     const dropDisplay = counts.drop > 0 ? counts.drop.toString() : "-";
-    
-    const createStr = counts.create > 0 
-      ? chalk.green(createDisplay.padStart(maxCreateWidth))
-      : chalk.dim(createDisplay.padStart(maxCreateWidth));
-    const alterStr = counts.alter > 0
-      ? chalk.yellow(alterDisplay.padStart(maxAlterWidth))
-      : chalk.dim(alterDisplay.padStart(maxAlterWidth));
-    const dropStr = counts.drop > 0
-      ? chalk.red(dropDisplay.padStart(maxDropWidth))
-      : chalk.dim(dropDisplay.padStart(maxDropWidth));
-    
+
+    const createStr =
+      counts.create > 0
+        ? chalk.green(createDisplay.padStart(maxCreateWidth))
+        : chalk.dim(createDisplay.padStart(maxCreateWidth));
+    const alterStr =
+      counts.alter > 0
+        ? chalk.yellow(alterDisplay.padStart(maxAlterWidth))
+        : chalk.dim(alterDisplay.padStart(maxAlterWidth));
+    const dropStr =
+      counts.drop > 0
+        ? chalk.red(dropDisplay.padStart(maxDropWidth))
+        : chalk.dim(dropDisplay.padStart(maxDropWidth));
+
     lines.push(
       `  ${typeStr.padEnd(maxNameWidth)}  ${createStr}  ${alterStr}  ${dropStr}`,
     );

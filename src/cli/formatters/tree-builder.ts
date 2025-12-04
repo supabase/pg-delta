@@ -1,5 +1,6 @@
 /**
  * Builds a generic tree structure from a HierarchicalPlan.
+ * Shows only structural changes (scope === "object"), grouped for readability.
  */
 
 import {
@@ -16,97 +17,34 @@ import type {
   ChangeGroup,
   HierarchicalPlan,
 } from "../../core/plan/index.ts";
+import { getObjectName } from "../../core/plan/serialize.ts";
 import type { TreeGroup, TreeItem } from "./tree-renderer.ts";
 
-/**
- * Filter a ChangeGroup to only include structural changes (scope === "object").
- */
-function filterStructuralChanges(group: ChangeGroup): ChangeGroup {
+function structural(group: ChangeGroup): ChangeGroup {
+  const onlyStructural = (entry: ChangeEntry) =>
+    entry.original.scope === "object";
   return {
-    create: group.create.filter((entry) => entry.serialized.scope === "object"),
-    alter: group.alter.filter((entry) => entry.serialized.scope === "object"),
-    drop: group.drop.filter((entry) => entry.serialized.scope === "object"),
+    create: group.create.filter(onlyStructural),
+    alter: group.alter.filter(onlyStructural),
+    drop: group.drop.filter(onlyStructural),
   };
 }
 
-/**
- * Determines the primary operation symbol for an entity based on its structural changes.
- * Prioritizes create > alter > drop.
- */
-function getEntitySymbol(group: ChangeGroup): string {
-  const structural = filterStructuralChanges(group);
-  if (structural.create.length > 0) return "+";
-  if (structural.alter.length > 0) return "~";
-  if (structural.drop.length > 0) return "-";
-  return ""; // No structural changes
+function hasStructural(group: ChangeGroup): boolean {
+  const g = structural(group);
+  return g.create.length + g.alter.length + g.drop.length > 0;
 }
 
-/**
- * Determines the primary operation symbol for a table based on its structural changes AND children changes.
- * This ensures consistency - if a table has children being created/altered/dropped, it shows a symbol.
- * Prioritizes create > alter > drop.
- */
-function getTableSymbol(
-  table: HierarchicalPlan["schemas"][string]["tables"][string],
-): string {
-  // First check table-level structural changes
-  const tableStructural = filterStructuralChanges(table.changes);
-  if (tableStructural.create.length > 0) return "+";
-  if (tableStructural.alter.length > 0) return "~";
-  if (tableStructural.drop.length > 0) return "-";
-
-  // Then check children changes (columns, indexes, triggers, etc.)
-  // Check columns
-  const columnStructural = filterStructuralChanges(table.columns);
-  if (columnStructural.create.length > 0) return "+";
-  if (columnStructural.alter.length > 0) return "~";
-  if (columnStructural.drop.length > 0) return "-";
-
-  // Check indexes
-  const indexStructural = filterStructuralChanges(table.indexes);
-  if (indexStructural.create.length > 0) return "+";
-  if (indexStructural.alter.length > 0) return "~";
-  if (indexStructural.drop.length > 0) return "-";
-
-  // Check triggers
-  const triggerStructural = filterStructuralChanges(table.triggers);
-  if (triggerStructural.create.length > 0) return "+";
-  if (triggerStructural.alter.length > 0) return "~";
-  if (triggerStructural.drop.length > 0) return "-";
-
-  // Check rules
-  const ruleStructural = filterStructuralChanges(table.rules);
-  if (ruleStructural.create.length > 0) return "+";
-  if (ruleStructural.alter.length > 0) return "~";
-  if (ruleStructural.drop.length > 0) return "-";
-
-  // Check policies
-  const policyStructural = filterStructuralChanges(table.policies);
-  if (policyStructural.create.length > 0) return "+";
-  if (policyStructural.alter.length > 0) return "~";
-  if (policyStructural.drop.length > 0) return "-";
-
-  // Check partitions
-  for (const partition of Object.values(table.partitions)) {
-    const partitionSymbol = getTableSymbol(partition);
-    if (partitionSymbol === "+") return "+";
-    if (partitionSymbol === "~") return "~";
-    if (partitionSymbol === "-") return "-";
-  }
-
-  return ""; // No structural changes in table or children
+function symbol(group: ChangeGroup): string {
+  const g = structural(group);
+  if (g.create.length > 0) return "+";
+  if (g.alter.length > 0) return "~";
+  if (g.drop.length > 0) return "-";
+  return "";
 }
 
-/**
- * Get display name for a change entry.
- * Uses instanceof checks to extract column names for column operations.
- */
-function getDisplayName(entry: ChangeEntry): string {
-  const { serialized, original } = entry;
-
-  // For column operations, extract column name using instanceof
-  // Column operations are stored in table.columns but serialized.name is the table name
-  // We need to check the original Change object to get the actual column name
+function displayName(entry: ChangeEntry): string {
+  const { original } = entry;
   if (
     original instanceof AlterTableAddColumn ||
     original instanceof AlterTableDropColumn ||
@@ -118,516 +56,237 @@ function getDisplayName(entry: ChangeEntry): string {
   ) {
     return original.column.name;
   }
-
-  // For all other changes, use the serialized name
-  return serialized.name;
+  return getObjectName(original);
 }
 
-/**
- * Convert a ChangeGroup to TreeItems.
- */
-function changeGroupToItems(group: ChangeGroup): TreeItem[] {
+function toItems(group: ChangeGroup): TreeItem[] {
   const items: TreeItem[] = [];
-  for (const entry of group.create) {
-    items.push({ name: `+ ${getDisplayName(entry)}` });
+  const s = structural(group);
+  for (const entry of s.create) {
+    items.push({ name: `+ ${displayName(entry)}` });
   }
-  for (const entry of group.alter) {
-    items.push({ name: `~ ${getDisplayName(entry)}` });
+  for (const entry of s.alter) {
+    items.push({ name: `~ ${displayName(entry)}` });
   }
-  for (const entry of group.drop) {
-    items.push({ name: `- ${getDisplayName(entry)}` });
+  for (const entry of s.drop) {
+    items.push({ name: `- ${displayName(entry)}` });
   }
   return items;
 }
 
-/**
- * Build tree structure for table children.
- */
-function buildTableChildrenTree(
+function tableChildren(
   table: HierarchicalPlan["schemas"][string]["tables"][string],
 ): TreeGroup[] {
   const groups: TreeGroup[] = [];
 
-  // Columns
-  if (
-    table.columns.create.length +
-      table.columns.alter.length +
-      table.columns.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "columns",
-      items: changeGroupToItems(table.columns),
-    });
-  }
+  const pushGroup = (name: string, grp: ChangeGroup) => {
+    if (hasStructural(grp)) {
+      const items = toItems(grp);
+      const label = items.length > 0 ? `${name} (${items.length})` : name;
+      groups.push({ name: label, items });
+    }
+  };
 
-  // Indexes
-  if (
-    table.indexes.create.length +
-      table.indexes.alter.length +
-      table.indexes.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "indexes",
-      items: changeGroupToItems(table.indexes),
-    });
-  }
+  pushGroup("columns", table.columns);
+  pushGroup("indexes", table.indexes);
+  pushGroup("triggers", table.triggers);
+  pushGroup("rules", table.rules);
+  pushGroup("policies", table.policies);
 
-  // Triggers
-  if (
-    table.triggers.create.length +
-      table.triggers.alter.length +
-      table.triggers.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "triggers",
-      items: changeGroupToItems(table.triggers),
-    });
-  }
-
-  // Rules
-  if (
-    table.rules.create.length +
-      table.rules.alter.length +
-      table.rules.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "rules",
-      items: changeGroupToItems(table.rules),
-    });
-  }
-
-  // Policies
-  if (
-    table.policies.create.length +
-      table.policies.alter.length +
-      table.policies.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "policies",
-      items: changeGroupToItems(table.policies),
-    });
-  }
-
-  // Partitions
   const partitionNames = Object.keys(table.partitions).sort();
   if (partitionNames.length > 0) {
-    const partitionGroups: TreeGroup[] = [];
-    for (const partitionName of partitionNames) {
-      const partition = table.partitions[partitionName];
-      const symbol = getTableSymbol(partition);
-      partitionGroups.push({
-        name: symbol ? `${symbol} ${partitionName}` : partitionName,
-        groups: buildTableChildrenTree(partition),
+    const partitionGroups = partitionNames
+      .map((name) => {
+        const part = table.partitions[name];
+        const sym = tableSymbol(part);
+        const childGroups = tableChildren(part);
+        if (!hasStructural(part.changes) && childGroups.length === 0) {
+          return null;
+        }
+        return {
+          name: sym ? `${sym} ${name}` : name,
+          groups: childGroups,
+        };
+      })
+      .filter(Boolean) as TreeGroup[];
+    if (partitionGroups.length > 0) {
+      groups.push({
+        name: `partitions (${partitionGroups.length})`,
+        groups: partitionGroups,
       });
     }
-    groups.push({
-      name: "partitions",
-      groups: partitionGroups,
-    });
   }
 
   return groups;
 }
 
-/**
- * Determines the primary operation symbol for a materialized view based on its structural changes AND children changes.
- * Similar to getTableSymbol but for materialized views.
- */
-function getMaterializedViewSymbol(
-  matview: HierarchicalPlan["schemas"][string]["materializedViews"][string],
+function tableSymbol(
+  table: HierarchicalPlan["schemas"][string]["tables"][string],
 ): string {
-  // First check view-level structural changes
-  const viewStructural = filterStructuralChanges(matview.changes);
-  if (viewStructural.create.length > 0) return "+";
-  if (viewStructural.alter.length > 0) return "~";
-  if (viewStructural.drop.length > 0) return "-";
-
-  // Then check children changes (indexes)
-  const indexStructural = filterStructuralChanges(matview.indexes);
-  if (indexStructural.create.length > 0) return "+";
-  if (indexStructural.alter.length > 0) return "~";
-  if (indexStructural.drop.length > 0) return "-";
-
-  return ""; // No structural changes in view or children
+  const own = symbol(table.changes);
+  if (own) return own;
+  const childSymbols = [
+    symbol(table.columns),
+    symbol(table.indexes),
+    symbol(table.triggers),
+    symbol(table.rules),
+    symbol(table.policies),
+  ];
+  if (childSymbols.includes("+")) return "+";
+  if (childSymbols.includes("~")) return "~";
+  if (childSymbols.includes("-")) return "-";
+  for (const part of Object.values(table.partitions)) {
+    const s = tableSymbol(part);
+    if (s) return s;
+  }
+  return "";
 }
 
-/**
- * Build tree structure for materialized view children.
- */
-function buildMaterializedViewChildrenTree(
-  matview: HierarchicalPlan["schemas"][string]["materializedViews"][string],
+function matviewSymbol(
+  mv: HierarchicalPlan["schemas"][string]["materializedViews"][string],
+): string {
+  const own = symbol(mv.changes);
+  if (own) return own;
+  const child = symbol(mv.indexes);
+  return child;
+}
+
+function matviewChildren(
+  mv: HierarchicalPlan["schemas"][string]["materializedViews"][string],
 ): TreeGroup[] {
   const groups: TreeGroup[] = [];
-
-  if (
-    matview.indexes.create.length +
-      matview.indexes.alter.length +
-      matview.indexes.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "indexes",
-      items: changeGroupToItems(matview.indexes),
-    });
+  if (hasStructural(mv.indexes)) {
+    groups.push({ name: "indexes", items: toItems(mv.indexes) });
   }
-
   return groups;
 }
 
-/**
- * Build tree structure for cluster group.
- */
-function buildClusterTree(cluster: HierarchicalPlan["cluster"]): TreeGroup[] {
-  const groups: TreeGroup[] = [];
+function buildCluster(cluster: HierarchicalPlan["cluster"]): TreeGroup[] {
+  const groups: Array<[string, ChangeGroup]> = [
+    ["roles", cluster.roles],
+    ["extensions", cluster.extensions],
+    ["event-triggers", cluster.eventTriggers],
+    ["publications", cluster.publications],
+    ["subscriptions", cluster.subscriptions],
+    ["foreign-data-wrappers", cluster.foreignDataWrappers],
+    ["servers", cluster.servers],
+    ["user-mappings", cluster.userMappings],
+  ];
 
-  if (
-    cluster.roles.create.length +
-      cluster.roles.alter.length +
-      cluster.roles.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "roles",
-      items: changeGroupToItems(cluster.roles),
+  return groups
+    .filter(([, grp]) => hasStructural(grp))
+    .map(([name, grp]) => {
+      const items = toItems(grp);
+      const label = items.length > 0 ? `${name} (${items.length})` : name;
+      return { name: label, items };
     });
-  }
-
-  if (
-    cluster.extensions.create.length +
-      cluster.extensions.alter.length +
-      cluster.extensions.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "extensions",
-      items: changeGroupToItems(cluster.extensions),
-    });
-  }
-
-  if (
-    cluster.eventTriggers.create.length +
-      cluster.eventTriggers.alter.length +
-      cluster.eventTriggers.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "event-triggers",
-      items: changeGroupToItems(cluster.eventTriggers),
-    });
-  }
-
-  if (
-    cluster.publications.create.length +
-      cluster.publications.alter.length +
-      cluster.publications.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "publications",
-      items: changeGroupToItems(cluster.publications),
-    });
-  }
-
-  if (
-    cluster.subscriptions.create.length +
-      cluster.subscriptions.alter.length +
-      cluster.subscriptions.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "subscriptions",
-      items: changeGroupToItems(cluster.subscriptions),
-    });
-  }
-
-  if (
-    cluster.foreignDataWrappers.create.length +
-      cluster.foreignDataWrappers.alter.length +
-      cluster.foreignDataWrappers.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "foreign-data-wrappers",
-      items: changeGroupToItems(cluster.foreignDataWrappers),
-    });
-  }
-
-  if (
-    cluster.servers.create.length +
-      cluster.servers.alter.length +
-      cluster.servers.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "servers",
-      items: changeGroupToItems(cluster.servers),
-    });
-  }
-
-  if (
-    cluster.userMappings.create.length +
-      cluster.userMappings.alter.length +
-      cluster.userMappings.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "user-mappings",
-      items: changeGroupToItems(cluster.userMappings),
-    });
-  }
-
-  return groups;
 }
 
-/**
- * Build tree structure for schema group.
- */
-function buildSchemaTree(
-  schema: HierarchicalPlan["schemas"][string],
-): TreeGroup[] {
+function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
   const groups: TreeGroup[] = [];
 
-  // Tables
+  const pushItems = (name: string, grp: ChangeGroup) => {
+    if (hasStructural(grp)) groups.push({ name, items: toItems(grp) });
+  };
+
   const tableNames = Object.keys(schema.tables).sort();
   if (tableNames.length > 0) {
-    const tableGroups: TreeGroup[] = [];
-    for (const tableName of tableNames) {
-      const table = schema.tables[tableName];
-      const symbol = getTableSymbol(table);
-      const childrenGroups = buildTableChildrenTree(table);
-      
-      // Only include table if it has structural changes OR has children with changes
-      const tableStructural = filterStructuralChanges(table.changes);
-      const hasTableChanges = tableStructural.create.length > 0 || tableStructural.alter.length > 0 || tableStructural.drop.length > 0;
-      if (hasTableChanges || childrenGroups.length > 0) {
-        tableGroups.push({
-          name: symbol ? `${symbol} ${tableName}` : tableName,
-          groups: childrenGroups,
-        });
-      }
-    }
+    const tableGroups = tableNames
+      .map((name) => {
+        const table = schema.tables[name];
+        const sym = tableSymbol(table);
+        const children = tableChildren(table);
+        if (!hasStructural(table.changes) && children.length === 0) return null;
+        return { name: sym ? `${sym} ${name}` : name, groups: children };
+      })
+      .filter(Boolean) as TreeGroup[];
     if (tableGroups.length > 0) {
       groups.push({
-        name: "tables",
+        name: `tables (${tableGroups.length})`,
         groups: tableGroups,
       });
     }
   }
 
-  // Views
   const viewNames = Object.keys(schema.views).sort();
   if (viewNames.length > 0) {
-    const viewGroups: TreeGroup[] = [];
-    for (const viewName of viewNames) {
-      const view = schema.views[viewName];
-      const symbol = getTableSymbol(view);
-      const viewChildrenGroups = buildTableChildrenTree(view);
-      
-      // Only include view if it has structural changes OR has children with changes
-      const viewStructural = filterStructuralChanges(view.changes);
-      const hasViewChanges = viewStructural.create.length > 0 || viewStructural.alter.length > 0 || viewStructural.drop.length > 0;
-      if (hasViewChanges || viewChildrenGroups.length > 0) {
-        viewGroups.push({
-          name: symbol ? `${symbol} ${viewName}` : viewName,
-          groups: viewChildrenGroups,
-        });
-      }
-    }
+    const viewGroups = viewNames
+      .map((name) => {
+        const view = schema.views[name];
+        const sym = tableSymbol(view);
+        const children = tableChildren(view);
+        if (!hasStructural(view.changes) && children.length === 0) return null;
+        return { name: sym ? `${sym} ${name}` : name, groups: children };
+      })
+      .filter(Boolean) as TreeGroup[];
     if (viewGroups.length > 0) {
       groups.push({
-        name: "views",
+        name: `views (${viewGroups.length})`,
         groups: viewGroups,
       });
     }
   }
 
-  // Materialized Views
-  const matviewNames = Object.keys(schema.materializedViews).sort();
-  if (matviewNames.length > 0) {
-    const matviewGroups: TreeGroup[] = [];
-    for (const matviewName of matviewNames) {
-      const matview = schema.materializedViews[matviewName];
-      const symbol = getMaterializedViewSymbol(matview);
-      const matviewChildrenGroups = buildMaterializedViewChildrenTree(matview);
-      
-      // Only include materialized view if it has structural changes OR has children with changes
-      const matviewStructural = filterStructuralChanges(matview.changes);
-      const hasMatviewChanges = matviewStructural.create.length > 0 || matviewStructural.alter.length > 0 || matviewStructural.drop.length > 0;
-      if (hasMatviewChanges || matviewChildrenGroups.length > 0) {
-        matviewGroups.push({
-          name: symbol ? `${symbol} ${matviewName}` : matviewName,
-          groups: matviewChildrenGroups,
-        });
-      }
-    }
-    if (matviewGroups.length > 0) {
+  const mvNames = Object.keys(schema.materializedViews).sort();
+  if (mvNames.length > 0) {
+    const mvGroups = mvNames
+      .map((name) => {
+        const mv = schema.materializedViews[name];
+        const sym = matviewSymbol(mv);
+        const children = matviewChildren(mv);
+        if (!hasStructural(mv.changes) && children.length === 0) return null;
+        return { name: sym ? `${sym} ${name}` : name, groups: children };
+      })
+      .filter(Boolean) as TreeGroup[];
+    if (mvGroups.length > 0) {
       groups.push({
-        name: "materialized-views",
-        groups: matviewGroups,
+        name: `materialized-views (${mvGroups.length})`,
+        groups: mvGroups,
       });
     }
   }
 
-  // Functions
-  if (
-    schema.functions.create.length +
-      schema.functions.alter.length +
-      schema.functions.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "functions",
-      items: changeGroupToItems(schema.functions),
+  pushItems("functions", schema.functions);
+  pushItems("procedures", schema.procedures);
+  pushItems("aggregates", schema.aggregates);
+  pushItems("sequences", schema.sequences);
+
+  const typeGroups: TreeGroup[] = [];
+  if (hasStructural(schema.types.enums)) {
+    typeGroups.push({ name: "enums", items: toItems(schema.types.enums) });
+  }
+  if (hasStructural(schema.types.composites)) {
+    typeGroups.push({
+      name: "composite-types",
+      items: toItems(schema.types.composites),
     });
   }
-
-  // Procedures
-  if (
-    schema.procedures.create.length +
-      schema.procedures.alter.length +
-      schema.procedures.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "procedures",
-      items: changeGroupToItems(schema.procedures),
-    });
+  if (hasStructural(schema.types.ranges)) {
+    typeGroups.push({ name: "ranges", items: toItems(schema.types.ranges) });
+  }
+  if (hasStructural(schema.types.domains)) {
+    typeGroups.push({ name: "domains", items: toItems(schema.types.domains) });
+  }
+  if (typeGroups.length > 0) {
+    groups.push({ name: `types (${typeGroups.length})`, groups: typeGroups });
   }
 
-  // Aggregates
-  if (
-    schema.aggregates.create.length +
-      schema.aggregates.alter.length +
-      schema.aggregates.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "aggregates",
-      items: changeGroupToItems(schema.aggregates),
-    });
-  }
+  pushItems("collations", schema.collations);
 
-  // Sequences
-  if (
-    schema.sequences.create.length +
-      schema.sequences.alter.length +
-      schema.sequences.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "sequences",
-      items: changeGroupToItems(schema.sequences),
-    });
-  }
-
-  // Types
-  const hasTypes =
-    schema.types.enums.create.length +
-      schema.types.enums.alter.length +
-      schema.types.enums.drop.length +
-      schema.types.composites.create.length +
-      schema.types.composites.alter.length +
-      schema.types.composites.drop.length +
-      schema.types.ranges.create.length +
-      schema.types.ranges.alter.length +
-      schema.types.ranges.drop.length +
-      schema.types.domains.create.length +
-      schema.types.domains.alter.length +
-      schema.types.domains.drop.length >
-    0;
-
-  if (hasTypes) {
-    const typeGroups: TreeGroup[] = [];
-    if (
-      schema.types.enums.create.length +
-        schema.types.enums.alter.length +
-        schema.types.enums.drop.length >
-      0
-    ) {
-      typeGroups.push({
-        name: "enums",
-        items: changeGroupToItems(schema.types.enums),
-      });
-    }
-    if (
-      schema.types.composites.create.length +
-        schema.types.composites.alter.length +
-        schema.types.composites.drop.length >
-      0
-    ) {
-      typeGroups.push({
-        name: "composite-types",
-        items: changeGroupToItems(schema.types.composites),
-      });
-    }
-    if (
-      schema.types.ranges.create.length +
-        schema.types.ranges.alter.length +
-        schema.types.ranges.drop.length >
-      0
-    ) {
-      typeGroups.push({
-        name: "ranges",
-        items: changeGroupToItems(schema.types.ranges),
-      });
-    }
-    if (
-      schema.types.domains.create.length +
-        schema.types.domains.alter.length +
-        schema.types.domains.drop.length >
-      0
-    ) {
-      typeGroups.push({
-        name: "domains",
-        items: changeGroupToItems(schema.types.domains),
-      });
-    }
-    groups.push({
-      name: "types",
-      groups: typeGroups,
-    });
-  }
-
-  // Collations
-  if (
-    schema.collations.create.length +
-      schema.collations.alter.length +
-      schema.collations.drop.length >
-    0
-  ) {
-    groups.push({
-      name: "collations",
-      items: changeGroupToItems(schema.collations),
-    });
-  }
-
-  // Foreign Tables
-  const foreignTableNames = Object.keys(schema.foreignTables).sort();
-  if (foreignTableNames.length > 0) {
-    const ftGroups: TreeGroup[] = [];
-    for (const ftName of foreignTableNames) {
-      const ft = schema.foreignTables[ftName];
-      const symbol = getTableSymbol(ft);
-      const ftChildrenGroups = buildTableChildrenTree(ft);
-      
-      // Only include foreign table if it has structural changes OR has children with changes
-      const ftStructural = filterStructuralChanges(ft.changes);
-      const hasFtChanges = ftStructural.create.length > 0 || ftStructural.alter.length > 0 || ftStructural.drop.length > 0;
-      if (hasFtChanges || ftChildrenGroups.length > 0) {
-        ftGroups.push({
-          name: symbol ? `${symbol} ${ftName}` : ftName,
-          groups: ftChildrenGroups,
-        });
-      }
-    }
+  const ftNames = Object.keys(schema.foreignTables).sort();
+  if (ftNames.length > 0) {
+    const ftGroups = ftNames
+      .map((name) => {
+        const ft = schema.foreignTables[name];
+        const sym = tableSymbol(ft);
+        const children = tableChildren(ft);
+        if (!hasStructural(ft.changes) && children.length === 0) return null;
+        return { name: sym ? `${sym} ${name}` : name, groups: children };
+      })
+      .filter(Boolean) as TreeGroup[];
     if (ftGroups.length > 0) {
       groups.push({
-        name: "foreign-tables",
+        name: `foreign-tables (${ftGroups.length})`,
         groups: ftGroups,
       });
     }
@@ -642,54 +301,33 @@ function buildSchemaTree(
 export function buildPlanTree(plan: HierarchicalPlan): TreeGroup {
   const rootGroups: TreeGroup[] = [];
 
-  // Cluster-wide objects
-  const clusterGroups = buildClusterTree(plan.cluster);
+  const clusterGroups = buildCluster(plan.cluster);
   if (clusterGroups.length > 0) {
-    rootGroups.push({
-      name: "cluster",
-      groups: clusterGroups,
-    });
+    rootGroups.push({ name: "cluster", groups: clusterGroups });
   }
 
-  // Schema-scoped objects
   const schemaNames = Object.keys(plan.schemas).sort();
   if (schemaNames.length > 0) {
-    const schemaGroups: TreeGroup[] = [];
-    for (const schemaName of schemaNames) {
-      const schema = plan.schemas[schemaName];
-      const structuralChanges = filterStructuralChanges(schema.changes);
-      const symbol = getEntitySymbol(structuralChanges);
-      const childGroups = buildSchemaTree(schema);
-      
-      // Only include schemas that have changes (structural changes or child objects with changes)
-      const hasSchemaChanges = structuralChanges.create.length > 0 ||
-        structuralChanges.alter.length > 0 ||
-        structuralChanges.drop.length > 0;
-      
-      if (hasSchemaChanges || childGroups.length > 0) {
-        schemaGroups.push({
-          name: `${symbol} ${schemaName}`,
-          groups: childGroups,
-        });
-      }
-    }
-    
-    // Only add database group if there are schemas with changes
+    const schemaGroups = schemaNames
+      .map((schemaName) => {
+        const schema = plan.schemas[schemaName];
+        const sym = symbol(schema.changes);
+        const children = buildSchema(schema);
+        if (!hasStructural(schema.changes) && children.length === 0) {
+          return null;
+        }
+        const label = sym ? `${sym} ${schemaName}` : schemaName;
+        return { name: label, groups: children };
+      })
+      .filter(Boolean) as TreeGroup[];
+
     if (schemaGroups.length > 0) {
       rootGroups.push({
         name: "database",
-        groups: [
-          {
-            name: "schemas",
-            groups: schemaGroups,
-          },
-        ],
+        groups: [{ name: "schemas", groups: schemaGroups }],
       });
     }
   }
 
-  return {
-    name: "Migration Plan",
-    groups: rootGroups,
-  };
+  return { name: "Migration Plan", groups: rootGroups };
 }

@@ -11,8 +11,6 @@
 export type {
   ChangeGroup,
   ChangeScope,
-  ChangesByObjectType,
-  ChangesByOperation,
   ChildObjectType,
   ClusterGroup,
   ClusterObjectType,
@@ -24,14 +22,11 @@ export type {
   Plan,
   PlanStats,
   SchemaGroup,
-  SerializedChange,
   TableChildren,
   TypeGroup,
 } from "./plan/index.ts";
 export {
   createPlan,
-  groupChangesByObjectType,
-  groupChangesByOperation,
   groupChangesHierarchically,
 } from "./plan/index.ts";
 
@@ -54,5 +49,11 @@ export { diffCatalogs } from "./catalog.diff.ts";
 export { Catalog, extractCatalog } from "./catalog.model.ts";
 export type { Change } from "./change.types.ts";
 export type { DiffContext } from "./context.ts";
+export {
+  buildPlanScopeFingerprint,
+  collectStableIds,
+  hashStableIds,
+  sha256,
+} from "./fingerprint.ts";
 export { postgresConfig } from "./postgres-config.ts";
 export { sortChanges } from "./sort/sort-changes.ts";

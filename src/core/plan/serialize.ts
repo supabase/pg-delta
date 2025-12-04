@@ -1,11 +1,9 @@
 /**
- * Serialization utilities for converting Change objects to SerializedChange.
+ * Helpers for extracting object info from Change objects.
  */
 
 import type { Change } from "../change.types.ts";
-import type { DiffContext } from "../context.ts";
-import type { Integration } from "../integrations/integration.types.ts";
-import type { ParentType, SerializedChange } from "./types.ts";
+import type { ParentType } from "./types.ts";
 
 // ============================================================================
 // Type-safe Change Accessors (with exhaustive checking)
@@ -229,28 +227,3 @@ export function extractObjectInfo(change: Change): ObjectInfo {
 /**
  * Serialize a Change to a plain object for display and storage.
  */
-export function serializeChange(
-  ctx: DiffContext,
-  change: Change,
-  integration: Integration,
-): SerializedChange {
-  const sql = integration.serialize?.(ctx, change) ?? change.serialize();
-  const info = extractObjectInfo(change);
-
-  const result: SerializedChange = {
-    operation: change.operation,
-    objectType: change.objectType,
-    scope: change.scope,
-    name: info.name,
-    sql,
-  };
-
-  if (info.schema) {
-    result.schema = info.schema;
-  }
-  if (info.parent) {
-    result.parent = info.parent;
-  }
-
-  return result;
-}

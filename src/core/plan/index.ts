@@ -13,30 +13,24 @@
  * ```
  */
 
-// Plan creation
+// Fingerprinting helpers
 export {
-  createPlan,
-  groupChangesByObjectType,
-  groupChangesByOperation,
-} from "./create.ts";
+  buildPlanScopeFingerprint,
+  collectStableIds,
+  hashStableIds,
+  sha256,
+} from "../fingerprint.ts";
+// Plan creation
+export { createPlan } from "./create.ts";
 // Hierarchical grouping
 export { groupChangesHierarchically } from "./hierarchy.ts";
-
-// Serialization
-export {
-  extractObjectInfo,
-  getObjectName,
-  getObjectSchema,
-  getParentInfo,
-  serializeChange,
-} from "./serialize.ts";
+// Plan I/O
+export { deserializePlan, serializePlan } from "./io.ts";
 // Types
 export type {
   ChangeEntry,
   ChangeGroup,
   ChangeScope,
-  ChangesByObjectType,
-  ChangesByOperation,
   ChildObjectType,
   ClusterGroup,
   ClusterObjectType,
@@ -48,7 +42,6 @@ export type {
   Plan,
   PlanStats,
   SchemaGroup,
-  SerializedChange,
   TableChildren,
   TypeGroup,
 } from "./types.ts";

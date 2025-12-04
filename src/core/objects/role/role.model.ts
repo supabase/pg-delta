@@ -84,6 +84,33 @@ export class Role extends BasePgModel {
   }
 
   get dataFields() {
+    const sortedMembers = [...this.members].sort((a, b) => {
+      return (
+        a.member.localeCompare(b.member) ||
+        a.grantor.localeCompare(b.grantor) ||
+        Number(a.admin_option) - Number(b.admin_option) ||
+        Number(a.inherit_option ?? false) - Number(b.inherit_option ?? false) ||
+        Number(a.set_option ?? false) - Number(b.set_option ?? false)
+      );
+    });
+
+    const sortedDefaultPrivs = [...this.default_privileges].map((dp) => ({
+      ...dp,
+      privileges: [...dp.privileges].sort((a, b) => {
+        return (
+          a.privilege.localeCompare(b.privilege) ||
+          Number(a.grantable) - Number(b.grantable)
+        );
+      }),
+    }));
+    sortedDefaultPrivs.sort((a, b) => {
+      return (
+        (a.in_schema ?? "").localeCompare(b.in_schema ?? "") ||
+        a.objtype.localeCompare(b.objtype) ||
+        a.grantee.localeCompare(b.grantee)
+      );
+    });
+
     return {
       is_superuser: this.is_superuser,
       can_inherit: this.can_inherit,
@@ -95,8 +122,8 @@ export class Role extends BasePgModel {
       can_bypass_rls: this.can_bypass_rls,
       config: this.config,
       comment: this.comment,
-      members: this.members,
-      default_privileges: this.default_privileges,
+      members: sortedMembers,
+      default_privileges: sortedDefaultPrivs,
     };
   }
 }

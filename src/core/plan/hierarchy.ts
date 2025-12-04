@@ -15,14 +15,13 @@ import {
   AlterTableDropColumn,
 } from "../objects/table/changes/table.alter.ts";
 import { CreateTable } from "../objects/table/changes/table.create.ts";
-import { serializeChange } from "./serialize.ts";
+import { getObjectSchema, getParentInfo } from "./serialize.ts";
 import type {
   ChangeGroup,
   ClusterGroup,
   HierarchicalPlan,
   MaterializedViewChildren,
   SchemaGroup,
-  SerializedChange,
   TableChildren,
   TypeGroup,
 } from "./types.ts";
@@ -117,12 +116,8 @@ function emptyClusterGroup(): ClusterGroup {
 /**
  * Add a change to a ChangeGroup based on its operation.
  */
-function addToChangeGroup(
-  group: ChangeGroup,
-  serialized: SerializedChange,
-  original: Change,
-): void {
-  group[serialized.operation].push({ serialized, original });
+function addToChangeGroup(group: ChangeGroup, change: Change): void {
+  group[change.operation].push({ original: change });
 }
 
 /**
@@ -192,13 +187,13 @@ function isExistingPartition(
 
   // Check branchCatalog first (target state - where partitions should be)
   const branchTable = ctx.branchCatalog.tables[tableKey];
-  if (branchTable && branchTable.is_partition && branchTable.parent_name) {
+  if (branchTable?.is_partition && branchTable.parent_name) {
     return branchTable.parent_name;
   }
 
   // Also check mainCatalog (source state)
   const mainTable = ctx.mainCatalog.tables[tableKey];
-  if (mainTable && mainTable.is_partition && mainTable.parent_name) {
+  if (mainTable?.is_partition && mainTable.parent_name) {
     return mainTable.parent_name;
   }
 
@@ -224,7 +219,7 @@ function isExistingPartition(
 export function groupChangesHierarchically(
   ctx: DiffContext,
   changes: Change[],
-  integration: Integration,
+  _integration: Integration,
 ): HierarchicalPlan {
   const result: HierarchicalPlan = {
     cluster: emptyClusterGroup(),
@@ -232,39 +227,36 @@ export function groupChangesHierarchically(
   };
 
   for (const change of changes) {
-    const serialized = serializeChange(ctx, change, integration);
     const columnName = isColumnOperation(change);
     // Check for partitions: either creating a new partition (CreateTable) or any change on an existing partition
     let partitionOf: string | null = null;
-    if (serialized.objectType === "table" && serialized.schema) {
+    const changeSchema = getObjectSchema(change);
+    if (change.objectType === "table" && changeSchema) {
       // First check if this is a CreateTable creating a partition
       partitionOf = isPartitionTable(change);
       // If not, check if this table is an existing partition (for any table change including privilege changes)
       if (!partitionOf) {
-        partitionOf = isExistingPartition(
-          ctx,
-          serialized.schema,
-          serialized.name,
-        );
+        partitionOf = isExistingPartition(ctx, changeSchema, change.table.name);
       }
     }
 
-    if (!serialized.schema) {
-      addClusterChange(result.cluster, serialized, change);
+    if (!changeSchema) {
+      addClusterChange(result.cluster, change);
       continue;
     }
 
-    if (!result.schemas[serialized.schema]) {
-      result.schemas[serialized.schema] = emptySchemaGroup();
+    if (!result.schemas[changeSchema]) {
+      result.schemas[changeSchema] = emptySchemaGroup();
     }
-    const schemaGroup = result.schemas[serialized.schema];
+    const schemaGroup = result.schemas[changeSchema];
 
-    if (serialized.parent) {
-      addChildChange(schemaGroup, serialized, change);
+    const parent = getParentInfo(change);
+    if (parent) {
+      addChildChange(schemaGroup, change);
       continue;
     }
 
-    addSchemaLevelChange(schemaGroup, serialized, change, {
+    addSchemaLevelChange(schemaGroup, change, {
       columnName,
       partitionOf,
     });
@@ -280,40 +272,36 @@ export function groupChangesHierarchically(
 /**
  * Add a change to the cluster group (exhaustive on cluster-wide types).
  */
-function addClusterChange(
-  cluster: ClusterGroup,
-  serialized: SerializedChange,
-  original: Change,
-): void {
-  const objectType = serialized.objectType;
+function addClusterChange(cluster: ClusterGroup, change: Change): void {
+  const objectType = change.objectType;
 
   switch (objectType) {
     case "role":
-      addToChangeGroup(cluster.roles, serialized, original);
+      addToChangeGroup(cluster.roles, change);
       break;
     case "extension":
-      addToChangeGroup(cluster.extensions, serialized, original);
+      addToChangeGroup(cluster.extensions, change);
       break;
     case "event_trigger":
-      addToChangeGroup(cluster.eventTriggers, serialized, original);
+      addToChangeGroup(cluster.eventTriggers, change);
       break;
     case "language":
       // Languages are cluster-wide, but we don't have a group for them yet
       break;
     case "publication":
-      addToChangeGroup(cluster.publications, serialized, original);
+      addToChangeGroup(cluster.publications, change);
       break;
     case "subscription":
-      addToChangeGroup(cluster.subscriptions, serialized, original);
+      addToChangeGroup(cluster.subscriptions, change);
       break;
     case "foreign_data_wrapper":
-      addToChangeGroup(cluster.foreignDataWrappers, serialized, original);
+      addToChangeGroup(cluster.foreignDataWrappers, change);
       break;
     case "server":
-      addToChangeGroup(cluster.servers, serialized, original);
+      addToChangeGroup(cluster.servers, change);
       break;
     case "user_mapping":
-      addToChangeGroup(cluster.userMappings, serialized, original);
+      addToChangeGroup(cluster.userMappings, change);
       break;
     case "aggregate":
     case "collation":
@@ -344,42 +332,39 @@ function addClusterChange(
 /**
  * Add a child change (index, trigger, policy, rule) to its parent (exhaustive).
  */
-function addChildChange(
-  schema: SchemaGroup,
-  serialized: SerializedChange,
-  original: Change,
-): void {
-  if (!serialized.parent) return;
+function addChildChange(schema: SchemaGroup, change: Change): void {
+  const parentInfo = getParentInfo(change);
+  if (!parentInfo) return;
 
-  const parentName = serialized.parent.name;
-  const parentType = serialized.parent.type;
+  const parentName = parentInfo.name;
+  const parentType = parentInfo.type;
 
-  let parent: TableChildren | MaterializedViewChildren;
+  let parentGroup: TableChildren | MaterializedViewChildren;
 
   switch (parentType) {
     case "table":
       if (!schema.tables[parentName]) {
         schema.tables[parentName] = emptyTableChildren();
       }
-      parent = schema.tables[parentName];
+      parentGroup = schema.tables[parentName];
       break;
     case "view":
       if (!schema.views[parentName]) {
         schema.views[parentName] = emptyTableChildren();
       }
-      parent = schema.views[parentName];
+      parentGroup = schema.views[parentName];
       break;
     case "materialized_view":
       if (!schema.materializedViews[parentName]) {
         schema.materializedViews[parentName] = emptyMaterializedViewChildren();
       }
-      parent = schema.materializedViews[parentName];
+      parentGroup = schema.materializedViews[parentName];
       break;
     case "foreign_table":
       if (!schema.foreignTables[parentName]) {
         schema.foreignTables[parentName] = emptyTableChildren();
       }
-      parent = schema.foreignTables[parentName];
+      parentGroup = schema.foreignTables[parentName];
       break;
     default: {
       const _exhaustive: never = parentType;
@@ -387,25 +372,25 @@ function addChildChange(
     }
   }
 
-  const objectType = serialized.objectType;
+  const objectType = change.objectType;
 
   switch (objectType) {
     case "index":
-      addToChangeGroup(parent.indexes, serialized, original);
+      addToChangeGroup(parentGroup.indexes, change);
       break;
     case "trigger":
-      if ("triggers" in parent) {
-        addToChangeGroup(parent.triggers, serialized, original);
+      if ("triggers" in parentGroup) {
+        addToChangeGroup(parentGroup.triggers, change);
       }
       break;
     case "rule":
-      if ("rules" in parent) {
-        addToChangeGroup(parent.rules, serialized, original);
+      if ("rules" in parentGroup) {
+        addToChangeGroup(parentGroup.rules, change);
       }
       break;
     case "rls_policy":
-      if ("policies" in parent) {
-        addToChangeGroup(parent.policies, serialized, original);
+      if ("policies" in parentGroup) {
+        addToChangeGroup(parentGroup.policies, change);
       }
       break;
     case "aggregate":
@@ -451,62 +436,45 @@ interface ChangeEnrichment {
  */
 function addSchemaLevelChange(
   schema: SchemaGroup,
-  serialized: SerializedChange,
-  original: Change,
+  change: Change,
   enrichment: ChangeEnrichment,
 ): void {
-  // Critical safeguard: ensure serialized objectType matches original change objectType
-  // This prevents materialized views or other objects from being incorrectly routed
-  if (serialized.objectType !== original.objectType) {
-    // This indicates a bug in serialization - skip this change to prevent incorrect routing
-    // The change will be lost, but this prevents materialized views from appearing as partitions
-    return;
-  }
-
-  const objectType = serialized.objectType;
+  const objectType = change.objectType;
 
   switch (objectType) {
     case "schema":
-      addToChangeGroup(schema.changes, serialized, original);
+      addToChangeGroup(schema.changes, change);
       break;
     case "table": {
       // Verify the original change is actually a table change
       // (safeguard against materialized views or other objects being incorrectly routed here)
-      if (original.objectType !== "table") {
+      if (change.objectType !== "table") {
         // This shouldn't happen, but if it does, skip this change
         // It will be handled by its correct objectType case
         break;
       }
 
       if (enrichment.columnName) {
-        const tableName = serialized.name;
+        const tableName = change.table.name;
         if (!schema.tables[tableName]) {
           schema.tables[tableName] = emptyTableChildren();
         }
-        addToChangeGroup(
-          schema.tables[tableName].columns,
-          serialized,
-          original,
-        );
+        addToChangeGroup(schema.tables[tableName].columns, change);
         break;
       }
 
       if (enrichment.partitionOf) {
         // For CreateTable changes, verify it's actually a partition
-        if (original instanceof CreateTable) {
+        if (change instanceof CreateTable) {
           // Additional verification: ensure the table is actually marked as a partition
-          if (!original.table.is_partition || !original.table.parent_name) {
+          if (!change.table.is_partition || !change.table.parent_name) {
             // Table has parent_name but is_partition is false (inheritance, not partitioning)
             // Treat as regular table change
-            const tableName = serialized.name;
+            const tableName = change.table.name;
             if (!schema.tables[tableName]) {
               schema.tables[tableName] = emptyTableChildren();
             }
-            addToChangeGroup(
-              schema.tables[tableName].changes,
-              serialized,
-              original,
-            );
+            addToChangeGroup(schema.tables[tableName].changes, change);
             break;
           }
         }
@@ -517,81 +485,72 @@ function addSchemaLevelChange(
         if (!schema.tables[parentName]) {
           schema.tables[parentName] = emptyTableChildren();
         }
-        const partitionName = serialized.name;
+        const partitionName = change.table.name;
         if (!schema.tables[parentName].partitions[partitionName]) {
           schema.tables[parentName].partitions[partitionName] =
             emptyTableChildren();
         }
         addToChangeGroup(
           schema.tables[parentName].partitions[partitionName].changes,
-          serialized,
-          original,
+          change,
         );
         break;
       }
 
-      const tableName = serialized.name;
+      const tableName = change.table.name;
       if (!schema.tables[tableName]) {
         schema.tables[tableName] = emptyTableChildren();
       }
-      addToChangeGroup(schema.tables[tableName].changes, serialized, original);
+      addToChangeGroup(schema.tables[tableName].changes, change);
       break;
     }
     case "view": {
-      const viewName = serialized.name;
+      const viewName = change.view.name;
       if (!schema.views[viewName]) {
         schema.views[viewName] = emptyTableChildren();
       }
-      addToChangeGroup(schema.views[viewName].changes, serialized, original);
+      addToChangeGroup(schema.views[viewName].changes, change);
       break;
     }
     case "materialized_view": {
-      const matviewName = serialized.name;
+      const matviewName = change.materializedView.name;
       if (!schema.materializedViews[matviewName]) {
         schema.materializedViews[matviewName] = emptyMaterializedViewChildren();
       }
-      addToChangeGroup(
-        schema.materializedViews[matviewName].changes,
-        serialized,
-        original,
-      );
+      addToChangeGroup(schema.materializedViews[matviewName].changes, change);
       break;
     }
     case "foreign_table": {
-      const ftName = serialized.name;
+      const ftName = change.foreignTable.name;
       if (!schema.foreignTables[ftName]) {
         schema.foreignTables[ftName] = emptyTableChildren();
       }
-      addToChangeGroup(
-        schema.foreignTables[ftName].changes,
-        serialized,
-        original,
-      );
+      addToChangeGroup(schema.foreignTables[ftName].changes, change);
       break;
     }
     case "procedure":
-      addToChangeGroup(schema.functions, serialized, original);
+      addToChangeGroup(schema.functions, change);
       break;
     case "aggregate":
-      addToChangeGroup(schema.aggregates, serialized, original);
+      addToChangeGroup(schema.aggregates, change);
       break;
     case "sequence":
-      addToChangeGroup(schema.sequences, serialized, original);
+      addToChangeGroup(schema.sequences, change);
       break;
     case "enum":
-      addToChangeGroup(schema.types.enums, serialized, original);
+      addToChangeGroup(schema.types.enums, change);
       break;
     case "composite_type":
-      addToChangeGroup(schema.types.composites, serialized, original);
+      addToChangeGroup(schema.types.composites, change);
       break;
     case "range":
-      addToChangeGroup(schema.types.ranges, serialized, original);
+      addToChangeGroup(schema.types.ranges, change);
       break;
     case "domain":
-      addToChangeGroup(schema.types.domains, serialized, original);
+      addToChangeGroup(schema.types.domains, change);
       break;
     case "collation":
-      addToChangeGroup(schema.collations, serialized, original);
+      addToChangeGroup(schema.collations, change);
       break;
     case "extension":
       break;

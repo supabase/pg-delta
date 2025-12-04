@@ -72,6 +72,7 @@ function colorizeName(name: string): string {
   }
 
   // Group names (like "tables", "schemas") - dim gray
+  const baseName = name.replace(/\s*\(\d+\)$/, "");
   const groupNames = [
     "cluster",
     "database",
@@ -106,7 +107,7 @@ function colorizeName(name: string): string {
     "user-mappings",
   ];
 
-  if (groupNames.includes(name)) {
+  if (groupNames.includes(baseName)) {
     return chalk.dim(name);
   }
 

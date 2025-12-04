@@ -11,8 +11,11 @@ import type { DiffContext } from "../../core/context.ts";
 import { base } from "../../core/integrations/base.ts";
 import type { Plan, PlanStats } from "../../core/plan/index.ts";
 import {
+  buildPlanScopeFingerprint,
   groupChangesHierarchically,
-  serializeChange,
+  hashStableIds,
+  serializePlan,
+  sha256,
 } from "../../core/plan/index.ts";
 import { postgresConfig } from "../../core/postgres-config.ts";
 import { sortChanges } from "../../core/sort/sort-changes.ts";
@@ -41,7 +44,14 @@ export const planCommand = buildCommand({
       output: {
         kind: "parsed",
         brief:
-          "Write output to file (extension determines format: .sql = SQL only, otherwise uses --format)",
+          "Write display output to file (extension determines format: .sql = SQL only, otherwise uses --format)",
+        parse: String,
+        optional: true,
+      },
+      outPlan: {
+        kind: "parsed",
+        brief:
+          "Write plan artifact to file (JSON format, usable with 'apply' command). Defaults to .plan.json extension if no extension provided.",
         parse: String,
         optional: true,
       },
@@ -72,6 +82,7 @@ Exit codes:
       to: string;
       format?: "tree" | "json";
       output?: string;
+      outPlan?: string;
     },
   ) {
     const fromSql = postgres(flags.from, postgresConfig);
@@ -107,11 +118,6 @@ Exit codes:
       // Sort changes
       const sortedChanges = sortChanges(ctx, filteredChanges);
 
-      // Build plan inline (serialize changes, generate SQL, compute stats)
-      const serializedChanges = sortedChanges.map((change) =>
-        serializeChange(ctx, change, integration),
-      );
-
       // Generate SQL script
       const hasRoutineChanges = sortedChanges.some(
         (change) =>
@@ -130,13 +136,13 @@ Exit codes:
 
       // Compute stats
       const stats: PlanStats = {
-        total: serializedChanges.length,
+        total: sortedChanges.length,
         creates: 0,
         alters: 0,
         drops: 0,
         byObjectType: {},
       };
-      for (const change of serializedChanges) {
+      for (const change of sortedChanges) {
         switch (change.operation) {
           case "create":
             stats.creates++;
@@ -152,11 +158,36 @@ Exit codes:
           (stats.byObjectType[change.objectType] ?? 0) + 1;
       }
 
+      const { hash: fingerprintFrom, stableIds } = buildPlanScopeFingerprint(
+        fromCatalog,
+        sortedChanges,
+      );
+      const fingerprintTo = hashStableIds(toCatalog, stableIds);
+      const sqlHash = sha256(sql);
+
       const plan: Plan = {
-        changes: serializedChanges,
+        version: 1,
+        integration: { id: "base" },
+        source: { url: flags.from },
+        target: { url: flags.to },
+        stableIds,
+        fingerprintFrom,
+        fingerprintTo,
+        sqlHash,
         sql,
         stats,
       };
+
+      // Write plan artifact if requested (for use with 'apply' command)
+      if (flags.outPlan) {
+        const planPath =
+          flags.outPlan.endsWith(".json") || flags.outPlan.endsWith(".plan")
+            ? flags.outPlan
+            : `${flags.outPlan}.plan.json`;
+        const planJson = serializePlan(plan);
+        await writeFile(planPath, planJson, "utf-8");
+        this.process.stdout.write(`Plan artifact written to ${planPath}\n`);
+      }
 
       // Determine output format based on file extension if output is specified
       const outputPath = flags.output;
@@ -177,7 +208,7 @@ Exit codes:
         integration,
       );
 
-      // Format output
+      // Format output for display
       const formatted =
         flags.format === "json"
           ? formatJson(plan, hierarchy)
@@ -185,7 +216,7 @@ Exit codes:
 
       if (outputPath) {
         await writeFile(outputPath, formatted, "utf-8");
-        this.process.stdout.write(`Plan written to ${outputPath}\n`);
+        this.process.stdout.write(`Plan display written to ${outputPath}\n`);
       } else {
         this.process.stdout.write(formatted);
         if (flags.format !== "json") {

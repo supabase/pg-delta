@@ -2,6 +2,7 @@
  * Type definitions for the Plan module.
  */
 
+import z from "zod";
 import type { Change } from "../change.types.ts";
 
 // ============================================================================
@@ -52,52 +53,9 @@ export type ParentType = Extract<
 export type ChangeScope = Change["scope"];
 
 /**
- * A serializable representation of a Change for display and storage.
- * This is intentionally minimal - enrichment happens in grouping functions.
- */
-export interface SerializedChange {
-  /** The operation type */
-  operation: "create" | "alter" | "drop";
-  /** The type of database object */
-  objectType: ObjectType;
-  /** The scope of the change - what aspect is being changed */
-  scope: ChangeScope;
-  /** The object name (without schema) */
-  name: string;
-  /** Schema name for schema-scoped objects, undefined for cluster-wide */
-  schema?: string;
-  /** Parent object for child objects (indexes, triggers, policies, etc.) */
-  parent?: {
-    type: ParentType;
-    name: string;
-  };
-  /** The SQL statement for this change */
-  sql: string;
-}
-
-/**
- * Flat structure for organizing changes by object type.
- */
-export type ChangesByObjectType = Record<string, SerializedChange[]>;
-
-/**
- * Flat structure for organizing changes by operation.
- */
-export interface ChangesByOperation {
-  create: SerializedChange[];
-  alter: SerializedChange[];
-  drop: SerializedChange[];
-}
-
-// ============================================================================
-// Hierarchical Types
-// ============================================================================
-
-/**
  * A change entry storing both serialized and original change for instanceof checks.
  */
 export interface ChangeEntry {
-  serialized: SerializedChange;
   original: Change;
 }
 
@@ -184,25 +142,52 @@ export interface HierarchicalPlan {
 /**
  * Statistics about the changes in a plan.
  */
-export interface PlanStats {
-  total: number;
-  creates: number;
-  alters: number;
-  drops: number;
-  byObjectType: Record<string, number>;
-}
+export const PlanStatsSchema = z.object({
+  total: z.number(),
+  creates: z.number(),
+  alters: z.number(),
+  drops: z.number(),
+  byObjectType: z.record(z.string(), z.number()),
+});
+
+export type PlanStats = z.infer<typeof PlanStatsSchema>;
+
+/**
+ * Plan schema for serialization/deserialization.
+ */
+export const PlanSchema = z.object({
+  version: z.number(),
+  toolVersion: z.string().optional(),
+  integration: z
+    .object({
+      id: z.string(),
+      configHash: z.string().optional(),
+    })
+    .optional(),
+  source: z
+    .object({
+      url: z.string().optional(),
+      label: z.string().optional(),
+    })
+    .optional(),
+  target: z
+    .object({
+      url: z.string().optional(),
+      label: z.string().optional(),
+    })
+    .optional(),
+  stableIds: z.array(z.string()),
+  fingerprintFrom: z.string(),
+  fingerprintTo: z.string().optional(),
+  sqlHash: z.string(),
+  sql: z.string(),
+  stats: PlanStatsSchema,
+});
 
 /**
  * A migration plan containing all changes to transform one database schema into another.
  */
-export interface Plan {
-  /** All changes in execution order */
-  changes: SerializedChange[];
-  /** The complete migration SQL script */
-  sql: string;
-  /** Statistics about the changes */
-  stats: PlanStats;
-}
+export type Plan = z.infer<typeof PlanSchema>;
 
 /**
  * Options for creating a plan.

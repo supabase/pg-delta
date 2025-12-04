@@ -70,6 +70,14 @@ export class Language extends BasePgModel {
   }
 
   get dataFields() {
+    const sortedPrivileges = [...this.privileges].sort((a, b) => {
+      return (
+        a.grantee.localeCompare(b.grantee) ||
+        a.privilege.localeCompare(b.privilege) ||
+        Number(a.grantable) - Number(b.grantable)
+      );
+    });
+
     return {
       is_trusted: this.is_trusted,
       is_procedural: this.is_procedural,
@@ -78,7 +86,7 @@ export class Language extends BasePgModel {
       validator: this.validator,
       owner: this.owner,
       comment: this.comment,
-      privileges: this.privileges,
+      privileges: sortedPrivileges,
     };
   }
 }
