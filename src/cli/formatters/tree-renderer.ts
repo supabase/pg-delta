@@ -5,11 +5,100 @@
 
 import chalk from "chalk";
 
-const CONNECTOR_MID = "├─";
-const CONNECTOR_LAST = "└─";
-const VERTICAL = "│";
-const INDENT_WITH_CHILD = `${VERTICAL}  `;
-const INDENT_LAST = "   ";
+const GUIDE_UNIT = "│  ";
+const colorCount = (count: string) => chalk.gray(count);
+const colorCreate = (n: number) => chalk.green(`${n}`);
+const colorAlter = (n: number) => chalk.yellow(`${n}`);
+const colorDrop = (n: number) => chalk.red(`${n}`);
+const splitNameCount = (name: string) => {
+  const m = name.match(/^(.*?)(\s+)(\d+)$/);
+  return m
+    ? { base: m[1], sep: m[2], count: m[3] }
+    : { base: name, sep: "", count: "" };
+};
+const GROUP_NAMES = [
+  "cluster",
+  "database",
+  "schemas",
+  "tables",
+  "views",
+  "materialized-views",
+  "functions",
+  "procedures",
+  "aggregates",
+  "sequences",
+  "types",
+  "enums",
+  "composite-types",
+  "ranges",
+  "domains",
+  "collations",
+  "foreign-tables",
+  "columns",
+  "indexes",
+  "triggers",
+  "rules",
+  "policies",
+  "partitions",
+  "roles",
+  "extensions",
+  "event-triggers",
+  "publications",
+  "subscriptions",
+  "foreign-data-wrappers",
+  "servers",
+  "user-mappings",
+];
+
+interface OpCounts {
+  create: number;
+  alter: number;
+  drop: number;
+}
+
+function tallyOp(name: string, counts: OpCounts): void {
+  if (name.startsWith("+")) counts.create += 1;
+  else if (name.startsWith("~")) counts.alter += 1;
+  else if (name.startsWith("-")) counts.drop += 1;
+}
+
+function summarize(groups?: TreeGroup[], items?: TreeItem[]): OpCounts {
+  let counts: OpCounts = { create: 0, alter: 0, drop: 0 };
+
+  const addItem = (name: string) => {
+    tallyOp(name, counts);
+  };
+
+  items?.forEach((item) => addItem(item.name));
+  groups?.forEach((g) => {
+    g.items?.forEach((it) => addItem(it.name));
+    const child = summarize(g.groups, g.items);
+    counts = {
+      create: counts.create + child.create,
+      alter: counts.alter + child.alter,
+      drop: counts.drop + child.drop,
+    };
+  });
+
+  return counts;
+}
+
+function summarizeShallow(groups?: TreeGroup[], items?: TreeItem[]): OpCounts {
+  const counts: OpCounts = { create: 0, alter: 0, drop: 0 };
+
+  items?.forEach((item) => tallyOp(item.name, counts));
+  groups?.forEach((g) => tallyOp(g.name, counts));
+
+  return counts;
+}
+
+function formatCounts(counts: OpCounts): string {
+  const parts: string[] = [];
+  if (counts.create) parts.push(chalk.green(`+${counts.create}`));
+  if (counts.alter) parts.push(chalk.yellow(`~${counts.alter}`));
+  if (counts.drop) parts.push(chalk.red(`-${counts.drop}`));
+  return parts.length > 0 ? parts.join(" ") : "";
+}
 
 /**
  * A single item in the tree (leaf node).
@@ -64,147 +153,138 @@ export function renderTree(root: TreeGroup): string {
   // Render root items (rare)
   for (let i = 0; i < rootItems.length; i++) {
     const item = rootItems[i];
-    const isLast = i === rootItems.length - 1 && rootGroups.length === 0;
-    const connector = isLast ? CONNECTOR_LAST : CONNECTOR_MID;
-    const coloredConnector = colorizeConnector(connector);
+    const guide = buildGuide(0);
     const coloredName = colorizeName(item.name);
-    lines.push(`${coloredConnector} ${coloredName}`);
+    lines.push(`${guide}${coloredName}`);
   }
 
   // Render root groups at top level (no extra wrapper indentation)
   for (let i = 0; i < rootGroups.length; i++) {
     const group = rootGroups[i];
-    const baseName = group.name.replace(/\s*\(\d+\)$/, "");
-    if (baseName === "cluster" || baseName === "schemas") {
-      // Top-level headers rendered without connectors
-      lines.push(colorizeName(group.name));
-      renderChildren(group.items, group.groups, "", lines);
-      // Add a blank line between top-level sections except after the last
+    const { base: label } = splitNameCount(group.name);
+    if (label === "cluster") {
+      const summary = formatCounts(summarizeShallow(group.groups, group.items));
+      const header = colorizeName(label);
+      lines.push(summary ? `${header} ${summary}` : header);
+      renderChildren(group.items, group.groups, 1, lines);
       if (i !== rootGroups.length - 1) {
         lines.push("");
       }
-    } else {
-      const isLast = i === rootGroups.length - 1;
-      renderGroup(group, "", isLast, lines);
+      continue;
     }
+
+    if (label === "schemas") {
+      const header = colorizeName(label);
+      lines.push(header);
+      renderChildren(group.items, group.groups, 1, lines);
+      if (i !== rootGroups.length - 1) {
+        lines.push("");
+      }
+      continue;
+    }
+
+    renderFlatGroup(group, 0, lines);
   }
 
   return lines.join("\n");
+}
+
+function sortItems(items: TreeItem[]): TreeItem[] {
+  return [...items].sort((a, b) => {
+    const opOrder = (name: string) =>
+      name.startsWith("+")
+        ? 0
+        : name.startsWith("~")
+          ? 1
+          : name.startsWith("-")
+            ? 2
+            : 3;
+    const oa = opOrder(a.name);
+    const ob = opOrder(b.name);
+    if (oa !== ob) return oa - ob;
+    const la = a.name.replace(/^[+~-]\s*/, "").toLowerCase();
+    const lb = b.name.replace(/^[+~-]\s*/, "").toLowerCase();
+    if (la < lb) return -1;
+    if (la > lb) return 1;
+    return 0;
+  });
+}
+
+function sortGroups(groups: TreeGroup[]): TreeGroup[] {
+  return [...groups].sort((a, b) => {
+    const oa = a.name.startsWith("+")
+      ? 0
+      : a.name.startsWith("~")
+        ? 1
+        : a.name.startsWith("-")
+          ? 2
+          : 3;
+    const ob = b.name.startsWith("+")
+      ? 0
+      : b.name.startsWith("~")
+        ? 1
+        : b.name.startsWith("-")
+          ? 2
+          : 3;
+    if (oa !== ob) return oa - ob;
+    const la = a.name.replace(/^[+~-]\s*/, "").toLowerCase();
+    const lb = b.name.replace(/^[+~-]\s*/, "").toLowerCase();
+    if (la < lb) return -1;
+    if (la > lb) return 1;
+    return 0;
+  });
 }
 
 /**
  * Colorize a name based on operation symbols (+ ~ -).
  */
 function colorizeName(name: string): string {
+  const { base: baseName, sep, count } = splitNameCount(name);
+
   // Colorize items/entities with operation symbols (e.g., "+ customer", "+ customer_email_domain_idx")
-  if (/^[+~-]\s/.test(name)) {
-    const symbol = name[0];
-    const rest = name.slice(2);
-    if (symbol === "+") return `${chalk.green(symbol)} ${rest}`;
-    if (symbol === "~") return `${chalk.yellow(symbol)} ${rest}`;
-    if (symbol === "-") return `${chalk.red(symbol)} ${rest}`;
+  if (/^[+~-]\s/.test(baseName)) {
+    const symbol = baseName[0];
+    const rest = baseName.slice(2);
+    const coloredBase =
+      symbol === "+"
+        ? `${chalk.green(symbol)} ${rest}`
+        : symbol === "~"
+          ? `${chalk.yellow(symbol)} ${rest}`
+          : `${chalk.red(symbol)} ${rest}`;
+    return count ? `${coloredBase}${sep}${colorCount(count)}` : coloredBase;
   }
 
   // Group names (like "tables", "schemas") - dim gray
-  const baseName = name.replace(/\s*\(\d+\)$/, "");
-  const groupNames = [
-    "cluster",
-    "database",
-    "schemas",
-    "tables",
-    "views",
-    "materialized-views",
-    "functions",
-    "procedures",
-    "aggregates",
-    "sequences",
-    "types",
-    "enums",
-    "composite-types",
-    "ranges",
-    "domains",
-    "collations",
-    "foreign-tables",
-    "columns",
-    "indexes",
-    "triggers",
-    "rules",
-    "policies",
-    "partitions",
-    "roles",
-    "extensions",
-    "event-triggers",
-    "publications",
-    "subscriptions",
-    "foreign-data-wrappers",
-    "servers",
-    "user-mappings",
-  ];
+  const baseNameStripped = baseName.replace(/\s*\(\d+\)$/, "");
 
-  if (groupNames.includes(baseName)) {
-    return chalk.dim(name);
+  if (GROUP_NAMES.includes(baseNameStripped)) {
+    const coloredBase = chalk.gray(baseName);
+    return count ? `${coloredBase}${sep}${colorCount(count)}` : coloredBase;
   }
 
-  return name;
+  const coloredBase = baseName;
+  return count ? `${coloredBase}${sep}${colorCount(count)}` : coloredBase;
 }
 
 /**
- * Colorize tree connectors (├─ └─ │).
+ * Render a group with bullet-style indentation.
  */
-function colorizeConnector(connector: string): string {
-  return chalk.dim(connector);
-}
-
-/**
- * Render a group (branch node) and its children.
- */
-function renderGroup(
+function renderFlatGroup(
   group: TreeGroup,
-  prefix: string,
-  isLast: boolean,
+  depth: number,
   lines: string[],
 ): void {
-  const hasItems = group.items && group.items.length > 0;
-  const hasGroups = group.groups && group.groups.length > 0;
-
-  // Render items first
-  if (hasItems && group.items) {
-    for (let i = 0; i < group.items.length; i++) {
-      const item = group.items[i];
-      const isLastItem = i === group.items.length - 1 && !hasGroups;
-      const connector = isLastItem && isLast ? CONNECTOR_LAST : CONNECTOR_MID;
-      const coloredConnector = colorizeConnector(connector);
-      const coloredName = colorizeName(item.name);
-      const coloredPrefix = colorizePrefix(prefix);
-      lines.push(`${coloredPrefix}${coloredConnector} ${coloredName}`);
-    }
-  }
-
-  // Render groups
-  if (hasGroups && group.groups) {
-    for (let i = 0; i < group.groups.length; i++) {
-      const childGroup = group.groups[i];
-      const isLastGroup = i === group.groups.length - 1;
-      const connector = isLastGroup && isLast ? CONNECTOR_LAST : CONNECTOR_MID;
-      const childPrefix =
-        isLastGroup && isLast ? INDENT_LAST : INDENT_WITH_CHILD;
-      const coloredConnector = colorizeConnector(connector);
-      const coloredPrefix = colorizePrefix(prefix);
-      const coloredName = colorizeName(childGroup.name);
-
-      lines.push(`${coloredPrefix}${coloredConnector} ${coloredName}`);
-
-      // Recursively render child group if it has children
-      if (childGroup.items || childGroup.groups) {
-        renderGroup(
-          childGroup,
-          prefix + childPrefix,
-          isLastGroup && isLast,
-          lines,
-        );
-      }
-    }
-  }
+  const guide = buildGuide(depth);
+  const { base } = splitNameCount(group.name);
+  const summary =
+    GROUP_NAMES.includes(base) && (group.items || group.groups)
+      ? formatCounts(summarizeShallow(group.groups, group.items))
+      : "";
+  const coloredName = colorizeName(base);
+  lines.push(
+    summary ? `${guide}${coloredName} ${summary}` : `${guide}${coloredName}`,
+  );
+  renderChildren(group.items, group.groups, depth + 1, lines);
 }
 
 /**
@@ -213,46 +293,35 @@ function renderGroup(
 function renderChildren(
   items: TreeItem[] | undefined,
   groups: TreeGroup[] | undefined,
-  prefix: string,
+  depth: number,
   lines: string[],
 ): void {
   const hasItems = items && items.length > 0;
   const hasGroups = groups && groups.length > 0;
 
   if (hasItems && items) {
-    for (let i = 0; i < items.length; i++) {
+    const sorted = sortItems(items);
+    for (let i = 0; i < sorted.length; i++) {
       const item = items[i];
-      const isLastItem = i === items.length - 1 && !hasGroups;
-      const connector = isLastItem ? CONNECTOR_LAST : CONNECTOR_MID;
-      const coloredConnector = colorizeConnector(connector);
-      const coloredName = colorizeName(item.name);
-      const coloredPrefix = colorizePrefix(prefix);
-      lines.push(`${coloredPrefix}${coloredConnector} ${coloredName}`);
+      const guide = buildGuide(depth);
+      const coloredName = colorizeName(sorted[i].name);
+      lines.push(`${guide}${coloredName}`);
     }
   }
 
   if (hasGroups && groups) {
-    for (let i = 0; i < groups.length; i++) {
-      const childGroup = groups[i];
-      const isLastGroup = i === groups.length - 1;
-      const connector = isLastGroup ? CONNECTOR_LAST : CONNECTOR_MID;
-      const childPrefix = isLastGroup ? INDENT_LAST : INDENT_WITH_CHILD;
-      const coloredConnector = colorizeConnector(connector);
-      const coloredPrefix = colorizePrefix(prefix);
-      const coloredName = colorizeName(childGroup.name);
-
-      lines.push(`${coloredPrefix}${coloredConnector} ${coloredName}`);
-
-      if (childGroup.items || childGroup.groups) {
-        renderGroup(childGroup, prefix + childPrefix, isLastGroup, lines);
-      }
+    const sortedGroups = sortGroups(groups);
+    for (let i = 0; i < sortedGroups.length; i++) {
+      const childGroup = sortedGroups[i];
+      renderFlatGroup(childGroup, depth, lines);
     }
   }
 }
 
 /**
- * Colorize tree prefix (vertical lines).
+ * Build a dim vertical guide prefix for alignment.
  */
-function colorizePrefix(prefix: string): string {
-  return prefix.replace(new RegExp(VERTICAL, "g"), chalk.dim(VERTICAL));
+function buildGuide(depth: number): string {
+  if (depth <= 0) return "";
+  return chalk.hex("#4a4a4a")(GUIDE_UNIT.repeat(depth));
 }

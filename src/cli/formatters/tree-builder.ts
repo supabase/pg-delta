@@ -20,6 +20,10 @@ import type {
 import { getObjectName } from "../../core/plan/serialize.ts";
 import type { TreeGroup, TreeItem } from "./tree-renderer.ts";
 
+function withCount(name: string, count: number): string {
+  return count > 0 ? `${name} ${count}` : name;
+}
+
 function structural(group: ChangeGroup): ChangeGroup {
   const onlyStructural = (entry: ChangeEntry) =>
     entry.original.scope === "object";
@@ -82,7 +86,7 @@ function tableChildren(
   const pushGroup = (name: string, grp: ChangeGroup) => {
     if (hasStructural(grp)) {
       const items = toItems(grp);
-      const label = items.length > 0 ? `${name} (${items.length})` : name;
+      const label = items.length > 0 ? `${name} ${items.length}` : name;
       groups.push({ name: label, items });
     }
   };
@@ -111,7 +115,7 @@ function tableChildren(
       .filter(Boolean) as TreeGroup[];
     if (partitionGroups.length > 0) {
       groups.push({
-        name: `partitions (${partitionGroups.length})`,
+        name: withCount("partitions", partitionGroups.length),
         groups: partitionGroups,
       });
     }
@@ -181,8 +185,7 @@ function buildCluster(cluster: HierarchicalPlan["cluster"]): TreeGroup[] {
     .filter(([, grp]) => hasStructural(grp))
     .map(([name, grp]) => {
       const items = toItems(grp);
-      const label = items.length > 0 ? `${name} (${items.length})` : name;
-      return { name: label, items };
+      return { name: withCount(name, items.length), items };
     });
 }
 
@@ -192,7 +195,7 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
   const pushItems = (name: string, grp: ChangeGroup) => {
     if (hasStructural(grp)) {
       const items = toItems(grp);
-      const label = items.length > 0 ? `${name} (${items.length})` : name;
+      const label = items.length > 0 ? `${name} ${items.length}` : name;
       groups.push({ name: label, items });
     }
   };
@@ -210,7 +213,7 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
       .filter(Boolean) as TreeGroup[];
     if (tableGroups.length > 0) {
       groups.push({
-        name: `tables (${tableGroups.length})`,
+        name: withCount("tables", tableGroups.length),
         groups: tableGroups,
       });
     }
@@ -229,7 +232,7 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
       .filter(Boolean) as TreeGroup[];
     if (viewGroups.length > 0) {
       groups.push({
-        name: `views (${viewGroups.length})`,
+        name: withCount("views", viewGroups.length),
         groups: viewGroups,
       });
     }
@@ -248,7 +251,7 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
       .filter(Boolean) as TreeGroup[];
     if (mvGroups.length > 0) {
       groups.push({
-        name: `materialized-views (${mvGroups.length})`,
+        name: withCount("materialized-views", mvGroups.length),
         groups: mvGroups,
       });
     }
@@ -263,7 +266,7 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
   if (hasStructural(schema.types.enums)) {
     const items = toItems(schema.types.enums);
     typeGroups.push({
-      name: items.length > 0 ? `enums (${items.length})` : "enums",
+      name: items.length > 0 ? `enums ${items.length}` : "enums",
       items,
     });
   }
@@ -272,7 +275,7 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
     typeGroups.push({
       name:
         items.length > 0
-          ? `composite-types (${items.length})`
+          ? `composite-types ${items.length}`
           : "composite-types",
       items,
     });
@@ -280,19 +283,19 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
   if (hasStructural(schema.types.ranges)) {
     const items = toItems(schema.types.ranges);
     typeGroups.push({
-      name: items.length > 0 ? `ranges (${items.length})` : "ranges",
+      name: items.length > 0 ? `ranges ${items.length}` : "ranges",
       items,
     });
   }
   if (hasStructural(schema.types.domains)) {
     const items = toItems(schema.types.domains);
     typeGroups.push({
-      name: items.length > 0 ? `domains (${items.length})` : "domains",
+      name: items.length > 0 ? `domains ${items.length}` : "domains",
       items,
     });
   }
   if (typeGroups.length > 0) {
-    groups.push({ name: `types (${typeGroups.length})`, groups: typeGroups });
+    groups.push({ name: `types ${typeGroups.length}`, groups: typeGroups });
   }
 
   pushItems("collations", schema.collations);
@@ -310,7 +313,7 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
       .filter(Boolean) as TreeGroup[];
     if (ftGroups.length > 0) {
       groups.push({
-        name: `foreign-tables (${ftGroups.length})`,
+        name: withCount("foreign-tables", ftGroups.length),
         groups: ftGroups,
       });
     }
@@ -328,7 +331,7 @@ export function buildPlanTree(plan: HierarchicalPlan): TreeGroup {
   const clusterGroups = buildCluster(plan.cluster);
   if (clusterGroups.length > 0) {
     rootGroups.push({
-      name: `cluster (${clusterGroups.length})`,
+      name: withCount("cluster", clusterGroups.length),
       groups: clusterGroups,
     });
   }
@@ -350,7 +353,7 @@ export function buildPlanTree(plan: HierarchicalPlan): TreeGroup {
 
     if (schemaGroups.length > 0) {
       rootGroups.push({
-        name: `schemas (${schemaGroups.length})`,
+        name: withCount("schemas", schemaGroups.length),
         groups: schemaGroups,
       });
     }
