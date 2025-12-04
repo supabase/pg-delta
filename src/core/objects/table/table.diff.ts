@@ -570,9 +570,149 @@ export function diffTables(
     const mainCols = new Map(mainTable.columns.map((c) => [c.name, c]));
     const branchCols = new Map(branchTable.columns.map((c) => [c.name, c]));
 
+    // Helper to get parent tables if this is a partition
+    // PostgreSQL automatically propagates column changes from parent to partitions,
+    // so we should skip changes on partitions when the parent has the same change
+    const getParentTables = (): {
+      parentMain: Table | null;
+      parentBranch: Table | null;
+    } => {
+      if (
+        !branchIsPartition ||
+        !branchTable.parent_schema ||
+        !branchTable.parent_name
+      ) {
+        return { parentMain: null, parentBranch: null };
+      }
+
+      const parentBranch = resolveParent(
+        branch,
+        branchTable.parent_schema,
+        branchTable.parent_name,
+      );
+      const parentMain = resolveParent(
+        main,
+        branchTable.parent_schema,
+        branchTable.parent_name,
+      );
+
+      return {
+        parentMain: parentMain ?? null,
+        parentBranch: parentBranch ?? null,
+      };
+    };
+
+    // Helper to check if parent has the same column property change
+    const parentHasSameColumnPropertyChange = (
+      columnName: string,
+      property: "type" | "default" | "not_null",
+    ): boolean => {
+      const { parentMain, parentBranch } = getParentTables();
+      if (!parentMain || !parentBranch) {
+        return false;
+      }
+
+      const parentMainCol = parentMain.columns.find(
+        (c) => c.name === columnName,
+      );
+      const parentBranchCol = parentBranch.columns.find(
+        (c) => c.name === columnName,
+      );
+      const branchCol = branchCols.get(columnName);
+      const mainCol = mainCols.get(columnName);
+
+      if (!parentMainCol || !parentBranchCol || !branchCol || !mainCol) {
+        return false;
+      }
+
+      switch (property) {
+        case "type": {
+          const parentTypeChanged =
+            parentMainCol.data_type_str !== parentBranchCol.data_type_str ||
+            parentMainCol.collation !== parentBranchCol.collation;
+          const partitionTypeChanged =
+            mainCol.data_type_str !== branchCol.data_type_str ||
+            mainCol.collation !== branchCol.collation;
+          return (
+            parentTypeChanged &&
+            partitionTypeChanged &&
+            parentBranchCol.data_type_str === branchCol.data_type_str &&
+            parentBranchCol.collation === branchCol.collation
+          );
+        }
+        case "default": {
+          const parentDefaultChanged =
+            parentMainCol.default !== parentBranchCol.default;
+          const partitionDefaultChanged = mainCol.default !== branchCol.default;
+          return (
+            parentDefaultChanged &&
+            partitionDefaultChanged &&
+            parentBranchCol.default === branchCol.default
+          );
+        }
+        case "not_null": {
+          const parentNotNullChanged =
+            parentMainCol.not_null !== parentBranchCol.not_null;
+          const partitionNotNullChanged =
+            mainCol.not_null !== branchCol.not_null;
+          return (
+            parentNotNullChanged &&
+            partitionNotNullChanged &&
+            parentBranchCol.not_null === branchCol.not_null
+          );
+        }
+      }
+    };
+
+    // Helper to check if parent has the same column add/drop
+    const shouldSkipColumnAddDropOnPartition = (
+      columnName: string,
+      changeType: "add" | "drop",
+    ): boolean => {
+      const { parentMain, parentBranch } = getParentTables();
+      if (!parentMain || !parentBranch) {
+        return false;
+      }
+
+      const parentMainHasCol = parentMain.columns.some(
+        (c) => c.name === columnName,
+      );
+      const parentBranchHasCol = parentBranch.columns.some(
+        (c) => c.name === columnName,
+      );
+
+      if (changeType === "add") {
+        // Check if parent also has this column added and final states match
+        if (!parentMainHasCol && parentBranchHasCol) {
+          const parentBranchCol = parentBranch.columns.find(
+            (c) => c.name === columnName,
+          );
+          const branchCol = branchCols.get(columnName);
+          return (
+            parentBranchCol !== undefined &&
+            branchCol !== undefined &&
+            parentBranchCol.data_type_str === branchCol.data_type_str &&
+            parentBranchCol.collation === branchCol.collation &&
+            parentBranchCol.default === branchCol.default &&
+            parentBranchCol.not_null === branchCol.not_null
+          );
+        }
+      } else {
+        // changeType === "drop"
+        // If parent is dropping the column, skip on partition
+        return parentMainHasCol && !parentBranchHasCol;
+      }
+
+      return false;
+    };
+
     // Added columns
     for (const [name, col] of branchCols) {
       if (!mainCols.has(name)) {
+        // Skip if this is a partition and parent has the same column added
+        if (shouldSkipColumnAddDropOnPartition(name, "add")) {
+          continue;
+        }
         changes.push(
           new AlterTableAddColumn({ table: branchTable, column: col }),
         );
@@ -587,6 +727,10 @@ export function diffTables(
     // Dropped columns
     for (const [name, col] of mainCols) {
       if (!branchCols.has(name)) {
+        // Skip if this is a partition and parent has the same column dropped
+        if (shouldSkipColumnAddDropOnPartition(name, "drop")) {
+          continue;
+        }
         changes.push(
           new AlterTableDropColumn({ table: mainTable, column: col }),
         );
@@ -603,51 +747,79 @@ export function diffTables(
         mainCol.data_type_str !== branchCol.data_type_str ||
         mainCol.collation !== branchCol.collation
       ) {
-        changes.push(
-          new AlterTableAlterColumnType({
-            table: branchTable,
-            column: branchCol,
-          }),
-        );
-      }
-
-      // DEFAULT change
-      if (mainCol.default !== branchCol.default) {
-        if (branchCol.default === null) {
-          // Drop default value
+        // Skip if parent has the same type/collation change
+        if (!parentHasSameColumnPropertyChange(name, "type")) {
           changes.push(
-            new AlterTableAlterColumnDropDefault({
+            new AlterTableAlterColumnType({
               table: branchTable,
               column: branchCol,
             }),
           );
-        } else {
-          // Set new default value
-          const isGeneratedColumn = branchCol.is_generated;
-          const isPostgresLowerThan17 = ctx.version < 170000;
+        }
+      }
 
-          if (isGeneratedColumn && isPostgresLowerThan17) {
-            // For generated columns in < PostgreSQL 17, we need to drop and recreate
-            // instead of using SET EXPRESSION AS for computed columns
-            // cf: https://git.postgresql.org/gitweb/?p=postgresql.git;a=commitdiff;h=5d06e99a3
-            // cf: https://www.postgresql.org/docs/release/17.0/
-            // > Allow ALTER TABLE to change a column's generation expression
+      // DEFAULT change
+      if (mainCol.default !== branchCol.default) {
+        // Skip if parent has the same default change
+        if (!parentHasSameColumnPropertyChange(name, "default")) {
+          if (branchCol.default === null) {
+            // Drop default value
             changes.push(
-              new AlterTableDropColumn({
-                table: mainTable,
-                column: mainCol,
-              }),
-            );
-            changes.push(
-              new AlterTableAddColumn({
+              new AlterTableAlterColumnDropDefault({
                 table: branchTable,
                 column: branchCol,
               }),
             );
           } else {
-            // Use standard SET DEFAULT or SET EXPRESSION AS for newer PostgreSQL versions
+            // Set new default value
+            const isGeneratedColumn = branchCol.is_generated;
+            const isPostgresLowerThan17 = ctx.version < 170000;
+
+            if (isGeneratedColumn && isPostgresLowerThan17) {
+              // For generated columns in < PostgreSQL 17, we need to drop and recreate
+              // instead of using SET EXPRESSION AS for computed columns
+              // cf: https://git.postgresql.org/gitweb/?p=postgresql.git;a=commitdiff;h=5d06e99a3
+              // cf: https://www.postgresql.org/docs/release/17.0/
+              // > Allow ALTER TABLE to change a column's generation expression
+              changes.push(
+                new AlterTableDropColumn({
+                  table: mainTable,
+                  column: mainCol,
+                }),
+              );
+              changes.push(
+                new AlterTableAddColumn({
+                  table: branchTable,
+                  column: branchCol,
+                }),
+              );
+            } else {
+              // Use standard SET DEFAULT or SET EXPRESSION AS for newer PostgreSQL versions
+              changes.push(
+                new AlterTableAlterColumnSetDefault({
+                  table: branchTable,
+                  column: branchCol,
+                }),
+              );
+            }
+          }
+        }
+      }
+
+      // NOT NULL change
+      if (mainCol.not_null !== branchCol.not_null) {
+        // Skip if parent has the same NOT NULL change
+        if (!parentHasSameColumnPropertyChange(name, "not_null")) {
+          if (branchCol.not_null) {
             changes.push(
-              new AlterTableAlterColumnSetDefault({
+              new AlterTableAlterColumnSetNotNull({
+                table: branchTable,
+                column: branchCol,
+              }),
+            );
+          } else {
+            changes.push(
+              new AlterTableAlterColumnDropNotNull({
                 table: branchTable,
                 column: branchCol,
               }),
@@ -656,26 +828,9 @@ export function diffTables(
         }
       }
 
-      // NOT NULL change
-      if (mainCol.not_null !== branchCol.not_null) {
-        if (branchCol.not_null) {
-          changes.push(
-            new AlterTableAlterColumnSetNotNull({
-              table: branchTable,
-              column: branchCol,
-            }),
-          );
-        } else {
-          changes.push(
-            new AlterTableAlterColumnDropNotNull({
-              table: branchTable,
-              column: branchCol,
-            }),
-          );
-        }
-      }
-
       // COMMENT change on column
+      // Note: Comments are NOT automatically propagated from parent to partitions,
+      // so we should NOT skip comment changes even if parent has the same change
       if (mainCol.comment !== branchCol.comment) {
         if (branchCol.comment === null) {
           changes.push(
