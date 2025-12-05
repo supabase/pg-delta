@@ -6,20 +6,10 @@ import { writeFile } from "node:fs/promises";
 import { buildCommand, type CommandContext } from "@stricli/core";
 import chalk from "chalk";
 import postgres from "postgres";
-import { diffCatalogs } from "../../core/catalog.diff.ts";
 import { extractCatalog } from "../../core/catalog.model.ts";
-import type { DiffContext } from "../../core/context.ts";
-import { base } from "../../core/integrations/base.ts";
-import type { Plan, PlanStats } from "../../core/plan/index.ts";
-import {
-  buildPlanScopeFingerprint,
-  groupChangesHierarchically,
-  hashStableIds,
-  serializePlan,
-  sha256,
-} from "../../core/plan/index.ts";
+import { groupChangesHierarchically } from "../../core/plan/hierarchy.ts";
+import { buildPlanForCatalogs, serializePlan } from "../../core/plan/index.ts";
 import { postgresConfig } from "../../core/postgres-config.ts";
-import { sortChanges } from "../../core/sort/sort-changes.ts";
 import { formatTree } from "../formatters/index.ts";
 
 export const planCommand = buildCommand({
@@ -82,88 +72,15 @@ json/sql outputs are available for artifacts or piping.
         extractCatalog(toSql),
       ]);
 
-      // Compute diff
-      const changes = diffCatalogs(fromCatalog, toCatalog);
-
-      const integration = base;
-      const ctx: DiffContext = {
-        mainCatalog: fromCatalog,
-        branchCatalog: toCatalog,
-      };
-
-      // Apply filter
-      const integrationFilter = integration.filter;
-      const filteredChanges = integrationFilter
-        ? changes.filter((change) => integrationFilter(ctx, change))
-        : changes;
-
-      if (filteredChanges.length === 0) {
+      const planResult = buildPlanForCatalogs(fromCatalog, toCatalog);
+      if (!planResult) {
         this.process.stdout.write("No changes detected.\n");
         return;
       }
 
-      // Sort changes
-      const sortedChanges = sortChanges(ctx, filteredChanges);
-
-      // Generate SQL script
-      const hasRoutineChanges = sortedChanges.some(
-        (change) =>
-          change.objectType === "procedure" ||
-          change.objectType === "aggregate",
-      );
-      const sqlParts: string[] = [];
-      if (hasRoutineChanges) {
-        sqlParts.push("SET check_function_bodies = false");
-      }
-      for (const change of sortedChanges) {
-        const sql = integration.serialize?.(ctx, change) ?? change.serialize();
-        sqlParts.push(sql);
-      }
-      const sql = `${sqlParts.join(";\n\n")};`;
-
-      // Compute stats
-      const stats: PlanStats = {
-        total: sortedChanges.length,
-        creates: 0,
-        alters: 0,
-        drops: 0,
-        byObjectType: {},
-      };
-      for (const change of sortedChanges) {
-        switch (change.operation) {
-          case "create":
-            stats.creates++;
-            break;
-          case "alter":
-            stats.alters++;
-            break;
-          case "drop":
-            stats.drops++;
-            break;
-        }
-        stats.byObjectType[change.objectType] =
-          (stats.byObjectType[change.objectType] ?? 0) + 1;
-      }
-
-      const { hash: fingerprintFrom, stableIds } = buildPlanScopeFingerprint(
-        fromCatalog,
-        sortedChanges,
-      );
-      const fingerprintTo = hashStableIds(toCatalog, stableIds);
-      const sqlHash = sha256(sql);
-
-      const plan: Plan = {
-        version: 1,
-        integration: { id: "base" },
-        source: { url: flags.source },
-        target: { url: flags.target },
-        stableIds,
-        fingerprintFrom,
-        fingerprintTo,
-        sqlHash,
-        sql,
-        stats,
-      };
+      const { plan, sortedChanges, ctx } = planResult;
+      plan.source ??= { url: flags.source };
+      plan.target ??= { url: flags.target };
 
       const outputPath = flags.output;
       let effectiveFormat: "tree" | "json" | "sql";

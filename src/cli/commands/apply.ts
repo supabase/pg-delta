@@ -4,9 +4,8 @@
 
 import { readFile } from "node:fs/promises";
 import { buildCommand, type CommandContext } from "@stricli/core";
-import postgres from "postgres";
+import { applyPlan } from "../../core/plan/apply.ts";
 import { deserializePlan, type Plan } from "../../core/plan/index.ts";
-import { postgresConfig } from "../../core/postgres-config.ts";
 
 export const applyCommand = buildCommand({
   parameters: {
@@ -21,16 +20,10 @@ export const applyCommand = buildCommand({
         brief: "Target database connection URL",
         parse: String,
       },
-      dryRun: {
-        kind: "boolean",
-        brief: "Show what would be executed without executing",
-        optional: true,
-      },
     },
     aliases: {
       p: "plan",
       t: "target",
-      d: "target",
     },
   },
   docs: {
@@ -50,7 +43,6 @@ Exit codes:
     flags: {
       plan: string;
       target: string;
-      dryRun?: boolean;
     },
   ) {
     // Read and parse plan file
@@ -76,63 +68,48 @@ Exit codes:
       return;
     }
 
-    // Validate plan has SQL
-    if (!plan.sql || plan.sql.trim().length === 0) {
-      this.process.stdout.write("Plan contains no SQL to execute.\n");
-      return;
-    }
+    const result = await applyPlan(plan, flags.target, {
+      verifyPostApply: true,
+    });
 
-    // Dry run: just show what would be executed
-    if (flags.dryRun) {
-      this.process.stdout.write("Dry run - would execute:\n\n");
-      this.process.stdout.write(plan.sql);
-      this.process.stdout.write("\n");
-      return;
-    }
-
-    // Connect to target database
-    const sql = postgres(flags.target, postgresConfig);
-
-    try {
-      // Execute the SQL script
-      // Split by ";\n\n" which is how plan command joins statements
-      // This is safer than splitting by ";" alone as it avoids breaking on semicolons in strings
-      const statements = plan.sql
-        .split(";\n\n")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0 && s !== ";");
-
-      this.process.stdout.write(
-        `Applying ${plan.stats.total} changes to database...\n`,
-      );
-
-      // Execute all statements in a transaction for atomicity
-      await sql.begin(async (sql) => {
-        for (const statement of statements) {
-          // Remove trailing semicolon if present (from the last statement)
-          const cleanStatement = statement.replace(/;\s*$/, "");
-          if (cleanStatement.length === 0) continue;
-
-          try {
-            await sql.unsafe(cleanStatement);
-          } catch (error) {
-            this.process.stderr.write(
-              `Error executing statement: ${error instanceof Error ? error.message : String(error)}\n`,
-            );
-            this.process.stderr.write(`Failed statement: ${cleanStatement}\n`);
-            throw error; // This will rollback the transaction
+    switch (result.status) {
+      case "invalid_plan":
+        this.process.stderr.write(`${result.message}\n`);
+        process.exitCode = 1;
+        return;
+      case "fingerprint_mismatch":
+        this.process.stderr.write(
+          "Target database does not match plan source fingerprint. Aborting.\n",
+        );
+        process.exitCode = 1;
+        return;
+      case "already_applied":
+        this.process.stdout.write(
+          "Plan already applied (target fingerprint matches desired state).\n",
+        );
+        return;
+      case "failed":
+        if (result.failedStatement) {
+          this.process.stderr.write(
+            `Failed statement: ${result.failedStatement}\n`,
+          );
+        }
+        this.process.stderr.write(
+          `Failed to apply changes: ${result.error instanceof Error ? result.error.message : String(result.error)}\n`,
+        );
+        process.exitCode = 1;
+        return;
+      case "applied": {
+        const total = plan.stats?.total ?? result.statements;
+        this.process.stdout.write(`Applying ${total} changes to database...\n`);
+        this.process.stdout.write("Successfully applied all changes.\n");
+        if (result.warnings?.length) {
+          for (const warning of result.warnings) {
+            this.process.stderr.write(`Warning: ${warning}\n`);
           }
         }
-      });
-
-      this.process.stdout.write("Successfully applied all changes.\n");
-    } catch (error) {
-      this.process.stderr.write(
-        `Failed to apply changes: ${error instanceof Error ? error.message : String(error)}\n`,
-      );
-      process.exitCode = 1;
-    } finally {
-      await sql.end();
+        return;
+      }
     }
   },
 });

@@ -4,6 +4,7 @@
 
 import postgres from "postgres";
 import { diffCatalogs } from "../catalog.diff.ts";
+import type { Catalog } from "../catalog.model.ts";
 import { extractCatalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
@@ -44,29 +45,42 @@ export async function createPlan(
       extractCatalog(toSql),
     ]);
 
-    const changes = diffCatalogs(fromCatalog, toCatalog);
-
-    const integration = options.integration ?? base;
-    const ctx: DiffContext = {
-      mainCatalog: fromCatalog,
-      branchCatalog: toCatalog,
-    };
-
-    const integrationFilter = integration.filter;
-    const filteredChanges = integrationFilter
-      ? changes.filter((change) => integrationFilter(ctx, change))
-      : changes;
-
-    if (filteredChanges.length === 0) {
-      return null;
-    }
-
-    const sortedChanges = sortChanges(ctx, filteredChanges);
-
-    return buildPlan(ctx, sortedChanges, integration);
+    const result = buildPlanForCatalogs(fromCatalog, toCatalog, options);
+    return result?.plan ?? null;
   } finally {
     await Promise.all([fromSql.end(), toSql.end()]);
   }
+}
+
+/**
+ * Build a plan (and supporting artifacts) from already extracted catalogs.
+ */
+export function buildPlanForCatalogs(
+  fromCatalog: Catalog,
+  toCatalog: Catalog,
+  options: CreatePlanOptions = {},
+): { plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null {
+  const changes = diffCatalogs(fromCatalog, toCatalog);
+
+  const integration = options.integration ?? base;
+  const ctx: DiffContext = {
+    mainCatalog: fromCatalog,
+    branchCatalog: toCatalog,
+  };
+
+  const integrationFilter = integration.filter;
+  const filteredChanges = integrationFilter
+    ? changes.filter((change) => integrationFilter(ctx, change))
+    : changes;
+
+  if (filteredChanges.length === 0) {
+    return null;
+  }
+
+  const sortedChanges = sortChanges(ctx, filteredChanges);
+  const plan = buildPlan(ctx, sortedChanges, integration);
+
+  return { plan, sortedChanges, ctx };
 }
 
 // ============================================================================

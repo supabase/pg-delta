@@ -19,8 +19,10 @@ export {
   hashStableIds,
   sha256,
 } from "../fingerprint.ts";
+// Plan application
+export { applyPlan } from "./apply.ts";
 // Plan creation
-export { createPlan } from "./create.ts";
+export { buildPlanForCatalogs, createPlan } from "./create.ts";
 // Hierarchical grouping
 export { groupChangesHierarchically } from "./hierarchy.ts";
 // Plan I/O
