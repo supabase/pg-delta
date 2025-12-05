@@ -241,13 +241,15 @@ function sortGroups(groups: TreeGroup[]): TreeGroup[] {
 /**
  * Colorize a name based on operation symbols (+ ~ -).
  */
-function colorizeName(name: string): string {
-  const { base: baseName, sep, count } = splitNameCount(name);
+function colorizeName(name: string, isGroup = false): string {
+  const { base: rawBase, sep, count } = splitNameCount(name);
+  const hasOp = /^[+~-]\s/.test(rawBase);
+  const baseName = rawBase.trim();
 
   // Colorize items/entities with operation symbols (e.g., "+ customer", "+ customer_email_domain_idx")
-  if (/^[+~-]\s/.test(baseName)) {
-    const symbol = baseName[0];
-    const rest = baseName.slice(2);
+  if (hasOp) {
+    const symbol = rawBase[0];
+    const rest = rawBase.slice(2).trimStart();
     const coloredBase =
       symbol === "+"
         ? `${chalk.green(symbol)} ${rest}`
@@ -261,12 +263,22 @@ function colorizeName(name: string): string {
   const baseNameStripped = baseName.replace(/\s*\(\d+\)$/, "");
 
   if (GROUP_NAMES.includes(baseNameStripped)) {
-    const coloredBase = chalk.gray(baseName);
-    return count ? `${coloredBase}${sep}${colorCount(count)}` : coloredBase;
+    const coloredBase = chalk.gray(baseNameStripped);
+    const padded = hasOp
+      ? coloredBase
+      : isGroup
+        ? coloredBase
+        : `  ${coloredBase}`;
+    return count ? `${padded}${sep}${colorCount(count)}` : padded;
   }
 
   const coloredBase = baseName;
-  return count ? `${coloredBase}${sep}${colorCount(count)}` : coloredBase;
+  const padded = hasOp
+    ? coloredBase
+    : isGroup
+      ? coloredBase
+      : `  ${coloredBase}`;
+  return count ? `${padded}${sep}${colorCount(count)}` : padded;
 }
 
 /**
@@ -279,13 +291,17 @@ function renderFlatGroup(
 ): void {
   const guide = buildGuide(depth);
   const { base } = splitNameCount(group.name);
+  const hasOp = /^[+~-]\s/.test(base);
   const summary =
     GROUP_NAMES.includes(base) && (group.items || group.groups)
       ? formatCounts(summarizeShallow(group.groups, group.items))
       : "";
-  const coloredName = colorizeName(base);
+  const extraGuide = !hasOp && depth > 0 ? chalk.hex("#4a4a4a")("│ ") : "";
+  const coloredName = colorizeName(base, true);
   lines.push(
-    summary ? `${guide}${coloredName} ${summary}` : `${guide}${coloredName}`,
+    summary
+      ? `${guide}${extraGuide}${coloredName} ${summary}`
+      : `${guide}${extraGuide}${coloredName}`,
   );
   renderChildren(group.items, group.groups, depth + 1, lines);
 }
