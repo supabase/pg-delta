@@ -35,7 +35,7 @@ export function formatTree(plan: HierarchicalPlan, stats: PlanStats): string {
   // Legend
   lines.push("");
   lines.push(
-    `${chalk.green("+")} create   ${chalk.red("-")} drop   ${chalk.yellow("~")} alter`,
+    `${chalk.green("+")} create   ${chalk.yellow("~")} alter   ${chalk.red("-")} drop`,
   );
 
   return lines.join("\n");
