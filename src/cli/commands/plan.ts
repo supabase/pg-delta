@@ -202,11 +202,7 @@ Exit codes:
       }
 
       // Build hierarchical structure for display (needs original Change[] objects)
-      const hierarchy = groupChangesHierarchically(
-        ctx,
-        sortedChanges,
-        integration,
-      );
+      const hierarchy = groupChangesHierarchically(ctx, sortedChanges);
 
       // Format output for display
       const formatted =

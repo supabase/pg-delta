@@ -7,7 +7,7 @@
  *
  * const plan = await createPlan(fromUrl, toUrl);
  * if (plan) {
- *   const hierarchy = groupChangesHierarchically(ctx, changes, integration);
+ *   const hierarchy = groupChangesHierarchically(ctx, changes);
  *   console.log(plan.sql);
  * }
  * ```
@@ -16,7 +16,6 @@
 // Fingerprinting helpers
 export {
   buildPlanScopeFingerprint,
-  collectStableIds,
   hashStableIds,
   sha256,
 } from "../fingerprint.ts";

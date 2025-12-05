@@ -142,7 +142,7 @@ export interface HierarchicalPlan {
 /**
  * Statistics about the changes in a plan.
  */
-export const PlanStatsSchema = z.object({
+const PlanStatsSchema = z.object({
   total: z.number(),
   creates: z.number(),
   alters: z.number(),

@@ -3,4 +3,4 @@
  */
 
 export { formatJson } from "./json.ts";
-export { formatTree } from "./tree.ts";
+export { formatTree } from "./tree/tree.ts";

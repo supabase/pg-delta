@@ -2,7 +2,7 @@
  * Plan I/O utilities for serializing and deserializing plans to/from JSON.
  */
 
-import { PlanSchema, type Plan } from "./types.ts";
+import { type Plan, PlanSchema } from "./types.ts";
 
 /**
  * Serialize a plan to JSON string.

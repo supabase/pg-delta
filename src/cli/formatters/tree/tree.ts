@@ -3,7 +3,7 @@
  */
 
 import chalk from "chalk";
-import type { HierarchicalPlan, PlanStats } from "../../core/plan/index.ts";
+import type { HierarchicalPlan, PlanStats } from "../../../core/plan/index.ts";
 import { buildPlanTree } from "./tree-builder.ts";
 import { renderTree } from "./tree-renderer.ts";
 
@@ -19,7 +19,7 @@ export function formatTree(plan: HierarchicalPlan, stats: PlanStats): string {
       `📋 Migration Plan: ${stats.total} change${stats.total !== 1 ? "s" : ""}`,
     ),
   );
-  const summary = buildSummaryLine(plan, stats);
+  const summary = buildSummaryLine(plan);
   if (summary) {
     lines.push("");
     lines.push("Summary:");
@@ -44,7 +44,7 @@ export function formatTree(plan: HierarchicalPlan, stats: PlanStats): string {
 /**
  * Build summary as a table showing counts by entity type and operation.
  */
-function buildSummaryLine(plan: HierarchicalPlan, _stats: PlanStats): string {
+function buildSummaryLine(plan: HierarchicalPlan): string {
   // Count by object type
   const byType: Record<
     string,
@@ -197,4 +197,4 @@ function countFromHierarchy(
   }
 }
 
-import type { ChangeEntry } from "../../core/plan/index.ts";
+import type { ChangeEntry } from "../../../core/plan/index.ts";

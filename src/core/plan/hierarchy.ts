@@ -4,7 +4,6 @@
 
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
-import type { Integration } from "../integrations/integration.types.ts";
 import {
   AlterTableAddColumn,
   AlterTableAlterColumnDropDefault,
@@ -219,7 +218,6 @@ function isExistingPartition(
 export function groupChangesHierarchically(
   ctx: DiffContext,
   changes: Change[],
-  _integration: Integration,
 ): HierarchicalPlan {
   const result: HierarchicalPlan = {
     cluster: emptyClusterGroup(),

@@ -4,7 +4,7 @@
   "description": "PostgreSQL migrations made easy",
   "type": "module",
   "sideEffects": false,
-  "exports": "./dist/core/index.js",
+  "exports": "./dist/index.js",
   "bin": {
     "pgdelta": "./dist/cli/bin/cli.js"
   },

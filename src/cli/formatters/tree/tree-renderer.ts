@@ -7,9 +7,6 @@ import chalk from "chalk";
 
 const GUIDE_UNIT = "│  ";
 const colorCount = (count: string) => chalk.gray(count);
-const colorCreate = (n: number) => chalk.green(`${n}`);
-const colorAlter = (n: number) => chalk.yellow(`${n}`);
-const colorDrop = (n: number) => chalk.red(`${n}`);
 const splitNameCount = (name: string) => {
   const m = name.match(/^(.*?)(\s+)(\d+)$/);
   return m
@@ -62,32 +59,19 @@ function tallyOp(name: string, counts: OpCounts): void {
   else if (name.startsWith("-")) counts.drop += 1;
 }
 
-function summarize(groups?: TreeGroup[], items?: TreeItem[]): OpCounts {
-  let counts: OpCounts = { create: 0, alter: 0, drop: 0 };
-
-  const addItem = (name: string) => {
-    tallyOp(name, counts);
-  };
-
-  items?.forEach((item) => addItem(item.name));
-  groups?.forEach((g) => {
-    g.items?.forEach((it) => addItem(it.name));
-    const child = summarize(g.groups, g.items);
-    counts = {
-      create: counts.create + child.create,
-      alter: counts.alter + child.alter,
-      drop: counts.drop + child.drop,
-    };
-  });
-
-  return counts;
-}
-
 function summarizeShallow(groups?: TreeGroup[], items?: TreeItem[]): OpCounts {
   const counts: OpCounts = { create: 0, alter: 0, drop: 0 };
 
-  items?.forEach((item) => tallyOp(item.name, counts));
-  groups?.forEach((g) => tallyOp(g.name, counts));
+  if (items) {
+    for (const item of items) {
+      tallyOp(item.name, counts);
+    }
+  }
+  if (groups) {
+    for (const g of groups) {
+      tallyOp(g.name, counts);
+    }
+  }
 
   return counts;
 }

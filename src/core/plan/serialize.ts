@@ -18,15 +18,6 @@ type ParentInfo = {
 };
 
 /**
- * Extracted information about an object from a change.
- */
-interface ObjectInfo {
-  name: string;
-  schema?: string;
-  parent?: ParentInfo;
-}
-
-/**
  * Get the object name from a change (exhaustive).
  */
 export function getObjectName(change: Change): string {
@@ -202,28 +193,3 @@ export function getParentInfo(change: Change): ParentInfo | null {
     }
   }
 }
-
-/**
- * Extract all object info (name, schema, parent) from a change.
- */
-export function extractObjectInfo(change: Change): ObjectInfo {
-  const name = getObjectName(change);
-  const schema = getObjectSchema(change);
-  const parent = getParentInfo(change);
-
-  const result: ObjectInfo = { name };
-
-  if (schema !== null) {
-    result.schema = schema;
-  }
-
-  if (parent !== null) {
-    result.parent = parent;
-  }
-
-  return result;
-}
-
-/**
- * Serialize a Change to a plain object for display and storage.
- */

@@ -25,7 +25,7 @@ interface DiffResult {
   migrationScript: string;
 }
 
-export async function main(
+async function _main(
   mainDatabaseUrl: string,
   branchDatabaseUrl: string,
   options: MainOptions = {},

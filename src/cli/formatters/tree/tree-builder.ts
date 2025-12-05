@@ -11,13 +11,13 @@ import {
   AlterTableAlterColumnSetNotNull,
   AlterTableAlterColumnType,
   AlterTableDropColumn,
-} from "../../core/objects/table/changes/table.alter.ts";
+} from "../../../core/objects/table/changes/table.alter.ts";
 import type {
   ChangeEntry,
   ChangeGroup,
   HierarchicalPlan,
-} from "../../core/plan/index.ts";
-import { getObjectName } from "../../core/plan/serialize.ts";
+} from "../../../core/plan/index.ts";
+import { getObjectName } from "../../../core/plan/serialize.ts";
 import type { TreeGroup, TreeItem } from "./tree-renderer.ts";
 
 function withCount(name: string, count: number): string {
