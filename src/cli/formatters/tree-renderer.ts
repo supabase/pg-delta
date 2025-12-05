@@ -145,6 +145,7 @@ export function renderTree(root: TreeGroup): string {
   const lines: string[] = [];
   if (root.name) {
     lines.push(chalk.bold(root.name));
+    lines.push(chalk.hex("#4a4a4a")("│"));
   }
 
   const rootItems = root.items ?? [];
