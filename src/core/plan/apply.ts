@@ -59,6 +59,8 @@ export async function applyPlan(
     }
 
     // Execute the SQL script
+    // TODO: Store the statements as an array in the plan object
+    // TODO: mark statements that can't be run within a transaction
     const statements = plan.sql
       .split(";\n\n")
       .map((s) => s.trim())
