@@ -4,14 +4,14 @@ import { hashStableIds, sha256 } from "../fingerprint.ts";
 import { postgresConfig } from "../postgres-config.ts";
 import type { Plan } from "./types.ts";
 
-export type ApplyPlanResult =
+type ApplyPlanResult =
   | { status: "invalid_plan"; message: string }
   | { status: "fingerprint_mismatch"; current: string; expected: string }
   | { status: "already_applied" }
   | { status: "applied"; statements: number; warnings?: string[] }
   | { status: "failed"; error: unknown; failedStatement?: string };
 
-export interface ApplyPlanOptions {
+interface ApplyPlanOptions {
   verifyPostApply?: boolean;
 }
 

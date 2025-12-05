@@ -13,14 +13,6 @@
  * ```
  */
 
-// Fingerprinting helpers
-export {
-  buildPlanScopeFingerprint,
-  hashStableIds,
-  sha256,
-} from "../fingerprint.ts";
-// Plan application
-export { applyPlan } from "./apply.ts";
 // Plan creation
 export { buildPlanForCatalogs, createPlan } from "./create.ts";
 // Hierarchical grouping
