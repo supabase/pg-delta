@@ -1,4 +1,4 @@
-export const STATEMENT_DELIMITER = ";\n\n";
+const STATEMENT_DELIMITER = ";\n\n";
 
 /**
  * Build a SQL script from normalized statements.
