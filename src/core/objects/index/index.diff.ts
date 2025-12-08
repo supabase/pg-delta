@@ -34,8 +34,8 @@ export function diffIndexes(
 
   for (const indexId of created) {
     const index = branch[indexId];
-    // Skip indexes owned by constraints - they are automatically created by AlterTableAddConstraint
-    if (index.is_owned_by_constraint) {
+    // Skip constraint-owned or primary indexes; they are created by constraint DDL
+    if (index.is_owned_by_constraint || index.is_primary) {
       continue;
     }
 
@@ -57,10 +57,10 @@ export function diffIndexes(
 
   for (const indexId of dropped) {
     const index = main[indexId];
-    // if the index is owned by a constraint it'll be handled by an ALTER TABLE DROP CONSTRAINT
-    // or if the entire table the index refers to has been dropped it'll be handled by a DROP TABLE
+    // Constraint-owned or primary indexes are handled by constraint/table drops
     if (
       index.is_owned_by_constraint ||
+      index.is_primary ||
       !branchIndexableObjects[index.tableStableId]
     ) {
       continue;
@@ -77,6 +77,14 @@ export function diffIndexes(
   for (const indexId of altered) {
     const mainIndex = main[indexId];
     const branchIndex = branch[indexId];
+
+    // Constraint-owned or primary indexes are handled by constraint/table DDL
+    if (mainIndex.is_owned_by_constraint || mainIndex.is_primary) {
+      continue;
+    }
+    if (branchIndex.is_owned_by_constraint || branchIndex.is_primary) {
+      continue;
+    }
 
     // Skip index partitions - they are automatically updated when the parent partitioned index is updated
     if (mainIndex.is_index_partition || branchIndex.is_index_partition) {

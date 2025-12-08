@@ -113,6 +113,28 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
 
+    test("drop primary key does not emit separate drop index", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.pk_table (
+            id integer PRIMARY KEY,
+            name text
+          );
+        `,
+        testSql: `
+          ALTER TABLE test_schema.pk_table DROP CONSTRAINT pk_table_pkey;
+        `,
+        expectedSqlTerms: [
+          "ALTER TABLE test_schema.pk_table DROP CONSTRAINT pk_table_pkey",
+        ],
+      });
+    });
+
     test("drop implicit dependent table index", async ({ db }) => {
       await roundtripFidelityTest({
         name: "drop-implicit-dependent-table-index",
