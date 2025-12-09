@@ -404,6 +404,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           REVOKE ALL ON PROCEDURE public.test_proc() FROM anon;
         `,
         expectedSqlTerms: [
+          "SET check_function_bodies = false",
           "CREATE PROCEDURE public.test_proc()\n LANGUAGE sql\nAS $procedure$ SELECT 1; $procedure$",
           "REVOKE ALL ON PROCEDURE public.test_proc() FROM anon",
         ],
@@ -436,6 +437,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           REVOKE ALL ON FUNCTION public.test_agg(int) FROM anon;
         `,
         expectedSqlTerms: [
+          "SET check_function_bodies = false",
           "CREATE AGGREGATE public.test_agg(integer) (SFUNC = int4pl, STYPE = integer)",
           "REVOKE ALL ON FUNCTION public.test_agg(integer) FROM anon",
         ],

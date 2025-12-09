@@ -9,7 +9,13 @@ import { diffCatalogs } from "../../src/core/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/core/catalog.model.ts";
 import type { Change } from "../../src/core/change.types.ts";
 import type { PgDepend } from "../../src/core/depend.ts";
+import {
+  buildPlanScopeFingerprint,
+  hashStableIds,
+} from "../../src/core/fingerprint.ts";
 import type { Integration } from "../../src/core/integrations/integration.types.ts";
+import { applyPlan } from "../../src/core/plan/apply.ts";
+import { createPlan } from "../../src/core/plan/create.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
 
 const debugTest = debug("pg-delta:test");
@@ -37,23 +43,6 @@ interface RoundtripTestOptions {
   expectedOperationOrder?: Change[];
   // Integration to use for filtering and serialization
   integration?: Integration;
-}
-
-async function runOrDump(
-  action: () => Promise<unknown>,
-  opts: { label?: string; diffScript?: string },
-) {
-  try {
-    await action();
-  } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e));
-    const lbl = opts.label ?? "Context";
-    const dump = opts.diffScript
-      ? `\n\n==== ${lbl} diffScript (failed to apply) ====\n${opts.diffScript}\n==== end ====\n`
-      : "";
-    err.message += dump;
-    throw err;
-  }
 }
 
 /**
@@ -116,44 +105,21 @@ export async function roundtripFidelityTest(
     );
   }
 
-  // Generate migration from main to branch
-  let changes = diffCatalogs(mainCatalog, branchCatalog);
-
-  debugDependencies("mainCatalog.depends: %O", mainCatalog.depends);
-  debugDependencies("branchCatalog.depends: %O", branchCatalog.depends);
-
-  // Randomize changes order (skip if expectedSqlTerms is defined for deterministic testing)
-  if (!expectedSqlTerms) {
-    changes = changes.sort(() => Math.random() - 0.5);
+  // Generate plan using core workflow
+  const planResult = await createPlan(mainSession, branchSession, {
+    integration,
+  });
+  if (!planResult) {
+    return;
   }
 
-  // Optional pre-sort to provide deterministic tie-breaking for the phased sort
+  let { plan, sortedChanges } = planResult;
+  const integrationFilter = integration?.filter;
+
+  // Optional pre-sort for deterministic tie-breaking in tests
   if (sortChangesCallback) {
-    changes = changes.sort(sortChangesCallback);
-    // just print class names
-    debugTest(
-      "sorted changes: %O",
-      changes.map((change) => change.constructor.name),
-    );
+    sortedChanges = [...sortedChanges].sort(sortChangesCallback);
   }
-
-  // Use integration for filtering and serialization
-  const testIntegration = integration ?? {};
-  const ctx = { mainCatalog, branchCatalog };
-
-  // Apply filter if provided (filters out env-dependent changes)
-  let filteredChanges = changes;
-  const integrationFilter = testIntegration.filter;
-  if (integrationFilter) {
-    filteredChanges = filteredChanges.filter((change) =>
-      integrationFilter(ctx, change),
-    );
-  }
-
-  const sortedChanges = sortChanges(
-    { mainCatalog, branchCatalog },
-    filteredChanges,
-  );
 
   debugDependencies("\n==== Sorted Changes ====");
   for (let i = 0; i < sortedChanges.length; i++) {
@@ -176,13 +142,15 @@ export async function roundtripFidelityTest(
     (change) =>
       change.objectType === "procedure" || change.objectType === "aggregate",
   );
+  const { hash: targetFingerprint, stableIds } = buildPlanScopeFingerprint(
+    branchCatalog,
+    sortedChanges,
+  );
   const migrationSessionConfig = hasRoutineChanges
     ? ["SET check_function_bodies = false"]
     : [];
 
-  const sqlStatements = sortedChanges.map((change) => {
-    return testIntegration.serialize?.(ctx, change) ?? change.serialize();
-  });
+  const sqlStatements = plan.statements;
   const migrationScript = `${[...migrationSessionConfig, ...sqlStatements].join(
     ";\n\n",
   )};`;
@@ -198,21 +166,27 @@ export async function roundtripFidelityTest(
 
   debugTest("migrationScript: %s", migrationScript);
 
-  // Apply migration to main database
-  if (migrationScript.trim()) {
-    await runOrDump(
-      () =>
-        mainSession.unsafe([...sessionConfig, migrationScript].join(";\n\n")),
-      {
-        label: "migration",
-        diffScript: migrationScript,
-      },
+  // Apply migration using core apply
+  const applyResult = await applyPlan(plan, mainSession, branchSession, {
+    verifyPostApply: true,
+  });
+  if (applyResult.status !== "applied") {
+    throw new Error(
+      `Apply failed: ${applyResult.status} ${
+        "message" in applyResult ? applyResult.message : ""
+      }`,
     );
   }
+  console.log(applyResult.warnings);
+  expect(applyResult.warnings ?? []).toHaveLength(0);
 
   // Extract final catalog from main database
   debugTest("mainCatalogAfter: ");
   const mainCatalogAfter = await extractCatalog(mainSession);
+
+  // Verify post-apply fingerprint against target
+  const postApplyFingerprint = hashStableIds(mainCatalogAfter, stableIds);
+  expect(postApplyFingerprint).toStrictEqual(targetFingerprint);
 
   // Verify semantic equality by diffing the catalogs again
   // This ensures the migration produced a database state identical to the target
