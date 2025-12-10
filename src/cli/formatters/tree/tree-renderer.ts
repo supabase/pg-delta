@@ -193,89 +193,27 @@ export function renderTree(root: TreeGroup): string {
     0,
   );
 
-  const maxColumnWidths: Record<keyof OperationCounts, number> = {
-    create: 0,
-    alter: 0,
-    drop: 0,
-  };
-
-  for (const row of rows) {
-    const counts = row.counts;
-    if (!counts) continue;
-    if (counts.create) {
-      const width = visibleWidth(`+${counts.create}`);
-      if (width > maxColumnWidths.create) maxColumnWidths.create = width;
-    }
-    if (counts.alter) {
-      const width = visibleWidth(`~${counts.alter}`);
-      if (width > maxColumnWidths.alter) maxColumnWidths.alter = width;
-    }
-    if (counts.drop) {
-      const width = visibleWidth(`-${counts.drop}`);
-      if (width > maxColumnWidths.drop) maxColumnWidths.drop = width;
-    }
-  }
-
-  const hasAnyColumn = Object.values(maxColumnWidths).some(
-    (width) => width > 0,
-  );
-
-  const formatColumn = (
-    value: number | undefined,
-    width: number,
-    symbol: "+" | "~" | "-",
-    colorize: (value: string) => string,
-  ): string => {
-    if (width === 0) return "";
-    if (!value) {
-      const leftPad = Math.min(
-        Math.max(1, Math.floor((width - 1) / 2) + 1),
-        width - 1,
-      );
-      const rightPad = width - 1 - leftPad;
-      return `${" ".repeat(leftPad)}${colorize("·")}${" ".repeat(rightPad)}`;
-    }
-    const raw = `${symbol}${value}`;
-    const padding = width - visibleWidth(raw);
-    return `${" ".repeat(Math.max(0, padding))}${colorize(raw)}`;
-  };
-
   const lines = rows.map(({ left, counts }) => {
-    const gap = Math.max(0, maxLeftWidth - visibleWidth(left));
+    if (!counts) return left;
+
+    const parts: string[] = [];
+    if (counts.create) parts.push(chalk.green.dim(`+${counts.create}`));
+    if (counts.alter) parts.push(chalk.yellow.dim(`~${counts.alter}`));
+    if (counts.drop) parts.push(chalk.red.dim(`-${counts.drop}`));
+
+    if (parts.length === 0) return left;
+
+    const summary = parts.join(" ");
+    const gap = Math.max(
+      1,
+      maxLeftWidth - visibleWidth(left) - visibleWidth(summary) - 1,
+    );
     const filler =
-      counts && gap > 0
+      gap > 0
         ? ` ${chalk.hex("#4a4a4a")("─".repeat(Math.max(0, gap - 1)))}`
-        : " ".repeat(gap);
-    const paddedLeft = `${left}${filler}`;
+        : "";
 
-    if (!hasAnyColumn || !counts) return paddedLeft;
-
-    const createCol = formatColumn(
-      counts.create,
-      maxColumnWidths.create,
-      "+",
-      (value) => chalk.green.dim(value),
-    );
-    const alterCol = formatColumn(
-      counts.alter,
-      maxColumnWidths.alter,
-      "~",
-      (value) => chalk.yellow.dim(value),
-    );
-    const dropCol = formatColumn(
-      counts.drop,
-      maxColumnWidths.drop,
-      "-",
-      (value) => chalk.red.dim(value),
-    );
-
-    const renderedColumns = [createCol, alterCol, dropCol].filter(
-      (col) => col !== "",
-    );
-
-    return renderedColumns.length > 0
-      ? `${paddedLeft} ${renderedColumns.join(" ")}`
-      : paddedLeft;
+    return `${left}${filler} ${summary}`;
   });
 
   return lines.join("\n");
@@ -425,7 +363,7 @@ function renderItem(
   name: string,
   ancestors: boolean[],
   isLast: boolean,
-  rows: { left: string; count?: string }[],
+  rows: { left: string; counts?: OperationCounts }[],
 ): void {
   const prefix = buildPrefix(ancestors);
   const hasOperationSymbol = /^[+~-]\s/.test(name);
