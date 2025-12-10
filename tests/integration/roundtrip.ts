@@ -171,25 +171,6 @@ export async function roundtripFidelityTest(
     verifyPostApply: true,
   });
   if (applyResult.status !== "applied") {
-    if (applyResult.status === "failed") {
-      const errorMessage = [
-        "Apply failed:",
-        `status=${applyResult.status}`,
-        applyResult.failedStatement
-          ? `failedStatement=${applyResult.failedStatement}`
-          : undefined,
-        applyResult.error
-          ? `error=${applyResult.error instanceof Error ? applyResult.error.message : String(applyResult.error)}`
-          : undefined,
-        "message" in applyResult && applyResult.message
-          ? `message=${applyResult.message}`
-          : undefined,
-      ]
-        .filter(Boolean)
-        .join(" ");
-      throw new Error(errorMessage);
-    }
-
     throw new Error(
       `Apply failed: ${applyResult.status} ${
         "message" in applyResult ? applyResult.message : ""
