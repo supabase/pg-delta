@@ -1,5 +1,6 @@
 import debug from "debug";
 import type { Catalog } from "./catalog.model.ts";
+import { expandReplaceDependencies } from "./expand-replace-dependencies.ts";
 
 const debugCatalog = debug("pg-delta:catalog");
 
@@ -176,7 +177,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
       }
     }
   }
-  const filteredChanges = changes.filter((change) => {
+  let filteredChanges = changes.filter((change) => {
     if (change.operation === "alter" && change.scope === "privilege") {
       switch (change.objectType) {
         case "composite_type":
@@ -219,6 +220,12 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
       }
     }
     return true;
+  });
+
+  filteredChanges = expandReplaceDependencies({
+    changes: filteredChanges,
+    mainCatalog: main,
+    branchCatalog: branch,
   });
 
   debugCatalog(

@@ -95,17 +95,14 @@ Exit codes:
           "Plan already applied (target fingerprint matches desired state).\n",
         );
         return;
-      case "failed":
-        if (result.failedStatement) {
-          this.process.stderr.write(
-            `Failed statement: ${result.failedStatement}\n`,
-          );
-        }
+      case "failed": {
         this.process.stderr.write(
           `Failed to apply changes: ${result.error instanceof Error ? result.error.message : String(result.error)}\n`,
         );
+        this.process.stderr.write(`Migration script:\n${result.script}\n`);
         process.exitCode = 1;
         return;
+      }
       case "applied": {
         this.process.stdout.write(
           `Applying ${result.statements} changes to database...\n`,

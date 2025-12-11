@@ -183,12 +183,10 @@ export async function roundtripFidelityTest(
     });
   }
 
+  const debugMainCatalogAfter = await extractCatalog(mainSession);
+  const postApplyFingerprint = hashStableIds(debugMainCatalogAfter, stableIds);
+
   if (applyResult.warnings?.length) {
-    const debugMainCatalogAfter = await extractCatalog(mainSession);
-    const postApplyFingerprint = hashStableIds(
-      debugMainCatalogAfter,
-      stableIds,
-    );
     console.error(
       "[roundtrip] apply warnings: %o\n[targetFingerprint=%s postApplyFingerprint=%s]",
       applyResult.warnings,
@@ -197,23 +195,32 @@ export async function roundtripFidelityTest(
     );
   }
 
-  // Extra fingerprint assertion to make enum drift visible in CI output
-  if (applyResult.warnings?.length) {
-    const debugMainCatalogAfter = await extractCatalog(mainSession);
-    const postApplyFingerprint = hashStableIds(
-      debugMainCatalogAfter,
-      stableIds,
+  if (postApplyFingerprint !== targetFingerprint) {
+    const remainingChanges = diffCatalogs(debugMainCatalogAfter, branchCatalog);
+    const sortedRemaining = sortChanges(
+      { mainCatalog: debugMainCatalogAfter, branchCatalog },
+      remainingChanges,
     );
-    expect(postApplyFingerprint).toStrictEqual(targetFingerprint);
-  } else {
-    const debugMainCatalogAfter = await extractCatalog(mainSession);
-    const postApplyFingerprint = hashStableIds(
-      debugMainCatalogAfter,
-      stableIds,
+    const remainingSql = sortedRemaining.map((c) => c.serialize()).join(";\n");
+    const remainingSummary = sortedRemaining.map((c) => ({
+      change: c.constructor.name,
+      op: c.operation,
+      objectType: c.objectType,
+      scope: (c as { scope?: string }).scope ?? "object",
+      creates: c.creates,
+      drops: c.drops,
+      requires: c.requires,
+    }));
+    console.error(
+      "[roundtrip] fingerprint mismatch\n target=%s\n post=%s\n remainingSummary=%o\n remainingSql=%s",
+      targetFingerprint,
+      postApplyFingerprint,
+      remainingSummary,
+      remainingSql,
     );
-    expect(postApplyFingerprint).toStrictEqual(targetFingerprint);
   }
 
+  expect(postApplyFingerprint).toStrictEqual(targetFingerprint);
   expect(applyResult.warnings ?? []).toEqual([]);
 
   await verifyNoRemainingChanges(

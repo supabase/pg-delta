@@ -15,7 +15,7 @@
  */
 
 // Plan creation
-export { buildPlanForCatalogs, createPlan } from "./create.ts";
+export {  createPlan } from "./create.ts";
 // Hierarchical grouping
 export { groupChangesHierarchically } from "./hierarchy.ts";
 // Plan I/O

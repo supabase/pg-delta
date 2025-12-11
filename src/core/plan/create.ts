@@ -61,7 +61,7 @@ export async function createPlan(
 /**
  * Build a plan (and supporting artifacts) from already extracted catalogs.
  */
-export function buildPlanForCatalogs(
+function buildPlanForCatalogs(
   fromCatalog: Catalog,
   toCatalog: Catalog,
   options: CreatePlanOptions = {},
