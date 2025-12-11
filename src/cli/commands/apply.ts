@@ -4,6 +4,7 @@
 
 import { readFile } from "node:fs/promises";
 import { buildCommand, type CommandContext } from "@stricli/core";
+import chalk from "chalk";
 import { applyPlan } from "../../core/plan/apply.ts";
 import { deserializePlan, type Plan } from "../../core/plan/index.ts";
 
@@ -25,11 +26,17 @@ export const applyCommand = buildCommand({
         brief: "Target database connection URL (desired state)",
         parse: String,
       },
+      unsafe: {
+        kind: "boolean",
+        brief: "Allow data-loss operations (unsafe mode)",
+        optional: true,
+      },
     },
     aliases: {
       p: "plan",
       s: "source",
       t: "target",
+      u: "unsafe",
     },
   },
   docs: {
@@ -38,6 +45,8 @@ export const applyCommand = buildCommand({
 Apply changes from a plan file to a target database.
 
 The plan file should be a JSON file created with "pgdelta plan --output <file>.plan.json" (or any .plan/.json path).
+
+Safe by default: will refuse plans containing data-loss unless --unsafe is set.
 
 Exit codes:
   0 - Success (changes applied)
@@ -50,6 +59,7 @@ Exit codes:
       plan: string;
       source: string;
       target: string;
+      unsafe?: boolean;
     },
   ) {
     // Read and parse plan file
@@ -73,6 +83,30 @@ Exit codes:
       );
       process.exitCode = 1;
       return;
+    }
+
+    if (!flags.unsafe) {
+      if (!plan.risk) {
+        this.process.stderr.write(
+          "Plan is missing risk metadata. Regenerate the plan with the current pgdelta or re-run with --unsafe to apply anyway.\n",
+        );
+        process.exitCode = 1;
+        return;
+      }
+      if (plan.risk.level === "data_loss") {
+        const warningLines = [
+          chalk.yellow("⚠ Data-loss operations detected:"),
+          ...plan.risk.dataLoss.map((entry) =>
+            chalk.yellow(`- ${entry.reason}`),
+          ),
+          chalk.yellow(
+            "Use `pgdelta apply --unsafe` to allow applying these operations.",
+          ),
+        ];
+        this.process.stderr.write(`${warningLines.join("\n")}\n`);
+        process.exitCode = 1;
+        return;
+      }
     }
 
     const result = await applyPlan(plan, flags.source, flags.target, {

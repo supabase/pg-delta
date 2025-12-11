@@ -21,7 +21,6 @@ export function formatTree(plan: HierarchicalPlan): string {
   const summary = buildSummaryLine(plan);
   if (summary) {
     lines.push("");
-    lines.push("Summary:");
     lines.push(summary);
   }
   lines.push("");
@@ -107,10 +106,10 @@ function buildSummaryLine(plan: HierarchicalPlan): string {
 
   // Header
   lines.push(
-    `  ${chalk.bold("Entity".padEnd(maxNameWidth))}  ${chalk.bold("Create".padStart(maxCreateWidth))}  ${chalk.bold("Alter".padStart(maxAlterWidth))}  ${chalk.bold("Drop".padStart(maxDropWidth))}`,
+    `${chalk.bold("Entity".padEnd(maxNameWidth))}  ${chalk.bold("Create".padStart(maxCreateWidth))}  ${chalk.bold("Alter".padStart(maxAlterWidth))}  ${chalk.bold("Drop".padStart(maxDropWidth))}`,
   );
   lines.push(
-    `  ${chalk.dim("-".repeat(maxNameWidth))}  ${chalk.dim("-".repeat(maxCreateWidth))}  ${chalk.dim("-".repeat(maxAlterWidth))}  ${chalk.dim("-".repeat(maxDropWidth))}`,
+    `${chalk.dim("-".repeat(maxNameWidth))}  ${chalk.dim("-".repeat(maxCreateWidth))}  ${chalk.dim("-".repeat(maxAlterWidth))}  ${chalk.dim("-".repeat(maxDropWidth))}`,
   );
 
   // Rows
@@ -135,7 +134,7 @@ function buildSummaryLine(plan: HierarchicalPlan): string {
         : chalk.dim(dropDisplay.padStart(maxDropWidth));
 
     lines.push(
-      `  ${typeStr.padEnd(maxNameWidth)}  ${createStr}  ${alterStr}  ${dropStr}`,
+      `${typeStr.padEnd(maxNameWidth)}  ${createStr}  ${alterStr}  ${dropStr}`,
     );
   }
 
@@ -149,6 +148,15 @@ function countFromHierarchy(
   plan: HierarchicalPlan,
   byType: Record<string, { create: number; alter: number; drop: number }>,
 ): void {
+  const addCounts = (
+    target: { create: number; alter: number; drop: number },
+    source: { create: number; alter: number; drop: number },
+  ) => {
+    target.create += source.create;
+    target.alter += source.alter;
+    target.drop += source.drop;
+  };
+
   function countGroup(
     group: {
       create: ChangeEntry[];
@@ -183,8 +191,25 @@ function countFromHierarchy(
 
     // Tables
     for (const table of Object.values(schema.tables)) {
-      countGroup(table.changes, "table");
-      countGroup(table.columns, "column");
+      const tableCounts = {
+        create: table.changes.create.length,
+        alter: table.changes.alter.length,
+        drop: table.changes.drop.length,
+      };
+
+      // Roll column counts into table totals (no separate column row)
+      addCounts(tableCounts, {
+        create: table.columns.create.length,
+        alter: table.columns.alter.length,
+        drop: table.columns.drop.length,
+      });
+
+      // Apply rolled-up counts to table totals
+      if (!byType["table"]) {
+        byType["table"] = { create: 0, alter: 0, drop: 0 };
+      }
+      addCounts(byType["table"], tableCounts);
+
       countGroup(table.indexes, "index");
       countGroup(table.triggers, "trigger");
       countGroup(table.rules, "rule");

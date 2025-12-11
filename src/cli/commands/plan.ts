@@ -7,6 +7,7 @@ import { buildCommand, type CommandContext } from "@stricli/core";
 import chalk from "chalk";
 import { groupChangesHierarchically } from "../../core/plan/hierarchy.ts";
 import { createPlan, serializePlan } from "../../core/plan/index.ts";
+import { classifyChangesRisk } from "../../core/plan/risk.ts";
 import { formatSqlScript } from "../../core/plan/statements.ts";
 import { formatTree } from "../formatters/index.ts";
 
@@ -67,6 +68,8 @@ json/sql outputs are available for artifacts or piping.
     }
 
     const { plan, sortedChanges, ctx } = planResult;
+    const risk = plan.risk ?? classifyChangesRisk(sortedChanges);
+    const planWithRisk = plan.risk ? plan : { ...plan, risk };
 
     const outputPath = flags.output;
     let effectiveFormat: "tree" | "json" | "sql";
@@ -84,11 +87,14 @@ json/sql outputs are available for artifacts or piping.
     let writtenLabel: string;
     switch (effectiveFormat) {
       case "sql":
-        content = formatSqlScript(plan.statements);
+        content = [
+          `-- Risk: ${risk.level === "data_loss" ? `data-loss (${risk.dataLoss.length})` : "safe"}`,
+          formatSqlScript(plan.statements),
+        ].join("\n");
         writtenLabel = "Migration script";
         break;
       case "json":
-        content = serializePlan(plan);
+        content = serializePlan(planWithRisk);
         writtenLabel = "Plan";
         break;
       default: {
@@ -98,7 +104,23 @@ json/sql outputs are available for artifacts or piping.
           chalk.level = 0; // disable colors when writing to file
         }
         try {
-          content = formatTree(hierarchy);
+          let treeContent = formatTree(hierarchy);
+          if (risk.level === "data_loss") {
+            const warningLines = [
+              "",
+              chalk.yellow("⚠ Data-loss operations detected:"),
+              ...risk.dataLoss.map((entry) =>
+                chalk.yellow(`- ${entry.reason}`),
+              ),
+              chalk.yellow(
+                "Use `pgdelta apply --unsafe` to allow applying these operations.",
+              ),
+            ];
+            const treeLines = treeContent.split("\n");
+            treeLines.splice(1, 0, ...warningLines);
+            treeContent = treeLines.join("\n");
+          }
+          content = treeContent;
         } finally {
           if (outputPath) {
             chalk.level = previousLevel;

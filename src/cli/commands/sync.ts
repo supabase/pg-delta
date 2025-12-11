@@ -22,11 +22,17 @@ export const syncCommand = buildCommand({
         brief: "Skip confirmation prompt and apply changes automatically",
         optional: true,
       },
+      unsafe: {
+        kind: "boolean",
+        brief: "Allow data-loss operations (unsafe mode)",
+        optional: true,
+      },
     },
     aliases: {
       f: "from",
       t: "to",
       y: "yes",
+      u: "unsafe",
     },
   },
   docs: {
@@ -36,6 +42,7 @@ Compute the schema diff between two PostgreSQL databases (from → to),
 display the plan, prompt for confirmation, and apply changes if confirmed.
 
 Use --yes to skip the confirmation prompt and apply changes automatically.
+Safe by default: refuses data-loss changes unless --unsafe is set.
 
 Exit codes:
   0 - Success (changes applied or no changes detected)

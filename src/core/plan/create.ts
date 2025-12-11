@@ -11,6 +11,7 @@ import type { DiffContext } from "../context.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
 import { postgresConfig } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
+import { classifyChangesRisk } from "./risk.ts";
 import type { CreatePlanOptions, Plan } from "./types.ts";
 
 // ============================================================================
@@ -102,6 +103,7 @@ function buildPlan(
   integration?: CreatePlanOptions["integration"],
 ): Plan {
   const statements = generateStatements(ctx, changes, integration);
+  const risk = classifyChangesRisk(changes);
 
   const { hash: fingerprintFrom, stableIds } = buildPlanScopeFingerprint(
     ctx.mainCatalog,
@@ -114,6 +116,7 @@ function buildPlan(
     source: { fingerprint: fingerprintFrom },
     target: { fingerprint: fingerprintTo },
     statements,
+    risk,
   };
 }
 
