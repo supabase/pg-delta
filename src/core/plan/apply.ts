@@ -12,7 +12,7 @@ type ApplyPlanResult =
   | { status: "fingerprint_mismatch"; current: string; expected: string }
   | { status: "already_applied" }
   | { status: "applied"; statements: number; warnings?: string[] }
-  | { status: "failed"; error: unknown; failedStatement?: string };
+  | { status: "failed"; error: unknown; script: string };
 
 interface ApplyPlanOptions {
   verifyPostApply?: boolean;
@@ -88,19 +88,10 @@ export async function applyPlan(
       return joined.endsWith(";") ? joined : `${joined};`;
     })();
 
-    let failedStatement: string | undefined;
-
     try {
-      await currentSql.begin(async (tx) => {
-        try {
-          await tx.unsafe(script);
-        } catch (error) {
-          failedStatement = script;
-          throw error;
-        }
-      });
+      await currentSql.unsafe(script);
     } catch (error) {
-      return { status: "failed", error, failedStatement };
+      return { status: "failed", error, script };
     }
 
     const warnings: string[] = [];

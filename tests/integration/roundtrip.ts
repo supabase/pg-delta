@@ -2,6 +2,7 @@
  * Test configuration and utilities for pg-delta integration tests.
  */
 
+import { inspect } from "node:util";
 import debug from "debug";
 import type postgres from "postgres";
 import { expect } from "vitest";
@@ -171,11 +172,15 @@ export async function roundtripFidelityTest(
     verifyPostApply: true,
   });
   if (applyResult.status !== "applied") {
-    throw new Error(
-      `Apply failed: ${applyResult.status} ${
-        "message" in applyResult ? applyResult.message : ""
-      }`,
-    );
+    const prettyApplyResult = inspect(applyResult, {
+      depth: null,
+      colors: false,
+      compact: false,
+      breakLength: 120,
+    });
+    throw new Error(`Apply failed:\n${prettyApplyResult}`, {
+      cause: applyResult,
+    });
   }
 
   if (applyResult.warnings?.length) {
@@ -190,8 +195,6 @@ export async function roundtripFidelityTest(
       targetFingerprint,
       postApplyFingerprint,
     );
-    debugEnums("main-after", debugMainCatalogAfter);
-    debugEnums("branch", branchCatalog);
   }
 
   // Extra fingerprint assertion to make enum drift visible in CI output
@@ -218,22 +221,6 @@ export async function roundtripFidelityTest(
     branchCatalog,
     integrationFilter,
     migrationScript,
-  );
-}
-
-function debugEnums(label: string, catalog: Catalog) {
-  const entries = Object.values(catalog.enums)
-    .map((enumObj) => ({
-      stableId: enumObj.stableId,
-      snapshot: enumObj.stableSnapshot(),
-    }))
-    .sort((a, b) => a.stableId.localeCompare(b.stableId));
-
-  console.error(
-    "[roundtrip] %s enums (count=%d): %s",
-    label,
-    entries.length,
-    JSON.stringify(entries, null, 2),
   );
 }
 
