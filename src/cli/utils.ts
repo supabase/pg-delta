@@ -14,20 +14,20 @@ import { formatSqlScript } from "../core/plan/statements.ts";
 import { formatTree } from "./formatters/index.ts";
 
 // Re-export ApplyPlanResult type for convenience
-export type ApplyPlanResult =
+type ApplyPlanResult =
   | { status: "invalid_plan"; message: string }
   | { status: "fingerprint_mismatch"; current: string; expected: string }
   | { status: "already_applied" }
   | { status: "applied"; statements: number; warnings?: string[] }
   | { status: "failed"; error: unknown; script: string };
 
-export type PlanResult = {
+type PlanResult = {
   plan: Plan;
   sortedChanges: Change[];
   ctx: DiffContext;
 };
 
-export interface FormatPlanOptions {
+interface FormatPlanOptions {
   disableColors?: boolean;
 }
 
