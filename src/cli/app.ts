@@ -9,7 +9,7 @@ const root = buildRouteMap({
     apply: applyCommand,
     sync: syncCommand,
   },
-  defaultCommand: "plan",
+  defaultCommand: "sync",
   docs: {
     brief: "PostgreSQL migrations made easy",
     fullDescription: `

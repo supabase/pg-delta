@@ -3,16 +3,24 @@
  */
 
 import { buildCommand, type CommandContext } from "@stricli/core";
+import { applyPlan } from "../../core/plan/apply.ts";
+import { createPlan } from "../../core/plan/index.ts";
+import {
+  formatPlanForDisplay,
+  handleApplyResult,
+  promptConfirmation,
+  validatePlanRisk,
+} from "../utils.ts";
 
 export const syncCommand = buildCommand({
   parameters: {
     flags: {
-      from: {
+      source: {
         kind: "parsed",
         brief: "Source database connection URL (current state)",
         parse: String,
       },
-      to: {
+      target: {
         kind: "parsed",
         brief: "Target database connection URL (desired state)",
         parse: String,
@@ -29,8 +37,8 @@ export const syncCommand = buildCommand({
       },
     },
     aliases: {
-      f: "from",
-      t: "to",
+      s: "source",
+      t: "target",
       y: "yes",
       u: "unsafe",
     },
@@ -38,7 +46,7 @@ export const syncCommand = buildCommand({
   docs: {
     brief: "Plan and apply schema changes in one go",
     fullDescription: `
-Compute the schema diff between two PostgreSQL databases (from → to),
+Compute the schema diff between two PostgreSQL databases (source → target),
 display the plan, prompt for confirmation, and apply changes if confirmed.
 
 Use --yes to skip the confirmation prompt and apply changes automatically.
@@ -52,19 +60,56 @@ Exit codes:
   },
   async func(
     this: CommandContext,
-    _flags: {
-      from: string;
-      to: string;
+    flags: {
+      source: string;
+      target: string;
       yes?: boolean;
       unsafe?: boolean;
     },
   ) {
-    // TODO: Implement sync logic
-    // 1. Run plan logic
-    // 2. Display plan
-    // 3. Prompt for confirmation (unless --yes)
-    // 4. Apply changes if confirmed
+    // 1. Create the plan
+    const planResult = await createPlan(flags.source, flags.target);
+    if (!planResult) {
+      this.process.stdout.write("No changes detected.\n");
+      process.exitCode = 0;
+      return;
+    }
 
-    this.process.stdout.write("synced\n");
+    // 2. Display the plan
+    const { content } = formatPlanForDisplay(planResult, "tree");
+    this.process.stdout.write(content);
+
+    // 3. Validate risk
+    const validation = validatePlanRisk(planResult.plan, !!flags.unsafe, this);
+    if (!validation.valid) {
+      process.exitCode = validation.exitCode ?? 1;
+      return;
+    }
+
+    // 4. Prompt for confirmation (unless --yes)
+    if (!flags.yes) {
+      const confirmed = await promptConfirmation(
+        "Apply these changes? (y/N) ",
+        this,
+      );
+      if (!confirmed) {
+        process.exitCode = 2;
+        return;
+      }
+    }
+
+    // 5. Apply the plan
+    const result = await applyPlan(
+      planResult.plan,
+      flags.source,
+      flags.target,
+      {
+        verifyPostApply: true,
+      },
+    );
+
+    // 6. Handle apply result
+    const { exitCode } = handleApplyResult(result, this);
+    process.exitCode = exitCode;
   },
 });
