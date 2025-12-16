@@ -135,7 +135,5 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-# real world tests
-diff-reports
-database-extraction-results.json
-tested-projects.json
+# Temporary files
+.tmp
