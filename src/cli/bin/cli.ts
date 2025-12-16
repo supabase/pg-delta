@@ -3,4 +3,7 @@
 import { run } from "@stricli/core";
 import { app } from "../app.ts";
 
-await run(app, process.argv.slice(2), { process });
+await run(app, process.argv.slice(2), { process }).catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
