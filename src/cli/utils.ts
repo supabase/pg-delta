@@ -29,6 +29,7 @@ type PlanResult = {
 
 interface FormatPlanOptions {
   disableColors?: boolean;
+  showUnsafeFlagSuggestion?: boolean;
 }
 
 /**
@@ -70,12 +71,41 @@ export function formatPlanForDisplay(
             ...risk.statements.map((statement: string) =>
               chalk.yellow(`- ${statement}`),
             ),
-            chalk.yellow(
-              "Use `pgdelta apply --unsafe` to allow applying these operations.",
-            ),
           ];
+          if (options.showUnsafeFlagSuggestion !== false) {
+            warningLines.push(
+              chalk.yellow(
+                "Use `--unsafe` to allow applying these operations.",
+              ),
+            );
+          }
           const treeLines = treeContent.split("\n");
-          treeLines.splice(1, 0, ...warningLines);
+          // Insert warning after the legend (at the end of the output)
+          // Find the legend line which contains "create", "alter", and "drop"
+          let insertIndex = treeLines.length;
+          const ansiPattern = new RegExp(
+            `${String.fromCharCode(27)}\\[[0-9;]*m`,
+            "g",
+          );
+          // Search from the end backwards for the legend
+          for (let i = treeLines.length - 1; i >= 0; i--) {
+            const line = treeLines[i];
+            const stripped = line.replace(ansiPattern, "").trim();
+            // Legend format: "+ create   ~ alter   - drop" (or variations)
+            if (
+              stripped.includes("create") &&
+              stripped.includes("alter") &&
+              stripped.includes("drop")
+            ) {
+              insertIndex = i + 1;
+              break;
+            }
+          }
+          // Fallback: if legend not found, append at the end
+          if (insertIndex === treeLines.length) {
+            insertIndex = treeLines.length;
+          }
+          treeLines.splice(insertIndex, 0, ...warningLines);
           treeContent = treeLines.join("\n");
         }
         // add newline for nicer stdout when in tree mode
@@ -100,6 +130,7 @@ export function validatePlanRisk(
   plan: Plan,
   unsafe: boolean,
   context: CommandContext,
+  options?: { suppressWarning?: boolean },
 ): { valid: boolean; exitCode?: number } {
   if (!unsafe) {
     if (!plan.risk) {
@@ -109,16 +140,16 @@ export function validatePlanRisk(
       return { valid: false, exitCode: 1 };
     }
     if (plan.risk.level === "data_loss") {
-      const warningLines = [
-        chalk.yellow("⚠ Data-loss operations detected:"),
-        ...plan.risk.statements.map((statement: string) =>
-          chalk.yellow(`- ${statement}`),
-        ),
-        chalk.yellow(
-          "Use `pgdelta apply --unsafe` to allow applying these operations.",
-        ),
-      ];
-      context.process.stderr.write(`${warningLines.join("\n")}\n`);
+      if (!options?.suppressWarning) {
+        const warningLines = [
+          chalk.yellow("⚠ Data-loss operations detected:"),
+          ...plan.risk.statements.map((statement: string) =>
+            chalk.yellow(`- ${statement}`),
+          ),
+          chalk.yellow("Use `--unsafe` to allow applying these operations."),
+        ];
+        context.process.stderr.write(`${warningLines.join("\n")}\n`);
+      }
       return { valid: false, exitCode: 1 };
     }
   }

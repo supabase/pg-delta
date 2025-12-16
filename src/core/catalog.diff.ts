@@ -37,7 +37,11 @@ import { diffRanges } from "./objects/type/range/range.diff.ts";
 import { stringifyWithBigInt } from "./objects/utils.ts";
 import { diffViews } from "./objects/view/view.diff.ts";
 
-export function diffCatalogs(main: Catalog, branch: Catalog) {
+export function diffCatalogs(
+  main: Catalog,
+  branch: Catalog,
+  options?: { role?: string },
+) {
   const changes: Change[] = [];
 
   // Step 1: Diff roles first to get default privilege changes
@@ -74,9 +78,14 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   }
 
   // Step 3: Create context with default privileges state for object diffing
+  // Use the specified role for both default privilege lookups and owner comparisons if provided,
+  // otherwise use the login role (main.currentUser). This ensures that when SET ROLE is used
+  // in the migration, both default privileges and owner comparisons match what will actually
+  // happen during execution (objects will be created with the effective role as owner).
+  const effectiveUser = options?.role ?? main.currentUser;
   const diffContext = {
     version: main.version,
-    currentUser: main.currentUser,
+    currentUser: effectiveUser,
     defaultPrivilegeState,
     mainRoles: main.roles,
   };
@@ -87,7 +96,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   );
   changes.push(
     ...diffCollations(
-      { currentUser: main.currentUser },
+      { currentUser: effectiveUser },
       main.collations,
       branch.collations,
     ),
@@ -114,14 +123,14 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   );
   changes.push(
     ...diffSubscriptions(
-      { currentUser: main.currentUser },
+      { currentUser: effectiveUser },
       main.subscriptions,
       branch.subscriptions,
     ),
   );
   changes.push(
     ...diffPublications(
-      { currentUser: main.currentUser },
+      { currentUser: effectiveUser },
       main.publications,
       branch.publications,
     ),
@@ -145,7 +154,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   );
   changes.push(
     ...diffEventTriggers(
-      { currentUser: main.currentUser },
+      { currentUser: effectiveUser },
       main.eventTriggers,
       branch.eventTriggers,
     ),

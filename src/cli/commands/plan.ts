@@ -33,6 +33,13 @@ export const planCommand = buildCommand({
         parse: String,
         optional: true,
       },
+      role: {
+        kind: "parsed",
+        brief:
+          "Role to use when executing the migration (SET ROLE will be added to statements).",
+        parse: String,
+        optional: true,
+      },
     },
     aliases: {
       s: "source",
@@ -55,9 +62,12 @@ json/sql outputs are available for artifacts or piping.
       target: string;
       format?: "json" | "sql";
       output?: string;
+      role?: string;
     },
   ) {
-    const planResult = await createPlan(flags.source, flags.target);
+    const planResult = await createPlan(flags.source, flags.target, {
+      role: flags.role,
+    });
     if (!planResult) {
       this.process.stdout.write("No changes detected.\n");
       return;
@@ -80,6 +90,7 @@ json/sql outputs are available for artifacts or piping.
       effectiveFormat,
       {
         disableColors: !!outputPath,
+        showUnsafeFlagSuggestion: false,
       },
     );
 

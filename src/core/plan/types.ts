@@ -156,6 +156,7 @@ export const PlanSchema = z.object({
     fingerprint: z.string(),
   }),
   statements: z.array(z.string()),
+  role: z.string().optional(),
   risk: z
     .discriminatedUnion("level", [
       z.object({
@@ -180,6 +181,8 @@ export type Plan = z.infer<typeof PlanSchema>;
 export interface CreatePlanOptions {
   /** Integration for filtering and serialization (defaults to base) */
   integration?: Integration;
+  /** Role to use when executing the migration (SET ROLE will be added to statements) */
+  role?: string;
 }
 
 // Import Integration type for CreatePlanOptions

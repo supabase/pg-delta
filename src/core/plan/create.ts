@@ -67,7 +67,9 @@ function buildPlanForCatalogs(
   toCatalog: Catalog,
   options: CreatePlanOptions = {},
 ): { plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null {
-  const changes = diffCatalogs(fromCatalog, toCatalog);
+  const changes = diffCatalogs(fromCatalog, toCatalog, {
+    role: options.role,
+  });
 
   const integration = options.integration;
   const ctx: DiffContext = {
@@ -85,7 +87,7 @@ function buildPlanForCatalogs(
   }
 
   const sortedChanges = sortChanges(ctx, filteredChanges);
-  const plan = buildPlan(ctx, sortedChanges, integration);
+  const plan = buildPlan(ctx, sortedChanges, options);
 
   return { plan, sortedChanges, ctx };
 }
@@ -100,9 +102,13 @@ function buildPlanForCatalogs(
 function buildPlan(
   ctx: DiffContext,
   changes: Change[],
-  integration?: CreatePlanOptions["integration"],
+  options?: CreatePlanOptions,
 ): Plan {
-  const statements = generateStatements(ctx, changes, integration);
+  const role = options?.role;
+  const statements = generateStatements(ctx, changes, {
+    integration: options?.integration,
+    role,
+  });
   const risk = classifyChangesRisk(changes);
 
   const { hash: fingerprintFrom, stableIds } = buildPlanScopeFingerprint(
@@ -116,6 +122,7 @@ function buildPlan(
     source: { fingerprint: fingerprintFrom },
     target: { fingerprint: fingerprintTo },
     statements,
+    role,
     risk,
   };
 }
@@ -126,16 +133,24 @@ function buildPlan(
 function generateStatements(
   ctx: DiffContext,
   changes: Change[],
-  integration?: CreatePlanOptions["integration"],
+  options?: {
+    integration?: CreatePlanOptions["integration"];
+    role?: string;
+  },
 ): string[] {
   const statements: string[] = [];
+
+  if (options?.role) {
+    statements.push(`SET ROLE "${options.role}"`);
+  }
 
   if (hasRoutineChanges(changes)) {
     statements.push("SET check_function_bodies = false");
   }
 
   for (const change of changes) {
-    const sql = integration?.serialize?.(ctx, change) ?? change.serialize();
+    const sql =
+      options?.integration?.serialize?.(ctx, change) ?? change.serialize();
     statements.push(sql);
   }
 
