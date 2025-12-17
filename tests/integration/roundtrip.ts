@@ -245,12 +245,7 @@ async function verifyNoRemainingChanges(
   const changesAfter = diffCatalogs(mainCatalogAfter, branchCatalog);
 
   const filteredChangesAfter = integrationFilter
-    ? changesAfter.filter((change) =>
-        integrationFilter(
-          { mainCatalog: mainCatalogAfter, branchCatalog },
-          change,
-        ),
-      )
+    ? changesAfter.filter((change) => integrationFilter(change))
     : changesAfter;
 
   if (filteredChangesAfter.length === 0) {

@@ -1,4 +1,24 @@
-import type { Change } from "../change.types.ts";
+import type { Change } from "../../change.types.ts";
+
+/**
+ * Property extractor function that extracts a value from a change.
+ */
+type PropertyExtractor = (change: Change) => string | null;
+
+/**
+ * Registry of property extractors.
+ * Maps property names to extractor functions.
+ */
+export const PROPERTY_EXTRACTORS: Record<string, PropertyExtractor> = {
+  schema: getSchema,
+  owner: getOwner,
+  member: (change: Change) => {
+    if (change.scope === "membership") {
+      return change.member;
+    }
+    return null;
+  },
+};
 
 export function getSchema(change: Change) {
   switch (change.objectType) {

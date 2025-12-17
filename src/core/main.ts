@@ -11,12 +11,9 @@ import { sortChanges } from "./sort/sort-changes.ts";
 export type { DiffContext } from "./context.ts";
 export { postgresConfig } from "./postgres-config.ts";
 
-export type ChangeFilter = (ctx: DiffContext, change: Change) => boolean;
+export type ChangeFilter = (change: Change) => boolean;
 
-export type ChangeSerializer = (
-  ctx: DiffContext,
-  change: Change,
-) => string | undefined;
+export type ChangeSerializer = (change: Change) => string | undefined;
 
 export type MainOptions = Integration;
 
@@ -51,7 +48,7 @@ async function _main(
   const integrationFilter = integration.filter;
   if (integrationFilter) {
     filteredChanges = filteredChanges.filter((change) =>
-      integrationFilter(ctx, change),
+      integrationFilter(change),
     );
   }
 
@@ -75,7 +72,7 @@ async function _main(
 
   // Serialize changes using integration serialize hook (applies masking) or fallback
   const changeStatements = sortedChanges.map((change) => {
-    return integration.serialize?.(ctx, change) ?? change.serialize();
+    return integration.serialize?.(change) ?? change.serialize();
   });
 
   scriptParts.push(...changeStatements);

@@ -10,6 +10,7 @@ import { extractCatalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
+import { compileFilterDSL } from "../integrations/filter/dsl.ts";
 import { postgresConfig } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import { classifyChangesRisk } from "./risk.ts";
@@ -214,14 +215,20 @@ function buildPlanForCatalogs(
   });
 
   const integration = options.integration;
+  const filterDSL = options.filter;
   const ctx: DiffContext = {
     mainCatalog: fromCatalog,
     branchCatalog: toCatalog,
   };
 
-  const integrationFilter = integration?.filter;
-  const filteredChanges = integrationFilter
-    ? changes.filter((change) => integrationFilter(ctx, change))
+  // Compile filter DSL if provided, otherwise use integration filter
+  let filterFn = integration?.filter;
+  if (filterDSL) {
+    filterFn = compileFilterDSL(filterDSL);
+  }
+
+  const filteredChanges = filterFn
+    ? changes.filter((change) => filterFn!(change))
     : changes;
 
   if (filteredChanges.length === 0) {
@@ -229,7 +236,7 @@ function buildPlanForCatalogs(
   }
 
   const sortedChanges = sortChanges(ctx, filteredChanges);
-  const plan = buildPlan(ctx, sortedChanges, options);
+  const plan = buildPlan(ctx, sortedChanges, options, filterDSL);
 
   return { plan, sortedChanges, ctx };
 }
@@ -245,9 +252,10 @@ function buildPlan(
   ctx: DiffContext,
   changes: Change[],
   options?: CreatePlanOptions,
+  filterDSL?: CreatePlanOptions["filter"],
 ): Plan {
   const role = options?.role;
-  const statements = generateStatements(ctx, changes, {
+  const statements = generateStatements(changes, {
     integration: options?.integration,
     role,
   });
@@ -265,6 +273,7 @@ function buildPlan(
     target: { fingerprint: fingerprintTo },
     statements,
     role,
+    filter: filterDSL,
     risk,
   };
 }
@@ -273,7 +282,6 @@ function buildPlan(
  * Generate the individual SQL statements that make up the plan.
  */
 function generateStatements(
-  ctx: DiffContext,
   changes: Change[],
   options?: {
     integration?: CreatePlanOptions["integration"];
@@ -291,8 +299,7 @@ function generateStatements(
   }
 
   for (const change of changes) {
-    const sql =
-      options?.integration?.serialize?.(ctx, change) ?? change.serialize();
+    const sql = options?.integration?.serialize?.(change) ?? change.serialize();
     statements.push(sql);
   }
 

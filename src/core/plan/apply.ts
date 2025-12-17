@@ -7,6 +7,7 @@ import { diffCatalogs } from "../catalog.diff.ts";
 import { extractCatalog } from "../catalog.model.ts";
 import type { DiffContext } from "../context.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
+import { compileFilterDSL } from "../integrations/filter/dsl.ts";
 import { postgresConfig } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import type { Plan } from "./types.ts";
@@ -65,7 +66,15 @@ export async function applyPlan(
       mainCatalog: currentCatalog,
       branchCatalog: desiredCatalog,
     };
-    const sortedChanges = sortChanges(ctx, changes);
+
+    // Apply the same filter that was used to create the plan (if any)
+    let filteredChanges = changes;
+    if (plan.filter) {
+      const filterFn = compileFilterDSL(plan.filter);
+      filteredChanges = filteredChanges.filter((change) => filterFn(change));
+    }
+
+    const sortedChanges = sortChanges(ctx, filteredChanges);
     const { hash: fingerprintFrom, stableIds } = buildPlanScopeFingerprint(
       ctx.mainCatalog,
       sortedChanges,

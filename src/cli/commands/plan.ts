@@ -4,6 +4,7 @@
 
 import { writeFile } from "node:fs/promises";
 import { buildCommand, type CommandContext } from "@stricli/core";
+import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
 import { createPlan } from "../../core/plan/index.ts";
 import { formatPlanForDisplay } from "../utils.ts";
 
@@ -40,6 +41,21 @@ export const planCommand = buildCommand({
         parse: String,
         optional: true,
       },
+      filter: {
+        kind: "parsed",
+        brief:
+          'Filter DSL as inline JSON to filter changes (e.g., \'{"schema":"public"}\').',
+        parse: (value: string): FilterDSL => {
+          try {
+            return JSON.parse(value) as FilterDSL;
+          } catch (error) {
+            throw new Error(
+              `Invalid filter JSON: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        },
+        optional: true,
+      },
     },
     aliases: {
       s: "source",
@@ -63,10 +79,12 @@ json/sql outputs are available for artifacts or piping.
       format?: "json" | "sql";
       output?: string;
       role?: string;
+      filter?: FilterDSL;
     },
   ) {
     const planResult = await createPlan(flags.source, flags.target, {
       role: flags.role,
+      filter: flags.filter,
     });
     if (!planResult) {
       this.process.stdout.write("No changes detected.\n");

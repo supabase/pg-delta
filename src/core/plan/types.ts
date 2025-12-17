@@ -4,6 +4,7 @@
 
 import z from "zod";
 import type { Change } from "../change.types.ts";
+import type { FilterDSL } from "../integrations/filter/dsl.ts";
 
 // ============================================================================
 // Core Types
@@ -157,6 +158,7 @@ export const PlanSchema = z.object({
   }),
   statements: z.array(z.string()),
   role: z.string().optional(),
+  filter: z.any().optional(), // FilterDSL - complex recursive type, validated at compile time
   risk: z
     .discriminatedUnion("level", [
       z.object({
@@ -181,6 +183,8 @@ export type Plan = z.infer<typeof PlanSchema>;
 export interface CreatePlanOptions {
   /** Integration for filtering and serialization (defaults to base) */
   integration?: Integration;
+  /** Filter DSL - serializable filter pattern (will be compiled and stored in plan) */
+  filter?: FilterDSL;
   /** Role to use when executing the migration (SET ROLE will be added to statements) */
   role?: string;
 }

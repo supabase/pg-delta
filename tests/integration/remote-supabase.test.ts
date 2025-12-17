@@ -36,7 +36,7 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
   const changes = diffCatalogs(mainCatalog, branchCatalog);
 
   const options: MainOptions = {
-    filter: (_context, change) => {
+    filter: (change) => {
       // ALTER ROLE postgres WITH NOSUPERUSER;
       const isAlterRolePostgresWithNosuperuser =
         change instanceof AlterRoleSetOptions &&
@@ -83,7 +83,7 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
   let filteredChanges = options.filter
     ? changes.filter((change) =>
         // biome-ignore lint/style/noNonNullAssertion: options.filter is guaranteed to be defined
-        options.filter!({ mainCatalog, branchCatalog }, change),
+        options.filter!(change),
       )
     : changes;
 
@@ -112,10 +112,7 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
   const migrationScript = `${[
     ...sessionConfig,
     ...sortedChanges.map((change) => {
-      return (
-        options.serialize?.({ mainCatalog, branchCatalog }, change) ??
-        change.serialize()
-      );
+      return options.serialize?.(change) ?? change.serialize();
     }),
   ].join(";\n\n")};`;
 
@@ -136,13 +133,7 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
     const filteredChangesAfter = options.filter
       ? changesAfter.filter((change) =>
           // biome-ignore lint/style/noNonNullAssertion: options.filter is guaranteed to be defined
-          options.filter!(
-            {
-              mainCatalog: mainCatalogAfter,
-              branchCatalog: branchCatalogAfter,
-            },
-            change,
-          ),
+          options.filter!(change),
         )
       : changesAfter;
 
@@ -166,15 +157,7 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
       const secondMigrationScript = `${[
         ...sessionConfigAfter,
         ...sortedChangesAfter.map((change) => {
-          return (
-            options.serialize?.(
-              {
-                mainCatalog: mainCatalogAfter,
-                branchCatalog: branchCatalogAfter,
-              },
-              change,
-            ) ?? change.serialize()
-          );
+          return options.serialize?.(change) ?? change.serialize();
         }),
       ].join(";\n\n")};`;
 
