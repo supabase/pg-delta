@@ -21,7 +21,7 @@ npm install @supabase/pg-delta
 Or use with `npx`:
 
 ```bash
-npx @supabase/pg-delta <source> <target>
+npx @supabase/pg-delta --source <source> --target <target>
 ```
 
 ## Quick Start
@@ -34,16 +34,16 @@ The CLI provides three main commands:
 
 ```bash
 pg-delta sync \
-  postgresql://user:pass@localhost:5432/source_db \
-  postgresql://user:pass@localhost:5432/target_db
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db
 ```
 
 **Plan** - Preview changes before applying:
 
 ```bash
 pg-delta plan \
-  postgresql://user:pass@localhost:5432/source_db \
-  postgresql://user:pass@localhost:5432/target_db \
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db \
   --output plan.json
 ```
 
@@ -52,8 +52,8 @@ pg-delta plan \
 ```bash
 pg-delta apply \
   --plan plan.json \
-  postgresql://user:pass@localhost:5432/source_db \
-  postgresql://user:pass@localhost:5432/target_db
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db
 ```
 
 ### Using Integrations
@@ -62,10 +62,10 @@ Use built-in integrations or custom JSON files:
 
 ```bash
 # Built-in Supabase integration
-pg-delta sync <source> <target> --integration supabase
+pg-delta sync --source <source> --target <target> --integration supabase
 
 # Custom integration file
-pg-delta sync <source> <target> --integration ./my-integration.json
+pg-delta sync --source <source> --target <target> --integration ./my-integration.json
 ```
 
 ### Programmatic Usage
