@@ -79,7 +79,7 @@ export const syncCommand = buildCommand({
       integration: {
         kind: "parsed",
         brief:
-          "Integration name (e.g., 'supabase') or path to integration JSON file. Loads from core/integrations/ or file path.",
+          "Integration name (e.g., 'supabase') or path to integration JSON file (must end with .json). Loads from core/integrations/ or file path.",
         parse: String,
         optional: true,
       },

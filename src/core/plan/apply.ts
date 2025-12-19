@@ -26,6 +26,14 @@ interface ApplyPlanOptions {
 type ConnectionInput = string | Sql;
 
 /**
+ * Check if a statement is a session configuration statement (standalone SET statements).
+ * These statements should not be counted as changes.
+ */
+function isSessionStatement(statement: string): boolean {
+  return statement.trim().startsWith("SET ");
+}
+
+/**
  * Apply a plan's SQL statements to a target database with integrity checks.
  * Validates fingerprints before and after application to ensure plan integrity.
  */
@@ -127,9 +135,14 @@ export async function applyPlan(
       }
     }
 
+    // Count only actual changes, excluding session configuration statements
+    const changeStatements = statements.filter(
+      (stmt) => !isSessionStatement(stmt),
+    );
+
     return {
       status: "applied",
-      statements: statements.length,
+      statements: changeStatements.length,
       warnings: warnings.length ? warnings : undefined,
     };
   } finally {
