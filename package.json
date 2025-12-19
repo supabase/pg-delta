@@ -40,7 +40,7 @@
     "knip": "knip",
     "pgdelta": "node src/cli/bin/cli.ts",
     "test": "vitest",
-    "version": "changeset version && pnpm install --no-frozen-lockfile && pnpm format-and-lint"
+    "version": "changeset version && pnpm install --no-frozen-lockfile && pnpm format-and-lint --write"
   },
   "dependencies": {
     "@stricli/core": "^1.2.4",
