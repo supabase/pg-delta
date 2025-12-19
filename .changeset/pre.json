@@ -4,7 +4,5 @@
   "initialVersions": {
     "@supabase/pg-delta": "0.0.0"
   },
-  "changesets": [
-    "petite-maps-slide"
-  ]
+  "changesets": ["petite-maps-slide"]
 }
