@@ -117,4 +117,4 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Release preview
-        run: pnpm prepublishOnly && pnpm dlx pkg-pr-new publish
+        run: pnpm build && pnpx pkg-pr-new publish

@@ -32,15 +32,15 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "packageManager": "pnpm@10.24.0",
+  "packageManager": "pnpm@10.26.1",
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "check-types": "tsc --noEmit",
     "format-and-lint": "biome check . --error-on-warnings",
     "knip": "knip",
     "pgdelta": "node src/cli/bin/cli.ts",
-    "prepublishOnly": "pnpm build",
-    "test": "vitest"
+    "test": "vitest",
+    "version": "changeset version && pnpm install --no-frozen-lockfile && pnpm format-and-lint"
   },
   "dependencies": {
     "@stricli/core": "^1.2.4",
@@ -51,6 +51,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.10",
+    "@changesets/cli": "^2.29.8",
     "@tsconfig/node-ts": "^23.6.2",
     "@tsconfig/node24": "^24.0.3",
     "@types/debug": "^4.1.12",

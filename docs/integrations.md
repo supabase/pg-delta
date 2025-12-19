@@ -259,8 +259,8 @@ Here's a complete integration file that combines filtering and serialization:
 
 ```bash
 pg-delta plan \
-  postgresql://... \
-  postgresql://... \
+  --source postgresql://... \
+  --target postgresql://... \
   --integration supabase
 ```
 
@@ -268,8 +268,8 @@ pg-delta plan \
 
 ```bash
 pg-delta plan \
-  postgresql://... \
-  postgresql://... \
+  --source postgresql://... \
+  --target postgresql://... \
   --integration ./my-integration.json
 ```
 
@@ -279,8 +279,8 @@ You can also pass filter and serialization DSLs directly:
 
 ```bash
 pg-delta plan \
-  postgresql://... \
-  postgresql://... \
+  --source postgresql://... \
+  --target postgresql://... \
   --filter '{"schema":"public"}' \
   --serialize '[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]'
 ```
@@ -291,8 +291,8 @@ When both an integration and explicit flags are provided, the explicit flags tak
 
 ```bash
 pg-delta plan \
-  postgresql://... \
-  postgresql://... \
+  --source postgresql://... \
+  --target postgresql://... \
   --integration supabase \
   --filter '{"schema":"custom"}'  # Overrides integration's filter
 ```
@@ -377,7 +377,7 @@ The `supabase` integration provides filtering and serialization rules optimized 
 Use it with:
 
 ```bash
-pg-delta plan --integration supabase <source> <target>
+pg-delta plan --source <source> --target <target> --integration supabase
 ```
 
 See `src/core/integrations/supabase.json` for the complete integration definition.

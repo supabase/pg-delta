@@ -11,7 +11,7 @@ npm install -g @supabase/pg-delta
 Or use with `npx`:
 
 ```bash
-npx @supabase/pg-delta sync <source> <target>
+npx @supabase/pg-delta sync --source <source> --target <target>
 ```
 
 ## Commands
@@ -23,20 +23,15 @@ Plan and apply schema changes in one go with confirmation prompt. This is the de
 #### Usage
 
 ```bash
-pg-delta sync <source-url> <target-url> [options]
+pg-delta sync --source <source-url> --target <target-url> [options]
 # or simply
-pg-delta <source-url> <target-url> [options]
+pg-delta --source <source-url> --target <target-url> [options]
 ```
-
-#### Arguments
-
-- `source-url` (required): Connection URL for the source database (current state)
-- `target-url` (required): Connection URL for the target database (desired state)
 
 #### Options
 
-- `-s, --source <url>`: Source database connection URL (alternative to positional argument)
-- `-t, --target <url>`: Target database connection URL (alternative to positional argument)
+- `-s, --source <url>` (required): Source database connection URL (current state)
+- `-t, --target <url>` (required): Target database connection URL (desired state)
 - `--role <role>`: Role to use when executing the migration (SET ROLE will be added to statements)
 - `--filter <json>`: Filter DSL as inline JSON to filter changes (e.g., `'{"schema":"public"}'`)
 - `--serialize <json>`: Serialize DSL as inline JSON array (e.g., `'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]'`)
@@ -50,16 +45,16 @@ pg-delta <source-url> <target-url> [options]
 
 ```bash
 pg-delta sync \
-  postgresql://user:pass@localhost:5432/source_db \
-  postgresql://user:pass@localhost:5432/target_db
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db
 ```
 
 **Skip confirmation:**
 
 ```bash
 pg-delta sync \
-  postgresql://user:pass@localhost:5432/source_db \
-  postgresql://user:pass@localhost:5432/target_db \
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db \
   --yes
 ```
 
@@ -67,8 +62,8 @@ pg-delta sync \
 
 ```bash
 pg-delta sync \
-  postgresql://user:pass@localhost:5432/source_db \
-  postgresql://user:pass@localhost:5432/target_db \
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db \
   --integration supabase
 ```
 
@@ -76,8 +71,8 @@ pg-delta sync \
 
 ```bash
 pg-delta sync \
-  postgresql://user:pass@localhost:5432/source_db \
-  postgresql://user:pass@localhost:5432/target_db \
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db \
   --integration ./my-integration.json
 ```
 
@@ -85,8 +80,8 @@ pg-delta sync \
 
 ```bash
 pg-delta sync \
-  postgresql://user:pass@localhost:5432/source_db \
-  postgresql://user:pass@localhost:5432/target_db \
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db \
   --filter '{"schema":"public"}'
 ```
 
@@ -105,18 +100,13 @@ Compute schema diff and preview changes. Defaults to tree display; json/sql outp
 #### Usage
 
 ```bash
-pg-delta plan <source-url> <target-url> [options]
+pg-delta plan --source <source-url> --target <target-url> [options]
 ```
-
-#### Arguments
-
-- `source-url` (required): Connection URL for the source database (current state)
-- `target-url` (required): Connection URL for the target database (desired state)
 
 #### Options
 
-- `-s, --source <url>`: Source database connection URL (alternative to positional argument)
-- `-t, --target <url>`: Target database connection URL (alternative to positional argument)
+- `-s, --source <url>` (required): Source database connection URL (current state)
+- `-t, --target <url>` (required): Target database connection URL (desired state)
 - `-o, --output <file>`: Write output to file (stdout by default). If format is not set: `.sql` infers sql, `.json` infers json, otherwise uses human output
 - `--format <format>`: Output format override: `json` (plan) or `sql` (script)
 - `--role <role>`: Role to use when executing the migration (SET ROLE will be added to statements)
@@ -130,16 +120,16 @@ pg-delta plan <source-url> <target-url> [options]
 
 ```bash
 pg-delta plan \
-  postgresql://user:pass@localhost:5432/source_db \
-  postgresql://user:pass@localhost:5432/target_db
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db
 ```
 
 **Save plan as JSON:**
 
 ```bash
 pg-delta plan \
-  postgresql://user:pass@localhost:5432/source_db \
-  postgresql://user:pass@localhost:5432/target_db \
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db \
   --output plan.json
 ```
 
@@ -147,8 +137,8 @@ pg-delta plan \
 
 ```bash
 pg-delta plan \
-  postgresql://user:pass@localhost:5432/source_db \
-  postgresql://user:pass@localhost:5432/target_db \
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db \
   --format sql \
   --output migration.sql
 ```
@@ -157,8 +147,8 @@ pg-delta plan \
 
 ```bash
 pg-delta plan \
-  postgresql://user:pass@localhost:5432/source_db \
-  postgresql://user:pass@localhost:5432/target_db \
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db \
   --integration supabase \
   --output plan.json
 ```
@@ -178,19 +168,14 @@ Apply a plan's migration script to a target database.
 #### Usage
 
 ```bash
-pg-delta apply --plan <plan-file> <source-url> <target-url> [options]
+pg-delta apply --plan <plan-file> --source <source-url> --target <target-url> [options]
 ```
-
-#### Arguments
-
-- `source-url` (required): Connection URL for the source database (current state)
-- `target-url` (required): Connection URL for the target database (desired state)
 
 #### Options
 
-- `-p, --plan <file>`: Path to plan file (JSON format)
-- `-s, --source <url>`: Source database connection URL (alternative to positional argument)
-- `-t, --target <url>`: Target database connection URL (alternative to positional argument)
+- `-p, --plan <file>` (required): Path to plan file (JSON format)
+- `-s, --source <url>` (required): Source database connection URL (current state)
+- `-t, --target <url>` (required): Target database connection URL (desired state)
 - `-u, --unsafe`: Allow data-loss operations (unsafe mode)
 
 #### Examples
@@ -200,8 +185,8 @@ pg-delta apply --plan <plan-file> <source-url> <target-url> [options]
 ```bash
 pg-delta apply \
   --plan plan.json \
-  postgresql://user:pass@localhost:5432/source_db \
-  postgresql://user:pass@localhost:5432/target_db
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db
 ```
 
 **Apply unsafe plan:**
@@ -209,8 +194,8 @@ pg-delta apply \
 ```bash
 pg-delta apply \
   --plan plan.json \
-  postgresql://user:pass@localhost:5432/source_db \
-  postgresql://user:pass@localhost:5432/target_db \
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db \
   --unsafe
 ```
 

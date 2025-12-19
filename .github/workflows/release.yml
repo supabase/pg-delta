@@ -5,31 +5,39 @@ on:
     branches:
       - main
 
-permissions:
-  id-token: write  # Required for OIDC
-  contents: write
-  issues: write
-  pull-requests: write
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref }}
+  cancel-in-progress: true
 
 jobs:
-  release-please:
+  release:
+    name: Release
+    if: ${{ github.repository_owner == 'supabase' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
     steps:
-      - name: Release Please
-        id: release
-        uses: googleapis/release-please-action@v4
-        with:
-          release-type: node
-
       - name: Checkout
-        if: ${{ steps.release.outputs.release_created }}
         uses: actions/checkout@v6
 
       - name: Setup
-        if: ${{ steps.release.outputs.release_created }}
         uses: ./.github/actions/setup
 
-      - name: Publish
-        if: ${{ steps.release.outputs.release_created }}
-        run: pnpm publish
+      - name: Build
+        run: pnpm build
+
+      - name: Create Release Pull Request or Publish
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          version: pnpm version
+          publish: pnpm changeset publish
+          commit: "chore: release"
+          title: "chore: release"
+        env:
+          # Needs access to push to main
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use OIDC for npm authentication instead of NPM_TOKEN
+          NPM_TOKEN: '' # https://github.com/changesets/changesets/issues/1152#issuecomment-3190884868
         
