@@ -4,6 +4,9 @@
 
 import z from "zod";
 import type { Change } from "../change.types.ts";
+import type { FilterDSL } from "../integrations/filter/dsl.ts";
+import type { SerializeDSL } from "../integrations/serialize/dsl.ts";
+import type { ChangeFilter, ChangeSerializer } from "../main.ts";
 
 // ============================================================================
 // Core Types
@@ -157,6 +160,8 @@ export const PlanSchema = z.object({
   }),
   statements: z.array(z.string()),
   role: z.string().optional(),
+  filter: z.any().optional(), // FilterDSL - complex recursive type, validated at compile time
+  serialize: z.any().optional(), // SerializeDSL - complex recursive type, validated at compile time
   risk: z
     .discriminatedUnion("level", [
       z.object({
@@ -179,12 +184,10 @@ export type Plan = z.infer<typeof PlanSchema>;
  * Options for creating a plan.
  */
 export interface CreatePlanOptions {
-  /** Integration for filtering and serialization (defaults to base) */
-  integration?: Integration;
+  /** Filter - either FilterDSL (stored in plan) or ChangeFilter function (not stored) */
+  filter?: FilterDSL | ChangeFilter;
+  /** Serialize - either SerializeDSL (stored in plan) or ChangeSerializer function (not stored) */
+  serialize?: SerializeDSL | ChangeSerializer;
   /** Role to use when executing the migration (SET ROLE will be added to statements) */
   role?: string;
 }
-
-// Import Integration type for CreatePlanOptions
-// (placed at end to avoid circular dependency issues)
-import type { Integration } from "../integrations/integration.types.ts";

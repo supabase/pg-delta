@@ -33,11 +33,7 @@ export {
 // Integrations (optional)
 // =============================================================================
 
-export type {
-  Integration,
-  IntegrationConfig,
-} from "./integrations/integration.types.ts";
-export { supabase } from "./integrations/integrations/supabase.ts";
+export type { Integration } from "./integrations/integration.types.ts";
 
 // =============================================================================
 // Low-level APIs (for advanced usage)

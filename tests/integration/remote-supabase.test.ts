@@ -4,7 +4,6 @@ import postgres from "postgres";
 import { diffCatalogs } from "../../src/core/catalog.diff.ts";
 import { extractCatalog } from "../../src/core/catalog.model.ts";
 import type { MainOptions } from "../../src/core/main.ts";
-import { postgresConfig } from "../../src/core/main.ts";
 import { AlterRoleSetOptions } from "../../src/core/objects/role/changes/role.alter.ts";
 import { CreateRole } from "../../src/core/objects/role/changes/role.create.ts";
 import {
@@ -13,6 +12,7 @@ import {
   RevokeRoleDefaultPrivileges,
   RevokeRoleMembership,
 } from "../../src/core/objects/role/changes/role.privilege.ts";
+import { postgresConfig } from "../../src/core/postgres-config.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
 import { getTest } from "../utils.ts";
 
@@ -36,7 +36,7 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
   const changes = diffCatalogs(mainCatalog, branchCatalog);
 
   const options: MainOptions = {
-    filter: (_context, change) => {
+    filter: (change) => {
       // ALTER ROLE postgres WITH NOSUPERUSER;
       const isAlterRolePostgresWithNosuperuser =
         change instanceof AlterRoleSetOptions &&
@@ -83,7 +83,7 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
   let filteredChanges = options.filter
     ? changes.filter((change) =>
         // biome-ignore lint/style/noNonNullAssertion: options.filter is guaranteed to be defined
-        options.filter!({ mainCatalog, branchCatalog }, change),
+        options.filter!(change),
       )
     : changes;
 
@@ -112,10 +112,7 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
   const migrationScript = `${[
     ...sessionConfig,
     ...sortedChanges.map((change) => {
-      return (
-        options.serialize?.({ mainCatalog, branchCatalog }, change) ??
-        change.serialize()
-      );
+      return options.serialize?.(change) ?? change.serialize();
     }),
   ].join(";\n\n")};`;
 
@@ -136,13 +133,7 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
     const filteredChangesAfter = options.filter
       ? changesAfter.filter((change) =>
           // biome-ignore lint/style/noNonNullAssertion: options.filter is guaranteed to be defined
-          options.filter!(
-            {
-              mainCatalog: mainCatalogAfter,
-              branchCatalog: branchCatalogAfter,
-            },
-            change,
-          ),
+          options.filter!(change),
         )
       : changesAfter;
 
@@ -166,15 +157,7 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
       const secondMigrationScript = `${[
         ...sessionConfigAfter,
         ...sortedChangesAfter.map((change) => {
-          return (
-            options.serialize?.(
-              {
-                mainCatalog: mainCatalogAfter,
-                branchCatalog: branchCatalogAfter,
-              },
-              change,
-            ) ?? change.serialize()
-          );
+          return options.serialize?.(change) ?? change.serialize();
         }),
       ].join(";\n\n")};`;
 

@@ -11,66 +11,217 @@ npm install -g @supabase/pg-delta
 Or use with `npx`:
 
 ```bash
-npx @supabase/pg-delta diff <source> <target>
+npx @supabase/pg-delta sync <source> <target>
 ```
 
 ## Commands
 
-### `diff`
+### `sync` (default)
 
-Generate a migration script by comparing two databases.
+Plan and apply schema changes in one go with confirmation prompt. This is the default command when no command is specified.
 
 #### Usage
 
 ```bash
-pg-delta diff <source-url> <target-url> [options]
+pg-delta sync <source-url> <target-url> [options]
+# or simply
+pg-delta <source-url> <target-url> [options]
 ```
 
 #### Arguments
 
-- `source-url` (required): Connection URL for the source database (main)
-- `target-url` (required): Connection URL for the target database (branch)
+- `source-url` (required): Connection URL for the source database (current state)
+- `target-url` (required): Connection URL for the target database (desired state)
 
 #### Options
 
-- `-o, --output <file>`: Write output to a file instead of stdout
-- `--integration <name>`: Use a specific integration (optional)
-  - Available integrations: `supabase`
+- `-s, --source <url>`: Source database connection URL (alternative to positional argument)
+- `-t, --target <url>`: Target database connection URL (alternative to positional argument)
+- `--role <role>`: Role to use when executing the migration (SET ROLE will be added to statements)
+- `--filter <json>`: Filter DSL as inline JSON to filter changes (e.g., `'{"schema":"public"}'`)
+- `--serialize <json>`: Serialize DSL as inline JSON array (e.g., `'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]'`)
+- `--integration <name|path>`: Integration name (e.g., `supabase`) or path to integration JSON file (must end with `.json`)
+- `-y, --yes`: Skip confirmation prompt and apply changes automatically
+- `-u, --unsafe`: Allow data-loss operations (unsafe mode)
 
 #### Examples
 
 **Basic usage:**
 
 ```bash
-pg-delta diff \
+pg-delta sync \
   postgresql://user:pass@localhost:5432/source_db \
   postgresql://user:pass@localhost:5432/target_db
 ```
 
-**Save to file:**
+**Skip confirmation:**
 
 ```bash
-pg-delta diff \
+pg-delta sync \
   postgresql://user:pass@localhost:5432/source_db \
   postgresql://user:pass@localhost:5432/target_db \
-  --output migration.sql
+  --yes
 ```
 
 **Use Supabase integration:**
 
 ```bash
-pg-delta diff \
+pg-delta sync \
   postgresql://user:pass@localhost:5432/source_db \
   postgresql://user:pass@localhost:5432/target_db \
   --integration supabase
 ```
 
-**Using environment variables:**
+**Use custom integration file:**
 
 ```bash
-SOURCE_DB="postgresql://..." TARGET_DB="postgresql://..." \
-  pg-delta diff "$SOURCE_DB" "$TARGET_DB"
+pg-delta sync \
+  postgresql://user:pass@localhost:5432/source_db \
+  postgresql://user:pass@localhost:5432/target_db \
+  --integration ./my-integration.json
 ```
+
+**Filter changes:**
+
+```bash
+pg-delta sync \
+  postgresql://user:pass@localhost:5432/source_db \
+  postgresql://user:pass@localhost:5432/target_db \
+  --filter '{"schema":"public"}'
+```
+
+#### Exit Codes
+
+- `0`: Success (changes applied or no changes detected)
+- `1`: Error occurred
+- `2`: User cancelled or changes detected but not applied
+
+---
+
+### `plan`
+
+Compute schema diff and preview changes. Defaults to tree display; json/sql outputs are available for artifacts or piping.
+
+#### Usage
+
+```bash
+pg-delta plan <source-url> <target-url> [options]
+```
+
+#### Arguments
+
+- `source-url` (required): Connection URL for the source database (current state)
+- `target-url` (required): Connection URL for the target database (desired state)
+
+#### Options
+
+- `-s, --source <url>`: Source database connection URL (alternative to positional argument)
+- `-t, --target <url>`: Target database connection URL (alternative to positional argument)
+- `-o, --output <file>`: Write output to file (stdout by default). If format is not set: `.sql` infers sql, `.json` infers json, otherwise uses human output
+- `--format <format>`: Output format override: `json` (plan) or `sql` (script)
+- `--role <role>`: Role to use when executing the migration (SET ROLE will be added to statements)
+- `--filter <json>`: Filter DSL as inline JSON to filter changes (e.g., `'{"schema":"public"}'`)
+- `--serialize <json>`: Serialize DSL as inline JSON array (e.g., `'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]'`)
+- `--integration <name|path>`: Integration name (e.g., `supabase`) or path to integration JSON file (must end with `.json`)
+
+#### Examples
+
+**Preview changes (tree format):**
+
+```bash
+pg-delta plan \
+  postgresql://user:pass@localhost:5432/source_db \
+  postgresql://user:pass@localhost:5432/target_db
+```
+
+**Save plan as JSON:**
+
+```bash
+pg-delta plan \
+  postgresql://user:pass@localhost:5432/source_db \
+  postgresql://user:pass@localhost:5432/target_db \
+  --output plan.json
+```
+
+**Generate SQL script:**
+
+```bash
+pg-delta plan \
+  postgresql://user:pass@localhost:5432/source_db \
+  postgresql://user:pass@localhost:5432/target_db \
+  --format sql \
+  --output migration.sql
+```
+
+**Use integration:**
+
+```bash
+pg-delta plan \
+  postgresql://user:pass@localhost:5432/source_db \
+  postgresql://user:pass@localhost:5432/target_db \
+  --integration supabase \
+  --output plan.json
+```
+
+#### Exit Codes
+
+- `0`: Success - no changes detected
+- `2`: Changes detected (plan generated)
+- `1`: Error - command execution failed
+
+---
+
+### `apply`
+
+Apply a plan's migration script to a target database.
+
+#### Usage
+
+```bash
+pg-delta apply --plan <plan-file> <source-url> <target-url> [options]
+```
+
+#### Arguments
+
+- `source-url` (required): Connection URL for the source database (current state)
+- `target-url` (required): Connection URL for the target database (desired state)
+
+#### Options
+
+- `-p, --plan <file>`: Path to plan file (JSON format)
+- `-s, --source <url>`: Source database connection URL (alternative to positional argument)
+- `-t, --target <url>`: Target database connection URL (alternative to positional argument)
+- `-u, --unsafe`: Allow data-loss operations (unsafe mode)
+
+#### Examples
+
+**Apply a plan:**
+
+```bash
+pg-delta apply \
+  --plan plan.json \
+  postgresql://user:pass@localhost:5432/source_db \
+  postgresql://user:pass@localhost:5432/target_db
+```
+
+**Apply unsafe plan:**
+
+```bash
+pg-delta apply \
+  --plan plan.json \
+  postgresql://user:pass@localhost:5432/source_db \
+  postgresql://user:pass@localhost:5432/target_db \
+  --unsafe
+```
+
+#### Exit Codes
+
+- `0`: Success (changes applied)
+- `1`: Error occurred
+
+**Note:** Safe by default - will refuse plans containing data-loss unless `--unsafe` is set.
+
+---
 
 ## Connection URLs
 
@@ -86,11 +237,18 @@ Examples:
 - `postgresql://user:password@localhost:5432/mydb`
 - `postgresql://user@localhost/mydb?sslmode=require`
 
-## Exit Codes
+---
 
-- `0`: Success - migration script generated (or no differences found)
-- `1`: Error - command execution failed
-- Other non-zero codes: Internal errors
+## Integrations
+
+Integrations provide pre-configured filter and serialization rules for specific database platforms or use cases. See [Integrations Documentation](./integrations.md) for details.
+
+Available built-in integrations:
+- `supabase` - Supabase-specific filtering and serialization rules
+
+You can also create custom integrations by providing a JSON file. See the integrations documentation for the DSL format.
+
+---
 
 ## Help
 
@@ -98,6 +256,7 @@ Get help for any command:
 
 ```bash
 pg-delta --help
-pg-delta diff --help
+pg-delta sync --help
+pg-delta plan --help
+pg-delta apply --help
 ```
-

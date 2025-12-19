@@ -47,19 +47,19 @@
     "chalk": "^5.6.2",
     "debug": "^4.3.7",
     "postgres": "^3.4.7",
-    "zod": "^4.1.13"
+    "zod": "^4.2.1"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.3.8",
+    "@biomejs/biome": "2.3.10",
     "@tsconfig/node-ts": "^23.6.2",
     "@tsconfig/node24": "^24.0.3",
     "@types/debug": "^4.1.12",
-    "@types/node": "^24.10.1",
-    "@vitest/coverage-v8": "4.0.15",
-    "dedent": "^1.7.0",
-    "knip": "^5.71.0",
-    "testcontainers": "^11.9.0",
+    "@types/node": "^24.10.4",
+    "@vitest/coverage-v8": "4.0.16",
+    "dedent": "^1.7.1",
+    "knip": "^5.75.2",
+    "testcontainers": "^11.10.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.15"
+    "vitest": "^4.0.16"
   }
 }

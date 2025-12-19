@@ -108,7 +108,8 @@ export async function roundtripFidelityTest(
 
   // Generate plan using core workflow
   const planResult = await createPlan(mainSession, branchSession, {
-    integration,
+    filter: integration?.filter,
+    serialize: integration?.serialize,
   });
   if (!planResult) {
     return;
@@ -245,12 +246,7 @@ async function verifyNoRemainingChanges(
   const changesAfter = diffCatalogs(mainCatalogAfter, branchCatalog);
 
   const filteredChangesAfter = integrationFilter
-    ? changesAfter.filter((change) =>
-        integrationFilter(
-          { mainCatalog: mainCatalogAfter, branchCatalog },
-          change,
-        ),
-      )
+    ? changesAfter.filter((change) => integrationFilter(change))
     : changesAfter;
 
   if (filteredChangesAfter.length === 0) {
