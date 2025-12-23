@@ -4,8 +4,9 @@
 
 import { buildCommand, type CommandContext } from "@stricli/core";
 import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
+import type { ChangeFilter } from "../../core/integrations/filter/filter.types.ts";
 import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
-import type { ChangeFilter, ChangeSerializer } from "../../core/main.ts";
+import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
 import { applyPlan } from "../../core/plan/apply.ts";
 import { createPlan } from "../../core/plan/index.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";

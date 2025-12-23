@@ -5,8 +5,9 @@
 import z from "zod";
 import type { Change } from "../change.types.ts";
 import type { FilterDSL } from "../integrations/filter/dsl.ts";
+import type { ChangeFilter } from "../integrations/filter/filter.types.ts";
 import type { SerializeDSL } from "../integrations/serialize/dsl.ts";
-import type { ChangeFilter, ChangeSerializer } from "../main.ts";
+import type { ChangeSerializer } from "../integrations/serialize/serialize.types.ts";
 
 // ============================================================================
 // Core Types
@@ -20,30 +21,7 @@ export type PlanRisk =
  * All supported object types in the system.
  * Derived from the Change union type's objectType discriminant.
  */
-export type ObjectType = Change["objectType"];
-
-/**
- * Cluster-wide object types (no schema).
- */
-export type ClusterObjectType = Extract<
-  ObjectType,
-  | "event_trigger"
-  | "foreign_data_wrapper"
-  | "language"
-  | "publication"
-  | "role"
-  | "server"
-  | "subscription"
-  | "user_mapping"
->;
-
-/**
- * Object types that are children of tables/views.
- */
-export type ChildObjectType = Extract<
-  ObjectType,
-  "index" | "trigger" | "rule" | "rls_policy"
->;
+type ObjectType = Change["objectType"];
 
 /**
  * Parent types for child objects.
@@ -52,12 +30,6 @@ export type ParentType = Extract<
   ObjectType,
   "table" | "view" | "materialized_view" | "foreign_table"
 >;
-
-/**
- * Change scopes - what aspect of an object is being changed.
- * Derived from the Change union type's scope property.
- */
-export type ChangeScope = Change["scope"];
 
 /**
  * A change entry storing both serialized and original change for instanceof checks.

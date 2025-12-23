@@ -1,0 +1,8 @@
+{
+  "entry": [
+    "src/index.ts",
+    "src/cli/bin/cli.ts",
+    "src/core/integrations/supabase.ts"
+  ],
+  "project": ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}!"]
+}

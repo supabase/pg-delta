@@ -3,8 +3,8 @@
  */
 
 import type { Change } from "../../change.types.ts";
-import type { ChangeFilter } from "../../main.ts";
 import { PROPERTY_EXTRACTORS } from "./extractors.ts";
+import type { ChangeFilter } from "./filter.types.ts";
 
 /**
  * Core properties that all changes have.

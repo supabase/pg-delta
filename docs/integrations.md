@@ -253,7 +253,50 @@ Here's a complete integration file that combines filtering and serialization:
 
 ## Using Integrations
 
-### Via CLI Flag
+### Programmatic Usage
+
+**Using a built-in integration:**
+
+```typescript
+import { createPlan, applyPlan } from "@supabase/pg-delta";
+import { supabase } from "@supabase/pg-delta/integrations/supabase";
+
+const result = await createPlan(sourceUrl, targetUrl, {
+  filter: supabase.filter,
+  serialize: supabase.serialize,
+});
+
+if (result) {
+  await applyPlan(result.plan, sourceUrl, targetUrl);
+}
+```
+
+**Creating a custom integration:**
+
+```typescript
+import { createPlan, type IntegrationDSL } from "@supabase/pg-delta";
+
+const myIntegration: IntegrationDSL = {
+  filter: {
+    not: {
+      schema: ["pg_catalog", "information_schema"],
+    },
+  },
+  serialize: [
+    {
+      when: { type: "schema", operation: "create" },
+      options: { skipAuthorization: true },
+    },
+  ],
+};
+
+const result = await createPlan(sourceUrl, targetUrl, {
+  filter: myIntegration.filter,
+  serialize: myIntegration.serialize,
+});
+```
+
+### CLI Usage
 
 **Built-in integration:**
 
@@ -374,10 +417,22 @@ The `supabase` integration provides filtering and serialization rules optimized 
 - **Filter**: Excludes Supabase system schemas and roles, includes user schemas and extensions
 - **Serialize**: Skips authorization for schema creates owned by Supabase system roles
 
-Use it with:
+**CLI usage:**
 
 ```bash
 pg-delta plan --source <source> --target <target> --integration supabase
 ```
 
-See `src/core/integrations/supabase.json` for the complete integration definition.
+**Programmatic usage:**
+
+```typescript
+import { createPlan } from "@supabase/pg-delta";
+import { supabase } from "@supabase/pg-delta/integrations/supabase";
+
+const result = await createPlan(sourceUrl, targetUrl, {
+  filter: supabase.filter,
+  serialize: supabase.serialize,
+});
+```
+
+See `src/core/integrations/supabase.ts` for the complete integration definition.

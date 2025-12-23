@@ -46,14 +46,14 @@ export function hashStableIds(catalog: Catalog, stableIds: string[]): string {
 /**
  * Hash a string to hex SHA256.
  */
-export function sha256(input: string): string {
+function sha256(input: string): string {
   return crypto.createHash("sha256").update(input).digest("hex");
 }
 
 /**
  * Collect the union of stableIds referenced by all changes.
  */
-export function collectStableIds(changes: Change[]): string[] {
+function collectStableIds(changes: Change[]): string[] {
   const ids = new Set<string>();
 
   for (const change of changes) {

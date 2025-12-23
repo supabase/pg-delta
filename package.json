@@ -4,7 +4,10 @@
   "description": "PostgreSQL migrations made easy",
   "type": "module",
   "sideEffects": false,
-  "exports": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./integrations/supabase": "./dist/core/integrations/supabase.js"
+  },
   "bin": {
     "pgdelta": "./dist/cli/bin/cli.js"
   },

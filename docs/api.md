@@ -1,6 +1,6 @@
 # API Reference
 
-The `@supabase/pg-delta` package provides a programmatic API for generating migration scripts.
+The `@supabase/pg-delta` package provides a programmatic API for generating and applying migration plans.
 
 ## Installation
 
@@ -8,170 +8,313 @@ The `@supabase/pg-delta` package provides a programmatic API for generating migr
 npm install @supabase/pg-delta
 ```
 
-## Main API
-
-### `main(mainDatabaseUrl, branchDatabaseUrl, options?)`
-
-Generate a migration script by comparing two databases.
-
-#### Parameters
-
-- `mainDatabaseUrl` (string): Connection URL for the main/source database
-- `branchDatabaseUrl` (string): Connection URL for the branch/target database
-- `options` (Integration, optional): Integration configuration for filtering and serialization
-
-#### Returns
-
-`Promise<DiffResult | null>`
-
-- `DiffResult`: Object containing the migration script
-  - `migrationScript` (string): The generated SQL migration script
-- `null`: No differences found between the databases
-
-#### Example
+## Quick Start
 
 ```typescript
-import { main } from "@supabase/pg-delta";
+import { createPlan, applyPlan } from "@supabase/pg-delta";
+import { supabase } from "@supabase/pg-delta/integrations/supabase";
 
-const result = await main(
+// Create a migration plan
+const result = await createPlan(
   "postgresql://localhost:5432/source_db",
-  "postgresql://localhost:5432/target_db"
+  "postgresql://localhost:5432/target_db",
+  { filter: supabase.filter, serialize: supabase.serialize }
 );
 
 if (result) {
-  console.log(result.migrationScript);
-  // Write to file, execute, etc.
-} else {
-  console.log("No differences found");
-}
-```
+  const { plan } = result;
+  console.log(plan.statements); // SQL statements to execute
 
-## Types
-
-### `DiffResult`
-
-```typescript
-interface DiffResult {
-  migrationScript: string;
-}
-```
-
-### `Integration`
-
-An integration provides filtering and serialization logic for handling platform-specific differences.
-
-```typescript
-type Integration = {
-  filter?: ChangeFilter;
-  serialize?: ChangeSerializer;
-};
-```
-
-See [Integrations](./integrations.md) for more details.
-
-### `DiffContext`
-
-Context provided to filter and serialize functions.
-
-```typescript
-interface DiffContext {
-  mainCatalog: Catalog;
-  branchCatalog: Catalog;
+  // Apply the plan
+  const applyResult = await applyPlan(
+    plan,
+    "postgresql://localhost:5432/source_db",
+    "postgresql://localhost:5432/target_db"
+  );
+  console.log(applyResult.status);
 }
 ```
 
 ## Exports
 
-The package exports the following:
+### Main Entry Point
 
-- `main`: Main function for generating migrations
-- `postgresConfig`: PostgreSQL client configuration (includes custom type handlers)
-- `DiffContext`: Type for diff context
-- `ChangeFilter`: Type for change filter functions
-- `ChangeSerializer`: Type for change serializer functions
-- `MainOptions`: Alias for `Integration`
-- `DiffResult`: Type for the result object
+```typescript
+import {
+  createPlan,
+  applyPlan,
+  type Plan,
+  type CreatePlanOptions,
+  type IntegrationDSL,
+} from "@supabase/pg-delta";
+```
 
-## PostgreSQL Configuration
+### Integrations
 
-The package includes a custom PostgreSQL configuration (`postgresConfig`) that handles:
+```typescript
+import { supabase } from "@supabase/pg-delta/integrations/supabase";
+```
 
-- `int2vector` type parsing
-- `bigint` type parsing
+## Functions
 
-This configuration is used internally when connecting to databases. You can import and use it if you need to create your own PostgreSQL connections with the same type handling.
+### `createPlan(source, target, options?)`
+
+Create a migration plan by comparing two databases.
+
+#### Parameters
+
+- `source` (string | Sql): Source database connection URL or postgres.js client (current state)
+- `target` (string | Sql): Target database connection URL or postgres.js client (desired state)
+- `options` (CreatePlanOptions, optional): Configuration options
+
+#### Returns
+
+`Promise<{ plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null>`
+
+- Returns an object with the plan and metadata if there are changes
+- Returns `null` if databases are identical
+
+#### Example
+
+```typescript
+import { createPlan } from "@supabase/pg-delta";
+
+const result = await createPlan(
+  process.env.SOURCE_DB_URL!,
+  process.env.TARGET_DB_URL!
+);
+
+if (result) {
+  console.log(`Found ${result.plan.statements.length} statements`);
+  console.log(result.plan.statements.join(";\n"));
+} else {
+  console.log("No differences found");
+}
+```
+
+---
+
+### `applyPlan(plan, source, target, options?)`
+
+Apply a plan's SQL statements to a database with integrity checks. Validates fingerprints before and after application to ensure plan integrity.
+
+#### Parameters
+
+- `plan` (Plan): The migration plan to apply
+- `source` (string | Sql): Source database connection URL or postgres.js client
+- `target` (string | Sql): Target database connection URL or postgres.js client
+- `options` (ApplyPlanOptions, optional): Configuration options
+  - `verifyPostApply` (boolean, default: true): Verify fingerprint after applying
+
+#### Returns
+
+`Promise<ApplyPlanResult>`
+
+The result is a discriminated union with the following possible statuses:
+
+```typescript
+type ApplyPlanResult =
+  | { status: "invalid_plan"; message: string }
+  | { status: "fingerprint_mismatch"; current: string; expected: string }
+  | { status: "already_applied" }
+  | { status: "applied"; statements: number; warnings?: string[] }
+  | { status: "failed"; error: unknown; script: string };
+```
+
+#### Example
+
+```typescript
+import { createPlan, applyPlan } from "@supabase/pg-delta";
+
+const result = await createPlan(sourceUrl, targetUrl);
+
+if (result) {
+  const applyResult = await applyPlan(result.plan, sourceUrl, targetUrl);
+
+  switch (applyResult.status) {
+    case "applied":
+      console.log(`Applied ${applyResult.statements} statements`);
+      break;
+    case "already_applied":
+      console.log("Plan already applied");
+      break;
+    case "fingerprint_mismatch":
+      console.error("Source database has changed since plan was created");
+      break;
+    case "failed":
+      console.error("Failed to apply:", applyResult.error);
+      break;
+  }
+}
+```
+
+## Types
+
+### `Plan`
+
+A migration plan containing all changes to transform one database schema into another.
+
+```typescript
+interface Plan {
+  version: number;
+  toolVersion?: string;
+  source: { fingerprint: string };
+  target: { fingerprint: string };
+  statements: string[];
+  role?: string;
+  filter?: FilterDSL;
+  serialize?: SerializeDSL;
+  risk?: { level: "safe" } | { level: "data_loss"; statements: string[] };
+}
+```
+
+### `CreatePlanOptions`
+
+Options for creating a plan.
+
+```typescript
+interface CreatePlanOptions {
+  /** Filter - either FilterDSL (stored in plan) or ChangeFilter function (not stored) */
+  filter?: FilterDSL | ChangeFilter;
+  /** Serialize - either SerializeDSL (stored in plan) or ChangeSerializer function (not stored) */
+  serialize?: SerializeDSL | ChangeSerializer;
+  /** Role to use when executing the migration (SET ROLE will be added to statements) */
+  role?: string;
+}
+```
+
+### `IntegrationDSL`
+
+A serializable representation of an integration combining filter and serialization options.
+
+```typescript
+type IntegrationDSL = {
+  /** Filter DSL - determines which changes to include/exclude */
+  filter?: FilterDSL;
+  /** Serialization DSL - customizes how changes are serialized */
+  serialize?: SerializeDSL;
+};
+```
+
+See [Integrations](./integrations.md) for the full DSL documentation.
+
+## Using Integrations
+
+Integrations provide pre-configured filter and serialize options. Use them by spreading their properties into `CreatePlanOptions`:
+
+```typescript
+import { createPlan } from "@supabase/pg-delta";
+import { supabase } from "@supabase/pg-delta/integrations/supabase";
+
+// Use the supabase integration
+const result = await createPlan(sourceUrl, targetUrl, {
+  filter: supabase.filter,
+  serialize: supabase.serialize,
+});
+```
+
+### Custom Integration
+
+You can create your own integration using the `IntegrationDSL` type:
+
+```typescript
+import { createPlan, type IntegrationDSL } from "@supabase/pg-delta";
+
+const myIntegration: IntegrationDSL = {
+  filter: {
+    schema: "public",
+  },
+  serialize: [
+    {
+      when: { type: "schema", operation: "create" },
+      options: { skipAuthorization: true },
+    },
+  ],
+};
+
+const result = await createPlan(sourceUrl, targetUrl, {
+  filter: myIntegration.filter,
+  serialize: myIntegration.serialize,
+});
+```
 
 ## Error Handling
 
-The `main` function may throw errors in the following cases:
-
-- Invalid database connection URLs
-- Connection failures
-- Database query errors
-- Other unexpected errors during catalog extraction or diffing
-
-Always wrap calls in try-catch blocks:
+Both `createPlan` and `applyPlan` may throw errors for connection failures or database query errors. Always wrap calls in try-catch blocks:
 
 ```typescript
 try {
-  const result = await main(sourceUrl, targetUrl);
+  const result = await createPlan(sourceUrl, targetUrl);
   // Handle result
 } catch (error) {
-  console.error("Failed to generate migration:", error);
+  console.error("Failed to create plan:", error);
   process.exit(1);
 }
 ```
 
 ## Examples
 
-### Basic Usage
+### Basic Migration
 
 ```typescript
-import { main } from "@supabase/pg-delta";
-import { writeFile } from "fs/promises";
+import { createPlan, applyPlan } from "@supabase/pg-delta";
 
-const result = await main(
-  process.env.SOURCE_DB_URL!,
-  process.env.TARGET_DB_URL!
-);
+async function migrate() {
+  const sourceUrl = process.env.SOURCE_DB_URL!;
+  const targetUrl = process.env.TARGET_DB_URL!;
 
-if (result) {
-  await writeFile("migration.sql", result.migrationScript);
-  console.log("Migration script written to migration.sql");
-} else {
-  console.log("No differences found");
+  const result = await createPlan(sourceUrl, targetUrl);
+
+  if (!result) {
+    console.log("No differences found");
+    return;
+  }
+
+  console.log("Migration plan:");
+  console.log(result.plan.statements.join(";\n"));
+
+  const applyResult = await applyPlan(result.plan, sourceUrl, targetUrl);
+
+  if (applyResult.status === "applied") {
+    console.log(`Successfully applied ${applyResult.statements} statements`);
+  }
 }
 ```
 
-### Using Integrations
+### With Supabase Integration
 
 ```typescript
-import { main } from "@supabase/pg-delta";
+import { createPlan, applyPlan } from "@supabase/pg-delta";
 import { supabase } from "@supabase/pg-delta/integrations/supabase";
 
-const result = await main(
-  sourceUrl,
-  targetUrl,
-  supabase // Use Supabase integration
-);
+const result = await createPlan(sourceUrl, targetUrl, {
+  filter: supabase.filter,
+  serialize: supabase.serialize,
+});
+
+if (result) {
+  await applyPlan(result.plan, sourceUrl, targetUrl);
+}
 ```
 
-### Custom Integration
+### With Role
 
 ```typescript
-import { main, type Integration } from "@supabase/pg-delta";
+import { createPlan } from "@supabase/pg-delta";
 
-const customIntegration: Integration = {
-  filter: (ctx, change) => {
-    // Custom filtering logic
-    return true;
-  },
-  serialize: (ctx, change) => {
-    // Custom serialization logic
-    return change.serialize();
-  },
-};
-
-const result = await main(sourceUrl, targetUrl, customIntegration);
+// SET ROLE will be added to the beginning of the migration
+const result = await createPlan(sourceUrl, targetUrl, {
+  role: "postgres",
+});
 ```
 
+### Filtering by Schema
+
+```typescript
+import { createPlan } from "@supabase/pg-delta";
+
+// Only include changes in the public schema
+const result = await createPlan(sourceUrl, targetUrl, {
+  filter: { schema: "public" },
+});
+```

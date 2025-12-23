@@ -3,7 +3,8 @@ import { join } from "node:path";
 import postgres from "postgres";
 import { diffCatalogs } from "../../src/core/catalog.diff.ts";
 import { extractCatalog } from "../../src/core/catalog.model.ts";
-import type { MainOptions } from "../../src/core/main.ts";
+import type { Change } from "../../src/core/change.types.ts";
+import type { Integration } from "../../src/core/integrations/integration.types.ts";
 import { AlterRoleSetOptions } from "../../src/core/objects/role/changes/role.alter.ts";
 import { CreateRole } from "../../src/core/objects/role/changes/role.create.ts";
 import {
@@ -35,8 +36,8 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
 
   const changes = diffCatalogs(mainCatalog, branchCatalog);
 
-  const options: MainOptions = {
-    filter: (change) => {
+  const options: Integration = {
+    filter: (change: Change) => {
       // ALTER ROLE postgres WITH NOSUPERUSER;
       const isAlterRolePostgresWithNosuperuser =
         change instanceof AlterRoleSetOptions &&

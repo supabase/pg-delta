@@ -5,8 +5,8 @@
  */
 
 import type { Change } from "../../change.types.ts";
-import type { ChangeSerializer } from "../../main.ts";
 import { evaluatePattern, type FilterPattern } from "../filter/dsl.ts";
+import type { ChangeSerializer } from "./serialize.types.ts";
 
 /**
  * Serialization options that can be passed to change.serialize().
