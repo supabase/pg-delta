@@ -4,5 +4,5 @@
   "initialVersions": {
     "@supabase/pg-delta": "0.0.0"
   },
-  "changesets": ["eight-moles-throw"]
+  "changesets": ["eight-moles-throw", "slick-moons-turn"]
 }
