@@ -1,6 +1,6 @@
-import { sql } from "@ts-safeql/sql-tag";
 import type { Pool } from "pg";
 import z from "zod";
+import { extractVersion } from "../../context.ts";
 import { BasePgModel } from "../base.model.ts";
 import {
   normalizeSecurityLabels,
@@ -137,7 +137,41 @@ export class Publication extends BasePgModel {
  * Extract all logical replication publications from the database.
  */
 export async function extractPublications(pool: Pool): Promise<Publication[]> {
-  const { rows } = await pool.query<PublicationProps>(sql`
+  const version = await extractVersion(pool);
+  const isPostgres15OrGreater = version >= 150000;
+
+  // PG15 added publication column lists (pg_publication_rel.prattrs), row
+  // filters (pg_publication_rel.prqual) and schema-level publications
+  // (the pg_publication_namespace catalog). None exist on PG14, so the query
+  // is built dynamically to avoid referencing the missing columns/relation.
+  const columnsExpr = isPostgres15OrGreater
+    ? `case
+            when pr.prattrs is null then null
+            else (
+              select json_agg(quote_ident(att.attname) order by cols.ord)
+              from unnest(pr.prattrs) with ordinality as cols(attnum, ord)
+              join pg_attribute att
+                on att.attrelid = pr.prrelid
+               and att.attnum = cols.attnum
+            )
+          end`
+    : `null`;
+  const rowFilterExpr = isPostgres15OrGreater
+    ? `pg_get_expr(pr.prqual, pr.prrelid)`
+    : `null`;
+  const publicationSchemasCte = isPostgres15OrGreater
+    ? `publication_schemas as (
+        select
+          pn.pnpubid,
+          quote_ident(ns.nspname) as schema
+        from pg_publication_namespace pn
+        join pg_namespace ns on ns.oid = pn.pnnspid
+      )`
+    : `publication_schemas as (
+        select null::oid as pnpubid, null::text as schema where false
+      )`;
+
+  const queryText = `
       with extension_oids as (
         select objid
         from pg_depend d
@@ -149,28 +183,13 @@ export async function extractPublications(pool: Pool): Promise<Publication[]> {
           pr.prpubid,
           quote_ident(ns.nspname) as schema,
           quote_ident(cls.relname) as name,
-          case
-            when pr.prattrs is null then null
-            else (
-              select json_agg(quote_ident(att.attname) order by cols.ord)
-              from unnest(pr.prattrs) with ordinality as cols(attnum, ord)
-              join pg_attribute att
-                on att.attrelid = pr.prrelid
-               and att.attnum = cols.attnum
-            )
-          end as columns,
-          pg_get_expr(pr.prqual, pr.prrelid) as row_filter
+          ${columnsExpr} as columns,
+          ${rowFilterExpr} as row_filter
         from pg_publication_rel pr
         join pg_class cls on cls.oid = pr.prrelid
         join pg_namespace ns on ns.oid = cls.relnamespace
       ),
-      publication_schemas as (
-        select
-          pn.pnpubid,
-          quote_ident(ns.nspname) as schema
-        from pg_publication_namespace pn
-        join pg_namespace ns on ns.oid = pn.pnnspid
-      )
+      ${publicationSchemasCte}
       select
         quote_ident(p.pubname) as name,
         p.pubowner::regrole::text as owner,
@@ -222,7 +241,9 @@ export async function extractPublications(pool: Pool): Promise<Publication[]> {
       left join extension_oids e on e.objid = p.oid
       where e.objid is null
       order by 1
-  `);
+  `;
+
+  const { rows } = await pool.query<PublicationProps>(queryText);
 
   const validated = rows.map((row) => publicationPropsSchema.parse(row));
   return validated.map((row) => new Publication(row));

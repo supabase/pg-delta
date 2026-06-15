@@ -237,6 +237,9 @@ jobs:
         # up changes to Dockerfile or alpine-tags so a forgotten update
         # produces a fresh tag rather than reusing a stale image.
         include:
+          - postgres_version: 14
+            alpine_tag: "3.20"
+            pg_branch: REL_14_STABLE
           - postgres_version: 15
             alpine_tag: "3.19"
             pg_branch: REL_15_STABLE
@@ -320,7 +323,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        postgres_version: [15, 17, 18]
+        postgres_version: [14, 15, 17, 18]
         shard_index: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
         shard_total: [15]
     steps:

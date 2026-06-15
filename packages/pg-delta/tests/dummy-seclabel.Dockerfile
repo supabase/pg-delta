@@ -5,10 +5,10 @@
 # needing SELinux or any other platform-specific provider.
 #
 # Build args:
-#   PG_MAJOR    — PostgreSQL major version (15 or 17)
+#   PG_MAJOR    — PostgreSQL major version (14, 15, 17 or 18)
 #   PG_BRANCH   — PostgreSQL git branch (e.g. REL_17_STABLE)
 #   ALPINE_TAG  — Alpine base tag that ships postgresql<PG_MAJOR>-dev
-#                 (pg15 needs alpine 3.19, pg17 uses the runtime's own 3.23)
+#                 (pg14 needs alpine 3.20, pg15 needs 3.19, pg17/18 use 3.23)
 
 # Global build args (must be re-declared inside each stage to use them)
 ARG PG_MAJOR=17

@@ -4,6 +4,7 @@ export const POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG = {
 } as const;
 
 export const POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG = {
+  14: "14.23-alpine",
   15: "15.14-alpine",
   17: "17.6-alpine",
   18: "18.3-alpine",

@@ -178,6 +178,7 @@ export class Catalog {
 }
 
 // Lazily cached deserialized baselines (shared across calls)
+let _pg14Baseline: Catalog | null = null;
 let _pg1516Baseline: Catalog | null = null;
 let _pg17Baseline: Catalog | null = null;
 
@@ -187,6 +188,26 @@ async function loadBaselineJson(): Promise<Record<string, unknown>> {
     { with: { type: "json" } }
   );
   return mod.default as Record<string, unknown>;
+}
+
+async function loadPg14BaselineJson(): Promise<Record<string, unknown>> {
+  const mod = await import(
+    "./fixtures/empty-catalogs/postgres-14-baseline.json",
+    { with: { type: "json" } }
+  );
+  return mod.default as Record<string, unknown>;
+}
+
+async function getPg14Baseline(): Promise<Catalog> {
+  if (!_pg14Baseline) {
+    const { deserializeCatalog } = await import("./catalog.snapshot.ts");
+    // PG14 has its own fixture: PG15 changed the default `public` schema ACL
+    // (PUBLIC lost CREATE) and reassigned ownership to pg_database_owner, so the
+    // 15-16 baseline cannot be reused for 14.
+    const json = await loadPg14BaselineJson();
+    _pg14Baseline = deserializeCatalog(json);
+  }
+  return _pg14Baseline;
 }
 
 async function getPg1516Baseline(): Promise<Catalog> {
@@ -242,11 +263,13 @@ async function getPg17Baseline(): Promise<Catalog> {
 /**
  * Create a baseline catalog representing a fresh PostgreSQL database.
  *
- * For PG 15+ this deserializes a pre-extracted snapshot of an empty `template1`
+ * For PG 14+ this deserializes a pre-extracted snapshot of an empty `template1`
  * database, including the `plpgsql` extension, `postgres` role with default
- * privileges, and the `public` schema with its default ACLs and depends.
+ * privileges, and the `public` schema with its default ACLs and depends. PG14
+ * has a dedicated fixture (PG15 changed the default `public` schema ACL/owner);
+ * PG15-16 share one fixture and PG17 patches it in-memory.
  *
- * For PG < 15, falls back to a minimal inline catalog with only the `public`
+ * For PG < 14, falls back to a minimal inline catalog with only the `public`
  * schema. For exact fidelity on older versions, snapshot a real reference
  * database using `serializeCatalog` and pass the deserialized result as source
  * to `createPlan`.
@@ -262,6 +285,11 @@ export async function createEmptyCatalog(
   }
   if (version >= 150000) {
     const baseline = await getPg1516Baseline();
+    // oxlint-disable-next-line typescript/no-misused-spread
+    return new Catalog({ ...baseline, version, currentUser });
+  }
+  if (version >= 140000) {
+    const baseline = await getPg14Baseline();
     // oxlint-disable-next-line typescript/no-misused-spread
     return new Catalog({ ...baseline, version, currentUser });
   }

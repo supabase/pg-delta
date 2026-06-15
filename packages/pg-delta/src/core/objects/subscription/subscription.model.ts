@@ -120,12 +120,20 @@ export async function extractSubscriptions(
   pool: Pool,
 ): Promise<Subscription[]> {
   const version = await extractVersion(pool);
+  const isPostgres15OrGreater = version >= 150000;
   const isPostgres16OrGreater = version >= 160000;
   const isPostgres17OrGreater = version >= 170000;
   const isPostgres17_2OrGreater = version >= 170002; // failover added in 17.2 (170002)
   const isPostgres17_3OrGreater = version >= 170003; // origin column added in 17.3
 
-  // Build the query dynamically based on PostgreSQL version
+  // Build the query dynamically based on PostgreSQL version.
+  // subtwophasestate and subdisableonerr were both added in PG15.
+  const twoPhaseExpr = isPostgres15OrGreater
+    ? "(s.subtwophasestate <> 'd')"
+    : "false";
+  const disableOnErrorExpr = isPostgres15OrGreater
+    ? "s.subdisableonerr"
+    : "false";
   const passwordRequiredExpr = isPostgres16OrGreater
     ? "s.subpasswordrequired"
     : "true";
@@ -160,8 +168,8 @@ export async function extractSubscriptions(
           when 'p' then 'parallel'
           else 'off'
         end as streaming,
-        (s.subtwophasestate <> 'd') as two_phase,
-        s.subdisableonerr as disable_on_error,
+        ${twoPhaseExpr} as two_phase,
+        ${disableOnErrorExpr} as disable_on_error,
         ${passwordRequiredExpr} as password_required,
         ${runAsOwnerExpr} as run_as_owner,
         ${failoverExpr} as failover,

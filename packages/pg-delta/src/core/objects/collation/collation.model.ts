@@ -106,6 +106,7 @@ export async function extractCollations(pool: Pool): Promise<Collation[]> {
   const version = await extractVersion(pool);
   const isPostgres17OrGreater = version >= 170000;
   const isPostgres16OrGreater = version >= 160000;
+  const isPostgres15OrGreater = version >= 150000;
 
   let collationRows: CollationProps[];
 
@@ -178,7 +179,7 @@ export async function extractCollations(pool: Pool): Promise<Collation[]> {
         1, 2
     `);
     collationRows = result.rows;
-  } else {
+  } else if (isPostgres15OrGreater) {
     // On postgres 15 icu_rules does not exist
     const result = await pool.query<CollationProps>(sql`
       with extension_oids as (
@@ -199,6 +200,43 @@ export async function extractCollations(pool: Pool): Promise<Collation[]> {
         c.collcollate as collate,
         c.collctype as ctype,
         colliculocale as locale,
+        null as icu_rules,
+        c.collversion as version,
+        c.collowner::regrole::text as owner,
+        obj_description(c.oid, 'pg_collation') as comment
+      from
+        pg_catalog.pg_collation c
+        left outer join extension_oids e on c.oid = e.objid
+        -- <EXCLUDE_INTERNAL>
+        where not c.collnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
+        and e.objid is null
+        -- </EXCLUDE_INTERNAL>
+      order by
+        1, 2
+    `);
+    collationRows = result.rows;
+  } else {
+    // On postgres 14 neither colliculocale nor collicurules exist; ICU
+    // collations carry their locale in collcollate, so report a null locale.
+    const result = await pool.query<CollationProps>(sql`
+      with extension_oids as (
+        select
+          objid
+        from
+          pg_depend d
+        where
+          d.refclassid = 'pg_extension'::regclass
+          and d.classid = 'pg_collation'::regclass
+      )
+      select
+        c.collnamespace::regnamespace::text as schema,
+        quote_ident(c.collname) as name,
+        c.collprovider as provider,
+        c.collisdeterministic as is_deterministic,
+        c.collencoding as encoding,
+        c.collcollate as collate,
+        c.collctype as ctype,
+        null as locale,
         null as icu_rules,
         c.collversion as version,
         c.collowner::regrole::text as owner,

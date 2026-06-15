@@ -270,7 +270,10 @@ export async function extractIndexes(
         i.indisunique                      as is_unique,
         i.indisprimary                     as is_primary,
         i.indisexclusion                   as is_exclusion,
-        i.indnullsnotdistinct              as nulls_not_distinct,
+        -- indnullsnotdistinct (NULLS NOT DISTINCT) was added in PG15; read it
+        -- defensively so PG14, which lacks the column, yields false instead of
+        -- erroring (mirrors the conperiod handling in table.model.ts).
+        coalesce((to_jsonb(i)->>'indnullsnotdistinct')::boolean, false) as nulls_not_distinct,
         i.indimmediate                     as immediate,
         i.indisclustered                   as is_clustered,
         i.indisreplident                   as is_replica_identity,

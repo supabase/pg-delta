@@ -15,6 +15,10 @@ import type { PostgresVersion } from "./constants.ts";
  * the cache when Alpine tags are unchanged.
  */
 export const ALPINE_TAG_FOR_PG_MAJOR: Record<PostgresVersion, string> = {
+  // v3.20 community ships postgresql14-dev and shares musl 1.2.5 with the
+  // postgres:14-alpine runtime (alpine 3.23), so the compiled dummy_seclabel.so
+  // loads cleanly. (postgresql14 is dropped from alpine's newer main repos.)
+  14: "3.20",
   15: "3.19",
   17: "3.23",
   // v3.22 has no postgresql18 in main/community; v3.23 ships postgresql18-dev.

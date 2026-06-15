@@ -6,7 +6,8 @@ import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`publication operations (pg${pgVersion})`, () => {
-    test(
+    // Column lists + row filters are PG15+ (pg_publication_rel.prattrs/prqual).
+    test.skipIf(pgVersion < 15)(
       "create publication with table filters",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
@@ -29,7 +30,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
-    test(
+    // FOR TABLES IN SCHEMA is PG15+ (pg_publication_namespace).
+    test.skipIf(pgVersion < 15)(
       "create publication for tables in schema",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
@@ -47,7 +49,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
-    test(
+    // Uses FOR TABLES IN SCHEMA, PG15+.
+    test.skipIf(pgVersion < 15)(
       "publication dependency ordering",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
@@ -128,7 +131,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
-    test(
+    // ADD TABLE ... WHERE (row filter) is PG15+.
+    test.skipIf(pgVersion < 15)(
       "add and drop publication tables",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
@@ -148,7 +152,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
-    test(
+    // ADD TABLES IN SCHEMA is PG15+.
+    test.skipIf(pgVersion < 15)(
       "alter publication schema list",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

@@ -1,5 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
 import type { Pool } from "pg";
+import { extractVersion } from "./context.ts";
 
 /**
  * Dependency type as defined in PostgreSQL's pg_depend.deptype.
@@ -508,7 +509,32 @@ where dependent_stable_id <> referenced_stable_id
  * @param params - Object containing arrays of OIDs for filtering (user_oids, user_namespace_oids, etc.)
  * @returns Array of dependency objects with class names.
  */
+/**
+ * Schema-level publication dependencies (`FOR TABLES IN SCHEMA`).
+ *
+ * The backing catalog `pg_publication_namespace` was added in PG15, so this is
+ * queried separately and only invoked on PG15+ — keeping the relation name out
+ * of the main `extractDepends` query, which must parse on PG14.
+ */
+async function extractPublicationSchemaDepends(
+  pool: Pool,
+): Promise<PgDepend[]> {
+  const { rows } = await pool.query<PgDepend>(sql`
+    SELECT DISTINCT
+      format('publication:%I', pub.pubname) AS dependent_stable_id,
+      format('schema:%I', ns.nspname) AS referenced_stable_id,
+      'n'::"char" AS deptype
+    FROM pg_publication pub
+    JOIN pg_publication_namespace pn ON pn.pnpubid = pub.oid
+    JOIN pg_namespace ns ON ns.oid = pn.pnnspid
+    WHERE NOT ns.nspname LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
+    ORDER BY dependent_stable_id, referenced_stable_id
+  `);
+  return rows;
+}
+
 export async function extractDepends(pool: Pool): Promise<PgDepend[]> {
+  const version = await extractVersion(pool);
   const { rows: dependsRows } = await pool.query<PgDepend>(sql`
   WITH ids AS (
     -- only the objects that actually show up in dependencies (both sides)
@@ -1767,18 +1793,6 @@ export async function extractDepends(pool: Pool): Promise<PgDepend[]> {
     JOIN pg_namespace ns ON ns.oid = cls.relnamespace
     WHERE NOT ns.nspname LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
   ),
-  publication_schema_deps AS (
-    SELECT DISTINCT
-      format('publication:%I', pub.pubname) AS dependent_stable_id,
-      format('schema:%I', ns.nspname) AS referenced_stable_id,
-      'n'::"char" AS deptype,
-      NULL::text AS dep_schema,
-      ns.nspname AS ref_schema
-    FROM pg_publication pub
-    JOIN pg_publication_namespace pn ON pn.pnpubid = pub.oid
-    JOIN pg_namespace ns ON ns.oid = pn.pnnspid
-    WHERE NOT ns.nspname LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
-  ),
   fdw_deps AS (
     -- Servers depend on their Foreign Data Wrapper
     SELECT DISTINCT
@@ -1862,8 +1876,6 @@ export async function extractDepends(pool: Pool): Promise<PgDepend[]> {
     UNION ALL
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM publication_deps
     UNION ALL
-    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM publication_schema_deps
-    UNION ALL
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM fdw_deps
   )
   SELECT DISTINCT
@@ -1884,8 +1896,16 @@ export async function extractDepends(pool: Pool): Promise<PgDepend[]> {
   // Extract privilege and membership dependencies
   const privilegeDepends = await extractPrivilegeAndMembershipDepends(pool);
 
+  // Schema-level publication deps rely on pg_publication_namespace (PG15+).
+  const publicationSchemaDepends =
+    version >= 150000 ? await extractPublicationSchemaDepends(pool) : [];
+
   // Combine all dependency sources and remove duplicates
-  const allDepends = new Set([...dependsRows, ...privilegeDepends]);
+  const allDepends = new Set([
+    ...dependsRows,
+    ...privilegeDepends,
+    ...publicationSchemaDepends,
+  ]);
 
   return Array.from(allDepends).sort(
     (a, b) =>

@@ -77,12 +77,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             slot_name = 'sub_alter_slot',
             binary = true,
             streaming = ${pgVersion >= 17 ? "'parallel'" : "true"},
-            synchronous_commit = 'local',
-            disable_on_error = true${
-              pgVersion >= 16 ? ", password_required = false" : ""
-            }${pgVersion >= 17 ? ", run_as_owner = true" : ""}${
-              pgVersion >= 17 ? ", origin = 'none'" : ""
-            }
+            synchronous_commit = 'local'${
+              pgVersion >= 15 ? ", disable_on_error = true" : ""
+            }${pgVersion >= 16 ? ", password_required = false" : ""}${
+              pgVersion >= 17 ? ", run_as_owner = true" : ""
+            }${pgVersion >= 17 ? ", origin = 'none'" : ""}
           );
 
           COMMENT ON SUBSCRIPTION sub_alter IS 'subscription metadata';
