@@ -315,7 +315,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
-    test(
+    // security_invoker views are PG15+.
+    test.skipIf(pgVersion < 15)(
       "view with options",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

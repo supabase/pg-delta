@@ -449,7 +449,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
-    test(
+    // Publication column lists (FOR TABLE ... (col)) are PG15+.
+    test.skipIf(pgVersion < 15)(
       "drop publication-listed column should not produce AlterPublicationDropTables ↔ AlterTableDropColumn cycle",
       withDb(pgVersion, async (db) => {
         /**

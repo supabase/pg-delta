@@ -81,8 +81,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 "CREATE TABLE test_schema.users (id integer NOT NULL, email text NOT NULL)",
                 "ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)",
                 
-              "CREATE VIEW test_schema.user_emails AS SELECT ${pgVersion === 15 ? "users." : ""}id,
-                  ${pgVersion === 15 ? "users." : ""}email
+              "CREATE VIEW test_schema.user_emails AS SELECT ${pgVersion <= 15 ? "users." : ""}id,
+                  ${pgVersion <= 15 ? "users." : ""}email
                  FROM test_schema.users"
               ,
                 "CREATE TRIGGER user_emails_insert INSTEAD OF INSERT ON test_schema.user_emails FOR EACH ROW EXECUTE FUNCTION test_schema.insert_user_email()",
