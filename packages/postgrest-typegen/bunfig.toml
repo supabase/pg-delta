@@ -1,0 +1,7 @@
+# KNOWN BUG: Bun ignores [test] settings in bunfig.toml (oven-sh/bun#17664, oven-sh/bun#7789).
+# All test config is applied via CLI flags in scripts/run-tests.ts instead.
+# Kept here for documentation / when the bug is fixed.
+
+[test]
+preload = ["./test/global-setup.ts"]
+timeout = 15000
