@@ -12,9 +12,9 @@ import { introspect } from "../src/introspection/index.ts";
 /**
  * Surface smoke test. Real generation/introspection coverage lands with the
  * implementations (PGMETA-106/107/108/110); for now this pins the public API
- * shape so the subpath exports and barrel stay wired up. The Go and Python
- * generators are implemented (PGMETA-106) and covered by the focused tests in
- * `test/generation/`; TypeScript, Swift, and introspection remain stubs.
+ * shape so the subpath exports and barrel stay wired up. All four generators
+ * are implemented (PGMETA-106/107) and covered by the focused tests in
+ * `test/generation/`; introspection remains a stub.
  */
 describe("public API surface", () => {
   test("barrel re-exports introspection and generation entry points", () => {
@@ -43,17 +43,14 @@ describe("public API surface", () => {
     types: [],
   };
 
-  test("implemented generators produce output for empty metadata", () => {
+  test("implemented generators produce output for empty metadata", async () => {
     expect(generateGo(emptyMetadata)).toContain("package database");
     expect(generatePython(emptyMetadata)).toContain(
       "from pydantic import BaseModel",
     );
-  });
-
-  test("unimplemented generators throw until implemented", () => {
-    expect(() => generateSwift(emptyMetadata)).toThrow("not implemented yet");
-    expect(() => generateTypescript(emptyMetadata)).toThrow(
-      "not implemented yet",
+    expect(generateSwift(emptyMetadata)).toContain("import Foundation");
+    expect(await generateTypescript(emptyMetadata)).toContain(
+      "export type Database",
     );
   });
 });

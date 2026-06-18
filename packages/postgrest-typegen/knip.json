@@ -8,7 +8,6 @@
     "@testcontainers/postgresql",
     "@types/pg",
     "@types/pg-format",
-    "pg-format",
-    "prettier"
+    "pg-format"
   ]
 }

@@ -10,6 +10,7 @@
 import type {
   GeneratorMetadata,
   PostgresColumn,
+  PostgresFunction,
   PostgresMaterializedView,
   PostgresSchema,
   PostgresTable,
@@ -131,6 +132,44 @@ export const baseColumn = (
     comment: null,
     ...overrides,
   }) as PostgresColumn;
+
+export const baseRelationship = (
+  overrides: Partial<GeneratorMetadata["relationships"][number]> = {},
+): GeneratorMetadata["relationships"][number] => ({
+  foreign_key_name: "tickets_owner_id_fkey",
+  schema: "public",
+  relation: "tickets",
+  columns: ["owner_id"],
+  is_one_to_one: false,
+  referenced_schema: "public",
+  referenced_relation: "users",
+  referenced_columns: ["id"],
+  ...overrides,
+});
+
+export const baseFunction = (
+  overrides: Partial<PostgresFunction> = {},
+): PostgresFunction =>
+  ({
+    id: 300,
+    schema: "public",
+    name: "get_status",
+    language: "sql",
+    definition: "select 1",
+    complete_statement: "CREATE FUNCTION ...",
+    args: [],
+    argument_types: "",
+    identity_argument_types: "",
+    return_type_id: 23,
+    return_type: "integer",
+    return_type_relation_id: null,
+    is_set_returning_function: false,
+    prorows: 0,
+    behavior: "STABLE",
+    security_definer: false,
+    config_params: null,
+    ...overrides,
+  }) as PostgresFunction;
 
 /**
  * Build a complete `GeneratorMetadata` from partial pieces. Defaults to a
