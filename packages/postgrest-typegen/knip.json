@@ -6,8 +6,6 @@
     "pg",
     "testcontainers",
     "@testcontainers/postgresql",
-    "@types/pg",
-    "@types/pg-format",
-    "pg-format"
+    "@types/pg"
   ]
 }
