@@ -12,7 +12,9 @@ import { introspect } from "../src/introspection/index.ts";
 /**
  * Surface smoke test. Real generation/introspection coverage lands with the
  * implementations (PGMETA-106/107/108/110); for now this pins the public API
- * shape so the subpath exports and barrel stay wired up.
+ * shape so the subpath exports and barrel stay wired up. The Go and Python
+ * generators are implemented (PGMETA-106) and covered by the focused tests in
+ * `test/generation/`; TypeScript, Swift, and introspection remain stubs.
  */
 describe("public API surface", () => {
   test("barrel re-exports introspection and generation entry points", () => {
@@ -29,21 +31,29 @@ describe("public API surface", () => {
     );
   });
 
-  test("synchronous generators throw until implemented", () => {
-    const metadata = {
-      schemas: [],
-      tables: [],
-      foreignTables: [],
-      views: [],
-      materializedViews: [],
-      columns: [],
-      relationships: [],
-      functions: [],
-      types: [],
-    };
-    expect(() => generateGo(metadata)).toThrow("not implemented yet");
-    expect(() => generatePython(metadata)).toThrow("not implemented yet");
-    expect(() => generateSwift(metadata)).toThrow("not implemented yet");
-    expect(() => generateTypescript(metadata)).toThrow("not implemented yet");
+  const emptyMetadata = {
+    schemas: [],
+    tables: [],
+    foreignTables: [],
+    views: [],
+    materializedViews: [],
+    columns: [],
+    relationships: [],
+    functions: [],
+    types: [],
+  };
+
+  test("implemented generators produce output for empty metadata", () => {
+    expect(generateGo(emptyMetadata)).toContain("package database");
+    expect(generatePython(emptyMetadata)).toContain(
+      "from pydantic import BaseModel",
+    );
+  });
+
+  test("unimplemented generators throw until implemented", () => {
+    expect(() => generateSwift(emptyMetadata)).toThrow("not implemented yet");
+    expect(() => generateTypescript(emptyMetadata)).toThrow(
+      "not implemented yet",
+    );
   });
 });
