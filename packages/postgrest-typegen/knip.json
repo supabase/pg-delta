@@ -1,11 +1,5 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "entry": ["test/global-setup.ts", "test/**/*.test.ts"],
-  "ignoreBinaries": ["oxfmt", "oxlint"],
-  "ignoreDependencies": [
-    "pg",
-    "testcontainers",
-    "@testcontainers/postgresql",
-    "@types/pg"
-  ]
+  "ignoreBinaries": ["oxfmt", "oxlint"]
 }
