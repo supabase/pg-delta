@@ -1,0 +1,521 @@
+import Foundation
+import Supabase
+
+internal enum PublicSchema {
+  internal enum MemeStatus: String, Codable, Hashable, Sendable {
+    case new = "new"
+    case old = "old"
+    case retired = "retired"
+  }
+  internal enum UserStatus: String, Codable, Hashable, Sendable {
+    case active = "ACTIVE"
+    case inactive = "INACTIVE"
+  }
+  internal struct CategorySelect: Codable, Hashable, Sendable {
+    internal let id: Int32
+    internal let name: String
+    internal enum CodingKeys: String, CodingKey {
+      case id = "id"
+      case name = "name"
+    }
+  }
+  internal struct CategoryInsert: Codable, Hashable, Sendable {
+    internal let id: Int32?
+    internal let name: String
+    internal enum CodingKeys: String, CodingKey {
+      case id = "id"
+      case name = "name"
+    }
+  }
+  internal struct CategoryUpdate: Codable, Hashable, Sendable {
+    internal let id: Int32?
+    internal let name: String?
+    internal enum CodingKeys: String, CodingKey {
+      case id = "id"
+      case name = "name"
+    }
+  }
+  internal struct EmptySelect: Codable, Hashable, Sendable {
+  }
+  internal struct EmptyInsert: Codable, Hashable, Sendable {
+  }
+  internal struct EmptyUpdate: Codable, Hashable, Sendable {
+  }
+  internal struct EventsSelect: Codable, Hashable, Sendable, Identifiable {
+    internal let createdAt: String
+    internal let data: AnyJSON?
+    internal let eventType: String?
+    internal let id: Int64
+    internal enum CodingKeys: String, CodingKey {
+      case createdAt = "created_at"
+      case data = "data"
+      case eventType = "event_type"
+      case id = "id"
+    }
+  }
+  internal struct EventsInsert: Codable, Hashable, Sendable, Identifiable {
+    internal let createdAt: String?
+    internal let data: AnyJSON?
+    internal let eventType: String?
+    internal let id: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case createdAt = "created_at"
+      case data = "data"
+      case eventType = "event_type"
+      case id = "id"
+    }
+  }
+  internal struct EventsUpdate: Codable, Hashable, Sendable, Identifiable {
+    internal let createdAt: String?
+    internal let data: AnyJSON?
+    internal let eventType: String?
+    internal let id: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case createdAt = "created_at"
+      case data = "data"
+      case eventType = "event_type"
+      case id = "id"
+    }
+  }
+  internal struct Events2024Select: Codable, Hashable, Sendable {
+    internal let createdAt: String
+    internal let data: AnyJSON?
+    internal let eventType: String?
+    internal let id: Int64
+    internal enum CodingKeys: String, CodingKey {
+      case createdAt = "created_at"
+      case data = "data"
+      case eventType = "event_type"
+      case id = "id"
+    }
+  }
+  internal struct Events2024Insert: Codable, Hashable, Sendable {
+    internal let createdAt: String?
+    internal let data: AnyJSON?
+    internal let eventType: String?
+    internal let id: Int64
+    internal enum CodingKeys: String, CodingKey {
+      case createdAt = "created_at"
+      case data = "data"
+      case eventType = "event_type"
+      case id = "id"
+    }
+  }
+  internal struct Events2024Update: Codable, Hashable, Sendable {
+    internal let createdAt: String?
+    internal let data: AnyJSON?
+    internal let eventType: String?
+    internal let id: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case createdAt = "created_at"
+      case data = "data"
+      case eventType = "event_type"
+      case id = "id"
+    }
+  }
+  internal struct Events2025Select: Codable, Hashable, Sendable {
+    internal let createdAt: String
+    internal let data: AnyJSON?
+    internal let eventType: String?
+    internal let id: Int64
+    internal enum CodingKeys: String, CodingKey {
+      case createdAt = "created_at"
+      case data = "data"
+      case eventType = "event_type"
+      case id = "id"
+    }
+  }
+  internal struct Events2025Insert: Codable, Hashable, Sendable {
+    internal let createdAt: String?
+    internal let data: AnyJSON?
+    internal let eventType: String?
+    internal let id: Int64
+    internal enum CodingKeys: String, CodingKey {
+      case createdAt = "created_at"
+      case data = "data"
+      case eventType = "event_type"
+      case id = "id"
+    }
+  }
+  internal struct Events2025Update: Codable, Hashable, Sendable {
+    internal let createdAt: String?
+    internal let data: AnyJSON?
+    internal let eventType: String?
+    internal let id: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case createdAt = "created_at"
+      case data = "data"
+      case eventType = "event_type"
+      case id = "id"
+    }
+  }
+  internal struct ForeignTableSelect: Codable, Hashable, Sendable {
+    internal let id: Int64
+    internal let name: String?
+    internal let status: UserStatus?
+    internal enum CodingKeys: String, CodingKey {
+      case id = "id"
+      case name = "name"
+      case status = "status"
+    }
+  }
+  internal struct ForeignTableInsert: Codable, Hashable, Sendable {
+    internal let id: Int64
+    internal let name: String?
+    internal let status: UserStatus?
+    internal enum CodingKeys: String, CodingKey {
+      case id = "id"
+      case name = "name"
+      case status = "status"
+    }
+  }
+  internal struct ForeignTableUpdate: Codable, Hashable, Sendable {
+    internal let id: Int64?
+    internal let name: String?
+    internal let status: UserStatus?
+    internal enum CodingKeys: String, CodingKey {
+      case id = "id"
+      case name = "name"
+      case status = "status"
+    }
+  }
+  internal struct IntervalTestSelect: Codable, Hashable, Sendable, Identifiable {
+    internal let durationOptional: String?
+    internal let durationRequired: String
+    internal let id: Int64
+    internal enum CodingKeys: String, CodingKey {
+      case durationOptional = "duration_optional"
+      case durationRequired = "duration_required"
+      case id = "id"
+    }
+  }
+  internal struct IntervalTestInsert: Codable, Hashable, Sendable, Identifiable {
+    internal let durationOptional: String?
+    internal let durationRequired: String
+    internal let id: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case durationOptional = "duration_optional"
+      case durationRequired = "duration_required"
+      case id = "id"
+    }
+  }
+  internal struct IntervalTestUpdate: Codable, Hashable, Sendable, Identifiable {
+    internal let durationOptional: String?
+    internal let durationRequired: String?
+    internal let id: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case durationOptional = "duration_optional"
+      case durationRequired = "duration_required"
+      case id = "id"
+    }
+  }
+  internal struct MemesSelect: Codable, Hashable, Sendable {
+    internal let category: Int32?
+    internal let createdAt: String
+    internal let id: Int32
+    internal let metadata: AnyJSON?
+    internal let name: String
+    internal let status: MemeStatus?
+    internal enum CodingKeys: String, CodingKey {
+      case category = "category"
+      case createdAt = "created_at"
+      case id = "id"
+      case metadata = "metadata"
+      case name = "name"
+      case status = "status"
+    }
+  }
+  internal struct MemesInsert: Codable, Hashable, Sendable {
+    internal let category: Int32?
+    internal let createdAt: String
+    internal let id: Int32?
+    internal let metadata: AnyJSON?
+    internal let name: String
+    internal let status: MemeStatus?
+    internal enum CodingKeys: String, CodingKey {
+      case category = "category"
+      case createdAt = "created_at"
+      case id = "id"
+      case metadata = "metadata"
+      case name = "name"
+      case status = "status"
+    }
+  }
+  internal struct MemesUpdate: Codable, Hashable, Sendable {
+    internal let category: Int32?
+    internal let createdAt: String?
+    internal let id: Int32?
+    internal let metadata: AnyJSON?
+    internal let name: String?
+    internal let status: MemeStatus?
+    internal enum CodingKeys: String, CodingKey {
+      case category = "category"
+      case createdAt = "created_at"
+      case id = "id"
+      case metadata = "metadata"
+      case name = "name"
+      case status = "status"
+    }
+  }
+  internal struct TableWithOtherTablesRowTypeSelect: Codable, Hashable, Sendable {
+    internal let col1: UserDetailsSelect?
+    internal let col2: AViewSelect?
+    internal enum CodingKeys: String, CodingKey {
+      case col1 = "col1"
+      case col2 = "col2"
+    }
+  }
+  internal struct TableWithOtherTablesRowTypeInsert: Codable, Hashable, Sendable {
+    internal let col1: UserDetailsSelect?
+    internal let col2: AViewSelect?
+    internal enum CodingKeys: String, CodingKey {
+      case col1 = "col1"
+      case col2 = "col2"
+    }
+  }
+  internal struct TableWithOtherTablesRowTypeUpdate: Codable, Hashable, Sendable {
+    internal let col1: UserDetailsSelect?
+    internal let col2: AViewSelect?
+    internal enum CodingKeys: String, CodingKey {
+      case col1 = "col1"
+      case col2 = "col2"
+    }
+  }
+  internal struct TableWithPrimaryKeyOtherThanIdSelect: Codable, Hashable, Sendable, Identifiable {
+    internal var id: Int64 { otherId }
+    internal let name: String?
+    internal let otherId: Int64
+    internal enum CodingKeys: String, CodingKey {
+      case name = "name"
+      case otherId = "other_id"
+    }
+  }
+  internal struct TableWithPrimaryKeyOtherThanIdInsert: Codable, Hashable, Sendable, Identifiable {
+    internal var id: Int64? { otherId }
+    internal let name: String?
+    internal let otherId: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case name = "name"
+      case otherId = "other_id"
+    }
+  }
+  internal struct TableWithPrimaryKeyOtherThanIdUpdate: Codable, Hashable, Sendable, Identifiable {
+    internal var id: Int64? { otherId }
+    internal let name: String?
+    internal let otherId: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case name = "name"
+      case otherId = "other_id"
+    }
+  }
+  internal struct TodosSelect: Codable, Hashable, Sendable, Identifiable {
+    internal let details: String?
+    internal let id: Int64
+    internal let userId: Int64
+    internal enum CodingKeys: String, CodingKey {
+      case details = "details"
+      case id = "id"
+      case userId = "user-id"
+    }
+  }
+  internal struct TodosInsert: Codable, Hashable, Sendable, Identifiable {
+    internal let details: String?
+    internal let id: Int64?
+    internal let userId: Int64
+    internal enum CodingKeys: String, CodingKey {
+      case details = "details"
+      case id = "id"
+      case userId = "user-id"
+    }
+  }
+  internal struct TodosUpdate: Codable, Hashable, Sendable, Identifiable {
+    internal let details: String?
+    internal let id: Int64?
+    internal let userId: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case details = "details"
+      case id = "id"
+      case userId = "user-id"
+    }
+  }
+  internal struct UserDetailsSelect: Codable, Hashable, Sendable {
+    internal let details: String?
+    internal let userId: Int64
+    internal enum CodingKeys: String, CodingKey {
+      case details = "details"
+      case userId = "user_id"
+    }
+  }
+  internal struct UserDetailsInsert: Codable, Hashable, Sendable {
+    internal let details: String?
+    internal let userId: Int64
+    internal enum CodingKeys: String, CodingKey {
+      case details = "details"
+      case userId = "user_id"
+    }
+  }
+  internal struct UserDetailsUpdate: Codable, Hashable, Sendable {
+    internal let details: String?
+    internal let userId: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case details = "details"
+      case userId = "user_id"
+    }
+  }
+  internal struct UsersSelect: Codable, Hashable, Sendable, Identifiable {
+    internal let decimal: Decimal?
+    internal let id: Int64
+    internal let name: String?
+    internal let status: UserStatus?
+    internal let userUuid: UUID?
+    internal enum CodingKeys: String, CodingKey {
+      case decimal = "decimal"
+      case id = "id"
+      case name = "name"
+      case status = "status"
+      case userUuid = "user_uuid"
+    }
+  }
+  internal struct UsersInsert: Codable, Hashable, Sendable, Identifiable {
+    internal let decimal: Decimal?
+    internal let id: Int64?
+    internal let name: String?
+    internal let status: UserStatus?
+    internal let userUuid: UUID?
+    internal enum CodingKeys: String, CodingKey {
+      case decimal = "decimal"
+      case id = "id"
+      case name = "name"
+      case status = "status"
+      case userUuid = "user_uuid"
+    }
+  }
+  internal struct UsersUpdate: Codable, Hashable, Sendable, Identifiable {
+    internal let decimal: Decimal?
+    internal let id: Int64?
+    internal let name: String?
+    internal let status: UserStatus?
+    internal let userUuid: UUID?
+    internal enum CodingKeys: String, CodingKey {
+      case decimal = "decimal"
+      case id = "id"
+      case name = "name"
+      case status = "status"
+      case userUuid = "user_uuid"
+    }
+  }
+  internal struct UsersAuditSelect: Codable, Hashable, Sendable, Identifiable {
+    internal let createdAt: String?
+    internal let id: Int64
+    internal let previousValue: AnyJSON?
+    internal let userId: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case createdAt = "created_at"
+      case id = "id"
+      case previousValue = "previous_value"
+      case userId = "user_id"
+    }
+  }
+  internal struct UsersAuditInsert: Codable, Hashable, Sendable, Identifiable {
+    internal let createdAt: String?
+    internal let id: Int64?
+    internal let previousValue: AnyJSON?
+    internal let userId: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case createdAt = "created_at"
+      case id = "id"
+      case previousValue = "previous_value"
+      case userId = "user_id"
+    }
+  }
+  internal struct UsersAuditUpdate: Codable, Hashable, Sendable, Identifiable {
+    internal let createdAt: String?
+    internal let id: Int64?
+    internal let previousValue: AnyJSON?
+    internal let userId: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case createdAt = "created_at"
+      case id = "id"
+      case previousValue = "previous_value"
+      case userId = "user_id"
+    }
+  }
+  internal struct AViewSelect: Codable, Hashable, Sendable {
+    internal let id: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case id = "id"
+    }
+  }
+  internal struct TodosMatviewSelect: Codable, Hashable, Sendable {
+    internal let details: String?
+    internal let id: Int64?
+    internal let userId: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case details = "details"
+      case id = "id"
+      case userId = "user-id"
+    }
+  }
+  internal struct TodosViewSelect: Codable, Hashable, Sendable {
+    internal let details: String?
+    internal let id: Int64?
+    internal let userId: Int64?
+    internal enum CodingKeys: String, CodingKey {
+      case details = "details"
+      case id = "id"
+      case userId = "user-id"
+    }
+  }
+  internal struct UserTodosSummaryViewSelect: Codable, Hashable, Sendable {
+    internal let todoCount: Int64?
+    internal let todoDetails: [String]?
+    internal let userId: Int64?
+    internal let userName: String?
+    internal let userStatus: UserStatus?
+    internal enum CodingKeys: String, CodingKey {
+      case todoCount = "todo_count"
+      case todoDetails = "todo_details"
+      case userId = "user_id"
+      case userName = "user_name"
+      case userStatus = "user_status"
+    }
+  }
+  internal struct UsersViewSelect: Codable, Hashable, Sendable {
+    internal let decimal: Decimal?
+    internal let id: Int64?
+    internal let name: String?
+    internal let status: UserStatus?
+    internal let userUuid: UUID?
+    internal enum CodingKeys: String, CodingKey {
+      case decimal = "decimal"
+      case id = "id"
+      case name = "name"
+      case status = "status"
+      case userUuid = "user_uuid"
+    }
+  }
+  internal struct UsersViewWithMultipleRefsToUsersSelect: Codable, Hashable, Sendable {
+    internal let initialId: Int64?
+    internal let initialName: String?
+    internal let secondId: Int64?
+    internal let secondName: String?
+    internal enum CodingKeys: String, CodingKey {
+      case initialId = "initial_id"
+      case initialName = "initial_name"
+      case secondId = "second_id"
+      case secondName = "second_name"
+    }
+  }
+  internal struct CompositeTypeWithArrayAttribute: Codable, Hashable, Sendable {
+    internal let MyTextArray: AnyJSON
+    internal enum CodingKeys: String, CodingKey {
+      case MyTextArray = "my_text_array"
+    }
+  }
+  internal struct CompositeTypeWithRecordAttribute: Codable, Hashable, Sendable {
+    internal let Todo: TodosSelect
+    internal enum CodingKeys: String, CodingKey {
+      case Todo = "todo"
+    }
+  }
+}

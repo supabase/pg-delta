@@ -1,0 +1,1187 @@
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export type Database = {
+  public: {
+    Tables: {
+      category: {
+        Row: {
+          id: number
+          name: string
+        }
+        Insert: {
+          id?: number
+          name: string
+        }
+        Update: {
+          id?: number
+          name?: string
+        }
+        Relationships: []
+      }
+      empty: {
+        Row: {}
+        Insert: {}
+        Update: {}
+        Relationships: []
+      }
+      events: {
+        Row: {
+          created_at: string
+          data: Json | null
+          event_type: string | null
+          id: number
+          days_since_event: number | null
+        }
+        Insert: {
+          created_at?: string
+          data?: Json | null
+          event_type?: string | null
+          id?: number
+        }
+        Update: {
+          created_at?: string
+          data?: Json | null
+          event_type?: string | null
+          id?: number
+        }
+        Relationships: []
+      }
+      events_2024: {
+        Row: {
+          created_at: string
+          data: Json | null
+          event_type: string | null
+          id: number
+        }
+        Insert: {
+          created_at?: string
+          data?: Json | null
+          event_type?: string | null
+          id: number
+        }
+        Update: {
+          created_at?: string
+          data?: Json | null
+          event_type?: string | null
+          id?: number
+        }
+        Relationships: []
+      }
+      events_2025: {
+        Row: {
+          created_at: string
+          data: Json | null
+          event_type: string | null
+          id: number
+        }
+        Insert: {
+          created_at?: string
+          data?: Json | null
+          event_type?: string | null
+          id: number
+        }
+        Update: {
+          created_at?: string
+          data?: Json | null
+          event_type?: string | null
+          id?: number
+        }
+        Relationships: []
+      }
+      foreign_table: {
+        Row: {
+          id: number
+          name: string | null
+          status: Database["public"]["Enums"]["user_status"] | null
+        }
+        Insert: {
+          id: number
+          name?: string | null
+          status?: Database["public"]["Enums"]["user_status"] | null
+        }
+        Update: {
+          id?: number
+          name?: string | null
+          status?: Database["public"]["Enums"]["user_status"] | null
+        }
+        Relationships: []
+      }
+      interval_test: {
+        Row: {
+          duration_optional: string | null
+          duration_required: string
+          id: number
+        }
+        Insert: {
+          duration_optional?: string | null
+          duration_required: string
+          id?: number
+        }
+        Update: {
+          duration_optional?: string | null
+          duration_required?: string
+          id?: number
+        }
+        Relationships: []
+      }
+      memes: {
+        Row: {
+          category: number | null
+          created_at: string
+          id: number
+          metadata: Json | null
+          name: string
+          status: Database["public"]["Enums"]["meme_status"] | null
+        }
+        Insert: {
+          category?: number | null
+          created_at: string
+          id?: number
+          metadata?: Json | null
+          name: string
+          status?: Database["public"]["Enums"]["meme_status"] | null
+        }
+        Update: {
+          category?: number | null
+          created_at?: string
+          id?: number
+          metadata?: Json | null
+          name?: string
+          status?: Database["public"]["Enums"]["meme_status"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "memes_category_fkey"
+            columns: ["category"]
+            referencedRelation: "category"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      table_with_other_tables_row_type: {
+        Row: {
+          col1: Database["public"]["Tables"]["user_details"]["Row"] | null
+          col2: Database["public"]["Views"]["a_view"]["Row"] | null
+        }
+        Insert: {
+          col1?: Database["public"]["Tables"]["user_details"]["Row"] | null
+          col2?: Database["public"]["Views"]["a_view"]["Row"] | null
+        }
+        Update: {
+          col1?: Database["public"]["Tables"]["user_details"]["Row"] | null
+          col2?: Database["public"]["Views"]["a_view"]["Row"] | null
+        }
+        Relationships: []
+      }
+      table_with_primary_key_other_than_id: {
+        Row: {
+          name: string | null
+          other_id: number
+        }
+        Insert: {
+          name?: string | null
+          other_id?: number
+        }
+        Update: {
+          name?: string | null
+          other_id?: number
+        }
+        Relationships: []
+      }
+      todos: {
+        Row: {
+          details: string | null
+          id: number
+          "user-id": number
+          blurb: string | null
+          blurb_varchar: string | null
+          details_is_long: boolean | null
+          details_length: number | null
+          details_words: string[] | null
+          test_unnamed_row_scalar: number | null
+          test_unnamed_row_setof: {
+            details: string | null
+            id: number
+            "user-id": number
+          } | null
+        }
+        Insert: {
+          details?: string | null
+          id?: number
+          "user-id": number
+        }
+        Update: {
+          details?: string | null
+          id?: number
+          "user-id"?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "a_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "user_todos_summary_view"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "users_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "users_view_with_multiple_refs_to_users"
+            referencedColumns: ["initial_id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "users_view_with_multiple_refs_to_users"
+            referencedColumns: ["second_id"]
+          },
+        ]
+      }
+      user_details: {
+        Row: {
+          details: string | null
+          user_id: number
+        }
+        Insert: {
+          details?: string | null
+          user_id: number
+        }
+        Update: {
+          details?: string | null
+          user_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_details_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "a_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_details_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "user_todos_summary_view"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "user_details_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_details_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_details_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users_view_with_multiple_refs_to_users"
+            referencedColumns: ["initial_id"]
+          },
+          {
+            foreignKeyName: "user_details_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users_view_with_multiple_refs_to_users"
+            referencedColumns: ["second_id"]
+          },
+        ]
+      }
+      users: {
+        Row: {
+          decimal: number | null
+          id: number
+          name: string | null
+          status: Database["public"]["Enums"]["user_status"] | null
+          user_uuid: string | null
+          test_unnamed_row_composite:
+            | Database["public"]["CompositeTypes"]["composite_type_with_array_attribute"]
+            | null
+          test_unnamed_row_setof: {
+            details: string | null
+            id: number
+            "user-id": number
+          } | null
+        }
+        Insert: {
+          decimal?: number | null
+          id?: number
+          name?: string | null
+          status?: Database["public"]["Enums"]["user_status"] | null
+          user_uuid?: string | null
+        }
+        Update: {
+          decimal?: number | null
+          id?: number
+          name?: string | null
+          status?: Database["public"]["Enums"]["user_status"] | null
+          user_uuid?: string | null
+        }
+        Relationships: []
+      }
+      users_audit: {
+        Row: {
+          created_at: string | null
+          id: number
+          previous_value: Json | null
+          user_id: number | null
+          created_ago: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: number
+          previous_value?: Json | null
+          user_id?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: number
+          previous_value?: Json | null
+          user_id?: number | null
+        }
+        Relationships: []
+      }
+    }
+    Views: {
+      a_view: {
+        Row: {
+          id: number | null
+        }
+        Insert: {
+          id?: number | null
+        }
+        Update: {
+          id?: number | null
+        }
+        Relationships: []
+      }
+      todos_matview: {
+        Row: {
+          details: string | null
+          id: number | null
+          "user-id": number | null
+          get_todos_by_matview: {
+            details: string | null
+            id: number
+            "user-id": number
+          } | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "a_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "user_todos_summary_view"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "users_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "users_view_with_multiple_refs_to_users"
+            referencedColumns: ["initial_id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "users_view_with_multiple_refs_to_users"
+            referencedColumns: ["second_id"]
+          },
+        ]
+      }
+      todos_view: {
+        Row: {
+          details: string | null
+          id: number | null
+          "user-id": number | null
+          blurb_varchar: string | null
+          test_unnamed_view_row: {
+            details: string | null
+            id: number
+            "user-id": number
+          } | null
+        }
+        Insert: {
+          details?: string | null
+          id?: number | null
+          "user-id"?: number | null
+        }
+        Update: {
+          details?: string | null
+          id?: number | null
+          "user-id"?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "a_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "user_todos_summary_view"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "users_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "users_view_with_multiple_refs_to_users"
+            referencedColumns: ["initial_id"]
+          },
+          {
+            foreignKeyName: "todos_user-id_fkey"
+            columns: ["user-id"]
+            referencedRelation: "users_view_with_multiple_refs_to_users"
+            referencedColumns: ["second_id"]
+          },
+        ]
+      }
+      user_todos_summary_view: {
+        Row: {
+          todo_count: number | null
+          todo_details: string[] | null
+          user_id: number | null
+          user_name: string | null
+          user_status: Database["public"]["Enums"]["user_status"] | null
+        }
+        Relationships: []
+      }
+      users_view: {
+        Row: {
+          decimal: number | null
+          id: number | null
+          name: string | null
+          status: Database["public"]["Enums"]["user_status"] | null
+          user_uuid: string | null
+        }
+        Insert: {
+          decimal?: number | null
+          id?: number | null
+          name?: string | null
+          status?: Database["public"]["Enums"]["user_status"] | null
+          user_uuid?: string | null
+        }
+        Update: {
+          decimal?: number | null
+          id?: number | null
+          name?: string | null
+          status?: Database["public"]["Enums"]["user_status"] | null
+          user_uuid?: string | null
+        }
+        Relationships: []
+      }
+      users_view_with_multiple_refs_to_users: {
+        Row: {
+          initial_id: number | null
+          initial_name: string | null
+          second_id: number | null
+          second_name: string | null
+        }
+        Relationships: []
+      }
+    }
+    Functions: {
+      add_interval_to_duration: {
+        Args: { additional_interval: string; base_duration: string }
+        Returns: string
+      }
+      blurb: {
+        Args: { "": Database["public"]["Tables"]["todos"]["Row"] }
+        Returns: {
+          error: true
+        } & "the function public.blurb with parameter or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache"
+      }
+      blurb_varchar:
+        | {
+            Args: { "": Database["public"]["Tables"]["todos"]["Row"] }
+            Returns: {
+              error: true
+            } & "the function public.blurb_varchar with parameter or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache"
+          }
+        | {
+            Args: { "": Database["public"]["Views"]["todos_view"]["Row"] }
+            Returns: {
+              error: true
+            } & "the function public.blurb_varchar with parameter or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache"
+          }
+      created_ago: {
+        Args: { "": Database["public"]["Tables"]["users_audit"]["Row"] }
+        Returns: {
+          error: true
+        } & "the function public.created_ago with parameter or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache"
+      }
+      days_since_event: {
+        Args: { "": Database["public"]["Tables"]["events"]["Row"] }
+        Returns: {
+          error: true
+        } & "the function public.days_since_event with parameter or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache"
+      }
+      details_is_long: {
+        Args: { "": Database["public"]["Tables"]["todos"]["Row"] }
+        Returns: {
+          error: true
+        } & "the function public.details_is_long with parameter or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache"
+      }
+      details_length: {
+        Args: { "": Database["public"]["Tables"]["todos"]["Row"] }
+        Returns: {
+          error: true
+        } & "the function public.details_length with parameter or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache"
+      }
+      details_words: {
+        Args: { "": Database["public"]["Tables"]["todos"]["Row"] }
+        Returns: {
+          error: true
+        } & "the function public.details_words with parameter or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache"
+      }
+      double_duration: {
+        Args: {
+          interval_test_row: Database["public"]["Tables"]["interval_test"]["Row"]
+        }
+        Returns: string
+      }
+      function_returning_row: {
+        Args: never
+        Returns: {
+          decimal: number | null
+          id: number
+          name: string | null
+          status: Database["public"]["Enums"]["user_status"] | null
+          user_uuid: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "users"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      function_returning_set_of_rows: {
+        Args: never
+        Returns: {
+          decimal: number | null
+          id: number
+          name: string | null
+          status: Database["public"]["Enums"]["user_status"] | null
+          user_uuid: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "users"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      function_returning_single_row: {
+        Args: { todos: Database["public"]["Tables"]["todos"]["Row"] }
+        Returns: {
+          decimal: number | null
+          id: number
+          name: string | null
+          status: Database["public"]["Enums"]["user_status"] | null
+          user_uuid: string | null
+        }
+        SetofOptions: {
+          from: "todos"
+          to: "users"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      function_returning_table: {
+        Args: never
+        Returns: {
+          id: number
+          name: string
+        }[]
+      }
+      function_returning_table_with_args: {
+        Args: { user_id: number }
+        Returns: {
+          id: number
+          name: string
+        }[]
+      }
+      function_using_setof_rows_one: {
+        Args: { user_row: Database["public"]["Tables"]["users"]["Row"] }
+        Returns: {
+          details: string | null
+          id: number
+          "user-id": number
+        }
+        SetofOptions: {
+          from: "users"
+          to: "todos"
+          isOneToOne: true
+          isSetofReturn: true
+        }
+      }
+      function_using_table_returns: {
+        Args: { user_row: Database["public"]["Tables"]["users"]["Row"] }
+        Returns: {
+          details: string | null
+          id: number
+          "user-id": number
+        }
+        SetofOptions: {
+          from: "users"
+          to: "todos"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      get_composite_type_data: {
+        Args: never
+        Returns: Database["public"]["CompositeTypes"]["composite_type_with_array_attribute"][]
+        SetofOptions: {
+          from: "*"
+          to: "composite_type_with_array_attribute"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      get_single_user_summary_from_view:
+        | {
+            Args: { search_user_id: number }
+            Returns: {
+              todo_count: number | null
+              todo_details: string[] | null
+              user_id: number | null
+              user_name: string | null
+              user_status: Database["public"]["Enums"]["user_status"] | null
+            }
+            SetofOptions: {
+              from: "*"
+              to: "user_todos_summary_view"
+              isOneToOne: true
+              isSetofReturn: true
+            }
+          }
+        | {
+            Args: { user_row: Database["public"]["Tables"]["users"]["Row"] }
+            Returns: {
+              todo_count: number | null
+              todo_details: string[] | null
+              user_id: number | null
+              user_name: string | null
+              user_status: Database["public"]["Enums"]["user_status"] | null
+            }
+            SetofOptions: {
+              from: "users"
+              to: "user_todos_summary_view"
+              isOneToOne: true
+              isSetofReturn: true
+            }
+          }
+        | {
+            Args: {
+              userview_row: Database["public"]["Views"]["users_view"]["Row"]
+            }
+            Returns: {
+              todo_count: number | null
+              todo_details: string[] | null
+              user_id: number | null
+              user_name: string | null
+              user_status: Database["public"]["Enums"]["user_status"] | null
+            }
+            SetofOptions: {
+              from: "users_view"
+              to: "user_todos_summary_view"
+              isOneToOne: true
+              isSetofReturn: true
+            }
+          }
+      get_todos_by_matview: {
+        Args: { "": unknown }
+        Returns: {
+          details: string | null
+          id: number
+          "user-id": number
+        }
+        SetofOptions: {
+          from: "todos_matview"
+          to: "todos"
+          isOneToOne: true
+          isSetofReturn: true
+        }
+      }
+      get_todos_from_user:
+        | {
+            Args: { search_user_id: number }
+            Returns: {
+              details: string | null
+              id: number
+              "user-id": number
+            }[]
+            SetofOptions: {
+              from: "*"
+              to: "todos"
+              isOneToOne: false
+              isSetofReturn: true
+            }
+          }
+        | {
+            Args: { user_row: Database["public"]["Tables"]["users"]["Row"] }
+            Returns: {
+              details: string | null
+              id: number
+              "user-id": number
+            }[]
+            SetofOptions: {
+              from: "users"
+              to: "todos"
+              isOneToOne: false
+              isSetofReturn: true
+            }
+          }
+        | {
+            Args: {
+              userview_row: Database["public"]["Views"]["users_view"]["Row"]
+            }
+            Returns: {
+              details: string | null
+              id: number
+              "user-id": number
+            }[]
+            SetofOptions: {
+              from: "users_view"
+              to: "todos"
+              isOneToOne: false
+              isSetofReturn: true
+            }
+          }
+      get_todos_setof_rows:
+        | {
+            Args: { todo_row: Database["public"]["Tables"]["todos"]["Row"] }
+            Returns: {
+              details: string | null
+              id: number
+              "user-id": number
+            }[]
+            SetofOptions: {
+              from: "todos"
+              to: "todos"
+              isOneToOne: false
+              isSetofReturn: true
+            }
+          }
+        | {
+            Args: { user_row: Database["public"]["Tables"]["users"]["Row"] }
+            Returns: {
+              details: string | null
+              id: number
+              "user-id": number
+            }[]
+            SetofOptions: {
+              from: "users"
+              to: "todos"
+              isOneToOne: false
+              isSetofReturn: true
+            }
+          }
+      get_user_audit_setof_single_row: {
+        Args: { user_row: Database["public"]["Tables"]["users"]["Row"] }
+        Returns: {
+          created_at: string | null
+          id: number
+          previous_value: Json | null
+          user_id: number | null
+        }
+        SetofOptions: {
+          from: "users"
+          to: "users_audit"
+          isOneToOne: true
+          isSetofReturn: true
+        }
+      }
+      get_user_ids: { Args: never; Returns: number[] }
+      get_user_summary: { Args: never; Returns: Record<string, unknown>[] }
+      polymorphic_function: { Args: { "": string }; Returns: undefined }
+      polymorphic_function_with_different_return: {
+        Args: { "": string }
+        Returns: string
+      }
+      polymorphic_function_with_no_params_or_unnamed:
+        | { Args: never; Returns: number }
+        | { Args: { "": string }; Returns: string }
+      polymorphic_function_with_unnamed_default:
+        | {
+            Args: never
+            Returns: {
+              error: true
+            } & "Could not choose the best candidate function between: public.polymorphic_function_with_unnamed_default(), public.polymorphic_function_with_unnamed_default( => text). Try renaming the parameters or the function itself in the database so function overloading can be resolved"
+          }
+        | { Args: { ""?: string }; Returns: string }
+      polymorphic_function_with_unnamed_default_overload:
+        | {
+            Args: never
+            Returns: {
+              error: true
+            } & "Could not choose the best candidate function between: public.polymorphic_function_with_unnamed_default_overload(), public.polymorphic_function_with_unnamed_default_overload( => text). Try renaming the parameters or the function itself in the database so function overloading can be resolved"
+          }
+        | { Args: { ""?: string }; Returns: string }
+      polymorphic_function_with_unnamed_json: {
+        Args: { "": Json }
+        Returns: number
+      }
+      polymorphic_function_with_unnamed_jsonb: {
+        Args: { "": Json }
+        Returns: number
+      }
+      polymorphic_function_with_unnamed_text: {
+        Args: { "": string }
+        Returns: number
+      }
+      postgres_fdw_disconnect: { Args: { "": string }; Returns: boolean }
+      postgres_fdw_disconnect_all: { Args: never; Returns: boolean }
+      postgres_fdw_get_connections: {
+        Args: never
+        Returns: Record<string, unknown>[]
+      }
+      postgres_fdw_handler: { Args: never; Returns: unknown }
+      postgrest_resolvable_with_override_function:
+        | { Args: never; Returns: undefined }
+        | { Args: { a: string }; Returns: number }
+        | { Args: { b: number }; Returns: string }
+        | {
+            Args: { completed: boolean; todo_id: number }
+            Returns: {
+              details: string | null
+              id: number
+              "user-id": number
+            }[]
+            SetofOptions: {
+              from: "*"
+              to: "todos"
+              isOneToOne: false
+              isSetofReturn: true
+            }
+          }
+        | {
+            Args: { user_id: number }
+            Returns: {
+              decimal: number | null
+              id: number
+              name: string | null
+              status: Database["public"]["Enums"]["user_status"] | null
+              user_uuid: string | null
+            }[]
+            SetofOptions: {
+              from: "*"
+              to: "users"
+              isOneToOne: false
+              isSetofReturn: true
+            }
+          }
+        | {
+            Args: { user_row: Database["public"]["Tables"]["users"]["Row"] }
+            Returns: {
+              details: string | null
+              id: number
+              "user-id": number
+            }[]
+            SetofOptions: {
+              from: "users"
+              to: "todos"
+              isOneToOne: false
+              isSetofReturn: true
+            }
+          }
+      postgrest_unresolvable_function:
+        | { Args: never; Returns: undefined }
+        | {
+            Args: { a: number }
+            Returns: {
+              error: true
+            } & "Could not choose the best candidate function between: public.postgrest_unresolvable_function(a => int4), public.postgrest_unresolvable_function(a => text). Try renaming the parameters or the function itself in the database so function overloading can be resolved"
+          }
+        | {
+            Args: { a: string }
+            Returns: {
+              error: true
+            } & "Could not choose the best candidate function between: public.postgrest_unresolvable_function(a => int4), public.postgrest_unresolvable_function(a => text). Try renaming the parameters or the function itself in the database so function overloading can be resolved"
+          }
+      search_todos_by_details: {
+        Args: { search_details: string }
+        Returns: {
+          details: string | null
+          id: number
+          "user-id": number
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "todos"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      test_unnamed_row_composite: {
+        Args: { "": Database["public"]["Tables"]["users"]["Row"] }
+        Returns: Database["public"]["CompositeTypes"]["composite_type_with_array_attribute"]
+        SetofOptions: {
+          from: "users"
+          to: "composite_type_with_array_attribute"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      test_unnamed_row_scalar: {
+        Args: { "": Database["public"]["Tables"]["todos"]["Row"] }
+        Returns: {
+          error: true
+        } & "the function public.test_unnamed_row_scalar with parameter or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache"
+      }
+      test_unnamed_row_setof:
+        | {
+            Args: { "": Database["public"]["Tables"]["todos"]["Row"] }
+            Returns: {
+              details: string | null
+              id: number
+              "user-id": number
+            }[]
+            SetofOptions: {
+              from: "todos"
+              to: "todos"
+              isOneToOne: false
+              isSetofReturn: true
+            }
+          }
+        | {
+            Args: { user_id: number }
+            Returns: {
+              details: string | null
+              id: number
+              "user-id": number
+            }[]
+            SetofOptions: {
+              from: "*"
+              to: "todos"
+              isOneToOne: false
+              isSetofReturn: true
+            }
+          }
+        | {
+            Args: { "": Database["public"]["Tables"]["users"]["Row"] }
+            Returns: {
+              details: string | null
+              id: number
+              "user-id": number
+            }[]
+            SetofOptions: {
+              from: "users"
+              to: "todos"
+              isOneToOne: false
+              isSetofReturn: true
+            }
+          }
+      test_unnamed_view_row: {
+        Args: { "": Database["public"]["Views"]["todos_view"]["Row"] }
+        Returns: {
+          details: string | null
+          id: number
+          "user-id": number
+        }[]
+        SetofOptions: {
+          from: "todos_view"
+          to: "todos"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+    }
+    Enums: {
+      meme_status: "new" | "old" | "retired"
+      user_status: "ACTIVE" | "INACTIVE"
+    }
+    CompositeTypes: {
+      composite_type_with_array_attribute: {
+        my_text_array: string[] | null
+      }
+      composite_type_with_record_attribute: {
+        todo: Database["public"]["Tables"]["todos"]["Row"] | null
+      }
+    }
+  }
+}
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {
+      meme_status: ["new", "old", "retired"],
+      user_status: ["ACTIVE", "INACTIVE"],
+    },
+  },
+} as const
+
