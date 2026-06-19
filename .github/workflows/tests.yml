@@ -38,6 +38,8 @@ jobs:
       pg-delta-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-delta-package-json }}
       pg-topo: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo }}
       pg-topo-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo-package-json }}
+      postgrest-typegen: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.postgrest-typegen }}
+      postgrest-typegen-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.postgrest-typegen-package-json }}
       root: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.root }}
       # 'true' only when the PR is authored by the changesets release bot AND
       # every changed file is in the release-PR whitelist (CHANGELOGs,
@@ -115,6 +117,9 @@ jobs:
       - name: Check types (pg-topo)
         if: needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
         run: bun run --filter '@supabase/pg-topo' check-types
+      - name: Check types (postgrest-typegen)
+        if: needs.detect-changes.outputs.postgrest-typegen == 'true' || needs.detect-changes.outputs.root == 'true'
+        run: bun run --filter '@supabase/postgrest-typegen' check-types
 
   format-and-lint:
     if: >-
@@ -149,6 +154,9 @@ jobs:
       - name: Knip (pg-topo)
         if: needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
         run: bun run --filter '@supabase/pg-topo' knip
+      - name: Knip (postgrest-typegen)
+        if: needs.detect-changes.outputs.postgrest-typegen == 'true' || needs.detect-changes.outputs.root == 'true'
+        run: bun run --filter '@supabase/postgrest-typegen' knip
 
   pg-delta-unit:
     if: >-
@@ -443,12 +451,13 @@ jobs:
   coverage:
     if: >-
       !cancelled() &&
-      (needs.pg-delta-unit.result != 'skipped' || needs.pg-delta-integration.result != 'skipped' || needs.pg-topo-tests.result != 'skipped')
+      (needs.pg-delta-unit.result != 'skipped' || needs.pg-delta-integration.result != 'skipped' || needs.pg-topo-tests.result != 'skipped' || needs.postgrest-typegen-tests.result != 'skipped')
     continue-on-error: true
     needs:
       - pg-delta-unit
       - pg-delta-integration
       - pg-topo-tests
+      - postgrest-typegen-tests
     name: "Coverage report"
     runs-on: ubuntu-latest
     steps:
@@ -541,6 +550,35 @@ jobs:
           retention-days: 1
           include-hidden-files: true
 
+  postgrest-typegen-tests:
+    if: >-
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
+      (needs.detect-changes.outputs.postgrest-typegen == 'true' || needs.detect-changes.outputs.root == 'true')
+    needs: detect-changes
+    name: "postgrest-typegen: Tests"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Run tests
+        working-directory: packages/postgrest-typegen
+        env:
+          BUN_COVERAGE: "1"
+          NYC_OUTPUT_DIR: ${{ github.workspace }}/packages/postgrest-typegen/.nyc_output
+        run: bun run test
+      - name: Upload coverage
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: coverage-postgrest-typegen
+          path: packages/postgrest-typegen/.nyc_output/
+          retention-days: 1
+          include-hidden-files: true
+
   deno2-library-e2e:
     if: >-
       needs.detect-changes.outputs.is-release-pr != 'true' &&
@@ -575,6 +613,7 @@ jobs:
       - pg-delta-integration-pg15-compat
       - pg-delta-integration-pg17-compat
       - pg-topo-tests
+      - postgrest-typegen-tests
       - deno2-library-e2e
     if: always() && !cancelled() && needs.detect-changes.outputs.is-release-pr != 'true'
     name: Release preview
@@ -587,4 +626,4 @@ jobs:
       - name: Build all packages
         run: bun run build
       - name: Release preview
-        run: bunx pkg-pr-new publish ./packages/pg-delta ./packages/pg-topo
+        run: bunx pkg-pr-new publish ./packages/pg-delta ./packages/pg-topo ./packages/postgrest-typegen

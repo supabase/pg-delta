@@ -23,6 +23,12 @@ outputs:
   pg-topo-package-json:
     description: Whether pg-topo package.json changed
     value: ${{ steps.filter.outputs.pg-topo-package-json }}
+  postgrest-typegen:
+    description: Whether postgrest-typegen changed
+    value: ${{ steps.filter.outputs.postgrest-typegen }}
+  postgrest-typegen-package-json:
+    description: Whether postgrest-typegen package.json changed
+    value: ${{ steps.filter.outputs.postgrest-typegen-package-json }}
   root:
     description: Whether root config changed
     value: ${{ steps.filter.outputs.root }}
@@ -50,6 +56,10 @@ runs:
             - 'packages/pg-topo/**'
           pg-topo-package-json:
             - 'packages/pg-topo/package.json'
+          postgrest-typegen:
+            - 'packages/postgrest-typegen/**'
+          postgrest-typegen-package-json:
+            - 'packages/postgrest-typegen/package.json'
           root:
             - 'package.json'
             - 'bunfig.toml'
@@ -75,6 +85,8 @@ runs:
             - "!packages/pg-delta/CHANGELOG.md"
             - "!packages/pg-topo/package.json"
             - "!packages/pg-topo/CHANGELOG.md"
+            - "!packages/postgrest-typegen/package.json"
+            - "!packages/postgrest-typegen/CHANGELOG.md"
 
     - id: release-pr-content
       shell: bash
