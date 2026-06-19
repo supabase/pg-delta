@@ -16,6 +16,7 @@
     "test:pg-topo": "bun run --filter '@supabase/pg-topo' test",
     "verdaccio:start": "verdaccio --config ./verdaccio/config.yaml",
     "pg-delta:publish-local": "bun scripts/verdaccio-publish-pg-delta.ts",
+    "postgrest-typegen:publish-local": "bun scripts/verdaccio-publish-postgrest-typegen.ts",
     "version": "changeset version"
   },
   "devDependencies": {
