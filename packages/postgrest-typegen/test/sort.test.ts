@@ -1,13 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
 import { sortGeneratorMetadata } from "../src/sort.ts";
+import type { PostgresType } from "../src/types.ts";
 import {
+  addressCompositeType,
   baseColumn,
   baseFunction,
   baseRelationship,
   baseTable,
   baseView,
   buildMetadata,
+  userStatusEnum,
 } from "./generation/fixtures.ts";
 
 describe("sortGeneratorMetadata", () => {
@@ -41,11 +44,12 @@ describe("sortGeneratorMetadata", () => {
     expect(result.tables.map((t) => t.id)).toEqual([3, 1, 2]);
     expect(result.views.map((v) => v.name)).toEqual(["v_a", "v_b"]);
     expect(result.functions.map((f) => f.name)).toEqual(["f_a", "f_b"]);
-    // Columns grouped by (schema, table) with ordinal order preserved within.
-    expect(result.columns.map((c) => [c.table, c.ordinal_position])).toEqual([
-      ["a", 1],
-      ["a", 2],
-      ["b", 1],
+    // Columns grouped by (schema, table), name-ordered within a table
+    // (mirrors the TypeScript generator's per-table column sort).
+    expect(result.columns.map((c) => [c.table, c.name])).toEqual([
+      ["a", "y"],
+      ["a", "z"],
+      ["b", "x"],
     ]);
   });
 
@@ -93,15 +97,29 @@ describe("sortGeneratorMetadata", () => {
     expect(input.tables.map((t) => t.name)).toEqual(before);
   });
 
-  test("preserves the order of nested, semantically-ordered arrays", () => {
-    // Function arg order is meaningful and must NOT be touched.
+  test("sorts function args by name (TS-aligned) but preserves enum values and composite attributes", () => {
     const args = [
       { mode: "in" as const, name: "z", type_id: 23, has_default: false },
       { mode: "in" as const, name: "a", type_id: 23, has_default: false },
     ];
+    const reversedEnum: PostgresType = {
+      ...userStatusEnum,
+      enums: ["INACTIVE", "ACTIVE"],
+    };
     const result = sortGeneratorMetadata(
-      buildMetadata({ functions: [baseFunction({ id: 1, name: "f", args })] }),
+      buildMetadata({
+        functions: [baseFunction({ id: 1, name: "f", args })],
+        // addressCompositeType.attributes are [street, city] — non-alphabetical.
+        types: [reversedEnum, addressCompositeType],
+      }),
     );
-    expect(result.functions[0].args.map((a) => a.name)).toEqual(["z", "a"]);
+    // RPC args are addressed by name, so the generated type is order-insensitive
+    // and we sort them (matches TypeScript).
+    expect(result.functions[0].args.map((a) => a.name)).toEqual(["a", "z"]);
+    // Enum values and composite attribute order are semantic → left untouched.
+    const e = result.types.find((t) => t.name === userStatusEnum.name)!;
+    expect(e.enums).toEqual(["INACTIVE", "ACTIVE"]);
+    const c = result.types.find((t) => t.name === addressCompositeType.name)!;
+    expect(c.attributes.map((a) => a.name)).toEqual(["street", "city"]);
   });
 });

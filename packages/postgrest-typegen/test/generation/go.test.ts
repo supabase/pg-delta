@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { generateGo } from "../../src/generation/go.ts";
+import { generateGo as rawGenerateGo } from "../../src/generation/go.ts";
+import { sortGeneratorMetadata } from "../../src/sort.ts";
 import {
   addressCompositeType,
   baseColumn,
@@ -11,6 +12,11 @@ import {
   textType,
   userStatusEnum,
 } from "./fixtures.ts";
+
+// Generators expect pre-sorted metadata (the caller applies the canonical sort
+// pass); mirror that here so fixture construction order doesn't matter.
+const generateGo = (metadata: Parameters<typeof rawGenerateGo>[0]) =>
+  rawGenerateGo(sortGeneratorMetadata(metadata));
 
 describe("go typegen", () => {
   test("table with nullability, identity, generated and default columns", () => {

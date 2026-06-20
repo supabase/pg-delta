@@ -22,16 +22,14 @@ export const generateGo = ({
   columns,
   types,
 }: GeneratorMetadata): string => {
-  const columnsByTableId = columns
-    .sort(({ name: a }, { name: b }) => a.localeCompare(b))
-    .reduce(
-      (acc, curr) => {
-        acc[curr.table_id] ??= [];
-        acc[curr.table_id].push(curr);
-        return acc;
-      },
-      {} as Record<string, PostgresColumn[]>,
-    );
+  const columnsByTableId = columns.reduce(
+    (acc, curr) => {
+      acc[curr.table_id] ??= [];
+      acc[curr.table_id].push(curr);
+      return acc;
+    },
+    {} as Record<string, PostgresColumn[]>,
+  );
 
   const compositeTypes = types.filter((type) => type.attributes.length > 0);
 

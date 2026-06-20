@@ -73,9 +73,17 @@ it to the metadata *after* introspection and *before* any `generate*` call. The
 generators document that they expect pre-sorted input; introspection queries
 carry no `ORDER BY`. Sort keys are **semantic** (schema + name + signature),
 never oid — equivalent databases assign different oids, so an oid sort would
-still churn output across environments. TypeScript also sorts internally today;
-collapsing those generator-local sorts into this single pass is tracked as a
-post-parity cleanup.
+still churn output across environments.
+
+**TypeScript is the source of truth for ordering.** `sortGeneratorMetadata`
+replicates the sorts `generateTypescript` used to apply internally, so all four
+generators now consume the single pass and TypeScript output stays
+byte-identical. The only sorts that remain inside generators are ones the
+single-collection pass cannot express: cross-collection *merge* sorts
+(TypeScript and Swift merge tables + foreign tables, and views + materialized
+views, into one per-schema group then sort by name) and TypeScript's
+overload-resolution sorts. Don't reintroduce per-collection sorting in a
+generator — extend `sortGeneratorMetadata` instead.
 
 ## Test Patterns
 

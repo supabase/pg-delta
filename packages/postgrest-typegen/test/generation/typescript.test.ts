@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { generateTypescript } from "../../src/generation/typescript.ts";
+import { generateTypescript as rawGenerateTypescript } from "../../src/generation/typescript.ts";
+import { sortGeneratorMetadata } from "../../src/sort.ts";
 import {
   baseColumn,
   baseFunction,
@@ -9,6 +10,13 @@ import {
   buildMetadata,
   userStatusEnum,
 } from "./fixtures.ts";
+
+// Generators expect pre-sorted metadata (the caller applies the canonical sort
+// pass); mirror that here so fixture construction order doesn't matter.
+const generateTypescript = (
+  metadata: Parameters<typeof rawGenerateTypescript>[0],
+  opts?: Parameters<typeof rawGenerateTypescript>[1],
+) => rawGenerateTypescript(sortGeneratorMetadata(metadata), opts);
 
 describe("typescript typegen", () => {
   test("table Row/Insert/Update with enum, identity ALWAYS, default and nullable", async () => {

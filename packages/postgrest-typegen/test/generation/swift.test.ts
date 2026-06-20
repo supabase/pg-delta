@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { generateSwift } from "../../src/generation/swift.ts";
+import { generateSwift as rawGenerateSwift } from "../../src/generation/swift.ts";
+import { sortGeneratorMetadata } from "../../src/sort.ts";
 import {
   addressCompositeType,
   baseColumn,
@@ -10,6 +11,13 @@ import {
   textType,
   userStatusEnum,
 } from "./fixtures.ts";
+
+// Generators expect pre-sorted metadata (the caller applies the canonical sort
+// pass); mirror that here so fixture construction order doesn't matter.
+const generateSwift = (
+  metadata: Parameters<typeof rawGenerateSwift>[0],
+  opts?: Parameters<typeof rawGenerateSwift>[1],
+) => rawGenerateSwift(sortGeneratorMetadata(metadata), opts);
 
 describe("swift typegen", () => {
   test("enum, struct operations, identity and CodingKeys", () => {

@@ -90,16 +90,14 @@ class PythonContext {
       schemas.map((schema) => [schema.name, schema]),
     );
     this.types = Object.fromEntries(types.map((type) => [type.name, type]));
-    this.columns = columns
-      .sort(({ name: a }, { name: b }) => a.localeCompare(b))
-      .reduce(
-        (acc, curr) => {
-          acc[curr.table_id] ??= [];
-          acc[curr.table_id].push(curr);
-          return acc;
-        },
-        {} as Record<number, PostgresColumn[]>,
-      );
+    this.columns = columns.reduce(
+      (acc, curr) => {
+        acc[curr.table_id] ??= [];
+        acc[curr.table_id].push(curr);
+        return acc;
+      },
+      {} as Record<number, PostgresColumn[]>,
+    );
     this.user_enums = Object.fromEntries(
       types
         .filter((type) => type.enums.length > 0)

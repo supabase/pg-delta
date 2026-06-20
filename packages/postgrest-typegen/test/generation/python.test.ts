@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { generatePython } from "../../src/generation/python.ts";
+import { generatePython as rawGeneratePython } from "../../src/generation/python.ts";
+import { sortGeneratorMetadata } from "../../src/sort.ts";
 import {
   addressCompositeType,
   baseColumn,
@@ -11,6 +12,11 @@ import {
   textType,
   userStatusEnum,
 } from "./fixtures.ts";
+
+// Generators expect pre-sorted metadata (the caller applies the canonical sort
+// pass); mirror that here so fixture construction order doesn't matter.
+const generatePython = (metadata: Parameters<typeof rawGeneratePython>[0]) =>
+  rawGeneratePython(sortGeneratorMetadata(metadata));
 
 describe("python typegen", () => {
   test("table with nullability, identity, generated and default columns", () => {

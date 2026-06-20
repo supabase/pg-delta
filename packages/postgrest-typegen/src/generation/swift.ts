@@ -261,81 +261,74 @@ export const generateSwift = (
 
   columns
     .filter((c) => c.table_id in columnsByTableId)
-    .sort(({ name: a }, { name: b }) => a.localeCompare(b))
     .forEach((c) => columnsByTableId[c.table_id].push(c));
 
   let output = [
     "import Foundation",
     "import Supabase",
     "",
-    ...schemas
-      .sort(({ name: a }, { name: b }) => a.localeCompare(b))
-      .flatMap((schema) => {
-        const schemaTables = [...tables, ...foreignTables]
-          .filter((table) => table.schema === schema.name)
-          .sort(({ name: a }, { name: b }) => a.localeCompare(b));
+    ...schemas.flatMap((schema) => {
+      const schemaTables = [...tables, ...foreignTables]
+        .filter((table) => table.schema === schema.name)
+        .sort(({ name: a }, { name: b }) => a.localeCompare(b));
 
-        const schemaViews = [...views, ...materializedViews]
-          .filter((table) => table.schema === schema.name)
-          .sort(({ name: a }, { name: b }) => a.localeCompare(b));
+      const schemaViews = [...views, ...materializedViews]
+        .filter((table) => table.schema === schema.name)
+        .sort(({ name: a }, { name: b }) => a.localeCompare(b));
 
-        const schemaEnums = types
-          .filter(
-            (type) => type.schema === schema.name && type.enums.length > 0,
-          )
-          .sort(({ name: a }, { name: b }) => a.localeCompare(b));
+      const schemaEnums = types.filter(
+        (type) => type.schema === schema.name && type.enums.length > 0,
+      );
 
-        const schemaCompositeTypes = types
-          .filter(
-            (type) => type.schema === schema.name && type.attributes.length > 0,
-          )
-          .sort(({ name: a }, { name: b }) => a.localeCompare(b));
+      const schemaCompositeTypes = types.filter(
+        (type) => type.schema === schema.name && type.attributes.length > 0,
+      );
 
-        return [
-          `${accessControl} enum ${formatForSwiftSchemaName(schema.name)} {`,
-          ...schemaEnums.flatMap((enum_) =>
-            generateEnum(pgEnumToSwiftEnum(enum_), { accessControl, level: 1 }),
-          ),
-          ...schemaTables.flatMap((table) =>
-            (["Select", "Insert", "Update"] as Operation[])
-              .map((operation) =>
-                pgTypeToSwiftStruct(
-                  table,
-                  columnsByTableId[table.id],
-                  operation,
-                  {
-                    types,
-                    views,
-                    tables,
-                  },
-                ),
-              )
-              .flatMap((struct) =>
-                generateStruct(struct, { accessControl, level: 1 }),
+      return [
+        `${accessControl} enum ${formatForSwiftSchemaName(schema.name)} {`,
+        ...schemaEnums.flatMap((enum_) =>
+          generateEnum(pgEnumToSwiftEnum(enum_), { accessControl, level: 1 }),
+        ),
+        ...schemaTables.flatMap((table) =>
+          (["Select", "Insert", "Update"] as Operation[])
+            .map((operation) =>
+              pgTypeToSwiftStruct(
+                table,
+                columnsByTableId[table.id],
+                operation,
+                {
+                  types,
+                  views,
+                  tables,
+                },
               ),
-          ),
-          ...schemaViews.flatMap((view) =>
-            generateStruct(
-              pgTypeToSwiftStruct(view, columnsByTableId[view.id], "Select", {
-                types,
-                views,
-                tables,
-              }),
-              { accessControl, level: 1 },
+            )
+            .flatMap((struct) =>
+              generateStruct(struct, { accessControl, level: 1 }),
             ),
+        ),
+        ...schemaViews.flatMap((view) =>
+          generateStruct(
+            pgTypeToSwiftStruct(view, columnsByTableId[view.id], "Select", {
+              types,
+              views,
+              tables,
+            }),
+            { accessControl, level: 1 },
           ),
-          ...schemaCompositeTypes.flatMap((type) =>
-            generateStruct(
-              pgCompositeTypeToSwiftStruct(type, { types, views, tables }),
-              {
-                accessControl,
-                level: 1,
-              },
-            ),
+        ),
+        ...schemaCompositeTypes.flatMap((type) =>
+          generateStruct(
+            pgCompositeTypeToSwiftStruct(type, { types, views, tables }),
+            {
+              accessControl,
+              level: 1,
+            },
           ),
-          "}",
-        ];
-      }),
+        ),
+        "}",
+      ];
+    }),
   ];
 
   return output.join("\n");

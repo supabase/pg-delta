@@ -71,15 +71,8 @@ export const generateTypescript = async (
     postgrestVersion,
     defaultSchema = "public",
   } = opts;
-  schemas.sort((a, b) => a.name.localeCompare(b.name));
-  relationships.sort(
-    (a, b) =>
-      a.foreign_key_name.localeCompare(b.foreign_key_name) ||
-      a.referenced_relation.localeCompare(b.referenced_relation) ||
-      JSON.stringify(a.referenced_columns).localeCompare(
-        JSON.stringify(b.referenced_columns),
-      ),
-  );
+  // Ordering of all collections (incl. relationships, columns, args below) is
+  // provided by `sortGeneratorMetadata`; this generator no longer re-sorts.
   const introspectionBySchema = Object.fromEntries<{
     tables: {
       table: Pick<PostgresTable, "id" | "name" | "schema" | "columns">;
@@ -118,9 +111,6 @@ export const generateTypescript = async (
     if (column.table_id in columnsByTableId) {
       columnsByTableId[column.table_id].push(column);
     }
-  }
-  for (const tableId in columnsByTableId) {
-    columnsByTableId[tableId].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   for (const type of types) {
@@ -224,7 +214,6 @@ export const generateTypescript = async (
 
   for (const func of functions) {
     if (func.schema in introspectionBySchema) {
-      func.args.sort((a, b) => a.name.localeCompare(b.name));
       // Get all input args (in, inout, variadic modes)
       const inArgs = func.args.filter(({ mode }) =>
         VALID_FUNCTION_ARGS_MODE.has(mode),
@@ -268,6 +257,10 @@ export const generateTypescript = async (
       }
     }
   }
+  // These per-schema groups MERGE multiple metadata collections — `.tables`
+  // combines tables + foreign tables, `.views` combines views + materialized
+  // views — so the cross-collection name sort can't be expressed by the
+  // single-collection `sortGeneratorMetadata` pass and stays here.
   for (const schema in introspectionBySchema) {
     introspectionBySchema[schema].tables.sort((a, b) =>
       a.table.name.localeCompare(b.table.name),
