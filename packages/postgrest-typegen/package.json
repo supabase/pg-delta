@@ -50,6 +50,13 @@
       "require": "./dist/generation/index.js",
       "types": "./dist/generation/index.d.ts",
       "default": "./dist/generation/index.js"
+    },
+    "./openapi": {
+      "bun": "./src/openapi/index.ts",
+      "import": "./dist/openapi/index.js",
+      "require": "./dist/openapi/index.js",
+      "types": "./dist/openapi/index.d.ts",
+      "default": "./dist/openapi/index.js"
     }
   },
   "scripts": {
