@@ -8,9 +8,7 @@ import {
   type PostgresForeignTable,
   type PostgresFunction,
   type PostgresMaterializedView,
-  type PostgresPrimaryKey,
   type PostgresRelationship,
-  type PostgresRelationshipOld,
   type PostgresSchema,
   type PostgresTable,
   type PostgresType,
@@ -106,24 +104,6 @@ interface ExpectedPostgresMaterializedView {
   columns?: ExpectedPostgresColumn[];
 }
 
-interface ExpectedPostgresPrimaryKey {
-  schema: string;
-  table_name: string;
-  name: string;
-  table_id: number;
-}
-
-interface ExpectedPostgresRelationshipOld {
-  id: number;
-  constraint_name: string;
-  source_schema: string;
-  source_table_name: string;
-  source_column_name: string;
-  target_table_schema: string;
-  target_table_name: string;
-  target_column_name: string;
-}
-
 interface ExpectedPostgresRelationship {
   foreign_key_name: string;
   schema: string;
@@ -154,8 +134,6 @@ interface ExpectedPostgresTable {
   dead_rows_estimate: number;
   comment: string | null;
   columns?: ExpectedPostgresColumn[];
-  primary_keys: ExpectedPostgresPrimaryKey[];
-  relationships: ExpectedPostgresRelationshipOld[];
 }
 
 interface ExpectedPostgresType {
@@ -195,10 +173,6 @@ assertEquals<Equals<PostgresForeignTable, ExpectedPostgresForeignTable>>();
 assertEquals<Equals<PostgresFunction, ExpectedPostgresFunction>>();
 assertEquals<
   Equals<PostgresMaterializedView, ExpectedPostgresMaterializedView>
->();
-assertEquals<Equals<PostgresPrimaryKey, ExpectedPostgresPrimaryKey>>();
-assertEquals<
-  Equals<PostgresRelationshipOld, ExpectedPostgresRelationshipOld>
 >();
 assertEquals<Equals<PostgresRelationship, ExpectedPostgresRelationship>>();
 assertEquals<Equals<PostgresSchema, ExpectedPostgresSchema>>();

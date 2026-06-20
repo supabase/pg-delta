@@ -26,23 +26,20 @@ const baseSchema: PostgresSchema = {
 
 export const baseTable = (
   overrides: Partial<Omit<PostgresTable, "columns">> = {},
-): Omit<PostgresTable, "columns"> =>
-  ({
-    id: 1,
-    schema: "public",
-    name: "tickets",
-    rls_enabled: false,
-    rls_forced: false,
-    replica_identity: "DEFAULT",
-    bytes: 0,
-    size: "0 bytes",
-    live_rows_estimate: 0,
-    dead_rows_estimate: 0,
-    comment: null,
-    primary_keys: [],
-    relationships: [],
-    ...overrides,
-  }) as unknown as Omit<PostgresTable, "columns">;
+): Omit<PostgresTable, "columns"> => ({
+  id: 1,
+  schema: "public",
+  name: "tickets",
+  rls_enabled: false,
+  rls_forced: false,
+  replica_identity: "DEFAULT",
+  bytes: 0,
+  size: "0 bytes",
+  live_rows_estimate: 0,
+  dead_rows_estimate: 0,
+  comment: null,
+  ...overrides,
+});
 
 export const baseView = (
   overrides: Partial<Omit<PostgresView, "columns">> = {},

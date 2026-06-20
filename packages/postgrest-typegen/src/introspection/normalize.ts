@@ -9,7 +9,7 @@
  * exact coercion to the known int8 top-level fields after each query.
  *
  * Only top-level int8 columns need this: int8 values embedded inside `jsonb`
- * columns (e.g. `args[].type_id`, `primary_keys`, composite type attributes)
+ * columns (e.g. `args[].type_id`, composite type attributes)
  * are decoded by the JSON parser as numbers in every driver, matching
  * postgres-meta. Composite text ids like a column's `"<oid>.<attnum>"` are not
  * safe integers, so the `Number.isSafeInteger` guard leaves them untouched —

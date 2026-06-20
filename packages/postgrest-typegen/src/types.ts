@@ -85,31 +85,6 @@ const postgresMaterializedViewSchema = type({
 export type PostgresMaterializedView =
   typeof postgresMaterializedViewSchema.infer;
 
-const postgresPrimaryKeySchema = type({
-  schema: "string",
-  table_name: "string",
-  name: "string",
-  table_id: "number",
-});
-export type PostgresPrimaryKey = typeof postgresPrimaryKeySchema.infer;
-
-/**
- * The legacy/"old" relationship shape carried on `PostgresTable.relationships`.
- * Distinct from the `PostgresRelationship` produced for type generation.
- */
-const postgresRelationshipOldSchema = type({
-  id: "number",
-  constraint_name: "string",
-  source_schema: "string",
-  source_table_name: "string",
-  source_column_name: "string",
-  target_table_schema: "string",
-  target_table_name: "string",
-  target_column_name: "string",
-});
-export type PostgresRelationshipOld =
-  typeof postgresRelationshipOldSchema.infer;
-
 const postgresRelationshipSchema = type({
   foreign_key_name: "string",
   schema: "string",
@@ -142,8 +117,6 @@ const postgresTableSchema = type({
   dead_rows_estimate: "number",
   comment: "string | null",
   "columns?": postgresColumnSchema.array(),
-  primary_keys: postgresPrimaryKeySchema.array(),
-  relationships: postgresRelationshipOldSchema.array(),
 });
 export type PostgresTable = typeof postgresTableSchema.infer;
 
