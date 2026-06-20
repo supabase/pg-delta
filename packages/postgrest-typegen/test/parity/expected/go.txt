@@ -1,81 +1,18 @@
 package database
 
-type PublicUsersSelect struct {
-  Decimal  *float64 `json:"decimal"`
-  Id       int64    `json:"id"`
-  Name     *string  `json:"name"`
-  Status   *string  `json:"status"`
-  UserUuid *string  `json:"user_uuid"`
+type PublicCategorySelect struct {
+  Id   int32  `json:"id"`
+  Name string `json:"name"`
 }
 
-type PublicUsersInsert struct {
-  Decimal  *float64 `json:"decimal"`
-  Id       *int64   `json:"id"`
-  Name     *string  `json:"name"`
-  Status   *string  `json:"status"`
-  UserUuid *string  `json:"user_uuid"`
+type PublicCategoryInsert struct {
+  Id   *int32 `json:"id"`
+  Name string `json:"name"`
 }
 
-type PublicUsersUpdate struct {
-  Decimal  *float64 `json:"decimal"`
-  Id       *int64   `json:"id"`
-  Name     *string  `json:"name"`
-  Status   *string  `json:"status"`
-  UserUuid *string  `json:"user_uuid"`
-}
-
-type PublicTodosSelect struct {
-  Details *string `json:"details"`
-  Id      int64   `json:"id"`
-  UserId  int64   `json:"user-id"`
-}
-
-type PublicTodosInsert struct {
-  Details *string `json:"details"`
-  Id      *int64  `json:"id"`
-  UserId  int64   `json:"user-id"`
-}
-
-type PublicTodosUpdate struct {
-  Details *string `json:"details"`
-  Id      *int64  `json:"id"`
-  UserId  *int64  `json:"user-id"`
-}
-
-type PublicUsersAuditSelect struct {
-  CreatedAt     *string     `json:"created_at"`
-  Id            int64       `json:"id"`
-  PreviousValue interface{} `json:"previous_value"`
-  UserId        *int64      `json:"user_id"`
-}
-
-type PublicUsersAuditInsert struct {
-  CreatedAt     *string     `json:"created_at"`
-  Id            *int64      `json:"id"`
-  PreviousValue interface{} `json:"previous_value"`
-  UserId        *int64      `json:"user_id"`
-}
-
-type PublicUsersAuditUpdate struct {
-  CreatedAt     *string     `json:"created_at"`
-  Id            *int64      `json:"id"`
-  PreviousValue interface{} `json:"previous_value"`
-  UserId        *int64      `json:"user_id"`
-}
-
-type PublicUserDetailsSelect struct {
-  Details *string `json:"details"`
-  UserId  int64   `json:"user_id"`
-}
-
-type PublicUserDetailsInsert struct {
-  Details *string `json:"details"`
-  UserId  int64   `json:"user_id"`
-}
-
-type PublicUserDetailsUpdate struct {
-  Details *string `json:"details"`
-  UserId  *int64  `json:"user_id"`
+type PublicCategoryUpdate struct {
+  Id   *int32  `json:"id"`
+  Name *string `json:"name"`
 }
 
 type PublicEmptySelect struct {
@@ -88,36 +25,6 @@ type PublicEmptyInsert struct {
 
 type PublicEmptyUpdate struct {
 
-}
-
-type PublicTableWithOtherTablesRowTypeSelect struct {
-  Col1 interface{} `json:"col1"`
-  Col2 interface{} `json:"col2"`
-}
-
-type PublicTableWithOtherTablesRowTypeInsert struct {
-  Col1 interface{} `json:"col1"`
-  Col2 interface{} `json:"col2"`
-}
-
-type PublicTableWithOtherTablesRowTypeUpdate struct {
-  Col1 interface{} `json:"col1"`
-  Col2 interface{} `json:"col2"`
-}
-
-type PublicTableWithPrimaryKeyOtherThanIdSelect struct {
-  Name    *string `json:"name"`
-  OtherId int64   `json:"other_id"`
-}
-
-type PublicTableWithPrimaryKeyOtherThanIdInsert struct {
-  Name    *string `json:"name"`
-  OtherId *int64  `json:"other_id"`
-}
-
-type PublicTableWithPrimaryKeyOtherThanIdUpdate struct {
-  Name    *string `json:"name"`
-  OtherId *int64  `json:"other_id"`
 }
 
 type PublicEventsSelect struct {
@@ -201,21 +108,6 @@ type PublicIntervalTestUpdate struct {
   Id               *int64  `json:"id"`
 }
 
-type PublicCategorySelect struct {
-  Id   int32  `json:"id"`
-  Name string `json:"name"`
-}
-
-type PublicCategoryInsert struct {
-  Id   *int32 `json:"id"`
-  Name string `json:"name"`
-}
-
-type PublicCategoryUpdate struct {
-  Id   *int32  `json:"id"`
-  Name *string `json:"name"`
-}
-
 type PublicMemesSelect struct {
   Category  *int32      `json:"category"`
   CreatedAt string      `json:"created_at"`
@@ -243,18 +135,122 @@ type PublicMemesUpdate struct {
   Status    *string     `json:"status"`
 }
 
-type PublicTodosViewSelect struct {
+type PublicTableWithOtherTablesRowTypeSelect struct {
+  Col1 interface{} `json:"col1"`
+  Col2 interface{} `json:"col2"`
+}
+
+type PublicTableWithOtherTablesRowTypeInsert struct {
+  Col1 interface{} `json:"col1"`
+  Col2 interface{} `json:"col2"`
+}
+
+type PublicTableWithOtherTablesRowTypeUpdate struct {
+  Col1 interface{} `json:"col1"`
+  Col2 interface{} `json:"col2"`
+}
+
+type PublicTableWithPrimaryKeyOtherThanIdSelect struct {
+  Name    *string `json:"name"`
+  OtherId int64   `json:"other_id"`
+}
+
+type PublicTableWithPrimaryKeyOtherThanIdInsert struct {
+  Name    *string `json:"name"`
+  OtherId *int64  `json:"other_id"`
+}
+
+type PublicTableWithPrimaryKeyOtherThanIdUpdate struct {
+  Name    *string `json:"name"`
+  OtherId *int64  `json:"other_id"`
+}
+
+type PublicTodosSelect struct {
+  Details *string `json:"details"`
+  Id      int64   `json:"id"`
+  UserId  int64   `json:"user-id"`
+}
+
+type PublicTodosInsert struct {
+  Details *string `json:"details"`
+  Id      *int64  `json:"id"`
+  UserId  int64   `json:"user-id"`
+}
+
+type PublicTodosUpdate struct {
   Details *string `json:"details"`
   Id      *int64  `json:"id"`
   UserId  *int64  `json:"user-id"`
 }
 
-type PublicUsersViewSelect struct {
+type PublicUserDetailsSelect struct {
+  Details *string `json:"details"`
+  UserId  int64   `json:"user_id"`
+}
+
+type PublicUserDetailsInsert struct {
+  Details *string `json:"details"`
+  UserId  int64   `json:"user_id"`
+}
+
+type PublicUserDetailsUpdate struct {
+  Details *string `json:"details"`
+  UserId  *int64  `json:"user_id"`
+}
+
+type PublicUsersSelect struct {
+  Decimal  *float64 `json:"decimal"`
+  Id       int64    `json:"id"`
+  Name     *string  `json:"name"`
+  Status   *string  `json:"status"`
+  UserUuid *string  `json:"user_uuid"`
+}
+
+type PublicUsersInsert struct {
   Decimal  *float64 `json:"decimal"`
   Id       *int64   `json:"id"`
   Name     *string  `json:"name"`
   Status   *string  `json:"status"`
   UserUuid *string  `json:"user_uuid"`
+}
+
+type PublicUsersUpdate struct {
+  Decimal  *float64 `json:"decimal"`
+  Id       *int64   `json:"id"`
+  Name     *string  `json:"name"`
+  Status   *string  `json:"status"`
+  UserUuid *string  `json:"user_uuid"`
+}
+
+type PublicUsersAuditSelect struct {
+  CreatedAt     *string     `json:"created_at"`
+  Id            int64       `json:"id"`
+  PreviousValue interface{} `json:"previous_value"`
+  UserId        *int64      `json:"user_id"`
+}
+
+type PublicUsersAuditInsert struct {
+  CreatedAt     *string     `json:"created_at"`
+  Id            *int64      `json:"id"`
+  PreviousValue interface{} `json:"previous_value"`
+  UserId        *int64      `json:"user_id"`
+}
+
+type PublicUsersAuditUpdate struct {
+  CreatedAt     *string     `json:"created_at"`
+  Id            *int64      `json:"id"`
+  PreviousValue interface{} `json:"previous_value"`
+  UserId        *int64      `json:"user_id"`
+}
+
+type PublicAViewSelect struct {
+  Id *int64 `json:"id"`
+}
+
+type PublicTodosViewSelect struct {
+  Details *string `json:"details"`
+  Id      *int64  `json:"id"`
+  UserId  *int64  `json:"user-id"`
 }
 
 type PublicUserTodosSummaryViewSelect struct {
@@ -265,8 +261,12 @@ type PublicUserTodosSummaryViewSelect struct {
   UserStatus  *string    `json:"user_status"`
 }
 
-type PublicAViewSelect struct {
-  Id *int64 `json:"id"`
+type PublicUsersViewSelect struct {
+  Decimal  *float64 `json:"decimal"`
+  Id       *int64   `json:"id"`
+  Name     *string  `json:"name"`
+  Status   *string  `json:"status"`
+  UserUuid *string  `json:"user_uuid"`
 }
 
 type PublicUsersViewWithMultipleRefsToUsersSelect struct {

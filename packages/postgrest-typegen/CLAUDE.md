@@ -71,7 +71,11 @@ order-sensitive snapshots break in CI). Stability is enforced by a single
 generator-agnostic pass, `sortGeneratorMetadata` (`src/sort.ts`): callers apply
 it to the metadata *after* introspection and *before* any `generate*` call. The
 generators document that they expect pre-sorted input; introspection queries
-carry no `ORDER BY`.
+carry no `ORDER BY`. Sort keys are **semantic** (schema + name + signature),
+never oid — equivalent databases assign different oids, so an oid sort would
+still churn output across environments. TypeScript also sorts internally today;
+collapsing those generator-local sorts into this single pass is tracked as a
+post-parity cleanup.
 
 ## Test Patterns
 
