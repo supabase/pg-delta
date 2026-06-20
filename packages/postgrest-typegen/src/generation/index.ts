@@ -1,3 +1,4 @@
+export { sortGeneratorMetadata } from "../sort.ts";
 export { generateGo } from "./go.ts";
 export { generatePython } from "./python.ts";
 export {

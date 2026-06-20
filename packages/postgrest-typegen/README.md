@@ -16,16 +16,32 @@ There is a hard split between **introspection** (database → metadata) and
 
 ```ts
 import { introspect } from "@supabase/postgrest-typegen/introspection";
-import { generateTypescript } from "@supabase/postgrest-typegen/generation";
+import {
+  generateTypescript,
+  sortGeneratorMetadata,
+} from "@supabase/postgrest-typegen/generation";
 
 // Any `pg.Pool` / `pg.Client` (or compatible driver) works here.
 const metadata = await introspect(pool, { includedSchemas: ["public"] });
-const types = await generateTypescript(metadata, { postgrestVersion: "12" });
+// Canonically sort before generating (see "Stable ordering" below).
+const types = await generateTypescript(sortGeneratorMetadata(metadata), {
+  postgrestVersion: "12",
+});
 ```
 
 `GeneratorMetadata` is the pluggable contract: the SQL introspector is the
 default producer, but any source that can produce that shape can feed the
 generators.
+
+### Stable ordering (`sortGeneratorMetadata`)
+
+The Go/Python/Swift generators emit tables, views, and materialized views in
+`GeneratorMetadata` order, so their output depends on how the producer ordered
+its collections (a SQL introspector returns rows in environment-dependent heap
+order). `sortGeneratorMetadata` is a pure pass that canonically sorts every
+collection; **apply it after introspection and before any `generate*` call** so
+output is deterministic regardless of the producer. Generators expect
+pre-sorted input and do not re-sort it themselves.
 
 ### Runtime validation (opt-in)
 

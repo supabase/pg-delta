@@ -46,6 +46,11 @@ type TsRelationship = Pick<
   | "referenced_columns"
 >;
 
+/**
+ * Sorts every collection internally, so it is order-insensitive — but pass
+ * input pre-sorted with `sortGeneratorMetadata` to stay consistent with the
+ * other generators (whose output depends on `GeneratorMetadata` order).
+ */
 export const generateTypescript = async (
   metadata: GeneratorMetadata,
   opts: GenerateTypescriptOptions = {},

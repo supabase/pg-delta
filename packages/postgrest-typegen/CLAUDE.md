@@ -63,11 +63,15 @@ a global int8 type parser. `src/introspection/normalize.ts` coerces known
 numeric id fields after each query so output is identical under any driver.
 
 **Deterministic ordering:** the Go/Python/Swift generators emit objects in
-`GeneratorMetadata` order (only TypeScript sorts), so every introspection query
-feeding them must have an explicit `ORDER BY`. Do not rely on a `GROUP BY` (or
-any incidental aggregate-plan ordering) for row order — it is environment- and
-data-dependent, and the parity test can pass locally while postgres-meta's
-order-sensitive snapshots break in CI. `TABLES_SQL` sorts by `c.oid`.
+`GeneratorMetadata` order (only TypeScript sorts internally), so output is
+sensitive to however the producer ordered its collections. Do NOT rely on
+introspection query order (heap/aggregate-plan order is environment- and
+data-dependent — the parity test can pass locally while postgres-meta's
+order-sensitive snapshots break in CI). Stability is enforced by a single
+generator-agnostic pass, `sortGeneratorMetadata` (`src/sort.ts`): callers apply
+it to the metadata *after* introspection and *before* any `generate*` call. The
+generators document that they expect pre-sorted input; introspection queries
+carry no `ORDER BY`.
 
 ## Test Patterns
 

@@ -10,6 +10,10 @@ import type {
 
 type Operation = "Select" | "Insert" | "Update";
 
+/**
+ * Emits tables/views/materialized views in `GeneratorMetadata` order. Pass
+ * input pre-sorted with `sortGeneratorMetadata` for deterministic output.
+ */
 export const generateGo = ({
   schemas,
   tables,

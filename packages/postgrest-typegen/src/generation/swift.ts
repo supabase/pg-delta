@@ -234,6 +234,10 @@ function generateStruct(
   return output;
 }
 
+/**
+ * Emits tables/views/materialized views in `GeneratorMetadata` order. Pass
+ * input pre-sorted with `sortGeneratorMetadata` for deterministic output.
+ */
 export const generateSwift = (
   metadata: GeneratorMetadata,
   opts: GenerateSwiftOptions = {},

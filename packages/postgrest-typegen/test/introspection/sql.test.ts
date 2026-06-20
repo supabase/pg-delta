@@ -121,7 +121,6 @@ describe("introspection SQL builders (generator-path option combination)", () =>
           )
           OR has_any_column_privilege(c.oid, 'SELECT, INSERT, UPDATE, REFERENCES')
         )
-      order by c.oid
 
 
       "
