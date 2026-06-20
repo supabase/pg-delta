@@ -27,6 +27,23 @@ const types = await generateTypescript(metadata, { postgrestVersion: "12" });
 default producer, but any source that can produce that shape can feed the
 generators.
 
+### Runtime validation (opt-in)
+
+`GeneratorMetadata` is backed by an [ArkType](https://arktype.io) schema, so a
+result coming from a custom/injected producer can be validated at runtime
+rather than blindly cast. `introspect()` does **not** validate — wrap its
+result yourself when you want the guarantee:
+
+```ts
+import { parseGeneratorMetadata, generatorMetadataSchema } from "@supabase/postgrest-typegen";
+
+// Throws a TypeError with a readable summary if the shape is wrong.
+const metadata = parseGeneratorMetadata(await someCustomIntrospector(db));
+
+// Or use the raw schema directly for custom flows.
+const out = generatorMetadataSchema(unknownInput);
+```
+
 ### Generators
 
 ```ts

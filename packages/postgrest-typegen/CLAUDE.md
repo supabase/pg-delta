@@ -18,9 +18,16 @@ Hard split between **introspection** and **generation**:
 - `src/generation/` -- `generateTypescript` / `generateGo` / `generatePython` /
   `generateSwift`. Pure functions: `GeneratorMetadata` in, source string out.
   No database access.
-- `src/types.ts` -- `GeneratorMetadata` + `Postgres*` interfaces. This is the
-  public, pluggable contract: any source that can produce `GeneratorMetadata`
-  can feed the generators.
+- `src/types.ts` -- `GeneratorMetadata` + `Postgres*` types. This is the public,
+  pluggable contract: any source that can produce `GeneratorMetadata` can feed
+  the generators. **ArkType is the single source of truth here**: each shape is
+  an ArkType schema and the exported type is `typeof schema.infer`. The arrays
+  on `GeneratorMetadata` use `.omit("columns")` to mirror `Omit<…, "columns">`.
+  A compile-time equivalence test (`test/validation/validate.test.ts`) pins the
+  inferred types to the frozen interface contract so they can't silently drift.
+  `parseGeneratorMetadata(data)` is an **opt-in** runtime validator (throws on
+  mismatch) — it is intentionally NOT called inside `introspect()`; integrators
+  with a custom producer wrap the result themselves.
 
 ## Subpath Exports
 
