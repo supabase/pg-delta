@@ -62,6 +62,13 @@ templates until parity is validated and released. Two consequences:
 a global int8 type parser. `src/introspection/normalize.ts` coerces known
 numeric id fields after each query so output is identical under any driver.
 
+**Deterministic ordering:** the Go/Python/Swift generators emit objects in
+`GeneratorMetadata` order (only TypeScript sorts), so every introspection query
+feeding them must have an explicit `ORDER BY`. Do not rely on a `GROUP BY` (or
+any incidental aggregate-plan ordering) for row order — it is environment- and
+data-dependent, and the parity test can pass locally while postgres-meta's
+order-sensitive snapshots break in CI. `TABLES_SQL` sorts by `c.oid`.
+
 ## Test Patterns
 
 - Generation unit tests: pure, no Docker, fixture-builder + per-language inline

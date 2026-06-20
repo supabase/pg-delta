@@ -42,6 +42,7 @@ WHERE
     )
     OR has_any_column_privilege(c.oid, 'SELECT, INSERT, UPDATE, REFERENCES')
   )
+order by c.oid
 ${props.limit ? `limit ${literal(props.limit)}` : ""}
 ${props.offset ? `offset ${literal(props.offset)}` : ""}
 `;

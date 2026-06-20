@@ -157,6 +157,17 @@ describe("introspect (integration)", () => {
     ).toBe(true);
   });
 
+  describe("ordering", () => {
+    test("tables are returned in ascending id (oid) order", () => {
+      // Go/Python/Swift generators emit objects in metadata order, so the
+      // tables query must be deterministically ordered. `TABLES_SQL` sorts by
+      // `c.oid`; without an explicit ORDER BY the rows come back in heap-scan
+      // order, which varies by environment and breaks order-sensitive output.
+      const ids = full.tables.map((t) => t.id);
+      expect(ids).toEqual([...ids].sort((a, b) => a - b));
+    });
+  });
+
   describe("relationships", () => {
     const has = (
       m: GeneratorMetadata,
