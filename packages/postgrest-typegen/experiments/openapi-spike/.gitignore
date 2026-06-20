@@ -1,0 +1,15 @@
+# Reproducible artifacts emitted by run.ts — regenerate with
+# `bun experiments/openapi-spike/run.ts`. Not committed (and kept out of
+# oxlint/oxfmt, which honor .gitignore) since candidate.ts/reference.ts are
+# generated TypeScript, not hand-written source.
+openapi.json
+reference.ts
+candidate.ts
+output.diff
+stats.json
+# parity.ts artifacts (regenerate with `bun experiments/openapi-spike/parity.ts`)
+parity.openapi.json
+parity.reference.ts
+parity.candidate.ts
+parity.diff
+parity.postgrest.conf
