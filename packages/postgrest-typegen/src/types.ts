@@ -59,7 +59,12 @@ const postgresFunctionSchema = type({
     mode: "'in' | 'out' | 'inout' | 'variadic' | 'table'",
     name: "string",
     type_id: "number",
-    has_default: "boolean",
+    // `introspect()` emits `null` for the OUT columns of RETURNS TABLE /
+    // OUT-arg functions: the introspection SQL sizes `arg_has_defaults` from
+    // the input-arg count while `arg_modes`/`arg_types` include output args,
+    // so the trailing rows are padded with NULL. postgres-meta types this as a
+    // plain boolean, but the opt-in validator must accept the real output.
+    has_default: "boolean | null",
   }).array(),
   argument_types: "string",
   identity_argument_types: "string",

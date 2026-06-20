@@ -81,7 +81,7 @@ interface ExpectedPostgresFunction {
     mode: "in" | "out" | "inout" | "variadic" | "table";
     name: string;
     type_id: number;
-    has_default: boolean;
+    has_default: boolean | null;
   }[];
   argument_types: string;
   identity_argument_types: string;
@@ -262,6 +262,31 @@ describe("parseGeneratorMetadata", () => {
       validMetadata.relationships[0];
     const bad = { ...validMetadata, relationships: [badRel] };
     expect(() => parseGeneratorMetadata(bad)).toThrow(TypeError);
+  });
+
+  test("accepts functions whose OUT/TABLE args have null has_default", () => {
+    // `introspect()` emits `has_default: null` for the OUT columns of
+    // RETURNS TABLE / OUT-arg functions: the introspection SQL sizes
+    // `arg_has_defaults` from the input-arg count (`pronargs`) while
+    // `arg_modes`/`arg_types` include the output args, so the trailing rows
+    // get NULL. The validator must accept that real introspector output.
+    const withNullHasDefault = buildMetadata({
+      functions: [
+        baseFunction({
+          name: "function_returning_table",
+          args: [
+            { mode: "in", name: "user_id", type_id: 23, has_default: false },
+            {
+              mode: "table",
+              name: "id",
+              type_id: 23,
+              has_default: null as unknown as boolean,
+            },
+          ],
+        }),
+      ],
+    });
+    expect(() => parseGeneratorMetadata(withNullHasDefault)).not.toThrow();
   });
 });
 

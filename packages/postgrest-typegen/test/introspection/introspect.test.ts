@@ -10,6 +10,7 @@ import { Pool } from "pg";
 import { Wait } from "testcontainers";
 
 import { introspect } from "../../src/introspection/index.ts";
+import { parseGeneratorMetadata } from "../../src/types.ts";
 import type { GeneratorMetadata } from "../../src/types.ts";
 
 /**
@@ -184,6 +185,22 @@ describe("introspect (integration)", () => {
 
     test("view→view expansion (todos_view → users_view)", () => {
       expect(has(full, "todos_view", "users_view")).toBe(true);
+    });
+  });
+
+  describe("parseGeneratorMetadata round-trips real introspection output", () => {
+    test("RETURNS TABLE functions emit null has_default for their OUT columns", () => {
+      const fn = full.functions.find(
+        (f) => f.schema === "public" && f.name === "function_returning_table",
+      );
+      expect(fn).toBeDefined();
+      const tableArgs = fn!.args.filter((a) => a.mode === "table");
+      expect(tableArgs.length).toBeGreaterThan(0);
+      expect(tableArgs.every((a) => a.has_default === null)).toBe(true);
+    });
+
+    test("validates without throwing", () => {
+      expect(() => parseGeneratorMetadata(full)).not.toThrow();
     });
   });
 
