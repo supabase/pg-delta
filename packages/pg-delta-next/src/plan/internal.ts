@@ -38,6 +38,16 @@ export function buildActionGraph(
   // renamed subtree must NOT drive ordering through the rename — otherwise a
   // table rename + owner-role rename deadlock each other (review P1 #2).
   renameActionIndices: ReadonlySet<number> = new Set(),
+  // role names the active policy assumes exist at apply time but does not manage
+  // (e.g. Supabase anon/authenticated). Treated like pg_*/PUBLIC by the
+  // missing-requirement guard: a kept `GRANT … TO <role>` whose role object is
+  // filtered out of the view is a valid grant target, not a stranded reference.
+  assumedRoleNames: ReadonlySet<string> = new Set(),
+  // schema names the active policy assumes exist at apply time but does not
+  // manage (e.g. Supabase's `extensions`). Same idea as assumedRoleNames: a kept
+  // `CREATE EXTENSION … SCHEMA <schema>` whose schema object is filtered out of
+  // the view is a valid dependency target, not a stranded reference.
+  assumedSchemaNames: ReadonlySet<string> = new Set(),
 ): Array<[number, number]> {
   const edges: Array<[number, number]> = [];
 
@@ -86,13 +96,27 @@ export function buildActionGraph(
       // the id must exist on the target before apply (source) or be
       // produced by this plan; "it's in the desired state" is not enough —
       // a policy filter can hide the delta that would have created it.
-      // Built-in roles (pg_*) and PUBLIC are guaranteed by PostgreSQL
-      // itself and never extracted as facts.
-      const isBuiltinRole =
+      // Built-in roles (pg_*) and PUBLIC are guaranteed by PostgreSQL itself and
+      // never extracted as facts. Policy-declared assumedRoles (e.g. Supabase
+      // anon/authenticated) are the same idea: present at apply time but kept out
+      // of the managed view, so grants targeting them are valid, not stranded.
+      const isAmbientRole =
         id.kind === "role" &&
         ((id as { name: string }).name.startsWith("pg_") ||
-          (id as { name: string }).name === "PUBLIC");
-      if (producer === undefined && !source.has(id) && !isBuiltinRole) {
+          (id as { name: string }).name === "PUBLIC" ||
+          assumedRoleNames.has((id as { name: string }).name));
+      // Policy-declared assumedSchemas (e.g. Supabase's `extensions`) mirror the
+      // assumed-role exemption: present at apply time but filtered out of the
+      // managed view, so a `consumes schema:<name>` edge is a valid target.
+      const isAmbientSchema =
+        id.kind === "schema" &&
+        assumedSchemaNames.has((id as { name: string }).name);
+      if (
+        producer === undefined &&
+        !source.has(id) &&
+        !isAmbientRole &&
+        !isAmbientSchema
+      ) {
         throw new Error(
           `missing requirement: action "${action.sql}" consumes ${key}, which neither exists on the target nor is produced by this plan${desired.has(id) ? " — a filter may be hiding its creation" : ""}`,
         );

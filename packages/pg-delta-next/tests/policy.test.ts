@@ -284,6 +284,85 @@ describe("policy: missing-requirement guard fires on a genuine policy conflict (
 });
 
 // ---------------------------------------------------------------------------
+// Test 3b: grants to assumed platform roles are NOT a policy conflict
+// ---------------------------------------------------------------------------
+
+describe("policy: grants to assumed system roles do not strand the planner", () => {
+  test("GRANT … TO anon + ALTER DEFAULT PRIVILEGES … TO anon under supabasePolicy → plan keeps the grants and applies", async () => {
+    // Isolated pair so `anon` exists per-cluster. anon is a Supabase system
+    // role: Rule 7 projects its role OBJECT out of the managed view, yet the
+    // ACL / default-privilege facts that grant TO it are kept. Old pg-delta
+    // emits those grants and dbdev relies on them; the new planner must too,
+    // by treating Supabase platform roles as assumed-present (like pg_*/PUBLIC)
+    // rather than rejecting the grant as a stranded requirement.
+    const { isolatedClusterPair } = await import("./containers.ts");
+    const [clusterA, clusterB] = await isolatedClusterPair();
+
+    const sourceDb = await clusterA.createDb("pol_anon_priv_src");
+    const desiredDb = await clusterB.createDb("pol_anon_priv_dst");
+
+    try {
+      // anon must exist physically on BOTH clusters: source so the plan can
+      // apply against it (anon is the grant target), desired so extract sees
+      // the ACL / default-privilege facts referencing it.
+      await clusterA.adminPool
+        .query(`CREATE ROLE anon NOLOGIN`)
+        .catch(() => {});
+      await clusterB.adminPool
+        .query(`CREATE ROLE anon NOLOGIN`)
+        .catch(() => {});
+
+      // desired: a user schema that grants schema usage + default privileges
+      // to the (out-of-view) platform role.
+      await desiredDb.pool.query(`
+            CREATE SCHEMA app;
+            GRANT USAGE ON SCHEMA app TO anon;
+            ALTER DEFAULT PRIVILEGES IN SCHEMA app
+              GRANT SELECT ON TABLES TO anon;
+          `);
+
+      const [sourceState, desiredState] = await Promise.all([
+        extract(sourceDb.pool),
+        extract(desiredDb.pool),
+      ]);
+
+      // Plan under the supabase policy: must NOT throw "missing requirement".
+      const thePlan = plan(sourceState.factBase, desiredState.factBase, {
+        policy: supabasePolicy,
+      });
+
+      // The legitimate grants are KEPT (not silently dropped — the rejected
+      // "wrong fix" would have excluded these deltas by grantee name).
+      const sql = thePlan.actions.map((a) => a.sql).join("\n");
+      expect(sql).toMatch(/GRANT USAGE ON SCHEMA "app" TO "anon"/);
+      expect(sql).toMatch(
+        /ALTER DEFAULT PRIVILEGES[^\n]*GRANT SELECT ON TABLES TO "anon"/,
+      );
+
+      // End-to-end: the plan applies cleanly against the source (anon exists).
+      const report = await apply(thePlan, sourceDb.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.status).toBe("applied");
+    } finally {
+      await clusterA.adminPool
+        .query(`DROP OWNED BY anon CASCADE`)
+        .catch(() => {});
+      await clusterB.adminPool
+        .query(`DROP OWNED BY anon CASCADE`)
+        .catch(() => {});
+      await clusterA.adminPool
+        .query(`DROP ROLE IF EXISTS anon`)
+        .catch(() => {});
+      await clusterB.adminPool
+        .query(`DROP ROLE IF EXISTS anon`)
+        .catch(() => {});
+      await Promise.all([sourceDb.drop(), desiredDb.drop()]);
+    }
+  }, 90_000);
+});
+
+// ---------------------------------------------------------------------------
 // Test 4: serialize params via policy
 // ---------------------------------------------------------------------------
 

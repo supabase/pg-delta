@@ -218,6 +218,26 @@ export interface Policy {
   serialize?: SerializeRule[];
   baseline?: string;
   extends?: Policy[];
+  /**
+   * Role names assumed to exist at apply time but NOT managed by this policy —
+   * platform-preset roles (e.g. Supabase's `anon`, `authenticated`) whose role
+   * OBJECT is filtered out of the managed view, yet which remain valid grant /
+   * ownership targets. The planner treats these like `pg_*` / `PUBLIC`: a
+   * `consumes` edge to one does not strand the missing-requirement guard. This
+   * lets the engine emit `GRANT … TO anon` (which old pg-delta and dbdev rely
+   * on) without re-admitting the role into the diff.
+   */
+  assumedRoles?: string[];
+  /**
+   * Schema names assumed to exist at apply time but NOT managed by this policy —
+   * platform-managed schemas (e.g. Supabase's `extensions`) whose schema OBJECT
+   * is filtered out of the managed view, yet which remain valid dependency
+   * targets. The planner treats these like assumed roles / `pg_*` / `PUBLIC`: a
+   * `consumes` edge to one does not strand the missing-requirement guard. This
+   * lets the engine emit `CREATE EXTENSION … SCHEMA extensions` (which old
+   * pg-delta and dbdev rely on) without re-admitting the schema into the diff.
+   */
+  assumedSchemas?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -567,6 +587,8 @@ export function flattenPolicy(policy: Policy): {
   id: string;
   filter: FilterRule[];
   serialize: SerializeRule[];
+  assumedRoles: string[];
+  assumedSchemas: string[];
   baseline?: string;
 } {
   const visited = new Set<string>();
@@ -580,6 +602,8 @@ function flattenInner(
   id: string;
   filter: FilterRule[];
   serialize: SerializeRule[];
+  assumedRoles: string[];
+  assumedSchemas: string[];
   baseline?: string;
 } {
   if (visited.has(policy.id)) {
@@ -591,8 +615,12 @@ function flattenInner(
 
   const ownFilter: FilterRule[] = policy.filter ?? [];
   const ownSerialize: SerializeRule[] = policy.serialize ?? [];
+  const ownAssumedRoles: string[] = policy.assumedRoles ?? [];
+  const ownAssumedSchemas: string[] = policy.assumedSchemas ?? [];
   const parentFilter: FilterRule[] = [];
   const parentSerialize: SerializeRule[] = [];
+  const parentAssumedRoles: string[] = [];
+  const parentAssumedSchemas: string[] = [];
 
   if (policy.extends) {
     for (const parent of policy.extends) {
@@ -603,6 +631,8 @@ function flattenInner(
       const flat = flattenInner(parent, branch);
       parentFilter.push(...flat.filter);
       parentSerialize.push(...flat.serialize);
+      parentAssumedRoles.push(...flat.assumedRoles);
+      parentAssumedSchemas.push(...flat.assumedSchemas);
     }
   }
 
@@ -612,11 +642,18 @@ function flattenInner(
     id: string;
     filter: FilterRule[];
     serialize: SerializeRule[];
+    assumedRoles: string[];
+    assumedSchemas: string[];
     baseline?: string;
   } = {
     id: policy.id,
     filter: [...ownFilter, ...parentFilter],
     serialize: [...ownSerialize, ...parentSerialize],
+    // own ∪ parent, de-duplicated (membership test only — order irrelevant).
+    assumedRoles: [...new Set([...ownAssumedRoles, ...parentAssumedRoles])],
+    assumedSchemas: [
+      ...new Set([...ownAssumedSchemas, ...parentAssumedSchemas]),
+    ],
   };
   if (policy.baseline !== undefined) {
     result.baseline = policy.baseline;

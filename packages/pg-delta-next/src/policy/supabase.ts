@@ -161,6 +161,24 @@ export const SUPABASE_SYSTEM_EXTENSIONS = [
 export const supabasePolicy: Policy = {
   id: "supabase",
 
+  // Platform-preset roles assumed to exist at apply time. Rule 7 below projects
+  // their role OBJECT out of the managed view, but ACL / default-privilege facts
+  // that grant TO them are kept — old pg-delta emits those grants and dbdev
+  // relies on them. Declaring the names here lets the planner's ambient-role
+  // exemption (like pg_*/PUBLIC) accept `consumes role:anon` without re-admitting
+  // the role into the diff. Mirrors Rule 7's exclusion list by construction.
+  assumedRoles: [...SUPABASE_SYSTEM_ROLES],
+
+  // Platform-managed schemas assumed to exist at apply time. Rules 4/5 below
+  // project their schema OBJECT out of the managed view, but a kept user object
+  // can still reference one as a dependency target — most notably a relocatable
+  // extension installed into `extensions` (`CREATE EXTENSION … SCHEMA
+  // extensions`), which old pg-delta and dbdev rely on. Declaring the names here
+  // lets the planner's ambient-schema exemption (like assumed roles / pg_* /
+  // PUBLIC) accept `consumes schema:extensions` without re-admitting the schema
+  // into the diff. Mirrors the system-schema exclusion list by construction.
+  assumedSchemas: [...SUPABASE_SYSTEM_SCHEMAS],
+
   // baseline (intentionally UNSET in v1): a baseline names the snapshot that
   // represents "empty" on a Supabase instance; facts present-and-identical in
   // it are subtracted before diffing (resolveBaseline → plan options.baseline),

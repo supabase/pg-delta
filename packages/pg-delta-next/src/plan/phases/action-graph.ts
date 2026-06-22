@@ -32,6 +32,14 @@ export interface FinalizeInput {
   /** per-action compaction metadata captured during emission (never persisted). */
   foldHints: ReadonlyArray<{ foldInto: StableId; clause: string } | undefined>;
   acceptsFolds: readonly boolean[];
+  /** policy-declared roles assumed to exist at apply time (e.g. Supabase
+   *  anon/authenticated) — exempt from the missing-requirement guard just like
+   *  the `pg_` prefix and PUBLIC. Empty under the raw/no-policy path. */
+  assumedRoleNames: ReadonlySet<string>;
+  /** policy-declared schemas assumed to exist at apply time (e.g. Supabase's
+   *  `extensions`) — exempt from the missing-requirement guard like the assumed
+   *  roles. Empty under the raw/no-policy path. */
+  assumedSchemaNames: ReadonlySet<string>;
   /** §3.6 compaction; cosmetic-by-contract (proof unchanged). Default true. */
   compact: boolean;
 }
@@ -56,6 +64,8 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     renameActionIndices,
     foldHints,
     acceptsFolds,
+    assumedRoleNames,
+    assumedSchemaNames,
     compact,
   } = input;
 
@@ -67,6 +77,8 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     source,
     desired,
     renameActionIndices,
+    assumedRoleNames,
+    assumedSchemaNames,
   );
 
   const order = topoSort(
