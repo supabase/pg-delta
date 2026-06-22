@@ -181,6 +181,8 @@ with extension_oids as (
   where
     d.refclassid = 'pg_extension'::regclass
     and d.classid = 'pg_class'::regclass
+), deparse_settings as (
+  select set_config('search_path', '', true)
 )
 select
   c.relnamespace::regnamespace::text as schema,
@@ -278,6 +280,7 @@ select
   ) as security_labels
 from
   pg_catalog.pg_class c
+  cross join deparse_settings
   left outer join extension_oids e on c.oid = e.objid
   left join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
   left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum

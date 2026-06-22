@@ -4,6 +4,8 @@
 
 import { describe, expect, test } from "bun:test";
 import dedent from "dedent";
+import { createPlan } from "../../src/core/plan/create.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb, withDbIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -395,6 +397,44 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             expect(statements).toStrictEqual([]);
           },
         });
+      }),
+    );
+
+    test(
+      "semantically identical materialized view definition does not trigger a diff",
+      withDb(pgVersion, async (db) => {
+        const setup = dedent`
+            CREATE TABLE public.recipe (
+              id integer PRIMARY KEY,
+              name text,
+              notes text
+            );
+
+            CREATE MATERIALIZED VIEW IF NOT EXISTS public.recipe_search AS (
+              WITH joined AS (
+                SELECT recipe.id, name AS search_text FROM public.recipe WHERE name IS NOT NULL AND name != ''
+                UNION
+                SELECT recipe.id, notes FROM public.recipe WHERE notes IS NOT NULL AND notes != ''
+              )
+
+              SELECT
+                id,
+                search_text
+              FROM joined
+            );
+          `;
+        await db.main.query(setup);
+        await db.branch.query(setup);
+
+        await db.main.query("SET search_path = public");
+        await db.branch.query("SET search_path = ''");
+
+        const planResult = await createPlan(db.main, db.branch);
+        const statements = planResult
+          ? flattenPlanStatements(planResult.plan)
+          : [];
+
+        expect(statements).toStrictEqual([]);
       }),
     );
   });
