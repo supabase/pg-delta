@@ -139,9 +139,63 @@ PGDELTA_NEXT_ONLY=enum bun test tests/engine.test.ts    # corpus subset
 PGDELTA_NEXT_SHARD=0/4 bun test tests/engine.test.ts    # parallel shard
 PGDELTA_NEXT_SOAK=200 bun test tests/generative.test.ts # bigger soak
 bun scripts/benchmark.ts                                # timing numbers
+bun run compare --help                                  # old vs new comparison
+bun run dogfood --help                                  # curated dogfood suite
 ```
 
-## Guardrails
+See [`docs/dogfooding/pg-delta-next-comparison.md`](../../docs/dogfooding/pg-delta-next-comparison.md) for the evaluation rubric and findings template.
+
+## Dogfooding
+
+Compare old `pg-delta` vs this engine on real projects:
+
+```bash
+# Bookmark (live Supabase CLI) — after `supabase start` in bookmark repo
+bun run compare \
+  --source postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+  --desired postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+  --scenario bookmark-zero-diff --out-dir /tmp/dogfood --profile supabase
+
+# dbdev-migrations fixture (testcontainer, no live dbdev repo)
+bun run compare --fixture dbdev \
+  --scenario dbdev-fixture-declarative-roundtrip \
+  --out-dir /tmp/dogfood --profile supabase --apply-check --migrations core
+
+# Corpus scenario
+bun run compare --corpus table-ops--comments \
+  --scenario corpus-comments --out-dir /tmp/dogfood --apply-check
+
+# Full curated suite
+bun run dogfood --out-dir docs/dogfooding/runs/$(date +%Y%m%d) --dbdev-scope core
+
+# Interactive HTML review report (charts, side-by-side SQL/diff)
+bun run dogfood:report --run-dir ../../docs/dogfooding/runs/suite --open
+```
+
+Compaction (cosmetic clause folding + redundant-drop / default-ACL elision) is
+**on by default** and proof-stable — the plan converges to the same state either
+way. The passes, in order:
+
+- **column folds** — `ADD COLUMN` clauses fold into their bare `CREATE TABLE`
+  when no graph edge crosses the merge.
+- **redundant-drop elision** — a replace's drop is dropped when the create
+  reproduces the byte-identical statement (self-resetting ACL/REVOKE).
+- **default-ACL elision** — whole `REVOKE`/`GRANT` groups that only
+  re-materialize a freshly-created object's built-in owner/PUBLIC defaults are
+  removed.
+- **co-create REVOKE elision** — the leading `REVOKE ALL` is trimmed off a
+  remaining third-party grant on a co-created object (the `GRANT` is kept), gated
+  by a strict-superset guard against any create-time `defaultPrivilege` for the
+  applier role.
+- **co-create ownership fold** — a co-created object's owner `ALTER` folds into
+  its `CREATE`: `CREATE SCHEMA … AUTHORIZATION owner` (always, syntactic), and a
+  no-op `ALTER … OWNER TO` is dropped when the desired owner is the applier
+  (`capability.role`, probed at apply time).
+
+Pass `--no-compact` to `compare` to emit the maximally-inlined DDL (one
+statement per action, every `REVOKE`/`GRANT`/`OWNER TO` spelled out), which is
+useful when diffing engine output statement-by-statement.
+
 
 See `docs/architecture/target-architecture.md` §10. The ones most often relevant here:
 no SQL parsing in the trusted path; no per-kind code outside the rule

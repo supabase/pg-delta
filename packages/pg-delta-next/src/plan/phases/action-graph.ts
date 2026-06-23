@@ -12,13 +12,16 @@ import type { FactBase } from "../../core/fact.ts";
 import type { Action, SafetyReport } from "../plan.ts";
 import { topoSort } from "../graph.ts";
 import type { StableId } from "../../core/stable-id.ts";
+import type { ApplierCapability } from "../../policy/capability.ts";
 import {
   actionTieKey,
   buildActionGraph,
   compactColumnFolds,
   computeSafetyReport,
+  elideCoCreateRevokeBeforeGrant,
   elideDefaultAclCreates,
   elideRedundantDrops,
+  foldCoCreateOwnership,
 } from "../internal.ts";
 
 export interface FinalizeInput {
@@ -41,6 +44,11 @@ export interface FinalizeInput {
    *  `extensions`) — exempt from the missing-requirement guard like the assumed
    *  roles. Empty under the raw/no-policy path. */
   assumedSchemaNames: ReadonlySet<string>;
+  /** applier capability (move 6) — needed by the co-create compaction passes:
+   *  the owner-ALTER no-op elision and the REVOKE-before-GRANT superset guard key
+   *  off `capability.role`. Undefined under the unrestricted (superuser/CI/raw)
+   *  path, where those capability-gated elisions stay conservative. */
+  capability: ApplierCapability | undefined;
   /** §3.6 compaction; cosmetic-by-contract (proof unchanged). Default true. */
   compact: boolean;
 }
@@ -67,6 +75,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     acceptsFolds,
     assumedRoleNames,
     assumedSchemaNames,
+    capability,
     compact,
   } = input;
 
@@ -117,23 +126,33 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   // ── compaction (§3.6) ─────────────────────────────────────────────────
   // fold ADD COLUMN clauses into their bare CREATE TABLE (no edge may cross the
   // merge), drop a replace's redundant drop when the create reproduces the
-  // identical statement, then elide REVOKE/GRANT pairs that only re-materialize
-  // a freshly-created object's built-in default ACL. Purely cosmetic — the proof
-  // is unchanged.
+  // identical statement, elide REVOKE/GRANT pairs that only re-materialize a
+  // freshly-created object's built-in default ACL, trim the cosmetic leading
+  // REVOKE off remaining third-party co-create grants, then fold a co-created
+  // object's owner ALTER into its CREATE (CREATE SCHEMA … AUTHORIZATION, or drop
+  // an applier-redundant ALTER). Purely cosmetic — the proof is unchanged.
   const finalActions = compact
-    ? elideDefaultAclCreates(
-        elideRedundantDrops(
-          compactColumnFolds(
-            orderedActions,
-            order,
-            edges,
-            foldHints,
-            acceptsFolds,
-            positionOf,
+    ? foldCoCreateOwnership(
+        elideCoCreateRevokeBeforeGrant(
+          elideDefaultAclCreates(
+            elideRedundantDrops(
+              compactColumnFolds(
+                orderedActions,
+                order,
+                edges,
+                foldHints,
+                acceptsFolds,
+                positionOf,
+              ),
+              source,
+            ),
+            desired,
           ),
-          source,
+          desired,
+          capability,
         ),
         desired,
+        capability,
       )
     : orderedActions;
 

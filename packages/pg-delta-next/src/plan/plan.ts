@@ -239,6 +239,7 @@ export function plan(
     acceptsFolds,
     assumedRoleNames,
     assumedSchemaNames,
+    capability: options?.capability,
     compact: options?.compact !== false,
   });
 

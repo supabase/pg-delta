@@ -60,7 +60,12 @@ describe("routine metadata/ACL rendering (function vs procedure)", () => {
   });
 
   test("GRANT EXECUTE on a procedure uses PROCEDURE, not FUNCTION", () => {
-    const actions = plan(base([]), base([procFact, procAcl])).actions;
+    // compact: false to keep the decomposed REVOKE+GRANT pair — the co-create
+    // REVOKE elision (elideCoCreateRevokeBeforeGrant) would otherwise drop the
+    // leading REVOKE, and this test asserts the keyword on BOTH statements.
+    const actions = plan(base([]), base([procFact, procAcl]), {
+      compact: false,
+    }).actions;
     const sql = actions.map((a) => a.sql);
     expect(sql).toContain(`GRANT EXECUTE ON PROCEDURE "app"."p"() TO "r"`);
     expect(sql).toContain(`REVOKE ALL ON PROCEDURE "app"."p"() FROM "r"`);

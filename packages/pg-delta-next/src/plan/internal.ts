@@ -15,8 +15,11 @@
  */
 import type { FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
+import type { ApplierCapability } from "../policy/capability.ts";
 import type { Action, SafetyReport } from "./plan.ts";
+import { ruleFlag } from "./rule-flags.ts";
 import { rulesFor } from "./rules.ts";
+import { schemaCreateSql } from "./rules/schemas.ts";
 
 /**
  * Build the action dependency graph (edges as `[fromIndex, toIndex]`) and check
@@ -485,6 +488,232 @@ export function elideDefaultAclCreates(
       !action.produces.some((id) => elidable.has(encodeId(id))) &&
       !action.consumes.some((id) => elidable.has(encodeId(id))),
   );
+}
+
+/**
+ * Compaction (§3.6), co-create ownership fold: a freshly `CREATE`d object is
+ * emitted applier-owned, followed by an `ALTER … OWNER TO <owner>` (move 6 —
+ * create no longer sets the owner). Two cosmetic cleanups on that pair:
+ *
+ *  1. SCHEMA (always-on, syntactic): `CREATE SCHEMA s` + `ALTER SCHEMA s OWNER
+ *     TO r` collapse into `CREATE SCHEMA s AUTHORIZATION r`. AUTHORIZATION is the
+ *     canonical single-statement form even for a foreign owner and carries the
+ *     IDENTICAL applier-capability requirement as the two-statement form, so the
+ *     fold never changes whether apply succeeds — it runs regardless of
+ *     capability.
+ *  2. EVERY OTHER ownable kind (only when applier-known): drop the owner ALTER
+ *     when the desired owner IS the applier (`capability.role`). On a
+ *     creates-as-applier object that is a genuine no-op (already applier-owned on
+ *     create). A foreign owner keeps its ALTER.
+ *
+ * Detected STRUCTURALLY (no SQL parsing — guardrail): the owner ALTER has
+ * `verb === "alter"`, produces/destroys/releases nothing, consumes exactly the
+ * created object id + one role id, the kind has an `ownerAlterPrefix` rule, and
+ * the desired graph carries an `owner` edge object → role. `canSetOwner` already
+ * fail-fasts at emit time, so every surviving owner ALTER here is one the applier
+ * could run; Rule 2's "keep when owner ≠ applier" only fires for the
+ * capability-undefined and superuser-applier cases.
+ */
+export function foldCoCreateOwnership(
+  actions: readonly Action[],
+  desired: FactBase,
+  capability?: ApplierCapability,
+): Action[] {
+  // ids created in THIS plan (acl satellites excluded), with their create action.
+  const createActionOf = new Map<string, Action>();
+  for (const action of actions) {
+    if (action.verb !== "create") continue;
+    for (const id of action.produces)
+      if (id.kind !== "acl") createActionOf.set(encodeId(id), action);
+  }
+  if (createActionOf.size === 0) return [...actions];
+
+  const drop = new Set<number>();
+  actions.forEach((action, index) => {
+    if (action.verb !== "alter") return;
+    if (action.produces.length > 0 || action.destroys.length > 0) return;
+    if (action.releases.length > 0) return; // owner CHANGE, not a fresh-create set
+    if (action.newSegmentBefore || action.transactionality !== "transactional")
+      return;
+    // structural owner-ALTER shape: exactly one object consume + one role consume
+    const roleConsumes = action.consumes.filter((id) => id.kind === "role");
+    const objConsumes = action.consumes.filter((id) => id.kind !== "role");
+    if (roleConsumes.length !== 1 || objConsumes.length !== 1) return;
+    const objId = objConsumes[0] as StableId;
+    const owner = roleConsumes[0] as { kind: "role"; name: string };
+    const createAction = createActionOf.get(encodeId(objId));
+    if (createAction === undefined) return; // not co-created → real owner change
+    if (ruleFlag(objId.kind, "ownerAlterPrefix") === undefined) return;
+    const hasOwnerEdge = desired
+      .outgoingEdges(objId)
+      .some(
+        (e) =>
+          e.kind === "owner" &&
+          e.to.kind === "role" &&
+          e.to.name === owner.name,
+      );
+    if (!hasOwnerEdge) return;
+
+    if (objId.kind === "schema") {
+      // Rule 1 — syntactic fold into CREATE SCHEMA … AUTHORIZATION. Compare the
+      // create against the canonical bare render; only fold the exact shape.
+      if (
+        createAction.newSegmentBefore ||
+        createAction.transactionality !== "transactional"
+      )
+        return;
+      const schemaName = (objId as { kind: "schema"; name: string }).name;
+      if (createAction.sql !== schemaCreateSql(schemaName)) return;
+      createAction.sql = schemaCreateSql(schemaName, owner.name);
+      if (!createAction.consumes.some((c) => encodeId(c) === encodeId(owner)))
+        createAction.consumes.push(owner);
+      drop.add(index);
+      return;
+    }
+
+    // Rule 2 — no-op elision only when the applier IS the owner.
+    if (capability !== undefined && capability.role === owner.name)
+      drop.add(index);
+  });
+
+  return drop.size > 0
+    ? actions.filter((_, index) => !drop.has(index))
+    : [...actions];
+}
+
+/** Map an ACL target kind to its `pg_default_acl.defaclobjtype` char, or
+ *  undefined for kinds with NO default-privilege mechanism (no default can ever
+ *  fire on them, so the REVOKE guard is trivially satisfied). */
+function defaclObjtypeForKind(kind: StableId["kind"]): string | undefined {
+  switch (kind) {
+    case "table":
+    case "view":
+    case "materializedView":
+    case "foreignTable":
+      return "r";
+    case "sequence":
+      return "S";
+    case "function":
+    case "procedure":
+    case "aggregate":
+      return "f";
+    case "type":
+    case "domain":
+      return "T";
+    case "schema":
+      return "n";
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Compaction (§3.6), co-create REVOKE elision: `grantActions` emits ACL via
+ * pg_dump's REVOKE-first model (`REVOKE ALL … FROM g` then `GRANT … TO g`). On a
+ * freshly co-created object whose grantee has no conflicting create-time default
+ * privilege, the leading `REVOKE ALL` is cosmetic — the object starts with no
+ * third-party grants, so the GRANT alone converges. This drops that REVOKE while
+ * keeping every GRANT.
+ *
+ * Distinct from `elideDefaultAclCreates` (which drops WHOLE owner/PUBLIC default
+ * groups): this runs AFTER it and only trims the REVOKE off the REMAINING
+ * third-party groups, keeping the load-bearing GRANT.
+ *
+ * Guarded — keep the REVOKE when it is load-bearing:
+ *  - target not co-created, or the group has no GRANT → untouched;
+ *  - REVOKE-only group (empty privileges) → untouched (a revoked default);
+ *  - explicit acl carries a grant option → untouched (REVOKE also clears those);
+ *  - a potentially-active `defaultPrivilege` in desired would grant this grantee
+ *    a privilege or grant option NOT in the explicit acl → untouched (strict-
+ *    superset guard). With known capability "potentially active" means
+ *    `default.role === capability.role` (creates-as-applier); without capability,
+ *    any matching default (objtype + schema scope + grantee) is treated active.
+ */
+export function elideCoCreateRevokeBeforeGrant(
+  actions: readonly Action[],
+  desired: FactBase,
+  capability?: ApplierCapability,
+): Action[] {
+  const createdObjects = new Set<string>();
+  for (const action of actions) {
+    if (action.verb !== "create") continue;
+    for (const id of action.produces)
+      if (id.kind !== "acl") createdObjects.add(encodeId(id));
+  }
+  if (createdObjects.size === 0) return [...actions];
+
+  // index default-privilege facts once (small set) for the superset guard.
+  const defaults = desired
+    .facts()
+    .filter((f) => f.id.kind === "defaultPrivilege");
+
+  const defaultGrantsOutside = (
+    target: StableId,
+    grantee: string,
+    explicit: Set<string>,
+  ): boolean => {
+    const objtype = defaclObjtypeForKind(target.kind);
+    if (objtype === undefined) return false; // kind has no default mechanism
+    const targetSchema =
+      target.kind === "schema" ? null : (target as { schema: string }).schema;
+    for (const fact of defaults) {
+      const d = fact.id as Extract<StableId, { kind: "defaultPrivilege" }>;
+      if (d.objtype !== objtype || d.grantee !== grantee) continue;
+      if (d.schema !== null && d.schema !== targetSchema) continue;
+      if (capability !== undefined && d.role !== capability.role) continue;
+      const payload = fact.payload as {
+        privileges?: string[];
+        grantable?: string[];
+      };
+      if ((payload.grantable ?? []).length > 0) return true; // grant option
+      for (const priv of payload.privileges ?? [])
+        if (!explicit.has(priv)) return true; // extra privilege
+    }
+    return false;
+  };
+
+  const dropRevoke = new Set<number>();
+  const strippedAclKeys = new Set<string>();
+  actions.forEach((action, index) => {
+    if (action.verb !== "create") return;
+    const aclId = action.produces.find((id) => id.kind === "acl");
+    if (aclId === undefined || aclId.kind !== "acl") return; // not a REVOKE leader
+    if (!createdObjects.has(encodeId(aclId.target))) return; // not co-created
+    const fact = desired.get(aclId);
+    if (fact === undefined) return;
+    const payload = fact.payload as {
+      privileges?: string[];
+      grantable?: string[];
+    };
+    const privileges = payload.privileges ?? [];
+    if (privileges.length === 0) return; // REVOKE-only group
+    if ((payload.grantable ?? []).length > 0) return; // explicit grant option
+    const aclKey = encodeId(aclId);
+    const hasGrant = actions.some(
+      (a) => a !== action && a.consumes.some((c) => encodeId(c) === aclKey),
+    );
+    if (!hasGrant) return; // dropping the REVOKE would drop the whole effect
+    if (defaultGrantsOutside(aclId.target, aclId.grantee, new Set(privileges)))
+      return; // REVOKE is load-bearing
+    dropRevoke.add(index);
+    strippedAclKeys.add(aclKey);
+  });
+
+  if (dropRevoke.size === 0) return [...actions];
+  return actions
+    .filter((_, index) => !dropRevoke.has(index))
+    .map((action) => {
+      // strip the now-unproduced acl id from kept GRANT consumes (cosmetic — the
+      // graph is not re-consulted post-compaction, but keep the artifact clean).
+      if (!action.consumes.some((c) => strippedAclKeys.has(encodeId(c))))
+        return action;
+      return {
+        ...action,
+        consumes: action.consumes.filter(
+          (c) => !strippedAclKeys.has(encodeId(c)),
+        ),
+      };
+    });
 }
 
 /** Aggregate the per-action safety metadata (§3.7): destructive / rewrite /
