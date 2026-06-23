@@ -24,6 +24,7 @@ export function schemaCreateSql(
 export const schemaRules: Record<string, KindRules> = {
   schema: {
     weight: 1,
+    defaclObjtype: "n", // ALTER DEFAULT PRIVILEGES … ON SCHEMAS
     rename: renameRule(
       (fact) => `ALTER SCHEMA ${qid((fact.id as { name: string }).name)}`,
     ),

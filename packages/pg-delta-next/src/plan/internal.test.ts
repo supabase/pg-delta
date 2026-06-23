@@ -226,6 +226,32 @@ describe("foldCoCreateOwnership", () => {
     ]);
   });
 
+  test("does not fold a foreign-owner schema the restricted applier cannot set", () => {
+    // a restricted applier (`test`, not a superuser, not a member of `bob`)
+    // cannot run AUTHORIZATION bob NOR ALTER … OWNER TO bob. The fold's safety
+    // invariant must be local: do not collapse an ALTER we cannot prove the
+    // applier could execute (in the real pipeline emit's canSetOwner fail-fast
+    // runs first; this keeps the fold self-contained if called without it).
+    const s = schemaId("myschema");
+    const desired = buildFactBase(
+      [{ id: s, payload: {} }, roleFact("bob")],
+      [{ from: s, to: roleId("bob"), kind: "owner" }],
+    );
+    const actions: Action[] = [
+      mkAction({ sql: `CREATE SCHEMA "myschema"`, produces: [s] }),
+      mkAction({
+        sql: `ALTER SCHEMA "myschema" OWNER TO "bob"`,
+        verb: "alter",
+        consumes: [s, roleId("bob")],
+      }),
+    ];
+    const kept = foldCoCreateOwnership(actions, desired, cap("test"));
+    expect(kept.map((a) => a.sql)).toEqual([
+      `CREATE SCHEMA "myschema"`,
+      `ALTER SCHEMA "myschema" OWNER TO "bob"`,
+    ]);
+  });
+
   test("elides an applier-redundant owner ALTER on a co-created type", () => {
     const mood = typeId("mood");
     const desired = buildFactBase(
@@ -268,12 +294,20 @@ describe("foldCoCreateOwnership", () => {
 
   test("leaves an owner change on a pre-existing object untouched", () => {
     const mood = typeId("mood");
+    const fresh = typeId("fresh");
     const desired = buildFactBase(
-      [{ id: mood, payload: {} }, roleFact("test")],
-      [{ from: mood, to: roleId("test"), kind: "owner" }],
+      [{ id: mood, payload: {} }, { id: fresh, payload: {} }, roleFact("test")],
+      [
+        { from: mood, to: roleId("test"), kind: "owner" },
+        { from: fresh, to: roleId("test"), kind: "owner" },
+      ],
     );
-    // no CREATE for `mood` → target not co-created; this is a real owner change
+    // a DIFFERENT object (`fresh`) is co-created so createActionOf is non-empty
+    // — this exercises the genuine not-co-created branch for `mood`, not the
+    // empty-map early return.
     const actions: Action[] = [
+      mkAction({ sql: "CREATE TYPE app.fresh ...", produces: [fresh] }),
+      // no CREATE for `mood` → target not co-created; this is a real owner change
       mkAction({
         sql: "ALTER TYPE app.mood OWNER TO test",
         verb: "alter",
@@ -283,6 +317,7 @@ describe("foldCoCreateOwnership", () => {
     ];
     const kept = foldCoCreateOwnership(actions, desired, cap("test"));
     expect(kept.map((a) => a.sql)).toEqual([
+      "CREATE TYPE app.fresh ...",
       "ALTER TYPE app.mood OWNER TO test",
     ]);
   });

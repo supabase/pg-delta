@@ -15,7 +15,7 @@
  */
 import type { FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
-import type { ApplierCapability } from "../policy/capability.ts";
+import { type ApplierCapability, canSetOwner } from "../policy/capability.ts";
 import type { Action, SafetyReport } from "./plan.ts";
 import { ruleFlag } from "./rule-flags.ts";
 import { rulesFor } from "./rules.ts";
@@ -513,6 +513,14 @@ export function elideDefaultAclCreates(
  * fail-fasts at emit time, so every surviving owner ALTER here is one the applier
  * could run; Rule 2's "keep when owner ≠ applier" only fires for the
  * capability-undefined and superuser-applier cases.
+ *
+ * The fold also re-checks `canSetOwner` locally (when capability is known): both
+ * the schema AUTHORIZATION form and the two-statement form carry the same
+ * capability requirement, so an applier that cannot set the owner can run
+ * NEITHER. Folding such a pair would be harmless against a converging plan (it
+ * fails identically either way), but the local check keeps the pass
+ * self-contained — correct even if a future caller runs it without the emit-time
+ * fail-fast — instead of silently depending on that upstream guard.
  */
 export function foldCoCreateOwnership(
   actions: readonly Action[],
@@ -553,6 +561,11 @@ export function foldCoCreateOwnership(
           e.to.name === owner.name,
       );
     if (!hasOwnerEdge) return;
+    // local appliability check (#2): never collapse an owner ALTER the known
+    // applier could not execute. Capability-undefined keeps the unrestricted
+    // (superuser/CI) behavior — fold regardless.
+    if (capability !== undefined && !canSetOwner(capability, owner.name))
+      return;
 
     if (objId.kind === "schema") {
       // Rule 1 — syntactic fold into CREATE SCHEMA … AUTHORIZATION. Compare the
@@ -579,32 +592,6 @@ export function foldCoCreateOwnership(
   return drop.size > 0
     ? actions.filter((_, index) => !drop.has(index))
     : [...actions];
-}
-
-/** Map an ACL target kind to its `pg_default_acl.defaclobjtype` char, or
- *  undefined for kinds with NO default-privilege mechanism (no default can ever
- *  fire on them, so the REVOKE guard is trivially satisfied). */
-function defaclObjtypeForKind(kind: StableId["kind"]): string | undefined {
-  switch (kind) {
-    case "table":
-    case "view":
-    case "materializedView":
-    case "foreignTable":
-      return "r";
-    case "sequence":
-      return "S";
-    case "function":
-    case "procedure":
-    case "aggregate":
-      return "f";
-    case "type":
-    case "domain":
-      return "T";
-    case "schema":
-      return "n";
-    default:
-      return undefined;
-  }
 }
 
 /**
@@ -652,10 +639,15 @@ export function elideCoCreateRevokeBeforeGrant(
     grantee: string,
     explicit: Set<string>,
   ): boolean => {
-    const objtype = defaclObjtypeForKind(target.kind);
+    // which pg_default_acl objtype this kind maps to is declared per-kind in the
+    // rule table (`defaclObjtype`, shared with the emitter's hygiene pass);
+    // absent → no default ACLs, so no default can ever fire on it.
+    const objtype = ruleFlag(target.kind, "defaclObjtype");
     if (objtype === undefined) return false; // kind has no default mechanism
     const targetSchema =
-      target.kind === "schema" ? null : (target as { schema: string }).schema;
+      target.kind === "schema"
+        ? null
+        : ((target as { schema?: string }).schema ?? null);
     for (const fact of defaults) {
       const d = fact.id as Extract<StableId, { kind: "defaultPrivilege" }>;
       if (d.objtype !== objtype || d.grantee !== grantee) continue;
@@ -671,6 +663,15 @@ export function elideCoCreateRevokeBeforeGrant(
     }
     return false;
   };
+
+  // index, once, the acl ids that a GRANT consumes. The REVOKE leader PRODUCES
+  // the acl id (and consumes only its target), while every GRANT CONSUMES it
+  // (emitCreate spec index > 0), so any acl id appearing in a `consumes` belongs
+  // to a GRANT. Keeps the "group still has a GRANT" test O(1) per acl group.
+  const aclIdsWithGrant = new Set<string>();
+  for (const action of actions)
+    for (const id of action.consumes)
+      if (id.kind === "acl") aclIdsWithGrant.add(encodeId(id));
 
   const dropRevoke = new Set<number>();
   const strippedAclKeys = new Set<string>();
@@ -689,10 +690,7 @@ export function elideCoCreateRevokeBeforeGrant(
     if (privileges.length === 0) return; // REVOKE-only group
     if ((payload.grantable ?? []).length > 0) return; // explicit grant option
     const aclKey = encodeId(aclId);
-    const hasGrant = actions.some(
-      (a) => a !== action && a.consumes.some((c) => encodeId(c) === aclKey),
-    );
-    if (!hasGrant) return; // dropping the REVOKE would drop the whole effect
+    if (!aclIdsWithGrant.has(aclKey)) return; // no GRANT → REVOKE is the whole effect
     if (defaultGrantsOutside(aclId.target, aclId.grantee, new Set(privileges)))
       return; // REVOKE is load-bearing
     dropRevoke.add(index);

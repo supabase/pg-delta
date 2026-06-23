@@ -16,6 +16,7 @@ export const typeRules: Record<string, KindRules> = {
   domain: {
     weight: 7,
     cascadesToChildren: true,
+    defaclObjtype: "T", // ALTER DEFAULT PRIVILEGES … ON TYPES covers domains
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
       return `ALTER DOMAIN ${rel(id.schema, id.name)}`;
@@ -66,6 +67,7 @@ export const typeRules: Record<string, KindRules> = {
   type: {
     weight: 7,
     cascadesToChildren: true,
+    defaclObjtype: "T", // ALTER DEFAULT PRIVILEGES … ON TYPES
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
       return `ALTER TYPE ${rel(id.schema, id.name)}`;
