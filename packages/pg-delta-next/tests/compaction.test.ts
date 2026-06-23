@@ -384,4 +384,43 @@ describe("compaction", () => {
       await Promise.all([cloneA.drop(), cloneB.drop(), desired.drop()]);
     }
   }, 120_000);
+
+  test("co-create REVOKE elision: dropping the kept REVOKE would diverge (guard is load-bearing)", async () => {
+    // The subset test above proves the engine KEEPS the REVOKE. This proves the
+    // necessity, deterministically at the catalog level: with a create-time
+    // default of SELECT+INSERT for the grantee, applying the kept GRANT SELECT
+    // WITHOUT the leading REVOKE leaves the default INSERT behind, so the state
+    // does NOT converge to the SELECT-only desired. (Explicit SQL order — the
+    // default privilege is established before the table — so this never depends
+    // on plan action ordering.)
+    const cluster = await sharedCluster();
+    const clone = await cluster.createDb("compact_subsetneg_clone");
+    const desired = await cluster.createDb("compact_subsetneg_dst");
+    await cluster.adminPool
+      .query(`CREATE ROLE compact_subsetneg_grantee NOLOGIN`)
+      .catch(() => {});
+    try {
+      const setup = (withRevoke: boolean) => `
+        CREATE SCHEMA app;
+        ALTER DEFAULT PRIVILEGES FOR ROLE test IN SCHEMA app
+          GRANT SELECT, INSERT ON TABLES TO compact_subsetneg_grantee;
+        CREATE TABLE app.t (id int);
+        ${withRevoke ? "REVOKE ALL ON app.t FROM compact_subsetneg_grantee;" : ""}
+        GRANT SELECT ON app.t TO compact_subsetneg_grantee;
+      `;
+      // desired = the engine's kept-REVOKE form (converges to SELECT only)
+      await desired.pool.query(setup(true));
+      // the REVOKE-dropped form leaves the default-granted INSERT in place
+      await clone.pool.query(setup(false));
+      const [desiredState, cloneState] = [
+        await extract(desired.pool),
+        await extract(clone.pool),
+      ];
+      expect(cloneState.factBase.rootHash).not.toBe(
+        desiredState.factBase.rootHash,
+      );
+    } finally {
+      await Promise.all([clone.drop(), desired.drop()]);
+    }
+  }, 120_000);
 });

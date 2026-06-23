@@ -12,6 +12,7 @@ import { apply } from "../src/apply/apply.ts";
 import { encodeId } from "../src/core/stable-id.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
+import { probeApplierCapability } from "../src/policy/capability.ts";
 import { rel } from "../src/plan/render.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import { loadCorpus, type Scenario } from "./corpus.ts";
@@ -41,7 +42,14 @@ async function proveOn(
       await extract(source.pool),
       await extract(desired.pool),
     ];
-    const thePlan = plan(sourceState.factBase, desiredState.factBase);
+    // probe the applier (connection user `test`, a superuser here) so the corpus
+    // exercises the capability-gated compaction (Rule 2 owner-ALTER elision).
+    // Superuser → canSetOwner never fail-fasts, so this only adds the cosmetic
+    // elision; the proof still validates convergence, not SQL bytes.
+    const capability = await probeApplierCapability(source.pool);
+    const thePlan = plan(sourceState.factBase, desiredState.factBase, {
+      capability,
+    });
 
     const clone = await source.clone();
     // the original source DB would block cluster-wide DROP ROLE actions
