@@ -1,5 +1,11 @@
 # @supabase/pg-topo
 
+## 1.0.0-alpha.3
+
+### Patch Changes
+
+- c06f081: Support classifying and ordering ALTER PUBLICATION and ALTER SUBSCRIPTION statements.
+
 ## 1.0.0-alpha.2
 
 ### Patch Changes
