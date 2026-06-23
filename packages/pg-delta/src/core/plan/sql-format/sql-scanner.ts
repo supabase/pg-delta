@@ -29,6 +29,16 @@ type WalkSqlOptions = {
    * called once with the full sequence.
    */
   onSkipped?: (chunk: string) => void;
+  /**
+   * Called once for each top-level double-quoted identifier, after its closing
+   * quote, with the index of the opening quote (`start`), the index just past
+   * the closing quote (`end`), and the parenthesis depth at the quote.
+   *
+   * Lets callers treat a quoted identifier (e.g. `"my-trigger"`) as an atomic
+   * token even though its interior is reported via `onSkipped`. Returning
+   * `false` stops the walk early, like `onTopLevel`.
+   */
+  onQuotedIdentifier?: (start: number, end: number, depth: number) => boolean;
 };
 
 /**
@@ -104,10 +114,12 @@ export function walkSql(
   const trackDepth = options?.trackDepth ?? false;
   const startIndex = options?.startIndex ?? 0;
   const onSkipped = options?.onSkipped;
+  const onQuotedIdentifier = options?.onQuotedIdentifier;
 
   let inSingleQuote = false;
   let singleQuoteEscapeMode = false;
   let inDoubleQuote = false;
+  let doubleQuoteStart = -1;
   let inLineComment = false;
   let inBlockComment = false;
   let dollarTag: string | null = null;
@@ -187,6 +199,12 @@ export function walkSql(
           continue;
         }
         inDoubleQuote = false;
+        onSkipped?.(char);
+        if (onQuotedIdentifier?.(doubleQuoteStart, i + 1, depth) === false) {
+          return;
+        }
+        i += 1;
+        continue;
       }
       onSkipped?.(char);
       i += 1;
@@ -215,6 +233,7 @@ export function walkSql(
     }
     if (char === '"') {
       inDoubleQuote = true;
+      doubleQuoteStart = i;
       onSkipped?.(char);
       i += 1;
       continue;

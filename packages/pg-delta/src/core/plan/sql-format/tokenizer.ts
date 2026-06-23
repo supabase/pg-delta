@@ -27,7 +27,26 @@ export function scanTokens(statement: string): Token[] {
       }
       return true;
     },
-    { trackDepth: true },
+    {
+      trackDepth: true,
+      // Double-quoted identifiers (e.g. `"my-trigger"`) are atomic tokens too.
+      // Without this, the walker skips their interior entirely and positional
+      // token logic (e.g. "the name follows the TRIGGER keyword") lands on the
+      // wrong token. The value keeps the surrounding quotes; a quoted
+      // identifier never matches a keyword, which is correct.
+      onQuotedIdentifier: (start, end, depth) => {
+        const value = statement.slice(start, end);
+        tokens.push({
+          value,
+          upper: value.toUpperCase(),
+          start,
+          end,
+          depth,
+        });
+        skipUntil = end;
+        return true;
+      },
+    },
   );
 
   return tokens;
