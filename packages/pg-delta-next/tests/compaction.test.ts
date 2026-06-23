@@ -147,4 +147,41 @@ describe("compaction", () => {
       await Promise.all([srcA.drop(), srcB.drop(), desired.drop()]);
     }
   }, 120_000);
+
+  test("generated columns stay as ADD COLUMN so dependency columns exist first", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("compact_gen_src");
+    const desired = await cluster.createDb("compact_gen_dst");
+    try {
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (
+          base int NOT NULL,
+          doubled int GENERATED ALWAYS AS (base * 2) STORED
+        );
+      `);
+      const [sourceState, desiredState] = [
+        await extract(source.pool),
+        await extract(desired.pool),
+      ];
+      const thePlan = plan(sourceState.factBase, desiredState.factBase);
+      const createTable = thePlan.actions.find(
+        (a) => a.verb === "create" && a.produces[0]?.kind === "table",
+      );
+      expect(createTable?.sql).not.toContain("GENERATED ALWAYS AS");
+      const addGenerated = thePlan.actions.find((a) =>
+        a.sql.includes("GENERATED ALWAYS AS"),
+      );
+      expect(addGenerated?.sql).toMatch(/ADD COLUMN.*GENERATED ALWAYS AS/);
+
+      const verdict = await provePlan(
+        thePlan,
+        source.pool,
+        desiredState.factBase,
+      );
+      expect(verdict.ok).toBe(true);
+    } finally {
+      await Promise.all([source.drop(), desired.drop()]);
+    }
+  }, 60_000);
 });

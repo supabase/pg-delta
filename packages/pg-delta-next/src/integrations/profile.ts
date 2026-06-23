@@ -54,8 +54,13 @@ export interface ResolveProfileOptions {
  *  capability + baseline. */
 export interface ResolvedProfile {
   readonly id: string;
-  /** Handler-aware extraction (core + this profile's handlers, same snapshot). */
-  extract(pool: Pool, options?: ExtractOptions): Promise<ExtractResult>;
+  /** Handler-aware extraction (core + this profile's handlers, same snapshot).
+   *  A plain function field, not a method: callers pass it around by value
+   *  (`ctx.extract ?? extract`), and it never relies on `this`. */
+  readonly extract: (
+    pool: Pool,
+    options?: ExtractOptions,
+  ) => Promise<ExtractResult>;
   readonly planOptions: PlanOptions;
   readonly proveOptions: ProveOptions;
   readonly applyOptions: ApplyOptions;

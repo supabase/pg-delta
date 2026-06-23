@@ -1,6 +1,6 @@
 /** Dependency edges: inheritance / partition edges and the authoritative
  *  pg_depend resolver (target-architecture §3.2, milestone A set-based form). */
-import type { StableId } from "../core/stable-id.ts";
+import { encodeId, type StableId } from "../core/stable-id.ts";
 import { type ExtractContext, SYSTEM_SCHEMAS } from "./scope.ts";
 
 export async function extractInheritanceEdges(
@@ -127,11 +127,29 @@ export async function extractDependencyEdges(
       WHERE con.contypid <> 0
     ),
     typ AS (
-      SELECT tt.oid, json_build_object(
-               'kind', CASE tt.typtype WHEN 'd' THEN 'domain' ELSE 'type' END,
-               'schema', tn.nspname, 'name', tt.typname) AS id
-      FROM pg_type tt JOIN pg_namespace tn ON tn.oid = tt.typnamespace
-      WHERE tt.typtype IN ('d','e','c','r')
+      SELECT tt.oid,
+        CASE
+          WHEN tt.typrelid <> 0::oid AND rc.oid IS NOT NULL THEN
+            json_build_object(
+              'kind', CASE rc.relkind
+                        WHEN 'v' THEN 'view'
+                        WHEN 'm' THEN 'materializedView'
+                        WHEN 'f' THEN 'foreignTable'
+                        ELSE 'table'
+                      END,
+              'schema', rn.nspname,
+              'name', rc.relname)
+          ELSE json_build_object(
+            'kind', CASE tt.typtype WHEN 'd' THEN 'domain' ELSE 'type' END,
+            'schema', tn.nspname,
+            'name', tt.typname)
+        END AS id
+      FROM pg_type tt
+      JOIN pg_namespace tn ON tn.oid = tt.typnamespace
+      LEFT JOIN pg_class rc ON rc.oid = tt.typrelid
+                           AND rc.relkind IN ('r', 'p', 'f', 'v', 'm')
+      LEFT JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+      WHERE tt.typtype IN ('d', 'e', 'c', 'r')
     ),
     extm AS (
       -- a reference INTO an extension-member object resolves to the extension,
@@ -372,5 +390,24 @@ export async function extractDependencyEdges(
     if (seenEdges.has(key)) continue;
     seenEdges.add(key);
     edges.push({ from, to, kind: "depends" });
+    // pg_attrdef dependencies resolve to `default` facts, but a default has no
+    // action producer of its own — it is folded into the column. Shadow every
+    // attrdef dep onto the column so ordering works for both ordinary defaults
+    // (column → sequence for nextval(...)) and generated columns (column →
+    // referenced base columns/functions, which PG records as NORMAL deps of the
+    // attrdef even though the generated column carries no default fact).
+    if (from.kind === "default") {
+      const columnFrom: StableId = {
+        kind: "column",
+        schema: (from as { schema: string }).schema,
+        table: (from as { table: string }).table,
+        name: (from as { name: string }).name,
+      };
+      if (encodeId(columnFrom) === encodeId(to)) continue;
+      const columnKey = JSON.stringify([columnFrom, to]);
+      if (seenEdges.has(columnKey)) continue;
+      seenEdges.add(columnKey);
+      edges.push({ from: columnFrom, to, kind: "depends" });
+    }
   }
 }

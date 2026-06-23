@@ -200,7 +200,12 @@ export const tableRules: Record<string, KindRules> = {
         ...(rewrites ? { rewriteRisk: true } : {}),
       };
       if (fact.parent !== undefined && fact.parent.kind === "table") {
-        spec.compaction = { foldInto: fact.parent, clause };
+        // Generated columns reference other columns in their expression; folding
+        // them into an empty CREATE TABLE before those columns are present emits
+        // invalid SQL (dbdev package_upgrades.from_version_struct roundtrip).
+        if (fact.payload["generatedExpr"] == null) {
+          spec.compaction = { foldInto: fact.parent, clause };
+        }
       }
       return [spec];
     },
