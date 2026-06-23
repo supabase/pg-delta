@@ -127,6 +127,49 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
+    // Regression: CLI-1820. A trigger whose name must be double-quoted (it
+    // contains a dash) had its formatted DDL mangled — the SQL formatter
+    // dropped the "AFTER INSERT ON ..." event/table clause, producing invalid
+    // migration SQL. The generated statement must keep the full clause.
+    test(
+      "trigger with a double-quoted (dashed) name keeps its event/table clause",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.t1 (
+            id serial PRIMARY KEY,
+            name text NOT NULL
+          );
+          CREATE FUNCTION test_schema.notify_change()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          AS $$
+          BEGIN
+            RETURN NEW;
+          END;
+          $$;
+        `,
+          testSql: `
+          CREATE TRIGGER "new-webhook-with-dashed-name"
+          AFTER INSERT ON test_schema.t1
+          FOR EACH ROW
+          EXECUTE FUNCTION test_schema.notify_change();
+        `,
+          assertSqlStatements: (statements) => {
+            const triggerStatement = statements.find((statement) =>
+              statement.includes('"new-webhook-with-dashed-name"'),
+            );
+            expect(triggerStatement).toContain(
+              "AFTER INSERT ON test_schema.t1",
+            );
+          },
+        });
+      }),
+    );
+
     test(
       "multi-event trigger",
       withDb(pgVersion, async (db) => {

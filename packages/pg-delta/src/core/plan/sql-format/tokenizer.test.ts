@@ -21,6 +21,22 @@ describe("scanTokens", () => {
     expect(inner[1].depth).toBe(1);
   });
 
+  it("emits a single token for a double-quoted identifier", () => {
+    const tokens = scanTokens('CREATE TRIGGER "send-chat-push" AFTER');
+    expect(tokens).toEqual([
+      { value: "CREATE", upper: "CREATE", start: 0, end: 6, depth: 0 },
+      { value: "TRIGGER", upper: "TRIGGER", start: 7, end: 14, depth: 0 },
+      {
+        value: '"send-chat-push"',
+        upper: '"SEND-CHAT-PUSH"',
+        start: 15,
+        end: 31,
+        depth: 0,
+      },
+      { value: "AFTER", upper: "AFTER", start: 32, end: 37, depth: 0 },
+    ]);
+  });
+
   it("ignores content in quotes, comments, and dollar-quotes", () => {
     const tokens = scanTokens("SELECT 'hello' -- comment\n FROM $$body$$ tbl");
     const uppers = tokens.map((t) => t.upper);
