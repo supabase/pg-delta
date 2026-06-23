@@ -17,6 +17,7 @@ import {
   buildActionGraph,
   compactColumnFolds,
   computeSafetyReport,
+  elideDefaultAclCreates,
   elideRedundantDrops,
 } from "../internal.ts";
 
@@ -115,19 +116,24 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
 
   // ── compaction (§3.6) ─────────────────────────────────────────────────
   // fold ADD COLUMN clauses into their bare CREATE TABLE (no edge may cross the
-  // merge), then drop a replace's redundant drop when the create reproduces the
-  // identical statement. Purely cosmetic — the proof is unchanged.
+  // merge), drop a replace's redundant drop when the create reproduces the
+  // identical statement, then elide REVOKE/GRANT pairs that only re-materialize
+  // a freshly-created object's built-in default ACL. Purely cosmetic — the proof
+  // is unchanged.
   const finalActions = compact
-    ? elideRedundantDrops(
-        compactColumnFolds(
-          orderedActions,
-          order,
-          edges,
-          foldHints,
-          acceptsFolds,
-          positionOf,
+    ? elideDefaultAclCreates(
+        elideRedundantDrops(
+          compactColumnFolds(
+            orderedActions,
+            order,
+            edges,
+            foldHints,
+            acceptsFolds,
+            positionOf,
+          ),
+          source,
         ),
-        source,
+        desired,
       )
     : orderedActions;
 

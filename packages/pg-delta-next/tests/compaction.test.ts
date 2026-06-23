@@ -148,6 +148,52 @@ describe("compaction", () => {
     }
   }, 120_000);
 
+  test("default-ACL elision: a fresh CREATE emits no default REVOKE/GRANT; same proof on/off", async () => {
+    const cluster = await sharedCluster();
+    const cloneA = await cluster.createDb("compact_defacl_a");
+    const cloneB = await cluster.createDb("compact_defacl_b");
+    const desired = await cluster.createDb("compact_defacl_dst");
+    try {
+      // a type (PUBLIC USAGE + owner USAGE are PG defaults) and a table
+      // (owner gets the full default set, PUBLIC gets nothing) — both fresh.
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TYPE app.mood AS ENUM ('sad', 'ok', 'happy');
+        CREATE TABLE app.t (id int);
+      `);
+      const desiredState = await extract(desired.pool);
+      const emptyA = await extract(cloneA.pool);
+      const emptyB = await extract(cloneB.pool);
+
+      const compacted = plan(emptyA.factBase, desiredState.factBase);
+      const decomposed = plan(emptyB.factBase, desiredState.factBase, {
+        compact: false,
+      });
+
+      // the decomposed plan spells out the default REVOKE/GRANT pairs…
+      const defaultAclNoise = (p: typeof compacted) =>
+        p.actions.filter(
+          (a) =>
+            a.sql.startsWith("REVOKE ALL ON") || a.sql.startsWith("GRANT "),
+        ).length;
+      expect(defaultAclNoise(decomposed)).toBeGreaterThan(0);
+      // …and the compacted plan elides every one of them (all grants here are
+      // built-in defaults on co-created objects).
+      expect(defaultAclNoise(compacted)).toBe(0);
+      expect(compacted.actions.length).toBeLessThan(decomposed.actions.length);
+
+      // cosmetic by contract: identical clean proof with elision on and off.
+      const [verdictA, verdictB] = [
+        await provePlan(compacted, cloneA.pool, desiredState.factBase),
+        await provePlan(decomposed, cloneB.pool, desiredState.factBase),
+      ];
+      expect(verdictA.ok).toBe(true);
+      expect(verdictB.ok).toBe(true);
+    } finally {
+      await Promise.all([cloneA.drop(), cloneB.drop(), desired.drop()]);
+    }
+  }, 120_000);
+
   test("generated columns stay as ADD COLUMN so dependency columns exist first", async () => {
     const cluster = await sharedCluster();
     const source = await cluster.createDb("compact_gen_src");

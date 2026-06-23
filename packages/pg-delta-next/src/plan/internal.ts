@@ -390,6 +390,103 @@ export function elideRedundantDrops(
     : [...actions];
 }
 
+/** The single privilege PostgreSQL grants to PUBLIC on a freshly-created object
+ *  of each kind (Table 5.2, "Summary of Access Privileges"). Kinds absent here
+ *  (table, view, sequence, schema, …) get NO PUBLIC default, so any PUBLIC grant
+ *  on them is intentional and must be kept. Version-stable — unlike the owner's
+ *  full default set (PG17 added MAINTAIN), so we never encode that. */
+const PUBLIC_DEFAULT_PRIVILEGE: Partial<Record<StableId["kind"], string>> = {
+  type: "USAGE",
+  domain: "USAGE",
+  language: "USAGE",
+  function: "EXECUTE",
+  procedure: "EXECUTE",
+  aggregate: "EXECUTE",
+};
+
+/**
+ * Compaction (§3.6), default-ACL elision: a freshly `CREATE`d object already
+ * carries PostgreSQL's built-in default privileges, so the `acl` rule's
+ * REVOKE-ALL+GRANT pair that merely re-materializes those defaults is a no-op on
+ * a co-created target. `grantActions` emits them unconditionally (pg_dump's
+ * model), which bloats every create. This prettifies that away — mirroring the
+ * old engine's `filterPublicBuiltInDefaults` + owner-privilege filtering, but as
+ * a late cosmetic pass so the diff/extract semantics are untouched.
+ *
+ * An `acl` create group is elidable iff its target object is itself created in
+ * THIS plan AND the grant reproduces a built-in default:
+ *   - grantee is the target's owner — owner implicitly holds the full default set
+ *     on a fresh create regardless of PG version (so no version-specific table);
+ *   - grantee is PUBLIC and the privileges are EXACTLY the kind's built-in PUBLIC
+ *     default (no grant option).
+ * Anything else (non-default PUBLIC grant, third-party grantee, an ACL on a
+ * pre-existing object) is kept verbatim.
+ *
+ * Safe + cosmetic via LOCAL checks: it only drops an `acl` group whose effect PG
+ * guarantees on create, and the acl fact id is consumed by nothing outside its
+ * own REVOKE/GRANT actions, so removing the whole group strands no consumer and
+ * the proven end-state is unchanged. NEVER suppresses a REVOKE the desired state
+ * needs (a revoked default is simply absent from the fact base — there is no acl
+ * create action to elide, and this pass never adds or removes anything else).
+ */
+export function elideDefaultAclCreates(
+  actions: readonly Action[],
+  desired: FactBase,
+): Action[] {
+  // ids of the objects actually created in this plan (acl satellites excluded).
+  const createdObjects = new Set<string>();
+  for (const action of actions) {
+    if (action.verb !== "create") continue;
+    for (const id of action.produces) {
+      if (id.kind !== "acl") createdObjects.add(encodeId(id));
+    }
+  }
+
+  const elidable = new Set<string>();
+  for (const action of actions) {
+    if (action.verb !== "create") continue;
+    const aclId = action.produces.find((id) => id.kind === "acl");
+    if (aclId === undefined || aclId.kind !== "acl") continue;
+    if (!createdObjects.has(encodeId(aclId.target))) continue;
+    const fact = desired.get(aclId);
+    if (fact === undefined) continue;
+    const payload = fact.payload as {
+      privileges?: string[];
+      grantable?: string[];
+    };
+    if ((payload.grantable ?? []).length > 0) continue; // grant option is never default
+    const privileges = payload.privileges ?? [];
+
+    if (aclId.grantee === "PUBLIC") {
+      const def = PUBLIC_DEFAULT_PRIVILEGE[aclId.target.kind];
+      if (def !== undefined && privileges.length === 1 && privileges[0] === def)
+        elidable.add(encodeId(aclId));
+      continue;
+    }
+    // owner grant: implicit ALL on a fresh create — elide regardless of the
+    // (version-dependent) exact privilege list.
+    const ownerEdge = desired
+      .outgoingEdges(aclId.target)
+      .find((e) => e.kind === "owner");
+    if (
+      ownerEdge !== undefined &&
+      ownerEdge.to.kind === "role" &&
+      ownerEdge.to.name === aclId.grantee
+    )
+      elidable.add(encodeId(aclId));
+  }
+
+  if (elidable.size === 0) return [...actions];
+  // every action of an elidable group either produces the acl id (the REVOKE) or
+  // consumes it (the GRANTs); nothing else touches the id, so this drops exactly
+  // the group.
+  return actions.filter(
+    (action) =>
+      !action.produces.some((id) => elidable.has(encodeId(id))) &&
+      !action.consumes.some((id) => elidable.has(encodeId(id))),
+  );
+}
+
 /** Aggregate the per-action safety metadata (§3.7): destructive / rewrite /
  *  non-transactional counts and a histogram of documented lock classes. */
 export function computeSafetyReport(actions: readonly Action[]): SafetyReport {
