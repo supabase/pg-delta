@@ -3,9 +3,14 @@
  * actions + fact base so the per-grantee rules are exercised without a database.
  */
 import { describe, expect, test } from "bun:test";
+import type { ApplierCapability } from "../policy/capability.ts";
 import { buildFactBase, type DependencyEdge, type Fact } from "../core/fact.ts";
 import { type StableId } from "../core/stable-id.ts";
-import { elideDefaultAclCreates } from "./internal.ts";
+import {
+  elideCoCreateRevokeBeforeGrant,
+  elideDefaultAclCreates,
+  foldCoCreateOwnership,
+} from "./internal.ts";
 import type { Action } from "./plan.ts";
 
 function mkAction(partial: Partial<Action> & { sql: string }): Action {
@@ -28,6 +33,13 @@ const typeId = (name: string): StableId => ({
   kind: "type",
   schema: "app",
   name,
+});
+const schemaId = (name: string): StableId => ({ kind: "schema", name });
+const roleId = (name: string): StableId => ({ kind: "role", name });
+const cap = (role: string): ApplierCapability => ({
+  role,
+  isSuperuser: false,
+  memberOf: [role],
 });
 const tableId = (name: string): StableId => ({
   kind: "table",
@@ -189,5 +201,247 @@ describe("elideDefaultAclCreates", () => {
     expect(elideDefaultAclCreates(actions, desired).map((a) => a.sql)).toEqual([
       "CREATE TABLE app.t ...",
     ]);
+  });
+});
+
+describe("foldCoCreateOwnership", () => {
+  test("folds a co-created schema + owner ALTER into CREATE SCHEMA AUTHORIZATION", () => {
+    const s = schemaId("myschema");
+    const desired = buildFactBase(
+      [{ id: s, payload: {} }, roleFact("bob")],
+      [{ from: s, to: roleId("bob"), kind: "owner" }],
+    );
+    const actions: Action[] = [
+      mkAction({ sql: `CREATE SCHEMA "myschema"`, produces: [s] }),
+      mkAction({
+        sql: `ALTER SCHEMA "myschema" OWNER TO "bob"`,
+        verb: "alter",
+        consumes: [s, roleId("bob")],
+      }),
+    ];
+    // schema fold is always-on (syntactic equivalence), even with no capability
+    const kept = foldCoCreateOwnership(actions, desired);
+    expect(kept.map((a) => a.sql)).toEqual([
+      `CREATE SCHEMA "myschema" AUTHORIZATION "bob"`,
+    ]);
+  });
+
+  test("elides an applier-redundant owner ALTER on a co-created type", () => {
+    const mood = typeId("mood");
+    const desired = buildFactBase(
+      [{ id: mood, payload: {} }, roleFact("test")],
+      [{ from: mood, to: roleId("test"), kind: "owner" }],
+    );
+    const actions: Action[] = [
+      mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+      mkAction({
+        sql: "ALTER TYPE app.mood OWNER TO test",
+        verb: "alter",
+        consumes: [mood, roleId("test")],
+      }),
+    ];
+    const kept = foldCoCreateOwnership(actions, desired, cap("test"));
+    expect(kept.map((a) => a.sql)).toEqual(["CREATE TYPE app.mood ..."]);
+  });
+
+  test("keeps a foreign-owner ALTER on a co-created type", () => {
+    const mood = typeId("mood");
+    const desired = buildFactBase(
+      [{ id: mood, payload: {} }, roleFact("type_owner")],
+      [{ from: mood, to: roleId("type_owner"), kind: "owner" }],
+    );
+    const actions: Action[] = [
+      mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+      mkAction({
+        sql: "ALTER TYPE app.mood OWNER TO type_owner",
+        verb: "alter",
+        consumes: [mood, roleId("type_owner")],
+      }),
+    ];
+    // applier is `test`, owner is `type_owner` → not a no-op, keep it
+    const kept = foldCoCreateOwnership(actions, desired, cap("test"));
+    expect(kept.map((a) => a.sql)).toEqual([
+      "CREATE TYPE app.mood ...",
+      "ALTER TYPE app.mood OWNER TO type_owner",
+    ]);
+  });
+
+  test("leaves an owner change on a pre-existing object untouched", () => {
+    const mood = typeId("mood");
+    const desired = buildFactBase(
+      [{ id: mood, payload: {} }, roleFact("test")],
+      [{ from: mood, to: roleId("test"), kind: "owner" }],
+    );
+    // no CREATE for `mood` → target not co-created; this is a real owner change
+    const actions: Action[] = [
+      mkAction({
+        sql: "ALTER TYPE app.mood OWNER TO test",
+        verb: "alter",
+        consumes: [mood, roleId("test")],
+        releases: [roleId("old_owner")],
+      }),
+    ];
+    const kept = foldCoCreateOwnership(actions, desired, cap("test"));
+    expect(kept.map((a) => a.sql)).toEqual([
+      "ALTER TYPE app.mood OWNER TO test",
+    ]);
+  });
+
+  test("without capability, a non-schema owner ALTER stays (Rule 2 inert)", () => {
+    const mood = typeId("mood");
+    const desired = buildFactBase(
+      [{ id: mood, payload: {} }, roleFact("test")],
+      [{ from: mood, to: roleId("test"), kind: "owner" }],
+    );
+    const actions: Action[] = [
+      mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+      mkAction({
+        sql: "ALTER TYPE app.mood OWNER TO test",
+        verb: "alter",
+        consumes: [mood, roleId("test")],
+      }),
+    ];
+    const kept = foldCoCreateOwnership(actions, desired);
+    expect(kept.map((a) => a.sql)).toEqual([
+      "CREATE TYPE app.mood ...",
+      "ALTER TYPE app.mood OWNER TO test",
+    ]);
+  });
+});
+
+/** Build a defaultPrivilege fact (ALTER DEFAULT PRIVILEGES residue). */
+function defaultPrivilegeFact(
+  role: string,
+  schema: string | null,
+  objtype: string,
+  grantee: string,
+  privileges: string[],
+  grantable: string[] = [],
+): Fact {
+  return {
+    id: { kind: "defaultPrivilege", role, schema, objtype, grantee },
+    payload: { privileges, grantable },
+  };
+}
+
+describe("elideCoCreateRevokeBeforeGrant", () => {
+  test("drops the leading REVOKE for a third-party grant with no default", () => {
+    const mood = typeId("mood");
+    const desired = buildFactBase(
+      [
+        { id: mood, payload: {} },
+        roleFact("app_user"),
+        aclFact(mood, "app_user", ["USAGE"]),
+      ],
+      [],
+    );
+    const actions: Action[] = [
+      mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+      ...aclActions(mood, "app_user"),
+    ];
+    const kept = elideCoCreateRevokeBeforeGrant(actions, desired);
+    expect(kept.map((a) => a.sql)).toEqual([
+      "CREATE TYPE app.mood ...",
+      "GRANT ... TO app_user",
+    ]);
+  });
+
+  test("keeps a REVOKE-only group (empty privileges)", () => {
+    const mood = typeId("mood");
+    const id = aclId(mood, "PUBLIC");
+    const desired = buildFactBase(
+      [{ id: mood, payload: {} }, aclFact(mood, "PUBLIC", [])],
+      [],
+    );
+    const actions: Action[] = [
+      mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+      mkAction({
+        sql: "REVOKE ALL ... FROM PUBLIC",
+        produces: [id],
+        consumes: [mood],
+      }),
+    ];
+    const kept = elideCoCreateRevokeBeforeGrant(actions, desired);
+    expect(kept.map((a) => a.sql)).toContain("REVOKE ALL ... FROM PUBLIC");
+  });
+
+  test("keeps the REVOKE when a potentially-active default grants a superset", () => {
+    const t = tableId("t");
+    const desired = buildFactBase(
+      [
+        { id: t, payload: {} },
+        roleFact("anon"),
+        aclFact(t, "anon", ["SELECT"]),
+        // applier `test` has a default privilege granting SELECT+INSERT on
+        // tables in `app` to anon → REVOKE is load-bearing, keep it
+        defaultPrivilegeFact("test", "app", "r", "anon", ["SELECT", "INSERT"]),
+      ],
+      [],
+    );
+    const actions: Action[] = [
+      mkAction({ sql: "CREATE TABLE app.t ...", produces: [t] }),
+      ...aclActions(t, "anon"),
+    ];
+    const kept = elideCoCreateRevokeBeforeGrant(actions, desired, cap("test"));
+    expect(kept.map((a) => a.sql)).toContain("REVOKE ALL ... FROM anon");
+  });
+
+  test("keeps the REVOKE when a potentially-active default grants a grant option", () => {
+    const t = tableId("t");
+    const desired = buildFactBase(
+      [
+        { id: t, payload: {} },
+        roleFact("anon"),
+        aclFact(t, "anon", ["SELECT"]),
+        // default grants SELECT WITH GRANT OPTION → plain GRANT would leave the
+        // grant option behind without the REVOKE
+        defaultPrivilegeFact("test", null, "r", "anon", ["SELECT"], ["SELECT"]),
+      ],
+      [],
+    );
+    const actions: Action[] = [
+      mkAction({ sql: "CREATE TABLE app.t ...", produces: [t] }),
+      ...aclActions(t, "anon"),
+    ];
+    const kept = elideCoCreateRevokeBeforeGrant(actions, desired, cap("test"));
+    expect(kept.map((a) => a.sql)).toContain("REVOKE ALL ... FROM anon");
+  });
+
+  test("drops the REVOKE when the only default's privileges are a subset", () => {
+    const t = tableId("t");
+    const desired = buildFactBase(
+      [
+        { id: t, payload: {} },
+        roleFact("anon"),
+        aclFact(t, "anon", ["SELECT", "INSERT"]),
+        // default grants only SELECT (subset of explicit) and no grant option →
+        // the plain GRANT covers it, REVOKE is redundant
+        defaultPrivilegeFact("test", "app", "r", "anon", ["SELECT"]),
+      ],
+      [],
+    );
+    const actions: Action[] = [
+      mkAction({ sql: "CREATE TABLE app.t ...", produces: [t] }),
+      ...aclActions(t, "anon"),
+    ];
+    const kept = elideCoCreateRevokeBeforeGrant(actions, desired, cap("test"));
+    expect(kept.map((a) => a.sql)).not.toContain("REVOKE ALL ... FROM anon");
+    expect(kept.map((a) => a.sql)).toContain("GRANT ... TO anon");
+  });
+
+  test("leaves ACLs on a pre-existing object untouched", () => {
+    const existing = typeId("existing");
+    const desired = buildFactBase(
+      [
+        { id: existing, payload: {} },
+        roleFact("app_user"),
+        aclFact(existing, "app_user", ["USAGE"]),
+      ],
+      [],
+    );
+    // no CREATE for `existing` → not co-created
+    const actions: Action[] = [...aclActions(existing, "app_user")];
+    const kept = elideCoCreateRevokeBeforeGrant(actions, desired);
+    expect(kept).toHaveLength(2);
   });
 });
