@@ -1,0 +1,37 @@
+{
+  "scenario": "bookmark-add-column",
+  "profile": "supabase",
+  "old": {
+    "statementCount": 1,
+    "charCount": 51,
+    "planMs": 384.2209590000002,
+    "statements": ["ALTER TABLE public.bookmarks ADD COLUMN tags text[]"],
+    "planNull": false
+  },
+  "new": {
+    "statementCount": 1,
+    "charCount": 57,
+    "planMs": 30.07995800000026,
+    "actionCount": 1,
+    "filteredDeltaCount": 0,
+    "renameCandidateCount": 0,
+    "safetyReport": {
+      "destructiveActions": 0,
+      "rewriteRiskActions": 0,
+      "nonTransactionalActions": 0,
+      "lockClasses": {
+        "accessExclusive": 1
+      }
+    }
+  },
+  "timing": {
+    "oldPlanMs": 384.2209590000002,
+    "newPlanMs": 30.07995800000026,
+    "totalMs": 530.2249160000001
+  },
+  "applyCheck": {
+    "bucket": "both-converge",
+    "oldConverges": true,
+    "newConverges": true
+  }
+}

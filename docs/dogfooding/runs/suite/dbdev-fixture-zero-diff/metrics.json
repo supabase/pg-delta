@@ -1,0 +1,35 @@
+{
+  "scenario": "dbdev-fixture-zero-diff",
+  "profile": "supabase",
+  "old": {
+    "statementCount": 0,
+    "charCount": 0,
+    "planMs": 1547.0519579999982,
+    "statements": [],
+    "planNull": true
+  },
+  "new": {
+    "statementCount": 0,
+    "charCount": 0,
+    "planMs": 36.958708000001934,
+    "actionCount": 0,
+    "filteredDeltaCount": 0,
+    "renameCandidateCount": 0,
+    "safetyReport": {
+      "destructiveActions": 0,
+      "rewriteRiskActions": 0,
+      "nonTransactionalActions": 0,
+      "lockClasses": {}
+    }
+  },
+  "timing": {
+    "oldPlanMs": 1547.0519579999982,
+    "newPlanMs": 36.958708000001934,
+    "totalMs": 1841.810542000001
+  },
+  "applyCheck": {
+    "bucket": "both-converge",
+    "oldConverges": true,
+    "newConverges": true
+  }
+}

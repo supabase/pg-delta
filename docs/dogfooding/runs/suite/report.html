@@ -1,0 +1,1863 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dogfood report — suite</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github.min.css"
+    />
+    <style>
+      :root {
+        --bg: #f6f8fa;
+        --surface: #fff;
+        --border: #d0d7de;
+        --text: #1f2328;
+        --muted: #656d76;
+        --accent: #1a7f37;
+        --old-color: #8b949e;
+        --new-color: #1a7f37;
+        --warn-bg: #fff8c5;
+        --max-width: 90rem;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font:
+          15px/1.5 system-ui,
+          sans-serif;
+        color: var(--text);
+        background: var(--bg);
+      }
+      a {
+        color: #0969da;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 14rem 1fr;
+        min-height: 100vh;
+      }
+      nav {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        overflow-y: auto;
+        background: var(--surface);
+        border-right: 1px solid var(--border);
+        padding: 1rem 0.75rem;
+      }
+      nav h2 {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        margin: 0 0.5rem 0.75rem;
+      }
+      nav a {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.35rem 0.5rem;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        color: var(--text);
+      }
+      nav a:hover {
+        background: var(--bg);
+        text-decoration: none;
+      }
+      nav a.active {
+        background: #ddf4ff;
+        font-weight: 600;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      main {
+        padding: 1.5rem 2rem 3rem;
+        max-width: var(--max-width);
+      }
+      h1 {
+        font-size: 1.5rem;
+        margin: 0 0 0.25rem;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin-bottom: 1.5rem;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+      }
+      .card .label {
+        font-size: 0.75rem;
+        color: var(--muted);
+      }
+      .card .value {
+        font-size: 1.4rem;
+        font-weight: 600;
+      }
+      .charts {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+      }
+      @media (max-width: 900px) {
+        .charts {
+          grid-template-columns: 1fr;
+        }
+      }
+      .chart-box {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+      }
+      .chart-box h3 {
+        margin: 0 0 0.5rem;
+        font-size: 0.9rem;
+      }
+      .chart-box canvas {
+        max-height: 280px;
+      }
+      .chart-controls {
+        font-size: 0.8rem;
+        margin-bottom: 0.5rem;
+      }
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+      }
+      .filters label {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.85rem;
+        cursor: pointer;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.25rem 0.65rem;
+      }
+      table.summary {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+        margin-bottom: 2rem;
+        font-size: 0.85rem;
+      }
+      table.summary th,
+      table.summary td {
+        border-bottom: 1px solid var(--border);
+        padding: 0.5rem 0.75rem;
+        text-align: left;
+      }
+      table.summary th {
+        background: var(--bg);
+        font-weight: 600;
+      }
+      table.summary tr.hidden {
+        display: none;
+      }
+      table.summary tr.highlight {
+        background: #fff8c5;
+      }
+      table.summary tr.mismatch {
+        background: #fffbeb;
+      }
+      .badge {
+        display: inline-block;
+        font-size: 0.75rem;
+        font-weight: 500;
+        padding: 0.15rem 0.5rem;
+        border-radius: 999px;
+        color: #fff;
+      }
+      .scenario {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        overflow: hidden;
+      }
+      .scenario-header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem 1rem;
+        padding: 0.75rem 1rem;
+        cursor: pointer;
+        user-select: none;
+        background: var(--bg);
+      }
+      .scenario-header h2 {
+        margin: 0;
+        font-size: 1rem;
+        flex: 1;
+        min-width: 12rem;
+      }
+      .scenario-header .chevron {
+        transition: transform 0.15s;
+      }
+      .scenario.open .chevron {
+        transform: rotate(90deg);
+      }
+      .scenario-body {
+        display: none;
+        padding: 0 1rem 1rem;
+      }
+      .scenario.open .scenario-body {
+        display: block;
+      }
+      .metrics-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin-bottom: 0.75rem;
+      }
+      .chip {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 0.15rem 0.45rem;
+      }
+      .chip.warn {
+        background: var(--warn-bg);
+        border-color: #d4a72c;
+      }
+      .chip.error {
+        background: #ffebe9;
+        border-color: #ff8182;
+        color: #cf222e;
+      }
+      .mini-chart {
+        height: 28px;
+        max-width: 280px;
+        margin: 0.25rem 0;
+      }
+      .tabs {
+        display: flex;
+        gap: 0.25rem;
+        margin-bottom: 0.75rem;
+        border-bottom: 1px solid var(--border);
+      }
+      .tab {
+        padding: 0.4rem 0.75rem;
+        border: none;
+        background: none;
+        cursor: pointer;
+        font-size: 0.85rem;
+        color: var(--muted);
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+      }
+      .tab.active {
+        color: var(--text);
+        border-bottom-color: #0969da;
+        font-weight: 600;
+      }
+      .tab-panel {
+        display: none;
+      }
+      .tab-panel.active {
+        display: block;
+      }
+      .sql-panes {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+        max-height: 480px;
+        overflow: hidden;
+      }
+      .sql-pane {
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .sql-pane .pane-label {
+        background: var(--bg);
+        padding: 0.35rem 0.6rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        border-bottom: 1px solid var(--border);
+      }
+      .sql-pane .pane-label.old {
+        color: var(--old-color);
+      }
+      .sql-pane .pane-label.new {
+        color: var(--new-color);
+      }
+      .sql-scroll {
+        overflow: auto;
+        flex: 1;
+        margin: 0;
+        font-family: ui-monospace, monospace;
+        font-size: 0.78rem;
+      }
+      .sql-scroll pre {
+        margin: 0;
+        padding: 0.5rem;
+      }
+      .diff-container {
+        overflow-x: auto;
+        font-size: 0.8rem;
+      }
+      .stmt-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8rem;
+      }
+      .stmt-table th,
+      .stmt-table td {
+        border: 1px solid var(--border);
+        padding: 0.4rem 0.6rem;
+        vertical-align: top;
+      }
+      .stmt-table th {
+        background: var(--bg);
+        width: 2.5rem;
+        text-align: center;
+      }
+      .stmt-table code {
+        font-size: 0.78rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .collapsible {
+        margin-top: 0.75rem;
+      }
+      .collapsible summary {
+        cursor: pointer;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      .collapsible pre {
+        background: var(--bg);
+        padding: 0.75rem;
+        border-radius: 6px;
+        overflow-x: auto;
+        font-size: 0.75rem;
+      }
+      .error-box {
+        background: #ffebe9;
+        border: 1px solid #ff8182;
+        border-radius: 6px;
+        padding: 0.5rem 0.75rem;
+        margin-bottom: 0.75rem;
+        font-size: 0.85rem;
+        color: #cf222e;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <nav id="nav"></nav>
+      <main>
+        <h1>Dogfood report</h1>
+        <p class="meta" id="meta"></p>
+        <div class="cards" id="cards"></div>
+        <section class="charts" id="charts"></section>
+        <div class="filters" id="filters"></div>
+        <table class="summary" id="summary-table">
+          <thead>
+            <tr>
+              <th>Scenario</th>
+              <th>Kind</th>
+              <th>Old stmts</th>
+              <th>New stmts</th>
+              <th>Plan ms (old → new)</th>
+              <th>Speedup</th>
+              <th>Apply bucket</th>
+              <th>Prove</th>
+              <th>Diff</th>
+            </tr>
+          </thead>
+          <tbody id="summary-body"></tbody>
+        </table>
+        <div id="scenarios"></div>
+      </main>
+    </div>
+    <script id="payload" type="application/json">
+      {
+        "runDir": "/Users/avallete/Documents/Programming/Supa/pg-toolbelt/docs/dogfooding/runs/suite",
+        "generatedAt": "2026-06-23T18:25:16.598Z",
+        "summary": {
+          "scenarioCount": 7,
+          "stmtCountMismatches": 2,
+          "medianSpeedup": 74,
+          "applyBucketCounts": {
+            "both-converge": 6,
+            "old-fingerprint-gate": 1
+          },
+          "proveFailed": 0,
+          "proveNotRun": 7,
+          "charts": {
+            "planTime": {
+              "labels": [
+                "corpus-function-ops--simple-create",
+                "corpus-table-ops--comments",
+                "corpus-table-ops--empty-table",
+                "corpus-type-ops--enum-create",
+                "corpus-view-operations--simple-create",
+                "dbdev-fixture-core-roundtrip",
+                "dbdev-fixture-zero-diff"
+              ],
+              "oldMs": [
+                203.7461669999998, 245.77654200000006, 213.9007499999998,
+                198.3218750000001, 233.8597920000002, 1009.5567919999994,
+                1547.0519579999982
+              ],
+              "newMs": [
+                1.7964160000001357, 4.339083000000073, 2.8903330000002825,
+                1.3949999999999818, 0.3445420000007289, 45.76195800000096,
+                36.958708000001934
+              ]
+            },
+            "speedup": {
+              "labels": [
+                "corpus-function-ops--simple-create",
+                "corpus-table-ops--comments",
+                "corpus-table-ops--empty-table",
+                "corpus-type-ops--enum-create",
+                "corpus-view-operations--simple-create",
+                "dbdev-fixture-core-roundtrip",
+                "dbdev-fixture-zero-diff"
+              ],
+              "ratios": [113.4, 56.6, 74, 142.2, 678.8, 22.1, 41.9]
+            },
+            "stmtCounts": {
+              "labels": [
+                "corpus-function-ops--simple-create",
+                "corpus-table-ops--comments",
+                "corpus-table-ops--empty-table",
+                "corpus-type-ops--enum-create",
+                "corpus-view-operations--simple-create",
+                "dbdev-fixture-core-roundtrip",
+                "dbdev-fixture-zero-diff"
+              ],
+              "old": [2, 6, 2, 1, 1, 142, 0],
+              "new": [1, 6, 2, 1, 1, 154, 0]
+            },
+            "applyBuckets": [
+              { "bucket": "both-converge", "count": 6 },
+              { "bucket": "old-fingerprint-gate", "count": 1 }
+            ]
+          }
+        },
+        "scenarios": [
+          {
+            "dirName": "corpus-function-ops--simple-create",
+            "metrics": {
+              "scenario": "corpus-function-ops--simple-create",
+              "profile": "raw",
+              "old": {
+                "statementCount": 2,
+                "charCount": 176,
+                "planMs": 203.7461669999998,
+                "statements": [
+                  "SET check_function_bodies = false",
+                  "CREATE FUNCTION test_schema.add_numbers(a integer, b integer)\n RETURNS integer\n LANGUAGE sql\n IMMUTABLE\nAS $function$SELECT $1 + $2$function$"
+                ],
+                "planNull": false
+              },
+              "new": {
+                "statementCount": 1,
+                "charCount": 153,
+                "planMs": 1.7964160000001357,
+                "actionCount": 1,
+                "filteredDeltaCount": 0,
+                "renameCandidateCount": 0,
+                "safetyReport": {
+                  "destructiveActions": 0,
+                  "rewriteRiskActions": 0,
+                  "nonTransactionalActions": 0,
+                  "lockClasses": { "none": 1 }
+                }
+              },
+              "timing": {
+                "oldPlanMs": 203.7461669999998,
+                "newPlanMs": 1.7964160000001357,
+                "totalMs": 296.18012499999986
+              },
+              "applyCheck": {
+                "bucket": "both-converge",
+                "oldConverges": true,
+                "newConverges": true
+              }
+            },
+            "oldSql": "SET check_function_bodies = false\n\nCREATE FUNCTION test_schema.add_numbers(a integer, b integer)\n RETURNS integer\n LANGUAGE sql\n IMMUTABLE\nAS $function$SELECT $1 + $2$function$",
+            "newSql": "CREATE OR REPLACE FUNCTION test_schema.add_numbers(a integer, b integer)\n RETURNS integer\n LANGUAGE sql\n IMMUTABLE\nAS $function$SELECT $1 + $2$function$\n",
+            "sqlDiff": "--- /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-old-54052.sql\t2026-06-23 20:06:26\n+++ /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-new-54052.sql\t2026-06-23 20:06:26\n@@ -1,7 +1,5 @@\n-SET check_function_bodies = false\n-\n-CREATE FUNCTION test_schema.add_numbers(a integer, b integer)\n+CREATE OR REPLACE FUNCTION test_schema.add_numbers(a integer, b integer)\n  RETURNS integer\n  LANGUAGE sql\n  IMMUTABLE\n-AS $function$SELECT $1 + $2$function$\n\\ No newline at end of file\n+AS $function$SELECT $1 + $2$function$\n",
+            "newStatements": [
+              "CREATE OR REPLACE FUNCTION test_schema.add_numbers(a integer, b integer)\n RETURNS integer\n LANGUAGE sql\n IMMUTABLE\nAS $function$SELECT $1 + $2$function$"
+            ],
+            "hasDiff": true,
+            "stmtCountMismatch": true,
+            "speedupRatio": 113.41814312496905,
+            "kind": "corpus",
+            "applyCheck": {
+              "bucket": "both-converge",
+              "oldConverges": true,
+              "newConverges": true
+            }
+          },
+          {
+            "dirName": "corpus-table-ops--comments",
+            "metrics": {
+              "scenario": "corpus-table-ops--comments",
+              "profile": "raw",
+              "old": {
+                "statementCount": 6,
+                "charCount": 452,
+                "planMs": 245.77654200000006,
+                "statements": [
+                  "ALTER TABLE test_schema.events ALTER COLUMN id SET NOT NULL",
+                  "COMMENT ON TABLE test_schema.events IS 'This is a test table'",
+                  "COMMENT ON COLUMN test_schema.events.created_at IS 'This is a created_at column'",
+                  "COMMENT ON COLUMN test_schema.events.description IS 'This is a description column'",
+                  "ALTER TABLE test_schema.events ADD CONSTRAINT events_pkey PRIMARY KEY (id)",
+                  "COMMENT ON CONSTRAINT events_pkey ON test_schema.events IS 'This is a test constraint'"
+                ],
+                "planNull": false
+              },
+              "new": {
+                "statementCount": 6,
+                "charCount": 486,
+                "planMs": 4.339083000000073,
+                "actionCount": 6,
+                "filteredDeltaCount": 0,
+                "renameCandidateCount": 0,
+                "safetyReport": {
+                  "destructiveActions": 0,
+                  "rewriteRiskActions": 0,
+                  "nonTransactionalActions": 0,
+                  "lockClasses": { "accessExclusive": 2, "none": 4 }
+                }
+              },
+              "timing": {
+                "oldPlanMs": 245.77654200000006,
+                "newPlanMs": 4.339083000000073,
+                "totalMs": 388.5021670000001
+              },
+              "applyCheck": {
+                "bucket": "both-converge",
+                "oldConverges": true,
+                "newConverges": true
+              }
+            },
+            "oldSql": "ALTER TABLE test_schema.events ALTER COLUMN id SET NOT NULL\n\nCOMMENT ON TABLE test_schema.events IS 'This is a test table'\n\nCOMMENT ON COLUMN test_schema.events.created_at IS 'This is a created_at column'\n\nCOMMENT ON COLUMN test_schema.events.description IS 'This is a description column'\n\nALTER TABLE test_schema.events ADD CONSTRAINT events_pkey PRIMARY KEY (id)\n\nCOMMENT ON CONSTRAINT events_pkey ON test_schema.events IS 'This is a test constraint'",
+            "newSql": "ALTER TABLE \"test_schema\".\"events\" ALTER COLUMN \"id\" SET NOT NULL\n\nALTER TABLE \"test_schema\".\"events\" ADD CONSTRAINT \"events_pkey\" PRIMARY KEY (id)\n\nCOMMENT ON COLUMN \"test_schema\".\"events\".\"created_at\" IS 'This is a created_at column'\n\nCOMMENT ON COLUMN \"test_schema\".\"events\".\"description\" IS 'This is a description column'\n\nCOMMENT ON CONSTRAINT \"events_pkey\" ON \"test_schema\".\"events\" IS 'This is a test constraint'\n\nCOMMENT ON TABLE \"test_schema\".\"events\" IS 'This is a test table'",
+            "sqlDiff": "--- /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-old-54052.sql\t2026-06-23 20:06:25\n+++ /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-new-54052.sql\t2026-06-23 20:06:25\n@@ -1,11 +1,11 @@\n-ALTER TABLE test_schema.events ALTER COLUMN id SET NOT NULL\n+ALTER TABLE \"test_schema\".\"events\" ALTER COLUMN \"id\" SET NOT NULL\n \n-COMMENT ON TABLE test_schema.events IS 'This is a test table'\n+ALTER TABLE \"test_schema\".\"events\" ADD CONSTRAINT \"events_pkey\" PRIMARY KEY (id)\n \n-COMMENT ON COLUMN test_schema.events.created_at IS 'This is a created_at column'\n+COMMENT ON COLUMN \"test_schema\".\"events\".\"created_at\" IS 'This is a created_at column'\n \n-COMMENT ON COLUMN test_schema.events.description IS 'This is a description column'\n+COMMENT ON COLUMN \"test_schema\".\"events\".\"description\" IS 'This is a description column'\n \n-ALTER TABLE test_schema.events ADD CONSTRAINT events_pkey PRIMARY KEY (id)\n+COMMENT ON CONSTRAINT \"events_pkey\" ON \"test_schema\".\"events\" IS 'This is a test constraint'\n \n-COMMENT ON CONSTRAINT events_pkey ON test_schema.events IS 'This is a test constraint'\n\\ No newline at end of file\n+COMMENT ON TABLE \"test_schema\".\"events\" IS 'This is a test table'\n\\ No newline at end of file\n",
+            "newStatements": [
+              "ALTER TABLE \"test_schema\".\"events\" ALTER COLUMN \"id\" SET NOT NULL",
+              "ALTER TABLE \"test_schema\".\"events\" ADD CONSTRAINT \"events_pkey\" PRIMARY KEY (id)",
+              "COMMENT ON COLUMN \"test_schema\".\"events\".\"created_at\" IS 'This is a created_at column'",
+              "COMMENT ON COLUMN \"test_schema\".\"events\".\"description\" IS 'This is a description column'",
+              "COMMENT ON CONSTRAINT \"events_pkey\" ON \"test_schema\".\"events\" IS 'This is a test constraint'",
+              "COMMENT ON TABLE \"test_schema\".\"events\" IS 'This is a test table'"
+            ],
+            "hasDiff": true,
+            "stmtCountMismatch": false,
+            "speedupRatio": 56.642507645047566,
+            "kind": "corpus",
+            "applyCheck": {
+              "bucket": "both-converge",
+              "oldConverges": true,
+              "newConverges": true
+            }
+          },
+          {
+            "dirName": "corpus-table-ops--empty-table",
+            "metrics": {
+              "scenario": "corpus-table-ops--empty-table",
+              "profile": "raw",
+              "old": {
+                "statementCount": 2,
+                "charCount": 85,
+                "planMs": 213.9007499999998,
+                "statements": [
+                  "CREATE SCHEMA test_schema AUTHORIZATION test",
+                  "CREATE TABLE test_schema.empty_table ()"
+                ],
+                "planNull": false
+              },
+              "new": {
+                "statementCount": 2,
+                "charCount": 93,
+                "planMs": 2.8903330000002825,
+                "actionCount": 2,
+                "filteredDeltaCount": 0,
+                "renameCandidateCount": 0,
+                "safetyReport": {
+                  "destructiveActions": 0,
+                  "rewriteRiskActions": 0,
+                  "nonTransactionalActions": 0,
+                  "lockClasses": { "none": 2 }
+                }
+              },
+              "timing": {
+                "oldPlanMs": 213.9007499999998,
+                "newPlanMs": 2.8903330000002825,
+                "totalMs": 300.02029200000015
+              },
+              "applyCheck": {
+                "bucket": "both-converge",
+                "oldConverges": true,
+                "newConverges": true
+              }
+            },
+            "oldSql": "CREATE SCHEMA test_schema AUTHORIZATION test\n\nCREATE TABLE test_schema.empty_table ()",
+            "newSql": "CREATE SCHEMA \"test_schema\" AUTHORIZATION \"test\"\n\nCREATE TABLE \"test_schema\".\"empty_table\" ()",
+            "sqlDiff": "--- /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-old-54052.sql\t2026-06-23 20:06:25\n+++ /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-new-54052.sql\t2026-06-23 20:06:25\n@@ -1,3 +1,3 @@\n-CREATE SCHEMA test_schema AUTHORIZATION test\n+CREATE SCHEMA \"test_schema\" AUTHORIZATION \"test\"\n \n-CREATE TABLE test_schema.empty_table ()\n\\ No newline at end of file\n+CREATE TABLE \"test_schema\".\"empty_table\" ()\n\\ No newline at end of file\n",
+            "newStatements": [
+              "CREATE SCHEMA \"test_schema\" AUTHORIZATION \"test\"",
+              "CREATE TABLE \"test_schema\".\"empty_table\" ()"
+            ],
+            "hasDiff": true,
+            "stmtCountMismatch": false,
+            "speedupRatio": 74.00557306025945,
+            "kind": "corpus",
+            "applyCheck": {
+              "bucket": "both-converge",
+              "oldConverges": true,
+              "newConverges": true
+            }
+          },
+          {
+            "dirName": "corpus-type-ops--enum-create",
+            "metrics": {
+              "scenario": "corpus-type-ops--enum-create",
+              "profile": "raw",
+              "old": {
+                "statementCount": 1,
+                "charCount": 59,
+                "planMs": 198.3218750000001,
+                "statements": [
+                  "CREATE TYPE test_schema.mood AS ENUM ('sad', 'ok', 'happy')"
+                ],
+                "planNull": false
+              },
+              "new": {
+                "statementCount": 1,
+                "charCount": 63,
+                "planMs": 1.3949999999999818,
+                "actionCount": 1,
+                "filteredDeltaCount": 0,
+                "renameCandidateCount": 0,
+                "safetyReport": {
+                  "destructiveActions": 0,
+                  "rewriteRiskActions": 0,
+                  "nonTransactionalActions": 0,
+                  "lockClasses": { "none": 1 }
+                }
+              },
+              "timing": {
+                "oldPlanMs": 198.3218750000001,
+                "newPlanMs": 1.3949999999999818,
+                "totalMs": 387.2792079999999
+              },
+              "applyCheck": {
+                "bucket": "both-converge",
+                "oldConverges": true,
+                "newConverges": true
+              }
+            },
+            "oldSql": "CREATE TYPE test_schema.mood AS ENUM ('sad', 'ok', 'happy')",
+            "newSql": "CREATE TYPE \"test_schema\".\"mood\" AS ENUM ('sad', 'ok', 'happy')",
+            "sqlDiff": "--- /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-old-54052.sql\t2026-06-23 20:06:27\n+++ /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-new-54052.sql\t2026-06-23 20:06:27\n@@ -1 +1 @@\n-CREATE TYPE test_schema.mood AS ENUM ('sad', 'ok', 'happy')\n\\ No newline at end of file\n+CREATE TYPE \"test_schema\".\"mood\" AS ENUM ('sad', 'ok', 'happy')\n\\ No newline at end of file\n",
+            "newStatements": [
+              "CREATE TYPE \"test_schema\".\"mood\" AS ENUM ('sad', 'ok', 'happy')"
+            ],
+            "hasDiff": true,
+            "stmtCountMismatch": false,
+            "speedupRatio": 142.16621863799475,
+            "kind": "corpus",
+            "applyCheck": {
+              "bucket": "both-converge",
+              "oldConverges": true,
+              "newConverges": true
+            }
+          },
+          {
+            "dirName": "corpus-view-operations--simple-create",
+            "metrics": {
+              "scenario": "corpus-view-operations--simple-create",
+              "profile": "raw",
+              "old": {
+                "statementCount": 1,
+                "charCount": 124,
+                "planMs": 233.8597920000002,
+                "statements": [
+                  "CREATE VIEW test_schema.active_users AS SELECT id,\n    name,\n    email\n   FROM test_schema.users\n  WHERE (email IS NOT NULL)"
+                ],
+                "planNull": false
+              },
+              "new": {
+                "statementCount": 1,
+                "charCount": 130,
+                "planMs": 0.3445420000007289,
+                "actionCount": 1,
+                "filteredDeltaCount": 0,
+                "renameCandidateCount": 0,
+                "safetyReport": {
+                  "destructiveActions": 0,
+                  "rewriteRiskActions": 0,
+                  "nonTransactionalActions": 0,
+                  "lockClasses": { "none": 1 }
+                }
+              },
+              "timing": {
+                "oldPlanMs": 233.8597920000002,
+                "newPlanMs": 0.3445420000007289,
+                "totalMs": 374.4945829999997
+              },
+              "applyCheck": {
+                "bucket": "both-converge",
+                "oldConverges": true,
+                "newConverges": true
+              }
+            },
+            "oldSql": "CREATE VIEW test_schema.active_users AS SELECT id,\n    name,\n    email\n   FROM test_schema.users\n  WHERE (email IS NOT NULL)",
+            "newSql": "CREATE VIEW \"test_schema\".\"active_users\" AS  SELECT id,\n    name,\n    email\n   FROM test_schema.users\n  WHERE (email IS NOT NULL);",
+            "sqlDiff": "--- /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-old-54052.sql\t2026-06-23 20:06:28\n+++ /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-new-54052.sql\t2026-06-23 20:06:28\n@@ -1,5 +1,5 @@\n-CREATE VIEW test_schema.active_users AS SELECT id,\n+CREATE VIEW \"test_schema\".\"active_users\" AS  SELECT id,\n     name,\n     email\n    FROM test_schema.users\n-  WHERE (email IS NOT NULL)\n\\ No newline at end of file\n+  WHERE (email IS NOT NULL);\n\\ No newline at end of file\n",
+            "newStatements": [
+              "CREATE VIEW \"test_schema\".\"active_users\" AS  SELECT id,\n    name,\n    email\n   FROM test_schema.users\n  WHERE (email IS NOT NULL);"
+            ],
+            "hasDiff": true,
+            "stmtCountMismatch": false,
+            "speedupRatio": 678.755542138565,
+            "kind": "corpus",
+            "applyCheck": {
+              "bucket": "both-converge",
+              "oldConverges": true,
+              "newConverges": true
+            }
+          },
+          {
+            "dirName": "dbdev-fixture-core-roundtrip",
+            "metrics": {
+              "scenario": "dbdev-fixture-core-roundtrip",
+              "profile": "supabase",
+              "old": {
+                "statementCount": 142,
+                "charCount": 20935,
+                "planMs": 1009.5567919999994,
+                "statements": [
+                  "SET check_function_bodies = false",
+                  "CREATE SCHEMA app AUTHORIZATION postgres",
+                  "GRANT USAGE ON SCHEMA app TO anon",
+                  "GRANT USAGE ON SCHEMA app TO authenticated",
+                  "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA app GRANT SELECT ON TABLES TO anon",
+                  "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA app GRANT SELECT ON TABLES TO authenticated",
+                  "CREATE TYPE app.membership_role AS ENUM ('maintainer')",
+                  "CREATE TYPE app.semver_struct AS (major smallint, minor smallint, patch smallint)",
+                  "CREATE FUNCTION app.exception(message text)\n RETURNS text\n LANGUAGE plpgsql\nAS $function$\n        begin\n                raise exception using errcode='22000', message=message;\n        end;\n        $function$",
+                  "CREATE FUNCTION app.is_organization_maintainer(account_id uuid, organization_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    -- Does the currently authenticated user have permission to admin orgs and org members?\n    select\n        exists(\n            select\n                1\n            from\n                app.members m\n            where\n                m.account_id = $1\n                and m.organization_id = $2\n                and m.role = 'maintainer'\n        )\n$function$",
+                  "CREATE FUNCTION app.is_package_maintainer(account_id uuid, package_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    select\n        exists(\n            select\n                1\n            from\n                app.accounts acc\n                join app.packages p\n                    on acc.handle = p.handle\n            where\n                acc.id = $1\n                and p.id = $2\n        )\n        or exists(\n            -- current user is maintainer of org that owns the package\n            select\n                1\n            from\n                app.packages p\n                join app.organizations o\n                    on p.handle = o.handle\n                join app.members m\n                    on o.id = m.organization_id\n            where\n                m.role = 'maintainer'\n                and m.account_id = $1\n                and p.id = $2\n            )\n$function$",
+                  "CREATE FUNCTION app.is_package_version_maintainer(account_id uuid, package_version_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    select\n        app.is_package_maintainer($1, pv.package_id)\n    from\n        app.package_versions pv\n    where\n        pv.id = $2\n$function$",
+                  "CREATE FUNCTION app.is_valid(app.semver_struct)\n RETURNS boolean\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select (\n        ($1).major is not null\n        and ($1).minor is not null\n        and ($1).patch is not null\n    )\n$function$",
+                  "CREATE DOMAIN app.semver AS app.semver_struct CHECK (app.is_valid(VALUE))",
+                  "CREATE FUNCTION app.register_account()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\n    begin\n        insert into app.handle_registry (handle, is_organization)\n          values (\n            new.raw_user_meta_data ->> 'handle',\n            false\n          );\n\n        insert into app.accounts (id, handle, display_name, bio, contact_email)\n          values (\n            new.id,\n            new.raw_user_meta_data ->> 'handle',\n            new.raw_user_meta_data ->> 'display_name',\n            new.raw_user_meta_data ->> 'bio',\n            new.raw_user_meta_data ->> 'contact_email'\n          );\n          return new;\n    end;\n    $function$",
+                  "CREATE FUNCTION app.register_organization_creator_as_member()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\n    begin\n        insert into app.members(organization_id, account_id, role)\n        values (new.id, auth.uid(), 'maintainer');\n\n        return new;\n    end;\n    $function$",
+                  "CREATE FUNCTION app.semver_exception(version text)\n RETURNS app.semver_struct\n LANGUAGE plpgsql\n IMMUTABLE\nAS $function$\nbegin\n    raise exception using errcode='22000', message=format('Invalid semver %L', version);\nend;\n$function$",
+                  "CREATE FUNCTION app.semver_to_text(app.semver)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select\n        format('%s.%s.%s', $1.major, $1.minor, $1.patch)\n$function$",
+                  "CREATE FUNCTION app.text_to_semver(text)\n RETURNS app.semver_struct\n LANGUAGE sql\n IMMUTABLE STRICT\nAS $function$\n    with s(version) as (\n        select (\n            split_part($1, '.', 1),\n            split_part($1, '.', 2),\n            split_part(split_part(split_part($1, '.', 3), '-', 1), '+', 1)\n        )::app.semver_struct\n    )\n    select\n        case app.is_valid(s.version)\n            when true then s.version\n            else app.semver_exception($1)\n       end\n    from\n        s\n$function$",
+                  "CREATE FUNCTION app.update_avatar_id()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\n    declare\n        v_handle app.valid_name;\n        v_affected_account app.accounts := null;\n    begin\n        select (string_to_array(new.name, '-'::text))[1]::app.valid_name into v_handle;\n\n        update app.accounts\n        set avatar_id = new.id\n        where handle = v_handle\n        returning * into v_affected_account;\n\n        if not v_affected_account is null then\n            update auth.users u\n            set\n                \"raw_user_meta_data\" = u.raw_user_meta_data || jsonb_build_object(\n                    'avatar_path', new.name\n                )\n            where u.id = v_affected_account.id;\n        else\n            update app.organizations\n            set avatar_id = new.id\n            where handle = v_handle;\n        end if;\n\n        return new;\n    end;\n    $function$",
+                  "CREATE TABLE app.members (id uuid DEFAULT uuid_generate_v4() NOT NULL, organization_id uuid NOT NULL, account_id uuid NOT NULL, role app.membership_role NOT NULL, created_at timestamp with time zone DEFAULT now() NOT NULL)",
+                  "ALTER TABLE app.members ENABLE ROW LEVEL SECURITY",
+                  "ALTER TABLE app.members ADD CONSTRAINT members_organization_id_account_id_key UNIQUE (organization_id, account_id)",
+                  "ALTER TABLE app.members ADD CONSTRAINT members_pkey PRIMARY KEY (id)",
+                  "GRANT SELECT ON app.members TO anon",
+                  "GRANT DELETE, SELECT ON app.members TO authenticated",
+                  "GRANT INSERT (account_id, organization_id, role) ON app.members TO authenticated",
+                  "CREATE POLICY members_delete_policy ON app.members FOR DELETE TO authenticated USING (app.is_organization_maintainer(uid(), organization_id))",
+                  "CREATE POLICY members_insert_policy ON app.members FOR INSERT TO authenticated WITH CHECK (app.is_organization_maintainer(uid(), organization_id))",
+                  "CREATE POLICY members_select_policy ON app.members FOR SELECT TO authenticated USING (true)",
+                  "CREATE TABLE app.package_upgrades (id uuid DEFAULT gen_random_uuid() NOT NULL, package_id uuid NOT NULL, from_version_struct app.semver NOT NULL, from_version text GENERATED ALWAYS AS (app.semver_to_text(from_version_struct)) STORED NOT NULL, to_version_struct app.semver NOT NULL, to_version text GENERATED ALWAYS AS (app.semver_to_text(to_version_struct)) STORED NOT NULL, sql character varying(250000), created_at timestamp with time zone DEFAULT now() NOT NULL)",
+                  "ALTER TABLE app.package_upgrades ENABLE ROW LEVEL SECURITY",
+                  "ALTER TABLE app.package_upgrades ADD CONSTRAINT package_upgrades_package_id_from_version_struct_to_version__key UNIQUE (package_id, from_version_struct, to_version_struct)",
+                  "ALTER TABLE app.package_upgrades ADD CONSTRAINT package_upgrades_pkey PRIMARY KEY (id)",
+                  "GRANT SELECT ON app.package_upgrades TO anon",
+                  "GRANT INSERT (from_version_struct, package_id, sql, to_version_struct) ON app.package_upgrades TO authenticated",
+                  "GRANT SELECT ON app.package_upgrades TO authenticated",
+                  "CREATE POLICY package_upgrades_insert_policy ON app.package_upgrades FOR INSERT TO authenticated WITH CHECK (app.is_package_maintainer(uid(), package_id))",
+                  "CREATE POLICY package_upgrades_select_policy ON app.package_upgrades FOR SELECT USING (true)",
+                  "CREATE POLICY package_upgrades_update_policy ON app.package_upgrades FOR UPDATE TO authenticated USING (app.is_package_maintainer(uid(), package_id))",
+                  "CREATE TABLE app.package_versions (id uuid DEFAULT gen_random_uuid() NOT NULL, package_id uuid NOT NULL, version_struct app.semver NOT NULL, version text GENERATED ALWAYS AS (app.semver_to_text(version_struct)) STORED NOT NULL, sql character varying(250000), description_md character varying(250000), created_at timestamp with time zone DEFAULT now() NOT NULL)",
+                  "ALTER TABLE app.package_versions ENABLE ROW LEVEL SECURITY",
+                  "ALTER TABLE app.package_versions ADD CONSTRAINT package_versions_package_id_version_struct_key UNIQUE (package_id, version_struct)",
+                  "ALTER TABLE app.package_versions ADD CONSTRAINT package_versions_pkey PRIMARY KEY (id)",
+                  "GRANT SELECT ON app.package_versions TO anon",
+                  "GRANT INSERT (description_md, package_id, sql, version_struct) ON app.package_versions TO authenticated",
+                  "GRANT SELECT ON app.package_versions TO authenticated",
+                  "CREATE POLICY package_versions_insert_policy ON app.package_versions FOR INSERT TO authenticated WITH CHECK (app.is_package_maintainer(uid(), package_id))",
+                  "CREATE POLICY package_versions_select_policy ON app.package_versions FOR SELECT USING (true)",
+                  "CREATE POLICY package_versions_update_policy ON app.package_versions FOR UPDATE TO authenticated USING (app.is_package_maintainer(uid(), package_id))",
+                  "CREATE TRIGGER on_auth_user_created AFTER INSERT ON users FOR EACH ROW EXECUTE FUNCTION app.register_account()",
+                  "CREATE EXTENSION citext WITH SCHEMA extensions",
+                  "CREATE DOMAIN app.email_address AS extensions.citext CHECK ((VALUE ~ '^[a-zA-Z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'::citext))",
+                  "CREATE DOMAIN app.valid_name AS extensions.citext CHECK ((VALUE ~ '^[A-z][A-z0-9\\_]{2,32}$'::citext))",
+                  "CREATE FUNCTION app.is_handle_maintainer(account_id uuid, handle app.valid_name)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    select\n        exists(\n            select\n                1\n            from\n                app.accounts acc\n            where\n                acc.id = $1\n                and acc.handle = $2\n        )\n        or exists(\n            select\n                1\n            from\n                app.organizations o\n                join app.members m\n                    on o.id = m.organization_id\n            where\n                m.role = 'maintainer'\n                and m.account_id = $1\n                and o.handle = $2\n            )\n$function$",
+                  "CREATE FUNCTION app.simulate_login(email citext)\n RETURNS void\n LANGUAGE sql\nAS $function$\n    /*\n    Simulated JWT of logged in user\n    */\n\n    select\n        set_config(\n            'request.jwt.claims',\n            (\n                select\n                    json_build_object(\n                        'sub',\n                        id,\n                        'role',\n                        'authenticated'\n                    )::text\n                from\n                    auth.users\n                where\n                    email = $1\n            ),\n            true\n        ),\n        set_config('role', 'authenticated', true)\n$function$",
+                  "CREATE FUNCTION app.to_package_name(handle app.valid_name, partial_name app.valid_name)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select format('%s-%s', $1, $2)\n$function$",
+                  "CREATE FUNCTION app.version_text_to_handle(version text)\n RETURNS app.valid_name\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select split_part($1, '-', 1)\n$function$",
+                  "CREATE FUNCTION app.version_text_to_package_partial_name(version text)\n RETURNS app.valid_name\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select split_part($1, '--', 2)\n$function$",
+                  "CREATE TABLE app.accounts (id uuid NOT NULL, handle app.valid_name NOT NULL, is_organization boolean GENERATED ALWAYS AS (false) STORED, avatar_id uuid, display_name text, bio text, contact_email app.email_address, created_at timestamp with time zone DEFAULT now() NOT NULL)",
+                  "ALTER TABLE app.accounts ENABLE ROW LEVEL SECURITY",
+                  "ALTER TABLE app.accounts ADD CONSTRAINT accounts_avatar_id_fkey FOREIGN KEY (avatar_id) REFERENCES storage.objects(id)",
+                  "ALTER TABLE app.accounts ADD CONSTRAINT accounts_bio_check CHECK (length(bio) <= 512)",
+                  "ALTER TABLE app.accounts ADD CONSTRAINT accounts_display_name_check CHECK (length(display_name) <= 128)",
+                  "ALTER TABLE app.accounts ADD CONSTRAINT accounts_handle_key UNIQUE (handle)",
+                  "ALTER TABLE app.accounts ADD CONSTRAINT accounts_id_fkey FOREIGN KEY (id) REFERENCES users(id)",
+                  "ALTER TABLE app.accounts ADD CONSTRAINT accounts_pkey PRIMARY KEY (id)",
+                  "GRANT SELECT ON app.accounts TO anon",
+                  "GRANT SELECT ON app.accounts TO authenticated",
+                  "GRANT UPDATE (avatar_id, bio, contact_email, display_name) ON app.accounts TO authenticated",
+                  "CREATE POLICY accounts_select_policy ON app.accounts FOR SELECT TO authenticated USING (true)",
+                  "CREATE POLICY accounts_update_policy ON app.accounts FOR UPDATE TO authenticated USING ((id = uid()))",
+                  "CREATE TABLE app.handle_registry (handle app.valid_name NOT NULL, is_organization boolean NOT NULL, created_at timestamp with time zone DEFAULT now() NOT NULL)",
+                  "ALTER TABLE app.handle_registry ADD CONSTRAINT handle_registry_handle_is_organization_key UNIQUE (handle, is_organization)",
+                  "ALTER TABLE app.accounts ADD CONSTRAINT fk_handle_registry FOREIGN KEY (handle, is_organization) REFERENCES app.handle_registry(handle, is_organization)",
+                  "ALTER TABLE app.handle_registry ADD CONSTRAINT handle_registry_pkey PRIMARY KEY (handle)",
+                  "GRANT SELECT ON app.handle_registry TO anon",
+                  "GRANT INSERT (handle, is_organization) ON app.handle_registry TO authenticated",
+                  "GRANT SELECT ON app.handle_registry TO authenticated",
+                  "ALTER TABLE app.members ADD CONSTRAINT members_account_id_fkey FOREIGN KEY (account_id) REFERENCES app.accounts(id)",
+                  "CREATE TABLE app.organizations (id uuid DEFAULT gen_random_uuid() NOT NULL, handle app.valid_name NOT NULL, is_organization boolean GENERATED ALWAYS AS (true) STORED, avatar_id uuid, display_name text, bio text, contact_email app.email_address, created_at timestamp with time zone DEFAULT now() NOT NULL)",
+                  "ALTER TABLE app.organizations ENABLE ROW LEVEL SECURITY",
+                  "ALTER TABLE app.organizations ADD CONSTRAINT fk_handle_registry FOREIGN KEY (handle, is_organization) REFERENCES app.handle_registry(handle, is_organization)",
+                  "ALTER TABLE app.organizations ADD CONSTRAINT organizations_avatar_id_fkey FOREIGN KEY (avatar_id) REFERENCES storage.objects(id)",
+                  "ALTER TABLE app.organizations ADD CONSTRAINT organizations_bio_check CHECK (length(bio) <= 512)",
+                  "ALTER TABLE app.organizations ADD CONSTRAINT organizations_display_name_check CHECK (length(display_name) <= 128)",
+                  "ALTER TABLE app.organizations ADD CONSTRAINT organizations_handle_key UNIQUE (handle)",
+                  "ALTER TABLE app.organizations ADD CONSTRAINT organizations_pkey PRIMARY KEY (id)",
+                  "ALTER TABLE app.members ADD CONSTRAINT members_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES app.organizations(id)",
+                  "GRANT SELECT ON app.organizations TO anon",
+                  "GRANT INSERT (avatar_id, bio, contact_email, display_name, handle) ON app.organizations TO authenticated",
+                  "GRANT SELECT ON app.organizations TO authenticated",
+                  "GRANT UPDATE (avatar_id, bio, contact_email, display_name) ON app.organizations TO authenticated",
+                  "CREATE TRIGGER on_app_organization_created AFTER INSERT ON app.organizations FOR EACH ROW EXECUTE FUNCTION app.register_organization_creator_as_member()",
+                  "CREATE POLICY organizations_insert_policy ON app.organizations FOR INSERT TO authenticated WITH CHECK (true)",
+                  "CREATE POLICY organizations_select_policy ON app.organizations FOR SELECT TO authenticated USING (true)",
+                  "CREATE POLICY organizations_update_policy ON app.organizations FOR UPDATE TO authenticated USING (app.is_organization_maintainer(uid(), id))",
+                  "CREATE TABLE app.packages (id uuid DEFAULT gen_random_uuid() NOT NULL, package_name text GENERATED ALWAYS AS (app.to_package_name(handle, partial_name)) STORED NOT NULL, handle app.valid_name NOT NULL, partial_name app.valid_name NOT NULL, control_description character varying(1000), control_relocatable boolean DEFAULT false NOT NULL, control_requires character varying(128)[] DEFAULT '{}'::character varying(128)[], created_at timestamp with time zone DEFAULT now() NOT NULL)",
+                  "ALTER TABLE app.packages ENABLE ROW LEVEL SECURITY",
+                  "ALTER TABLE app.packages ADD CONSTRAINT packages_handle_fkey FOREIGN KEY (handle) REFERENCES app.handle_registry(handle)",
+                  "ALTER TABLE app.packages ADD CONSTRAINT packages_handle_partial_name_key UNIQUE (handle, partial_name)",
+                  "ALTER TABLE app.packages ADD CONSTRAINT packages_pkey PRIMARY KEY (id)",
+                  "ALTER TABLE app.package_upgrades ADD CONSTRAINT package_upgrades_package_id_fkey FOREIGN KEY (package_id) REFERENCES app.packages(id)",
+                  "ALTER TABLE app.package_versions ADD CONSTRAINT package_versions_package_id_fkey FOREIGN KEY (package_id) REFERENCES app.packages(id)",
+                  "GRANT SELECT ON app.packages TO anon",
+                  "GRANT INSERT (handle, partial_name) ON app.packages TO authenticated",
+                  "GRANT SELECT ON app.packages TO authenticated",
+                  "CREATE POLICY package_insert_policy ON app.packages FOR INSERT TO authenticated WITH CHECK (app.is_handle_maintainer(uid(), handle))",
+                  "CREATE POLICY packages_select_policy ON app.packages FOR SELECT TO authenticated USING (true)",
+                  "CREATE EXTENSION pg_trgm WITH SCHEMA extensions",
+                  "CREATE INDEX packages_partial_name_search_idx ON app.packages USING gin (partial_name gin_trgm_ops)",
+                  "CREATE INDEX packages_handle_search_idx ON app.packages USING gin (handle gin_trgm_ops)",
+                  "CREATE EXTENSION pg_cron WITH SCHEMA pg_catalog",
+                  "CREATE VIEW public.accounts AS SELECT acc.id,\n    acc.handle,\n    obj.name AS avatar_path,\n    acc.display_name,\n    acc.bio,\n    acc.contact_email,\n    acc.created_at\n   FROM (app.accounts acc\n     LEFT JOIN storage.objects obj ON ((acc.avatar_id = obj.id)))",
+                  "GRANT ALL ON public.accounts TO anon",
+                  "GRANT ALL ON public.accounts TO authenticated",
+                  "GRANT ALL ON public.accounts TO service_role",
+                  "CREATE VIEW public.members AS SELECT aio.organization_id,\n    aio.account_id,\n    aio.role,\n    aio.created_at\n   FROM app.members aio",
+                  "GRANT ALL ON public.members TO anon",
+                  "GRANT ALL ON public.members TO authenticated",
+                  "GRANT ALL ON public.members TO service_role",
+                  "CREATE VIEW public.organizations AS SELECT org.id,\n    org.handle,\n    obj.name AS avatar_path,\n    org.display_name,\n    org.bio,\n    org.contact_email,\n    org.created_at\n   FROM (app.organizations org\n     LEFT JOIN storage.objects obj ON ((org.avatar_id = obj.id)))",
+                  "GRANT ALL ON public.organizations TO anon",
+                  "GRANT ALL ON public.organizations TO authenticated",
+                  "GRANT ALL ON public.organizations TO service_role",
+                  "CREATE VIEW public.package_upgrades AS SELECT pu.id,\n    pu.package_id,\n    pa.package_name,\n    pu.from_version,\n    pu.to_version,\n    pu.sql,\n    pu.created_at\n   FROM (app.packages pa\n     JOIN app.package_upgrades pu ON ((pa.id = pu.package_id)))",
+                  "GRANT ALL ON public.package_upgrades TO anon",
+                  "GRANT ALL ON public.package_upgrades TO authenticated",
+                  "GRANT ALL ON public.package_upgrades TO service_role",
+                  "CREATE VIEW public.package_versions AS SELECT pv.id,\n    pv.package_id,\n    pa.package_name,\n    pv.version,\n    pv.sql,\n    pv.description_md,\n    pa.control_description,\n    pa.control_requires,\n    pv.created_at\n   FROM (app.packages pa\n     JOIN app.package_versions pv ON ((pa.id = pv.package_id)))",
+                  "GRANT ALL ON public.package_versions TO anon",
+                  "GRANT ALL ON public.package_versions TO authenticated",
+                  "GRANT ALL ON public.package_versions TO service_role",
+                  "CREATE VIEW public.packages AS SELECT pa.id,\n    pa.package_name,\n    pa.handle,\n    pa.partial_name,\n    newest_ver.version AS latest_version,\n    newest_ver.description_md,\n    pa.control_description,\n    pa.control_requires,\n    pa.created_at\n   FROM app.packages pa,\n    LATERAL ( SELECT pv.id,\n            pv.package_id,\n            pv.version_struct,\n            pv.version,\n            pv.sql,\n            pv.description_md,\n            pv.created_at\n           FROM app.package_versions pv\n          WHERE (pv.package_id = pa.id)\n          ORDER BY pv.version_struct\n         LIMIT 1) newest_ver",
+                  "CREATE FUNCTION public.search_packages(handle citext DEFAULT NULL::citext, partial_name citext DEFAULT NULL::citext)\n RETURNS SETOF packages\n LANGUAGE sql\n STABLE\nAS $function$\n    select *\n    from public.packages\n    where\n        ($1 is null or handle <% $1 or handle ~ $1)\n        and\n        ($2 is null or partial_name <% $2 or partial_name ~ $2)\n    order by\n        coalesce(extensions.similarity($1, handle), 0) + coalesce(extensions.similarity($2, partial_name), 0) desc,\n        created_at desc;\n$function$",
+                  "GRANT ALL ON FUNCTION public.search_packages(citext, citext) TO anon",
+                  "GRANT ALL ON FUNCTION public.search_packages(citext, citext) TO authenticated",
+                  "GRANT ALL ON FUNCTION public.search_packages(citext, citext) TO service_role",
+                  "GRANT ALL ON public.packages TO anon",
+                  "GRANT ALL ON public.packages TO authenticated",
+                  "GRANT ALL ON public.packages TO service_role",
+                  "CREATE TRIGGER on_storage_object_created AFTER INSERT ON storage.objects FOR EACH ROW WHEN (new.bucket_id = 'avatars'::text) EXECUTE FUNCTION app.update_avatar_id()"
+                ],
+                "planNull": false
+              },
+              "new": {
+                "statementCount": 154,
+                "charCount": 23246,
+                "planMs": 45.76195800000096,
+                "actionCount": 154,
+                "filteredDeltaCount": 0,
+                "renameCandidateCount": 0,
+                "safetyReport": {
+                  "destructiveActions": 0,
+                  "rewriteRiskActions": 13,
+                  "nonTransactionalActions": 0,
+                  "lockClasses": {
+                    "none": 87,
+                    "accessExclusive": 54,
+                    "shareRowExclusive": 11,
+                    "share": 2
+                  }
+                }
+              },
+              "timing": {
+                "oldPlanMs": 1009.5567919999994,
+                "newPlanMs": 45.76195800000096,
+                "totalMs": 1209.9387500000012
+              },
+              "applyCheck": {
+                "bucket": "old-fingerprint-gate",
+                "oldConverges": false,
+                "newConverges": true,
+                "note": "old apply status=fingerprint_mismatch"
+              }
+            },
+            "oldSql": "SET check_function_bodies = false\n\nCREATE SCHEMA app AUTHORIZATION postgres\n\nGRANT USAGE ON SCHEMA app TO anon\n\nGRANT USAGE ON SCHEMA app TO authenticated\n\nALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA app GRANT SELECT ON TABLES TO anon\n\nALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA app GRANT SELECT ON TABLES TO authenticated\n\nCREATE TYPE app.membership_role AS ENUM ('maintainer')\n\nCREATE TYPE app.semver_struct AS (major smallint, minor smallint, patch smallint)\n\nCREATE FUNCTION app.exception(message text)\n RETURNS text\n LANGUAGE plpgsql\nAS $function$\n        begin\n                raise exception using errcode='22000', message=message;\n        end;\n        $function$\n\nCREATE FUNCTION app.is_organization_maintainer(account_id uuid, organization_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    -- Does the currently authenticated user have permission to admin orgs and org members?\n    select\n        exists(\n            select\n                1\n            from\n                app.members m\n            where\n                m.account_id = $1\n                and m.organization_id = $2\n                and m.role = 'maintainer'\n        )\n$function$\n\nCREATE FUNCTION app.is_package_maintainer(account_id uuid, package_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    select\n        exists(\n            select\n                1\n            from\n                app.accounts acc\n                join app.packages p\n                    on acc.handle = p.handle\n            where\n                acc.id = $1\n                and p.id = $2\n        )\n        or exists(\n            -- current user is maintainer of org that owns the package\n            select\n                1\n            from\n                app.packages p\n                join app.organizations o\n                    on p.handle = o.handle\n                join app.members m\n                    on o.id = m.organization_id\n            where\n                m.role = 'maintainer'\n                and m.account_id = $1\n                and p.id = $2\n            )\n$function$\n\nCREATE FUNCTION app.is_package_version_maintainer(account_id uuid, package_version_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    select\n        app.is_package_maintainer($1, pv.package_id)\n    from\n        app.package_versions pv\n    where\n        pv.id = $2\n$function$\n\nCREATE FUNCTION app.is_valid(app.semver_struct)\n RETURNS boolean\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select (\n        ($1).major is not null\n        and ($1).minor is not null\n        and ($1).patch is not null\n    )\n$function$\n\nCREATE DOMAIN app.semver AS app.semver_struct CHECK (app.is_valid(VALUE))\n\nCREATE FUNCTION app.register_account()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\n    begin\n        insert into app.handle_registry (handle, is_organization)\n          values (\n            new.raw_user_meta_data ->> 'handle',\n            false\n          );\n\n        insert into app.accounts (id, handle, display_name, bio, contact_email)\n          values (\n            new.id,\n            new.raw_user_meta_data ->> 'handle',\n            new.raw_user_meta_data ->> 'display_name',\n            new.raw_user_meta_data ->> 'bio',\n            new.raw_user_meta_data ->> 'contact_email'\n          );\n          return new;\n    end;\n    $function$\n\nCREATE FUNCTION app.register_organization_creator_as_member()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\n    begin\n        insert into app.members(organization_id, account_id, role)\n        values (new.id, auth.uid(), 'maintainer');\n\n        return new;\n    end;\n    $function$\n\nCREATE FUNCTION app.semver_exception(version text)\n RETURNS app.semver_struct\n LANGUAGE plpgsql\n IMMUTABLE\nAS $function$\nbegin\n    raise exception using errcode='22000', message=format('Invalid semver %L', version);\nend;\n$function$\n\nCREATE FUNCTION app.semver_to_text(app.semver)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select\n        format('%s.%s.%s', $1.major, $1.minor, $1.patch)\n$function$\n\nCREATE FUNCTION app.text_to_semver(text)\n RETURNS app.semver_struct\n LANGUAGE sql\n IMMUTABLE STRICT\nAS $function$\n    with s(version) as (\n        select (\n            split_part($1, '.', 1),\n            split_part($1, '.', 2),\n            split_part(split_part(split_part($1, '.', 3), '-', 1), '+', 1)\n        )::app.semver_struct\n    )\n    select\n        case app.is_valid(s.version)\n            when true then s.version\n            else app.semver_exception($1)\n       end\n    from\n        s\n$function$\n\nCREATE FUNCTION app.update_avatar_id()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\n    declare\n        v_handle app.valid_name;\n        v_affected_account app.accounts := null;\n    begin\n        select (string_to_array(new.name, '-'::text))[1]::app.valid_name into v_handle;\n\n        update app.accounts\n        set avatar_id = new.id\n        where handle = v_handle\n        returning * into v_affected_account;\n\n        if not v_affected_account is null then\n            update auth.users u\n            set\n                \"raw_user_meta_data\" = u.raw_user_meta_data || jsonb_build_object(\n                    'avatar_path', new.name\n                )\n            where u.id = v_affected_account.id;\n        else\n            update app.organizations\n            set avatar_id = new.id\n            where handle = v_handle;\n        end if;\n\n        return new;\n    end;\n    $function$\n\nCREATE TABLE app.members (id uuid DEFAULT uuid_generate_v4() NOT NULL, organization_id uuid NOT NULL, account_id uuid NOT NULL, role app.membership_role NOT NULL, created_at timestamp with time zone DEFAULT now() NOT NULL)\n\nALTER TABLE app.members ENABLE ROW LEVEL SECURITY\n\nALTER TABLE app.members ADD CONSTRAINT members_organization_id_account_id_key UNIQUE (organization_id, account_id)\n\nALTER TABLE app.members ADD CONSTRAINT members_pkey PRIMARY KEY (id)\n\nGRANT SELECT ON app.members TO anon\n\nGRANT DELETE, SELECT ON app.members TO authenticated\n\nGRANT INSERT (account_id, organization_id, role) ON app.members TO authenticated\n\nCREATE POLICY members_delete_policy ON app.members FOR DELETE TO authenticated USING (app.is_organization_maintainer(uid(), organization_id))\n\nCREATE POLICY members_insert_policy ON app.members FOR INSERT TO authenticated WITH CHECK (app.is_organization_maintainer(uid(), organization_id))\n\nCREATE POLICY members_select_policy ON app.members FOR SELECT TO authenticated USING (true)\n\nCREATE TABLE app.package_upgrades (id uuid DEFAULT gen_random_uuid() NOT NULL, package_id uuid NOT NULL, from_version_struct app.semver NOT NULL, from_version text GENERATED ALWAYS AS (app.semver_to_text(from_version_struct)) STORED NOT NULL, to_version_struct app.semver NOT NULL, to_version text GENERATED ALWAYS AS (app.semver_to_text(to_version_struct)) STORED NOT NULL, sql character varying(250000), created_at timestamp with time zone DEFAULT now() NOT NULL)\n\nALTER TABLE app.package_upgrades ENABLE ROW LEVEL SECURITY\n\nALTER TABLE app.package_upgrades ADD CONSTRAINT package_upgrades_package_id_from_version_struct_to_version__key UNIQUE (package_id, from_version_struct, to_version_struct)\n\nALTER TABLE app.package_upgrades ADD CONSTRAINT package_upgrades_pkey PRIMARY KEY (id)\n\nGRANT SELECT ON app.package_upgrades TO anon\n\nGRANT INSERT (from_version_struct, package_id, sql, to_version_struct) ON app.package_upgrades TO authenticated\n\nGRANT SELECT ON app.package_upgrades TO authenticated\n\nCREATE POLICY package_upgrades_insert_policy ON app.package_upgrades FOR INSERT TO authenticated WITH CHECK (app.is_package_maintainer(uid(), package_id))\n\nCREATE POLICY package_upgrades_select_policy ON app.package_upgrades FOR SELECT USING (true)\n\nCREATE POLICY package_upgrades_update_policy ON app.package_upgrades FOR UPDATE TO authenticated USING (app.is_package_maintainer(uid(), package_id))\n\nCREATE TABLE app.package_versions (id uuid DEFAULT gen_random_uuid() NOT NULL, package_id uuid NOT NULL, version_struct app.semver NOT NULL, version text GENERATED ALWAYS AS (app.semver_to_text(version_struct)) STORED NOT NULL, sql character varying(250000), description_md character varying(250000), created_at timestamp with time zone DEFAULT now() NOT NULL)\n\nALTER TABLE app.package_versions ENABLE ROW LEVEL SECURITY\n\nALTER TABLE app.package_versions ADD CONSTRAINT package_versions_package_id_version_struct_key UNIQUE (package_id, version_struct)\n\nALTER TABLE app.package_versions ADD CONSTRAINT package_versions_pkey PRIMARY KEY (id)\n\nGRANT SELECT ON app.package_versions TO anon\n\nGRANT INSERT (description_md, package_id, sql, version_struct) ON app.package_versions TO authenticated\n\nGRANT SELECT ON app.package_versions TO authenticated\n\nCREATE POLICY package_versions_insert_policy ON app.package_versions FOR INSERT TO authenticated WITH CHECK (app.is_package_maintainer(uid(), package_id))\n\nCREATE POLICY package_versions_select_policy ON app.package_versions FOR SELECT USING (true)\n\nCREATE POLICY package_versions_update_policy ON app.package_versions FOR UPDATE TO authenticated USING (app.is_package_maintainer(uid(), package_id))\n\nCREATE TRIGGER on_auth_user_created AFTER INSERT ON users FOR EACH ROW EXECUTE FUNCTION app.register_account()\n\nCREATE EXTENSION citext WITH SCHEMA extensions\n\nCREATE DOMAIN app.email_address AS extensions.citext CHECK ((VALUE ~ '^[a-zA-Z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'::citext))\n\nCREATE DOMAIN app.valid_name AS extensions.citext CHECK ((VALUE ~ '^[A-z][A-z0-9\\_]{2,32}$'::citext))\n\nCREATE FUNCTION app.is_handle_maintainer(account_id uuid, handle app.valid_name)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    select\n        exists(\n            select\n                1\n            from\n                app.accounts acc\n            where\n                acc.id = $1\n                and acc.handle = $2\n        )\n        or exists(\n            select\n                1\n            from\n                app.organizations o\n                join app.members m\n                    on o.id = m.organization_id\n            where\n                m.role = 'maintainer'\n                and m.account_id = $1\n                and o.handle = $2\n            )\n$function$\n\nCREATE FUNCTION app.simulate_login(email citext)\n RETURNS void\n LANGUAGE sql\nAS $function$\n    /*\n    Simulated JWT of logged in user\n    */\n\n    select\n        set_config(\n            'request.jwt.claims',\n            (\n                select\n                    json_build_object(\n                        'sub',\n                        id,\n                        'role',\n                        'authenticated'\n                    )::text\n                from\n                    auth.users\n                where\n                    email = $1\n            ),\n            true\n        ),\n        set_config('role', 'authenticated', true)\n$function$\n\nCREATE FUNCTION app.to_package_name(handle app.valid_name, partial_name app.valid_name)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select format('%s-%s', $1, $2)\n$function$\n\nCREATE FUNCTION app.version_text_to_handle(version text)\n RETURNS app.valid_name\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select split_part($1, '-', 1)\n$function$\n\nCREATE FUNCTION app.version_text_to_package_partial_name(version text)\n RETURNS app.valid_name\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select split_part($1, '--', 2)\n$function$\n\nCREATE TABLE app.accounts (id uuid NOT NULL, handle app.valid_name NOT NULL, is_organization boolean GENERATED ALWAYS AS (false) STORED, avatar_id uuid, display_name text, bio text, contact_email app.email_address, created_at timestamp with time zone DEFAULT now() NOT NULL)\n\nALTER TABLE app.accounts ENABLE ROW LEVEL SECURITY\n\nALTER TABLE app.accounts ADD CONSTRAINT accounts_avatar_id_fkey FOREIGN KEY (avatar_id) REFERENCES storage.objects(id)\n\nALTER TABLE app.accounts ADD CONSTRAINT accounts_bio_check CHECK (length(bio) <= 512)\n\nALTER TABLE app.accounts ADD CONSTRAINT accounts_display_name_check CHECK (length(display_name) <= 128)\n\nALTER TABLE app.accounts ADD CONSTRAINT accounts_handle_key UNIQUE (handle)\n\nALTER TABLE app.accounts ADD CONSTRAINT accounts_id_fkey FOREIGN KEY (id) REFERENCES users(id)\n\nALTER TABLE app.accounts ADD CONSTRAINT accounts_pkey PRIMARY KEY (id)\n\nGRANT SELECT ON app.accounts TO anon\n\nGRANT SELECT ON app.accounts TO authenticated\n\nGRANT UPDATE (avatar_id, bio, contact_email, display_name) ON app.accounts TO authenticated\n\nCREATE POLICY accounts_select_policy ON app.accounts FOR SELECT TO authenticated USING (true)\n\nCREATE POLICY accounts_update_policy ON app.accounts FOR UPDATE TO authenticated USING ((id = uid()))\n\nCREATE TABLE app.handle_registry (handle app.valid_name NOT NULL, is_organization boolean NOT NULL, created_at timestamp with time zone DEFAULT now() NOT NULL)\n\nALTER TABLE app.handle_registry ADD CONSTRAINT handle_registry_handle_is_organization_key UNIQUE (handle, is_organization)\n\nALTER TABLE app.accounts ADD CONSTRAINT fk_handle_registry FOREIGN KEY (handle, is_organization) REFERENCES app.handle_registry(handle, is_organization)\n\nALTER TABLE app.handle_registry ADD CONSTRAINT handle_registry_pkey PRIMARY KEY (handle)\n\nGRANT SELECT ON app.handle_registry TO anon\n\nGRANT INSERT (handle, is_organization) ON app.handle_registry TO authenticated\n\nGRANT SELECT ON app.handle_registry TO authenticated\n\nALTER TABLE app.members ADD CONSTRAINT members_account_id_fkey FOREIGN KEY (account_id) REFERENCES app.accounts(id)\n\nCREATE TABLE app.organizations (id uuid DEFAULT gen_random_uuid() NOT NULL, handle app.valid_name NOT NULL, is_organization boolean GENERATED ALWAYS AS (true) STORED, avatar_id uuid, display_name text, bio text, contact_email app.email_address, created_at timestamp with time zone DEFAULT now() NOT NULL)\n\nALTER TABLE app.organizations ENABLE ROW LEVEL SECURITY\n\nALTER TABLE app.organizations ADD CONSTRAINT fk_handle_registry FOREIGN KEY (handle, is_organization) REFERENCES app.handle_registry(handle, is_organization)\n\nALTER TABLE app.organizations ADD CONSTRAINT organizations_avatar_id_fkey FOREIGN KEY (avatar_id) REFERENCES storage.objects(id)\n\nALTER TABLE app.organizations ADD CONSTRAINT organizations_bio_check CHECK (length(bio) <= 512)\n\nALTER TABLE app.organizations ADD CONSTRAINT organizations_display_name_check CHECK (length(display_name) <= 128)\n\nALTER TABLE app.organizations ADD CONSTRAINT organizations_handle_key UNIQUE (handle)\n\nALTER TABLE app.organizations ADD CONSTRAINT organizations_pkey PRIMARY KEY (id)\n\nALTER TABLE app.members ADD CONSTRAINT members_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES app.organizations(id)\n\nGRANT SELECT ON app.organizations TO anon\n\nGRANT INSERT (avatar_id, bio, contact_email, display_name, handle) ON app.organizations TO authenticated\n\nGRANT SELECT ON app.organizations TO authenticated\n\nGRANT UPDATE (avatar_id, bio, contact_email, display_name) ON app.organizations TO authenticated\n\nCREATE TRIGGER on_app_organization_created AFTER INSERT ON app.organizations FOR EACH ROW EXECUTE FUNCTION app.register_organization_creator_as_member()\n\nCREATE POLICY organizations_insert_policy ON app.organizations FOR INSERT TO authenticated WITH CHECK (true)\n\nCREATE POLICY organizations_select_policy ON app.organizations FOR SELECT TO authenticated USING (true)\n\nCREATE POLICY organizations_update_policy ON app.organizations FOR UPDATE TO authenticated USING (app.is_organization_maintainer(uid(), id))\n\nCREATE TABLE app.packages (id uuid DEFAULT gen_random_uuid() NOT NULL, package_name text GENERATED ALWAYS AS (app.to_package_name(handle, partial_name)) STORED NOT NULL, handle app.valid_name NOT NULL, partial_name app.valid_name NOT NULL, control_description character varying(1000), control_relocatable boolean DEFAULT false NOT NULL, control_requires character varying(128)[] DEFAULT '{}'::character varying(128)[], created_at timestamp with time zone DEFAULT now() NOT NULL)\n\nALTER TABLE app.packages ENABLE ROW LEVEL SECURITY\n\nALTER TABLE app.packages ADD CONSTRAINT packages_handle_fkey FOREIGN KEY (handle) REFERENCES app.handle_registry(handle)\n\nALTER TABLE app.packages ADD CONSTRAINT packages_handle_partial_name_key UNIQUE (handle, partial_name)\n\nALTER TABLE app.packages ADD CONSTRAINT packages_pkey PRIMARY KEY (id)\n\nALTER TABLE app.package_upgrades ADD CONSTRAINT package_upgrades_package_id_fkey FOREIGN KEY (package_id) REFERENCES app.packages(id)\n\nALTER TABLE app.package_versions ADD CONSTRAINT package_versions_package_id_fkey FOREIGN KEY (package_id) REFERENCES app.packages(id)\n\nGRANT SELECT ON app.packages TO anon\n\nGRANT INSERT (handle, partial_name) ON app.packages TO authenticated\n\nGRANT SELECT ON app.packages TO authenticated\n\nCREATE POLICY package_insert_policy ON app.packages FOR INSERT TO authenticated WITH CHECK (app.is_handle_maintainer(uid(), handle))\n\nCREATE POLICY packages_select_policy ON app.packages FOR SELECT TO authenticated USING (true)\n\nCREATE EXTENSION pg_trgm WITH SCHEMA extensions\n\nCREATE INDEX packages_partial_name_search_idx ON app.packages USING gin (partial_name gin_trgm_ops)\n\nCREATE INDEX packages_handle_search_idx ON app.packages USING gin (handle gin_trgm_ops)\n\nCREATE EXTENSION pg_cron WITH SCHEMA pg_catalog\n\nCREATE VIEW public.accounts AS SELECT acc.id,\n    acc.handle,\n    obj.name AS avatar_path,\n    acc.display_name,\n    acc.bio,\n    acc.contact_email,\n    acc.created_at\n   FROM (app.accounts acc\n     LEFT JOIN storage.objects obj ON ((acc.avatar_id = obj.id)))\n\nGRANT ALL ON public.accounts TO anon\n\nGRANT ALL ON public.accounts TO authenticated\n\nGRANT ALL ON public.accounts TO service_role\n\nCREATE VIEW public.members AS SELECT aio.organization_id,\n    aio.account_id,\n    aio.role,\n    aio.created_at\n   FROM app.members aio\n\nGRANT ALL ON public.members TO anon\n\nGRANT ALL ON public.members TO authenticated\n\nGRANT ALL ON public.members TO service_role\n\nCREATE VIEW public.organizations AS SELECT org.id,\n    org.handle,\n    obj.name AS avatar_path,\n    org.display_name,\n    org.bio,\n    org.contact_email,\n    org.created_at\n   FROM (app.organizations org\n     LEFT JOIN storage.objects obj ON ((org.avatar_id = obj.id)))\n\nGRANT ALL ON public.organizations TO anon\n\nGRANT ALL ON public.organizations TO authenticated\n\nGRANT ALL ON public.organizations TO service_role\n\nCREATE VIEW public.package_upgrades AS SELECT pu.id,\n    pu.package_id,\n    pa.package_name,\n    pu.from_version,\n    pu.to_version,\n    pu.sql,\n    pu.created_at\n   FROM (app.packages pa\n     JOIN app.package_upgrades pu ON ((pa.id = pu.package_id)))\n\nGRANT ALL ON public.package_upgrades TO anon\n\nGRANT ALL ON public.package_upgrades TO authenticated\n\nGRANT ALL ON public.package_upgrades TO service_role\n\nCREATE VIEW public.package_versions AS SELECT pv.id,\n    pv.package_id,\n    pa.package_name,\n    pv.version,\n    pv.sql,\n    pv.description_md,\n    pa.control_description,\n    pa.control_requires,\n    pv.created_at\n   FROM (app.packages pa\n     JOIN app.package_versions pv ON ((pa.id = pv.package_id)))\n\nGRANT ALL ON public.package_versions TO anon\n\nGRANT ALL ON public.package_versions TO authenticated\n\nGRANT ALL ON public.package_versions TO service_role\n\nCREATE VIEW public.packages AS SELECT pa.id,\n    pa.package_name,\n    pa.handle,\n    pa.partial_name,\n    newest_ver.version AS latest_version,\n    newest_ver.description_md,\n    pa.control_description,\n    pa.control_requires,\n    pa.created_at\n   FROM app.packages pa,\n    LATERAL ( SELECT pv.id,\n            pv.package_id,\n            pv.version_struct,\n            pv.version,\n            pv.sql,\n            pv.description_md,\n            pv.created_at\n           FROM app.package_versions pv\n          WHERE (pv.package_id = pa.id)\n          ORDER BY pv.version_struct\n         LIMIT 1) newest_ver\n\nCREATE FUNCTION public.search_packages(handle citext DEFAULT NULL::citext, partial_name citext DEFAULT NULL::citext)\n RETURNS SETOF packages\n LANGUAGE sql\n STABLE\nAS $function$\n    select *\n    from public.packages\n    where\n        ($1 is null or handle <% $1 or handle ~ $1)\n        and\n        ($2 is null or partial_name <% $2 or partial_name ~ $2)\n    order by\n        coalesce(extensions.similarity($1, handle), 0) + coalesce(extensions.similarity($2, partial_name), 0) desc,\n        created_at desc;\n$function$\n\nGRANT ALL ON FUNCTION public.search_packages(citext, citext) TO anon\n\nGRANT ALL ON FUNCTION public.search_packages(citext, citext) TO authenticated\n\nGRANT ALL ON FUNCTION public.search_packages(citext, citext) TO service_role\n\nGRANT ALL ON public.packages TO anon\n\nGRANT ALL ON public.packages TO authenticated\n\nGRANT ALL ON public.packages TO service_role\n\nCREATE TRIGGER on_storage_object_created AFTER INSERT ON storage.objects FOR EACH ROW WHEN (new.bucket_id = 'avatars'::text) EXECUTE FUNCTION app.update_avatar_id()",
+            "newSql": "CREATE SCHEMA \"app\" AUTHORIZATION \"postgres\"\n\nCREATE EXTENSION \"citext\" SCHEMA \"extensions\"\n\nCREATE EXTENSION \"pg_cron\"\n\nCREATE EXTENSION \"pg_trgm\" SCHEMA \"extensions\"\n\nCREATE TABLE \"app\".\"accounts\" (\"avatar_id\" uuid, \"bio\" text, \"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"display_name\" text, \"id\" uuid NOT NULL)\n\nALTER TABLE \"app\".\"accounts\" ENABLE ROW LEVEL SECURITY\n\nCREATE TABLE \"app\".\"handle_registry\" (\"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"is_organization\" boolean NOT NULL)\n\nCREATE TABLE \"app\".\"members\" (\"account_id\" uuid NOT NULL, \"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"id\" uuid NOT NULL DEFAULT uuid_generate_v4(), \"organization_id\" uuid NOT NULL)\n\nALTER TABLE \"app\".\"members\" ENABLE ROW LEVEL SECURITY\n\nCREATE TABLE \"app\".\"organizations\" (\"avatar_id\" uuid, \"bio\" text, \"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"display_name\" text, \"id\" uuid NOT NULL DEFAULT gen_random_uuid())\n\nALTER TABLE \"app\".\"organizations\" ENABLE ROW LEVEL SECURITY\n\nCREATE TABLE \"app\".\"package_upgrades\" (\"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"id\" uuid NOT NULL DEFAULT gen_random_uuid(), \"package_id\" uuid NOT NULL, \"sql\" character varying(250000))\n\nALTER TABLE \"app\".\"package_upgrades\" ENABLE ROW LEVEL SECURITY\n\nCREATE TABLE \"app\".\"package_versions\" (\"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"description_md\" character varying(250000), \"id\" uuid NOT NULL DEFAULT gen_random_uuid(), \"package_id\" uuid NOT NULL, \"sql\" character varying(250000))\n\nALTER TABLE \"app\".\"package_versions\" ENABLE ROW LEVEL SECURITY\n\nCREATE TABLE \"app\".\"packages\" (\"control_description\" character varying(1000), \"control_relocatable\" boolean NOT NULL DEFAULT false, \"control_requires\" character varying(128)[] DEFAULT '{}'::character varying(128)[], \"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"id\" uuid NOT NULL DEFAULT gen_random_uuid())\n\nALTER TABLE \"app\".\"packages\" ENABLE ROW LEVEL SECURITY\n\nALTER TABLE \"app\".\"accounts\" ADD COLUMN \"is_organization\" boolean GENERATED ALWAYS AS (false) STORED\n\nALTER TABLE \"app\".\"organizations\" ADD COLUMN \"is_organization\" boolean GENERATED ALWAYS AS (true) STORED\n\nCREATE DOMAIN \"app\".\"email_address\" AS citext\n\nALTER TABLE \"app\".\"accounts\" ADD COLUMN \"contact_email\" app.email_address\n\nALTER TABLE \"app\".\"organizations\" ADD COLUMN \"contact_email\" app.email_address\n\nCREATE DOMAIN \"app\".\"valid_name\" AS citext\n\nALTER TABLE \"app\".\"accounts\" ADD COLUMN \"handle\" app.valid_name NOT NULL\n\nALTER TABLE \"app\".\"handle_registry\" ADD COLUMN \"handle\" app.valid_name NOT NULL\n\nALTER TABLE \"app\".\"organizations\" ADD COLUMN \"handle\" app.valid_name NOT NULL\n\nALTER TABLE \"app\".\"packages\" ADD COLUMN \"handle\" app.valid_name NOT NULL\n\nALTER TABLE \"app\".\"packages\" ADD COLUMN \"partial_name\" app.valid_name NOT NULL\n\nCREATE TYPE \"app\".\"membership_role\" AS ENUM ('maintainer')\n\nALTER TABLE \"app\".\"members\" ADD COLUMN \"role\" app.membership_role NOT NULL\n\nCREATE TYPE \"app\".\"semver_struct\" AS (\"major\" smallint, \"minor\" smallint, \"patch\" smallint)\n\nCREATE DOMAIN \"app\".\"semver\" AS app.semver_struct\n\nALTER TABLE \"app\".\"package_upgrades\" ADD COLUMN \"from_version_struct\" app.semver NOT NULL\n\nALTER TABLE \"app\".\"package_upgrades\" ADD COLUMN \"to_version_struct\" app.semver NOT NULL\n\nALTER TABLE \"app\".\"package_versions\" ADD COLUMN \"version_struct\" app.semver NOT NULL\n\nCREATE OR REPLACE FUNCTION app.exception(message text)\n RETURNS text\n LANGUAGE plpgsql\nAS $function$\n        begin\n                raise exception using errcode='22000', message=message;\n        end;\n        $function$\n\n\nCREATE OR REPLACE FUNCTION app.is_handle_maintainer(account_id uuid, handle app.valid_name)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    select\n        exists(\n            select\n                1\n            from\n                app.accounts acc\n            where\n                acc.id = $1\n                and acc.handle = $2\n        )\n        or exists(\n            select\n                1\n            from\n                app.organizations o\n                join app.members m\n                    on o.id = m.organization_id\n            where\n                m.role = 'maintainer'\n                and m.account_id = $1\n                and o.handle = $2\n            )\n$function$\n\n\nCREATE OR REPLACE FUNCTION app.is_organization_maintainer(account_id uuid, organization_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    -- Does the currently authenticated user have permission to admin orgs and org members?\n    select\n        exists(\n            select\n                1\n            from\n                app.members m\n            where\n                m.account_id = $1\n                and m.organization_id = $2\n                and m.role = 'maintainer'\n        )\n$function$\n\n\nCREATE OR REPLACE FUNCTION app.is_package_maintainer(account_id uuid, package_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    select\n        exists(\n            select\n                1\n            from\n                app.accounts acc\n                join app.packages p\n                    on acc.handle = p.handle\n            where\n                acc.id = $1\n                and p.id = $2\n        )\n        or exists(\n            -- current user is maintainer of org that owns the package\n            select\n                1\n            from\n                app.packages p\n                join app.organizations o\n                    on p.handle = o.handle\n                join app.members m\n                    on o.id = m.organization_id\n            where\n                m.role = 'maintainer'\n                and m.account_id = $1\n                and p.id = $2\n            )\n$function$\n\n\nCREATE OR REPLACE FUNCTION app.is_package_version_maintainer(account_id uuid, package_version_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    select\n        app.is_package_maintainer($1, pv.package_id)\n    from\n        app.package_versions pv\n    where\n        pv.id = $2\n$function$\n\n\nCREATE OR REPLACE FUNCTION app.is_valid(app.semver_struct)\n RETURNS boolean\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select (\n        ($1).major is not null\n        and ($1).minor is not null\n        and ($1).patch is not null\n    )\n$function$\n\n\nCREATE OR REPLACE FUNCTION app.register_account()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\n    begin\n        insert into app.handle_registry (handle, is_organization)\n          values (\n            new.raw_user_meta_data ->> 'handle',\n            false\n          );\n\n        insert into app.accounts (id, handle, display_name, bio, contact_email)\n          values (\n            new.id,\n            new.raw_user_meta_data ->> 'handle',\n            new.raw_user_meta_data ->> 'display_name',\n            new.raw_user_meta_data ->> 'bio',\n            new.raw_user_meta_data ->> 'contact_email'\n          );\n          return new;\n    end;\n    $function$\n\n\nCREATE OR REPLACE FUNCTION app.register_organization_creator_as_member()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\n    begin\n        insert into app.members(organization_id, account_id, role)\n        values (new.id, auth.uid(), 'maintainer');\n\n        return new;\n    end;\n    $function$\n\n\nCREATE OR REPLACE FUNCTION app.semver_exception(version text)\n RETURNS app.semver_struct\n LANGUAGE plpgsql\n IMMUTABLE\nAS $function$\nbegin\n    raise exception using errcode='22000', message=format('Invalid semver %L', version);\nend;\n$function$\n\n\nCREATE OR REPLACE FUNCTION app.semver_to_text(app.semver)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select\n        format('%s.%s.%s', $1.major, $1.minor, $1.patch)\n$function$\n\n\nALTER TABLE \"app\".\"package_upgrades\" ADD COLUMN \"from_version\" text GENERATED ALWAYS AS (app.semver_to_text(from_version_struct)) STORED NOT NULL\n\nALTER TABLE \"app\".\"package_upgrades\" ADD COLUMN \"to_version\" text GENERATED ALWAYS AS (app.semver_to_text(to_version_struct)) STORED NOT NULL\n\nALTER TABLE \"app\".\"package_versions\" ADD COLUMN \"version\" text GENERATED ALWAYS AS (app.semver_to_text(version_struct)) STORED NOT NULL\n\nCREATE OR REPLACE FUNCTION app.simulate_login(email citext)\n RETURNS void\n LANGUAGE sql\nAS $function$\n    /*\n    Simulated JWT of logged in user\n    */\n\n    select\n        set_config(\n            'request.jwt.claims',\n            (\n                select\n                    json_build_object(\n                        'sub',\n                        id,\n                        'role',\n                        'authenticated'\n                    )::text\n                from\n                    auth.users\n                where\n                    email = $1\n            ),\n            true\n        ),\n        set_config('role', 'authenticated', true)\n$function$\n\n\nCREATE OR REPLACE FUNCTION app.text_to_semver(text)\n RETURNS app.semver_struct\n LANGUAGE sql\n IMMUTABLE STRICT\nAS $function$\n    with s(version) as (\n        select (\n            split_part($1, '.', 1),\n            split_part($1, '.', 2),\n            split_part(split_part(split_part($1, '.', 3), '-', 1), '+', 1)\n        )::app.semver_struct\n    )\n    select\n        case app.is_valid(s.version)\n            when true then s.version\n            else app.semver_exception($1)\n       end\n    from\n        s\n$function$\n\n\nCREATE OR REPLACE FUNCTION app.to_package_name(handle app.valid_name, partial_name app.valid_name)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select format('%s-%s', $1, $2)\n$function$\n\n\nALTER TABLE \"app\".\"packages\" ADD COLUMN \"package_name\" text GENERATED ALWAYS AS (app.to_package_name(handle, partial_name)) STORED NOT NULL\n\nCREATE OR REPLACE FUNCTION app.update_avatar_id()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\n    declare\n        v_handle app.valid_name;\n        v_affected_account app.accounts := null;\n    begin\n        select (string_to_array(new.name, '-'::text))[1]::app.valid_name into v_handle;\n\n        update app.accounts\n        set avatar_id = new.id\n        where handle = v_handle\n        returning * into v_affected_account;\n\n        if not v_affected_account is null then\n            update auth.users u\n            set\n                \"raw_user_meta_data\" = u.raw_user_meta_data || jsonb_build_object(\n                    'avatar_path', new.name\n                )\n            where u.id = v_affected_account.id;\n        else\n            update app.organizations\n            set avatar_id = new.id\n            where handle = v_handle;\n        end if;\n\n        return new;\n    end;\n    $function$\n\n\nCREATE OR REPLACE FUNCTION app.version_text_to_handle(version text)\n RETURNS app.valid_name\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select split_part($1, '-', 1)\n$function$\n\n\nCREATE OR REPLACE FUNCTION app.version_text_to_package_partial_name(version text)\n RETURNS app.valid_name\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select split_part($1, '--', 2)\n$function$\n\n\nALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_avatar_id_fkey\" FOREIGN KEY (avatar_id) REFERENCES storage.objects(id)\n\nALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_bio_check\" CHECK ((length(bio) <= 512))\n\nALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_display_name_check\" CHECK ((length(display_name) <= 128))\n\nALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_handle_key\" UNIQUE (handle)\n\nALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_id_fkey\" FOREIGN KEY (id) REFERENCES users(id)\n\nALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_pkey\" PRIMARY KEY (id)\n\nALTER DOMAIN \"app\".\"email_address\" ADD CONSTRAINT \"email_address_check\" CHECK ((VALUE ~ '^[a-zA-Z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'::citext))\n\nALTER TABLE \"app\".\"handle_registry\" ADD CONSTRAINT \"handle_registry_handle_is_organization_key\" UNIQUE (handle, is_organization)\n\nALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"fk_handle_registry\" FOREIGN KEY (handle, is_organization) REFERENCES app.handle_registry(handle, is_organization)\n\nALTER TABLE \"app\".\"handle_registry\" ADD CONSTRAINT \"handle_registry_pkey\" PRIMARY KEY (handle)\n\nALTER TABLE \"app\".\"members\" ADD CONSTRAINT \"members_account_id_fkey\" FOREIGN KEY (account_id) REFERENCES app.accounts(id)\n\nALTER TABLE \"app\".\"members\" ADD CONSTRAINT \"members_organization_id_account_id_key\" UNIQUE (organization_id, account_id)\n\nALTER TABLE \"app\".\"members\" ADD CONSTRAINT \"members_pkey\" PRIMARY KEY (id)\n\nALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"fk_handle_registry\" FOREIGN KEY (handle, is_organization) REFERENCES app.handle_registry(handle, is_organization)\n\nALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_avatar_id_fkey\" FOREIGN KEY (avatar_id) REFERENCES storage.objects(id)\n\nALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_bio_check\" CHECK ((length(bio) <= 512))\n\nALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_display_name_check\" CHECK ((length(display_name) <= 128))\n\nALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_handle_key\" UNIQUE (handle)\n\nALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_pkey\" PRIMARY KEY (id)\n\nALTER TABLE \"app\".\"members\" ADD CONSTRAINT \"members_organization_id_fkey\" FOREIGN KEY (organization_id) REFERENCES app.organizations(id)\n\nALTER TABLE \"app\".\"package_upgrades\" ADD CONSTRAINT \"package_upgrades_package_id_from_version_struct_to_version__key\" UNIQUE (package_id, from_version_struct, to_version_struct)\n\nALTER TABLE \"app\".\"package_upgrades\" ADD CONSTRAINT \"package_upgrades_pkey\" PRIMARY KEY (id)\n\nALTER TABLE \"app\".\"package_versions\" ADD CONSTRAINT \"package_versions_package_id_version_struct_key\" UNIQUE (package_id, version_struct)\n\nALTER TABLE \"app\".\"package_versions\" ADD CONSTRAINT \"package_versions_pkey\" PRIMARY KEY (id)\n\nALTER TABLE \"app\".\"packages\" ADD CONSTRAINT \"packages_handle_fkey\" FOREIGN KEY (handle) REFERENCES app.handle_registry(handle)\n\nALTER TABLE \"app\".\"packages\" ADD CONSTRAINT \"packages_handle_partial_name_key\" UNIQUE (handle, partial_name)\n\nALTER TABLE \"app\".\"packages\" ADD CONSTRAINT \"packages_pkey\" PRIMARY KEY (id)\n\nALTER TABLE \"app\".\"package_upgrades\" ADD CONSTRAINT \"package_upgrades_package_id_fkey\" FOREIGN KEY (package_id) REFERENCES app.packages(id)\n\nALTER TABLE \"app\".\"package_versions\" ADD CONSTRAINT \"package_versions_package_id_fkey\" FOREIGN KEY (package_id) REFERENCES app.packages(id)\n\nALTER DOMAIN \"app\".\"semver\" ADD CONSTRAINT \"semver_check\" CHECK (app.is_valid(VALUE))\n\nALTER DOMAIN \"app\".\"valid_name\" ADD CONSTRAINT \"valid_name_check\" CHECK ((VALUE ~ '^[A-z][A-z0-9\\_]{2,32}$'::citext))\n\nCREATE VIEW \"public\".\"accounts\" AS  SELECT acc.id,\n    acc.handle,\n    obj.name AS avatar_path,\n    acc.display_name,\n    acc.bio,\n    acc.contact_email,\n    acc.created_at\n   FROM (app.accounts acc\n     LEFT JOIN storage.objects obj ON ((acc.avatar_id = obj.id)));\n\nCREATE VIEW \"public\".\"members\" AS  SELECT aio.organization_id,\n    aio.account_id,\n    aio.role,\n    aio.created_at\n   FROM app.members aio;\n\nCREATE VIEW \"public\".\"organizations\" AS  SELECT org.id,\n    org.handle,\n    obj.name AS avatar_path,\n    org.display_name,\n    org.bio,\n    org.contact_email,\n    org.created_at\n   FROM (app.organizations org\n     LEFT JOIN storage.objects obj ON ((org.avatar_id = obj.id)));\n\nCREATE VIEW \"public\".\"package_upgrades\" AS  SELECT pu.id,\n    pu.package_id,\n    pa.package_name,\n    pu.from_version,\n    pu.to_version,\n    pu.sql,\n    pu.created_at\n   FROM (app.packages pa\n     JOIN app.package_upgrades pu ON ((pa.id = pu.package_id)));\n\nCREATE VIEW \"public\".\"package_versions\" AS  SELECT pv.id,\n    pv.package_id,\n    pa.package_name,\n    pv.version,\n    pv.sql,\n    pv.description_md,\n    pa.control_description,\n    pa.control_requires,\n    pv.created_at\n   FROM (app.packages pa\n     JOIN app.package_versions pv ON ((pa.id = pv.package_id)));\n\nCREATE VIEW \"public\".\"packages\" AS  SELECT pa.id,\n    pa.package_name,\n    pa.handle,\n    pa.partial_name,\n    newest_ver.version AS latest_version,\n    newest_ver.description_md,\n    pa.control_description,\n    pa.control_requires,\n    pa.created_at\n   FROM app.packages pa,\n    LATERAL ( SELECT pv.id,\n            pv.package_id,\n            pv.version_struct,\n            pv.version,\n            pv.sql,\n            pv.description_md,\n            pv.created_at\n           FROM app.package_versions pv\n          WHERE (pv.package_id = pa.id)\n          ORDER BY pv.version_struct\n         LIMIT 1) newest_ver;\n\nCREATE OR REPLACE FUNCTION public.search_packages(handle citext DEFAULT NULL::citext, partial_name citext DEFAULT NULL::citext)\n RETURNS SETOF packages\n LANGUAGE sql\n STABLE\nAS $function$\n    select *\n    from public.packages\n    where\n        ($1 is null or handle <% $1 or handle ~ $1)\n        and\n        ($2 is null or partial_name <% $2 or partial_name ~ $2)\n    order by\n        coalesce(extensions.similarity($1, handle), 0) + coalesce(extensions.similarity($2, partial_name), 0) desc,\n        created_at desc;\n$function$\n\n\nCREATE INDEX packages_handle_search_idx ON app.packages USING gin (handle gin_trgm_ops)\n\nCREATE INDEX packages_partial_name_search_idx ON app.packages USING gin (partial_name gin_trgm_ops)\n\nCREATE TRIGGER on_app_organization_created AFTER INSERT ON app.organizations FOR EACH ROW EXECUTE FUNCTION app.register_organization_creator_as_member()\n\nCREATE POLICY \"accounts_select_policy\" ON \"app\".\"accounts\" FOR SELECT TO \"authenticated\" USING (true)\n\nCREATE POLICY \"accounts_update_policy\" ON \"app\".\"accounts\" FOR UPDATE TO \"authenticated\" USING ((id = uid()))\n\nCREATE POLICY \"members_delete_policy\" ON \"app\".\"members\" FOR DELETE TO \"authenticated\" USING (app.is_organization_maintainer(uid(), organization_id))\n\nCREATE POLICY \"members_insert_policy\" ON \"app\".\"members\" FOR INSERT TO \"authenticated\" WITH CHECK (app.is_organization_maintainer(uid(), organization_id))\n\nCREATE POLICY \"members_select_policy\" ON \"app\".\"members\" FOR SELECT TO \"authenticated\" USING (true)\n\nCREATE POLICY \"organizations_insert_policy\" ON \"app\".\"organizations\" FOR INSERT TO \"authenticated\" WITH CHECK (true)\n\nCREATE POLICY \"organizations_select_policy\" ON \"app\".\"organizations\" FOR SELECT TO \"authenticated\" USING (true)\n\nCREATE POLICY \"organizations_update_policy\" ON \"app\".\"organizations\" FOR UPDATE TO \"authenticated\" USING (app.is_organization_maintainer(uid(), id))\n\nCREATE POLICY \"package_upgrades_insert_policy\" ON \"app\".\"package_upgrades\" FOR INSERT TO \"authenticated\" WITH CHECK (app.is_package_maintainer(uid(), package_id))\n\nCREATE POLICY \"package_upgrades_select_policy\" ON \"app\".\"package_upgrades\" FOR SELECT TO PUBLIC USING (true)\n\nCREATE POLICY \"package_upgrades_update_policy\" ON \"app\".\"package_upgrades\" FOR UPDATE TO \"authenticated\" USING (app.is_package_maintainer(uid(), package_id))\n\nCREATE POLICY \"package_versions_insert_policy\" ON \"app\".\"package_versions\" FOR INSERT TO \"authenticated\" WITH CHECK (app.is_package_maintainer(uid(), package_id))\n\nCREATE POLICY \"package_versions_select_policy\" ON \"app\".\"package_versions\" FOR SELECT TO PUBLIC USING (true)\n\nCREATE POLICY \"package_versions_update_policy\" ON \"app\".\"package_versions\" FOR UPDATE TO \"authenticated\" USING (app.is_package_maintainer(uid(), package_id))\n\nCREATE POLICY \"package_insert_policy\" ON \"app\".\"packages\" FOR INSERT TO \"authenticated\" WITH CHECK (app.is_handle_maintainer(uid(), handle))\n\nCREATE POLICY \"packages_select_policy\" ON \"app\".\"packages\" FOR SELECT TO \"authenticated\" USING (true)\n\nCOMMENT ON EXTENSION \"citext\" IS 'data type for case-insensitive character strings'\n\nCOMMENT ON EXTENSION \"pg_cron\" IS 'Job scheduler for PostgreSQL'\n\nCOMMENT ON EXTENSION \"pg_trgm\" IS 'text similarity measurement and index searching based on trigrams'\n\nGRANT EXECUTE ON FUNCTION \"public\".\"search_packages\"(citext, citext) TO \"anon\"\n\nGRANT EXECUTE ON FUNCTION \"public\".\"search_packages\"(citext, citext) TO \"authenticated\"\n\nGRANT EXECUTE ON FUNCTION \"public\".\"search_packages\"(citext, citext) TO \"service_role\"\n\nGRANT USAGE ON SCHEMA \"app\" TO \"anon\"\n\nGRANT USAGE ON SCHEMA \"app\" TO \"authenticated\"\n\nGRANT SELECT ON TABLE \"app\".\"accounts\" TO \"anon\"\n\nGRANT SELECT ON TABLE \"app\".\"accounts\" TO \"authenticated\"\n\nGRANT SELECT ON TABLE \"app\".\"handle_registry\" TO \"anon\"\n\nGRANT SELECT ON TABLE \"app\".\"handle_registry\" TO \"authenticated\"\n\nGRANT SELECT ON TABLE \"app\".\"members\" TO \"anon\"\n\nGRANT DELETE, SELECT ON TABLE \"app\".\"members\" TO \"authenticated\"\n\nGRANT SELECT ON TABLE \"app\".\"organizations\" TO \"anon\"\n\nGRANT SELECT ON TABLE \"app\".\"organizations\" TO \"authenticated\"\n\nGRANT SELECT ON TABLE \"app\".\"package_upgrades\" TO \"anon\"\n\nGRANT SELECT ON TABLE \"app\".\"package_upgrades\" TO \"authenticated\"\n\nGRANT SELECT ON TABLE \"app\".\"package_versions\" TO \"anon\"\n\nGRANT SELECT ON TABLE \"app\".\"package_versions\" TO \"authenticated\"\n\nGRANT SELECT ON TABLE \"app\".\"packages\" TO \"anon\"\n\nGRANT SELECT ON TABLE \"app\".\"packages\" TO \"authenticated\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"accounts\" TO \"anon\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"accounts\" TO \"authenticated\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"accounts\" TO \"service_role\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"members\" TO \"anon\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"members\" TO \"authenticated\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"members\" TO \"service_role\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"organizations\" TO \"anon\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"organizations\" TO \"authenticated\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"organizations\" TO \"service_role\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_upgrades\" TO \"anon\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_upgrades\" TO \"authenticated\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_upgrades\" TO \"service_role\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_versions\" TO \"anon\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_versions\" TO \"authenticated\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_versions\" TO \"service_role\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"packages\" TO \"anon\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"packages\" TO \"authenticated\"\n\nGRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"packages\" TO \"service_role\"\n\nALTER DEFAULT PRIVILEGES FOR ROLE \"postgres\" IN SCHEMA \"app\" GRANT SELECT ON TABLES TO \"anon\"\n\nALTER DEFAULT PRIVILEGES FOR ROLE \"postgres\" IN SCHEMA \"app\" GRANT SELECT ON TABLES TO \"authenticated\"",
+            "sqlDiff": "--- /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-old-54052.sql\t2026-06-23 20:06:32\n+++ /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-new-54052.sql\t2026-06-23 20:06:32\n@@ -1,20 +1,74 @@\n-SET check_function_bodies = false\n+CREATE SCHEMA \"app\" AUTHORIZATION \"postgres\"\n \n-CREATE SCHEMA app AUTHORIZATION postgres\n+CREATE EXTENSION \"citext\" SCHEMA \"extensions\"\n \n-GRANT USAGE ON SCHEMA app TO anon\n+CREATE EXTENSION \"pg_cron\"\n \n-GRANT USAGE ON SCHEMA app TO authenticated\n+CREATE EXTENSION \"pg_trgm\" SCHEMA \"extensions\"\n \n-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA app GRANT SELECT ON TABLES TO anon\n+CREATE TABLE \"app\".\"accounts\" (\"avatar_id\" uuid, \"bio\" text, \"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"display_name\" text, \"id\" uuid NOT NULL)\n \n-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA app GRANT SELECT ON TABLES TO authenticated\n+ALTER TABLE \"app\".\"accounts\" ENABLE ROW LEVEL SECURITY\n \n-CREATE TYPE app.membership_role AS ENUM ('maintainer')\n+CREATE TABLE \"app\".\"handle_registry\" (\"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"is_organization\" boolean NOT NULL)\n \n-CREATE TYPE app.semver_struct AS (major smallint, minor smallint, patch smallint)\n+CREATE TABLE \"app\".\"members\" (\"account_id\" uuid NOT NULL, \"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"id\" uuid NOT NULL DEFAULT uuid_generate_v4(), \"organization_id\" uuid NOT NULL)\n \n-CREATE FUNCTION app.exception(message text)\n+ALTER TABLE \"app\".\"members\" ENABLE ROW LEVEL SECURITY\n+\n+CREATE TABLE \"app\".\"organizations\" (\"avatar_id\" uuid, \"bio\" text, \"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"display_name\" text, \"id\" uuid NOT NULL DEFAULT gen_random_uuid())\n+\n+ALTER TABLE \"app\".\"organizations\" ENABLE ROW LEVEL SECURITY\n+\n+CREATE TABLE \"app\".\"package_upgrades\" (\"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"id\" uuid NOT NULL DEFAULT gen_random_uuid(), \"package_id\" uuid NOT NULL, \"sql\" character varying(250000))\n+\n+ALTER TABLE \"app\".\"package_upgrades\" ENABLE ROW LEVEL SECURITY\n+\n+CREATE TABLE \"app\".\"package_versions\" (\"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"description_md\" character varying(250000), \"id\" uuid NOT NULL DEFAULT gen_random_uuid(), \"package_id\" uuid NOT NULL, \"sql\" character varying(250000))\n+\n+ALTER TABLE \"app\".\"package_versions\" ENABLE ROW LEVEL SECURITY\n+\n+CREATE TABLE \"app\".\"packages\" (\"control_description\" character varying(1000), \"control_relocatable\" boolean NOT NULL DEFAULT false, \"control_requires\" character varying(128)[] DEFAULT '{}'::character varying(128)[], \"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"id\" uuid NOT NULL DEFAULT gen_random_uuid())\n+\n+ALTER TABLE \"app\".\"packages\" ENABLE ROW LEVEL SECURITY\n+\n+ALTER TABLE \"app\".\"accounts\" ADD COLUMN \"is_organization\" boolean GENERATED ALWAYS AS (false) STORED\n+\n+ALTER TABLE \"app\".\"organizations\" ADD COLUMN \"is_organization\" boolean GENERATED ALWAYS AS (true) STORED\n+\n+CREATE DOMAIN \"app\".\"email_address\" AS citext\n+\n+ALTER TABLE \"app\".\"accounts\" ADD COLUMN \"contact_email\" app.email_address\n+\n+ALTER TABLE \"app\".\"organizations\" ADD COLUMN \"contact_email\" app.email_address\n+\n+CREATE DOMAIN \"app\".\"valid_name\" AS citext\n+\n+ALTER TABLE \"app\".\"accounts\" ADD COLUMN \"handle\" app.valid_name NOT NULL\n+\n+ALTER TABLE \"app\".\"handle_registry\" ADD COLUMN \"handle\" app.valid_name NOT NULL\n+\n+ALTER TABLE \"app\".\"organizations\" ADD COLUMN \"handle\" app.valid_name NOT NULL\n+\n+ALTER TABLE \"app\".\"packages\" ADD COLUMN \"handle\" app.valid_name NOT NULL\n+\n+ALTER TABLE \"app\".\"packages\" ADD COLUMN \"partial_name\" app.valid_name NOT NULL\n+\n+CREATE TYPE \"app\".\"membership_role\" AS ENUM ('maintainer')\n+\n+ALTER TABLE \"app\".\"members\" ADD COLUMN \"role\" app.membership_role NOT NULL\n+\n+CREATE TYPE \"app\".\"semver_struct\" AS (\"major\" smallint, \"minor\" smallint, \"patch\" smallint)\n+\n+CREATE DOMAIN \"app\".\"semver\" AS app.semver_struct\n+\n+ALTER TABLE \"app\".\"package_upgrades\" ADD COLUMN \"from_version_struct\" app.semver NOT NULL\n+\n+ALTER TABLE \"app\".\"package_upgrades\" ADD COLUMN \"to_version_struct\" app.semver NOT NULL\n+\n+ALTER TABLE \"app\".\"package_versions\" ADD COLUMN \"version_struct\" app.semver NOT NULL\n+\n+CREATE OR REPLACE FUNCTION app.exception(message text)\n  RETURNS text\n  LANGUAGE plpgsql\n AS $function$\n@@ -23,11 +77,42 @@\n         end;\n         $function$\n \n-CREATE FUNCTION app.is_organization_maintainer(account_id uuid, organization_id uuid)\n+\n+CREATE OR REPLACE FUNCTION app.is_handle_maintainer(account_id uuid, handle app.valid_name)\n  RETURNS boolean\n  LANGUAGE sql\n  STABLE\n AS $function$\n+    select\n+        exists(\n+            select\n+                1\n+            from\n+                app.accounts acc\n+            where\n+                acc.id = $1\n+                and acc.handle = $2\n+        )\n+        or exists(\n+            select\n+                1\n+            from\n+                app.organizations o\n+                join app.members m\n+                    on o.id = m.organization_id\n+            where\n+                m.role = 'maintainer'\n+                and m.account_id = $1\n+                and o.handle = $2\n+            )\n+$function$\n+\n+\n+CREATE OR REPLACE FUNCTION app.is_organization_maintainer(account_id uuid, organization_id uuid)\n+ RETURNS boolean\n+ LANGUAGE sql\n+ STABLE\n+AS $function$\n     -- Does the currently authenticated user have permission to admin orgs and org members?\n     select\n         exists(\n@@ -42,7 +127,8 @@\n         )\n $function$\n \n-CREATE FUNCTION app.is_package_maintainer(account_id uuid, package_id uuid)\n+\n+CREATE OR REPLACE FUNCTION app.is_package_maintainer(account_id uuid, package_id uuid)\n  RETURNS boolean\n  LANGUAGE sql\n  STABLE\n@@ -76,7 +162,8 @@\n             )\n $function$\n \n-CREATE FUNCTION app.is_package_version_maintainer(account_id uuid, package_version_id uuid)\n+\n+CREATE OR REPLACE FUNCTION app.is_package_version_maintainer(account_id uuid, package_version_id uuid)\n  RETURNS boolean\n  LANGUAGE sql\n  STABLE\n@@ -89,7 +176,8 @@\n         pv.id = $2\n $function$\n \n-CREATE FUNCTION app.is_valid(app.semver_struct)\n+\n+CREATE OR REPLACE FUNCTION app.is_valid(app.semver_struct)\n  RETURNS boolean\n  LANGUAGE sql\n  IMMUTABLE\n@@ -101,9 +189,8 @@\n     )\n $function$\n \n-CREATE DOMAIN app.semver AS app.semver_struct CHECK (app.is_valid(VALUE))\n \n-CREATE FUNCTION app.register_account()\n+CREATE OR REPLACE FUNCTION app.register_account()\n  RETURNS trigger\n  LANGUAGE plpgsql\n  SECURITY DEFINER\n@@ -127,7 +214,8 @@\n     end;\n     $function$\n \n-CREATE FUNCTION app.register_organization_creator_as_member()\n+\n+CREATE OR REPLACE FUNCTION app.register_organization_creator_as_member()\n  RETURNS trigger\n  LANGUAGE plpgsql\n  SECURITY DEFINER\n@@ -140,7 +228,8 @@\n     end;\n     $function$\n \n-CREATE FUNCTION app.semver_exception(version text)\n+\n+CREATE OR REPLACE FUNCTION app.semver_exception(version text)\n  RETURNS app.semver_struct\n  LANGUAGE plpgsql\n  IMMUTABLE\n@@ -150,7 +239,8 @@\n end;\n $function$\n \n-CREATE FUNCTION app.semver_to_text(app.semver)\n+\n+CREATE OR REPLACE FUNCTION app.semver_to_text(app.semver)\n  RETURNS text\n  LANGUAGE sql\n  IMMUTABLE\n@@ -159,7 +249,44 @@\n         format('%s.%s.%s', $1.major, $1.minor, $1.patch)\n $function$\n \n-CREATE FUNCTION app.text_to_semver(text)\n+\n+ALTER TABLE \"app\".\"package_upgrades\" ADD COLUMN \"from_version\" text GENERATED ALWAYS AS (app.semver_to_text(from_version_struct)) STORED NOT NULL\n+\n+ALTER TABLE \"app\".\"package_upgrades\" ADD COLUMN \"to_version\" text GENERATED ALWAYS AS (app.semver_to_text(to_version_struct)) STORED NOT NULL\n+\n+ALTER TABLE \"app\".\"package_versions\" ADD COLUMN \"version\" text GENERATED ALWAYS AS (app.semver_to_text(version_struct)) STORED NOT NULL\n+\n+CREATE OR REPLACE FUNCTION app.simulate_login(email citext)\n+ RETURNS void\n+ LANGUAGE sql\n+AS $function$\n+    /*\n+    Simulated JWT of logged in user\n+    */\n+\n+    select\n+        set_config(\n+            'request.jwt.claims',\n+            (\n+                select\n+                    json_build_object(\n+                        'sub',\n+                        id,\n+                        'role',\n+                        'authenticated'\n+                    )::text\n+                from\n+                    auth.users\n+                where\n+                    email = $1\n+            ),\n+            true\n+        ),\n+        set_config('role', 'authenticated', true)\n+$function$\n+\n+\n+CREATE OR REPLACE FUNCTION app.text_to_semver(text)\n  RETURNS app.semver_struct\n  LANGUAGE sql\n  IMMUTABLE STRICT\n@@ -180,7 +307,19 @@\n         s\n $function$\n \n-CREATE FUNCTION app.update_avatar_id()\n+\n+CREATE OR REPLACE FUNCTION app.to_package_name(handle app.valid_name, partial_name app.valid_name)\n+ RETURNS text\n+ LANGUAGE sql\n+ IMMUTABLE\n+AS $function$\n+    select format('%s-%s', $1, $2)\n+$function$\n+\n+\n+ALTER TABLE \"app\".\"packages\" ADD COLUMN \"package_name\" text GENERATED ALWAYS AS (app.to_package_name(handle, partial_name)) STORED NOT NULL\n+\n+CREATE OR REPLACE FUNCTION app.update_avatar_id()\n  RETURNS trigger\n  LANGUAGE plpgsql\n  SECURITY DEFINER\n@@ -213,265 +352,88 @@\n     end;\n     $function$\n \n-CREATE TABLE app.members (id uuid DEFAULT uuid_generate_v4() NOT NULL, organization_id uuid NOT NULL, account_id uuid NOT NULL, role app.membership_role NOT NULL, created_at timestamp with time zone DEFAULT now() NOT NULL)\n \n-ALTER TABLE app.members ENABLE ROW LEVEL SECURITY\n-\n-ALTER TABLE app.members ADD CONSTRAINT members_organization_id_account_id_key UNIQUE (organization_id, account_id)\n-\n-ALTER TABLE app.members ADD CONSTRAINT members_pkey PRIMARY KEY (id)\n-\n-GRANT SELECT ON app.members TO anon\n-\n-GRANT DELETE, SELECT ON app.members TO authenticated\n-\n-GRANT INSERT (account_id, organization_id, role) ON app.members TO authenticated\n+CREATE OR REPLACE FUNCTION app.version_text_to_handle(version text)\n+ RETURNS app.valid_name\n+ LANGUAGE sql\n+ IMMUTABLE\n+AS $function$\n+    select split_part($1, '-', 1)\n+$function$\n \n-CREATE POLICY members_delete_policy ON app.members FOR DELETE TO authenticated USING (app.is_organization_maintainer(uid(), organization_id))\n \n-CREATE POLICY members_insert_policy ON app.members FOR INSERT TO authenticated WITH CHECK (app.is_organization_maintainer(uid(), organization_id))\n+CREATE OR REPLACE FUNCTION app.version_text_to_package_partial_name(version text)\n+ RETURNS app.valid_name\n+ LANGUAGE sql\n+ IMMUTABLE\n+AS $function$\n+    select split_part($1, '--', 2)\n+$function$\n \n-CREATE POLICY members_select_policy ON app.members FOR SELECT TO authenticated USING (true)\n \n-CREATE TABLE app.package_upgrades (id uuid DEFAULT gen_random_uuid() NOT NULL, package_id uuid NOT NULL, from_version_struct app.semver NOT NULL, from_version text GENERATED ALWAYS AS (app.semver_to_text(from_version_struct)) STORED NOT NULL, to_version_struct app.semver NOT NULL, to_version text GENERATED ALWAYS AS (app.semver_to_text(to_version_struct)) STORED NOT NULL, sql character varying(250000), created_at timestamp with time zone DEFAULT now() NOT NULL)\n+ALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_avatar_id_fkey\" FOREIGN KEY (avatar_id) REFERENCES storage.objects(id)\n \n-ALTER TABLE app.package_upgrades ENABLE ROW LEVEL SECURITY\n+ALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_bio_check\" CHECK ((length(bio) <= 512))\n \n-ALTER TABLE app.package_upgrades ADD CONSTRAINT package_upgrades_package_id_from_version_struct_to_version__key UNIQUE (package_id, from_version_struct, to_version_struct)\n+ALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_display_name_check\" CHECK ((length(display_name) <= 128))\n \n-ALTER TABLE app.package_upgrades ADD CONSTRAINT package_upgrades_pkey PRIMARY KEY (id)\n+ALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_handle_key\" UNIQUE (handle)\n \n-GRANT SELECT ON app.package_upgrades TO anon\n+ALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_id_fkey\" FOREIGN KEY (id) REFERENCES users(id)\n \n-GRANT INSERT (from_version_struct, package_id, sql, to_version_struct) ON app.package_upgrades TO authenticated\n+ALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_pkey\" PRIMARY KEY (id)\n \n-GRANT SELECT ON app.package_upgrades TO authenticated\n+ALTER DOMAIN \"app\".\"email_address\" ADD CONSTRAINT \"email_address_check\" CHECK ((VALUE ~ '^[a-zA-Z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'::citext))\n \n-CREATE POLICY package_upgrades_insert_policy ON app.package_upgrades FOR INSERT TO authenticated WITH CHECK (app.is_package_maintainer(uid(), package_id))\n+ALTER TABLE \"app\".\"handle_registry\" ADD CONSTRAINT \"handle_registry_handle_is_organization_key\" UNIQUE (handle, is_organization)\n \n-CREATE POLICY package_upgrades_select_policy ON app.package_upgrades FOR SELECT USING (true)\n+ALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"fk_handle_registry\" FOREIGN KEY (handle, is_organization) REFERENCES app.handle_registry(handle, is_organization)\n \n-CREATE POLICY package_upgrades_update_policy ON app.package_upgrades FOR UPDATE TO authenticated USING (app.is_package_maintainer(uid(), package_id))\n+ALTER TABLE \"app\".\"handle_registry\" ADD CONSTRAINT \"handle_registry_pkey\" PRIMARY KEY (handle)\n \n-CREATE TABLE app.package_versions (id uuid DEFAULT gen_random_uuid() NOT NULL, package_id uuid NOT NULL, version_struct app.semver NOT NULL, version text GENERATED ALWAYS AS (app.semver_to_text(version_struct)) STORED NOT NULL, sql character varying(250000), description_md character varying(250000), created_at timestamp with time zone DEFAULT now() NOT NULL)\n+ALTER TABLE \"app\".\"members\" ADD CONSTRAINT \"members_account_id_fkey\" FOREIGN KEY (account_id) REFERENCES app.accounts(id)\n \n-ALTER TABLE app.package_versions ENABLE ROW LEVEL SECURITY\n+ALTER TABLE \"app\".\"members\" ADD CONSTRAINT \"members_organization_id_account_id_key\" UNIQUE (organization_id, account_id)\n \n-ALTER TABLE app.package_versions ADD CONSTRAINT package_versions_package_id_version_struct_key UNIQUE (package_id, version_struct)\n+ALTER TABLE \"app\".\"members\" ADD CONSTRAINT \"members_pkey\" PRIMARY KEY (id)\n \n-ALTER TABLE app.package_versions ADD CONSTRAINT package_versions_pkey PRIMARY KEY (id)\n+ALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"fk_handle_registry\" FOREIGN KEY (handle, is_organization) REFERENCES app.handle_registry(handle, is_organization)\n \n-GRANT SELECT ON app.package_versions TO anon\n+ALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_avatar_id_fkey\" FOREIGN KEY (avatar_id) REFERENCES storage.objects(id)\n \n-GRANT INSERT (description_md, package_id, sql, version_struct) ON app.package_versions TO authenticated\n+ALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_bio_check\" CHECK ((length(bio) <= 512))\n \n-GRANT SELECT ON app.package_versions TO authenticated\n+ALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_display_name_check\" CHECK ((length(display_name) <= 128))\n \n-CREATE POLICY package_versions_insert_policy ON app.package_versions FOR INSERT TO authenticated WITH CHECK (app.is_package_maintainer(uid(), package_id))\n+ALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_handle_key\" UNIQUE (handle)\n \n-CREATE POLICY package_versions_select_policy ON app.package_versions FOR SELECT USING (true)\n+ALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_pkey\" PRIMARY KEY (id)\n \n-CREATE POLICY package_versions_update_policy ON app.package_versions FOR UPDATE TO authenticated USING (app.is_package_maintainer(uid(), package_id))\n+ALTER TABLE \"app\".\"members\" ADD CONSTRAINT \"members_organization_id_fkey\" FOREIGN KEY (organization_id) REFERENCES app.organizations(id)\n \n-CREATE TRIGGER on_auth_user_created AFTER INSERT ON users FOR EACH ROW EXECUTE FUNCTION app.register_account()\n+ALTER TABLE \"app\".\"package_upgrades\" ADD CONSTRAINT \"package_upgrades_package_id_from_version_struct_to_version__key\" UNIQUE (package_id, from_version_struct, to_version_struct)\n \n-CREATE EXTENSION citext WITH SCHEMA extensions\n+ALTER TABLE \"app\".\"package_upgrades\" ADD CONSTRAINT \"package_upgrades_pkey\" PRIMARY KEY (id)\n \n-CREATE DOMAIN app.email_address AS extensions.citext CHECK ((VALUE ~ '^[a-zA-Z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'::citext))\n+ALTER TABLE \"app\".\"package_versions\" ADD CONSTRAINT \"package_versions_package_id_version_struct_key\" UNIQUE (package_id, version_struct)\n \n-CREATE DOMAIN app.valid_name AS extensions.citext CHECK ((VALUE ~ '^[A-z][A-z0-9\\_]{2,32}$'::citext))\n+ALTER TABLE \"app\".\"package_versions\" ADD CONSTRAINT \"package_versions_pkey\" PRIMARY KEY (id)\n \n-CREATE FUNCTION app.is_handle_maintainer(account_id uuid, handle app.valid_name)\n- RETURNS boolean\n- LANGUAGE sql\n- STABLE\n-AS $function$\n-    select\n-        exists(\n-            select\n-                1\n-            from\n-                app.accounts acc\n-            where\n-                acc.id = $1\n-                and acc.handle = $2\n-        )\n-        or exists(\n-            select\n-                1\n-            from\n-                app.organizations o\n-                join app.members m\n-                    on o.id = m.organization_id\n-            where\n-                m.role = 'maintainer'\n-                and m.account_id = $1\n-                and o.handle = $2\n-            )\n-$function$\n+ALTER TABLE \"app\".\"packages\" ADD CONSTRAINT \"packages_handle_fkey\" FOREIGN KEY (handle) REFERENCES app.handle_registry(handle)\n \n-CREATE FUNCTION app.simulate_login(email citext)\n- RETURNS void\n- LANGUAGE sql\n-AS $function$\n-    /*\n-    Simulated JWT of logged in user\n-    */\n+ALTER TABLE \"app\".\"packages\" ADD CONSTRAINT \"packages_handle_partial_name_key\" UNIQUE (handle, partial_name)\n \n-    select\n-        set_config(\n-            'request.jwt.claims',\n-            (\n-                select\n-                    json_build_object(\n-                        'sub',\n-                        id,\n-                        'role',\n-                        'authenticated'\n-                    )::text\n-                from\n-                    auth.users\n-                where\n-                    email = $1\n-            ),\n-            true\n-        ),\n-        set_config('role', 'authenticated', true)\n-$function$\n+ALTER TABLE \"app\".\"packages\" ADD CONSTRAINT \"packages_pkey\" PRIMARY KEY (id)\n \n-CREATE FUNCTION app.to_package_name(handle app.valid_name, partial_name app.valid_name)\n- RETURNS text\n- LANGUAGE sql\n- IMMUTABLE\n-AS $function$\n-    select format('%s-%s', $1, $2)\n-$function$\n+ALTER TABLE \"app\".\"package_upgrades\" ADD CONSTRAINT \"package_upgrades_package_id_fkey\" FOREIGN KEY (package_id) REFERENCES app.packages(id)\n \n-CREATE FUNCTION app.version_text_to_handle(version text)\n- RETURNS app.valid_name\n- LANGUAGE sql\n- IMMUTABLE\n-AS $function$\n-    select split_part($1, '-', 1)\n-$function$\n-\n-CREATE FUNCTION app.version_text_to_package_partial_name(version text)\n- RETURNS app.valid_name\n- LANGUAGE sql\n- IMMUTABLE\n-AS $function$\n-    select split_part($1, '--', 2)\n-$function$\n-\n-CREATE TABLE app.accounts (id uuid NOT NULL, handle app.valid_name NOT NULL, is_organization boolean GENERATED ALWAYS AS (false) STORED, avatar_id uuid, display_name text, bio text, contact_email app.email_address, created_at timestamp with time zone DEFAULT now() NOT NULL)\n-\n-ALTER TABLE app.accounts ENABLE ROW LEVEL SECURITY\n-\n-ALTER TABLE app.accounts ADD CONSTRAINT accounts_avatar_id_fkey FOREIGN KEY (avatar_id) REFERENCES storage.objects(id)\n-\n-ALTER TABLE app.accounts ADD CONSTRAINT accounts_bio_check CHECK (length(bio) <= 512)\n-\n-ALTER TABLE app.accounts ADD CONSTRAINT accounts_display_name_check CHECK (length(display_name) <= 128)\n-\n-ALTER TABLE app.accounts ADD CONSTRAINT accounts_handle_key UNIQUE (handle)\n-\n-ALTER TABLE app.accounts ADD CONSTRAINT accounts_id_fkey FOREIGN KEY (id) REFERENCES users(id)\n-\n-ALTER TABLE app.accounts ADD CONSTRAINT accounts_pkey PRIMARY KEY (id)\n-\n-GRANT SELECT ON app.accounts TO anon\n-\n-GRANT SELECT ON app.accounts TO authenticated\n-\n-GRANT UPDATE (avatar_id, bio, contact_email, display_name) ON app.accounts TO authenticated\n-\n-CREATE POLICY accounts_select_policy ON app.accounts FOR SELECT TO authenticated USING (true)\n-\n-CREATE POLICY accounts_update_policy ON app.accounts FOR UPDATE TO authenticated USING ((id = uid()))\n-\n-CREATE TABLE app.handle_registry (handle app.valid_name NOT NULL, is_organization boolean NOT NULL, created_at timestamp with time zone DEFAULT now() NOT NULL)\n-\n-ALTER TABLE app.handle_registry ADD CONSTRAINT handle_registry_handle_is_organization_key UNIQUE (handle, is_organization)\n-\n-ALTER TABLE app.accounts ADD CONSTRAINT fk_handle_registry FOREIGN KEY (handle, is_organization) REFERENCES app.handle_registry(handle, is_organization)\n-\n-ALTER TABLE app.handle_registry ADD CONSTRAINT handle_registry_pkey PRIMARY KEY (handle)\n-\n-GRANT SELECT ON app.handle_registry TO anon\n-\n-GRANT INSERT (handle, is_organization) ON app.handle_registry TO authenticated\n-\n-GRANT SELECT ON app.handle_registry TO authenticated\n-\n-ALTER TABLE app.members ADD CONSTRAINT members_account_id_fkey FOREIGN KEY (account_id) REFERENCES app.accounts(id)\n-\n-CREATE TABLE app.organizations (id uuid DEFAULT gen_random_uuid() NOT NULL, handle app.valid_name NOT NULL, is_organization boolean GENERATED ALWAYS AS (true) STORED, avatar_id uuid, display_name text, bio text, contact_email app.email_address, created_at timestamp with time zone DEFAULT now() NOT NULL)\n-\n-ALTER TABLE app.organizations ENABLE ROW LEVEL SECURITY\n-\n-ALTER TABLE app.organizations ADD CONSTRAINT fk_handle_registry FOREIGN KEY (handle, is_organization) REFERENCES app.handle_registry(handle, is_organization)\n-\n-ALTER TABLE app.organizations ADD CONSTRAINT organizations_avatar_id_fkey FOREIGN KEY (avatar_id) REFERENCES storage.objects(id)\n-\n-ALTER TABLE app.organizations ADD CONSTRAINT organizations_bio_check CHECK (length(bio) <= 512)\n-\n-ALTER TABLE app.organizations ADD CONSTRAINT organizations_display_name_check CHECK (length(display_name) <= 128)\n-\n-ALTER TABLE app.organizations ADD CONSTRAINT organizations_handle_key UNIQUE (handle)\n-\n-ALTER TABLE app.organizations ADD CONSTRAINT organizations_pkey PRIMARY KEY (id)\n-\n-ALTER TABLE app.members ADD CONSTRAINT members_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES app.organizations(id)\n-\n-GRANT SELECT ON app.organizations TO anon\n-\n-GRANT INSERT (avatar_id, bio, contact_email, display_name, handle) ON app.organizations TO authenticated\n-\n-GRANT SELECT ON app.organizations TO authenticated\n-\n-GRANT UPDATE (avatar_id, bio, contact_email, display_name) ON app.organizations TO authenticated\n-\n-CREATE TRIGGER on_app_organization_created AFTER INSERT ON app.organizations FOR EACH ROW EXECUTE FUNCTION app.register_organization_creator_as_member()\n-\n-CREATE POLICY organizations_insert_policy ON app.organizations FOR INSERT TO authenticated WITH CHECK (true)\n-\n-CREATE POLICY organizations_select_policy ON app.organizations FOR SELECT TO authenticated USING (true)\n-\n-CREATE POLICY organizations_update_policy ON app.organizations FOR UPDATE TO authenticated USING (app.is_organization_maintainer(uid(), id))\n-\n-CREATE TABLE app.packages (id uuid DEFAULT gen_random_uuid() NOT NULL, package_name text GENERATED ALWAYS AS (app.to_package_name(handle, partial_name)) STORED NOT NULL, handle app.valid_name NOT NULL, partial_name app.valid_name NOT NULL, control_description character varying(1000), control_relocatable boolean DEFAULT false NOT NULL, control_requires character varying(128)[] DEFAULT '{}'::character varying(128)[], created_at timestamp with time zone DEFAULT now() NOT NULL)\n-\n-ALTER TABLE app.packages ENABLE ROW LEVEL SECURITY\n-\n-ALTER TABLE app.packages ADD CONSTRAINT packages_handle_fkey FOREIGN KEY (handle) REFERENCES app.handle_registry(handle)\n-\n-ALTER TABLE app.packages ADD CONSTRAINT packages_handle_partial_name_key UNIQUE (handle, partial_name)\n-\n-ALTER TABLE app.packages ADD CONSTRAINT packages_pkey PRIMARY KEY (id)\n-\n-ALTER TABLE app.package_upgrades ADD CONSTRAINT package_upgrades_package_id_fkey FOREIGN KEY (package_id) REFERENCES app.packages(id)\n-\n-ALTER TABLE app.package_versions ADD CONSTRAINT package_versions_package_id_fkey FOREIGN KEY (package_id) REFERENCES app.packages(id)\n-\n-GRANT SELECT ON app.packages TO anon\n-\n-GRANT INSERT (handle, partial_name) ON app.packages TO authenticated\n-\n-GRANT SELECT ON app.packages TO authenticated\n-\n-CREATE POLICY package_insert_policy ON app.packages FOR INSERT TO authenticated WITH CHECK (app.is_handle_maintainer(uid(), handle))\n-\n-CREATE POLICY packages_select_policy ON app.packages FOR SELECT TO authenticated USING (true)\n-\n-CREATE EXTENSION pg_trgm WITH SCHEMA extensions\n-\n-CREATE INDEX packages_partial_name_search_idx ON app.packages USING gin (partial_name gin_trgm_ops)\n-\n-CREATE INDEX packages_handle_search_idx ON app.packages USING gin (handle gin_trgm_ops)\n-\n-CREATE EXTENSION pg_cron WITH SCHEMA pg_catalog\n-\n-CREATE VIEW public.accounts AS SELECT acc.id,\n+ALTER TABLE \"app\".\"package_versions\" ADD CONSTRAINT \"package_versions_package_id_fkey\" FOREIGN KEY (package_id) REFERENCES app.packages(id)\n+\n+ALTER DOMAIN \"app\".\"semver\" ADD CONSTRAINT \"semver_check\" CHECK (app.is_valid(VALUE))\n+\n+ALTER DOMAIN \"app\".\"valid_name\" ADD CONSTRAINT \"valid_name_check\" CHECK ((VALUE ~ '^[A-z][A-z0-9\\_]{2,32}$'::citext))\n+\n+CREATE VIEW \"public\".\"accounts\" AS  SELECT acc.id,\n     acc.handle,\n     obj.name AS avatar_path,\n     acc.display_name,\n@@ -479,27 +441,15 @@\n     acc.contact_email,\n     acc.created_at\n    FROM (app.accounts acc\n-     LEFT JOIN storage.objects obj ON ((acc.avatar_id = obj.id)))\n+     LEFT JOIN storage.objects obj ON ((acc.avatar_id = obj.id)));\n \n-GRANT ALL ON public.accounts TO anon\n-\n-GRANT ALL ON public.accounts TO authenticated\n-\n-GRANT ALL ON public.accounts TO service_role\n-\n-CREATE VIEW public.members AS SELECT aio.organization_id,\n+CREATE VIEW \"public\".\"members\" AS  SELECT aio.organization_id,\n     aio.account_id,\n     aio.role,\n     aio.created_at\n-   FROM app.members aio\n+   FROM app.members aio;\n \n-GRANT ALL ON public.members TO anon\n-\n-GRANT ALL ON public.members TO authenticated\n-\n-GRANT ALL ON public.members TO service_role\n-\n-CREATE VIEW public.organizations AS SELECT org.id,\n+CREATE VIEW \"public\".\"organizations\" AS  SELECT org.id,\n     org.handle,\n     obj.name AS avatar_path,\n     org.display_name,\n@@ -507,15 +457,9 @@\n     org.contact_email,\n     org.created_at\n    FROM (app.organizations org\n-     LEFT JOIN storage.objects obj ON ((org.avatar_id = obj.id)))\n+     LEFT JOIN storage.objects obj ON ((org.avatar_id = obj.id)));\n \n-GRANT ALL ON public.organizations TO anon\n-\n-GRANT ALL ON public.organizations TO authenticated\n-\n-GRANT ALL ON public.organizations TO service_role\n-\n-CREATE VIEW public.package_upgrades AS SELECT pu.id,\n+CREATE VIEW \"public\".\"package_upgrades\" AS  SELECT pu.id,\n     pu.package_id,\n     pa.package_name,\n     pu.from_version,\n@@ -523,15 +467,9 @@\n     pu.sql,\n     pu.created_at\n    FROM (app.packages pa\n-     JOIN app.package_upgrades pu ON ((pa.id = pu.package_id)))\n+     JOIN app.package_upgrades pu ON ((pa.id = pu.package_id)));\n \n-GRANT ALL ON public.package_upgrades TO anon\n-\n-GRANT ALL ON public.package_upgrades TO authenticated\n-\n-GRANT ALL ON public.package_upgrades TO service_role\n-\n-CREATE VIEW public.package_versions AS SELECT pv.id,\n+CREATE VIEW \"public\".\"package_versions\" AS  SELECT pv.id,\n     pv.package_id,\n     pa.package_name,\n     pv.version,\n@@ -541,15 +479,9 @@\n     pa.control_requires,\n     pv.created_at\n    FROM (app.packages pa\n-     JOIN app.package_versions pv ON ((pa.id = pv.package_id)))\n+     JOIN app.package_versions pv ON ((pa.id = pv.package_id)));\n \n-GRANT ALL ON public.package_versions TO anon\n-\n-GRANT ALL ON public.package_versions TO authenticated\n-\n-GRANT ALL ON public.package_versions TO service_role\n-\n-CREATE VIEW public.packages AS SELECT pa.id,\n+CREATE VIEW \"public\".\"packages\" AS  SELECT pa.id,\n     pa.package_name,\n     pa.handle,\n     pa.partial_name,\n@@ -569,9 +501,9 @@\n            FROM app.package_versions pv\n           WHERE (pv.package_id = pa.id)\n           ORDER BY pv.version_struct\n-         LIMIT 1) newest_ver\n+         LIMIT 1) newest_ver;\n \n-CREATE FUNCTION public.search_packages(handle citext DEFAULT NULL::citext, partial_name citext DEFAULT NULL::citext)\n+CREATE OR REPLACE FUNCTION public.search_packages(handle citext DEFAULT NULL::citext, partial_name citext DEFAULT NULL::citext)\n  RETURNS SETOF packages\n  LANGUAGE sql\n  STABLE\n@@ -587,16 +519,125 @@\n         created_at desc;\n $function$\n \n-GRANT ALL ON FUNCTION public.search_packages(citext, citext) TO anon\n \n-GRANT ALL ON FUNCTION public.search_packages(citext, citext) TO authenticated\n+CREATE INDEX packages_handle_search_idx ON app.packages USING gin (handle gin_trgm_ops)\n \n-GRANT ALL ON FUNCTION public.search_packages(citext, citext) TO service_role\n+CREATE INDEX packages_partial_name_search_idx ON app.packages USING gin (partial_name gin_trgm_ops)\n \n-GRANT ALL ON public.packages TO anon\n+CREATE TRIGGER on_app_organization_created AFTER INSERT ON app.organizations FOR EACH ROW EXECUTE FUNCTION app.register_organization_creator_as_member()\n \n-GRANT ALL ON public.packages TO authenticated\n+CREATE POLICY \"accounts_select_policy\" ON \"app\".\"accounts\" FOR SELECT TO \"authenticated\" USING (true)\n \n-GRANT ALL ON public.packages TO service_role\n+CREATE POLICY \"accounts_update_policy\" ON \"app\".\"accounts\" FOR UPDATE TO \"authenticated\" USING ((id = uid()))\n \n-CREATE TRIGGER on_storage_object_created AFTER INSERT ON storage.objects FOR EACH ROW WHEN (new.bucket_id = 'avatars'::text) EXECUTE FUNCTION app.update_avatar_id()\n\\ No newline at end of file\n+CREATE POLICY \"members_delete_policy\" ON \"app\".\"members\" FOR DELETE TO \"authenticated\" USING (app.is_organization_maintainer(uid(), organization_id))\n+\n+CREATE POLICY \"members_insert_policy\" ON \"app\".\"members\" FOR INSERT TO \"authenticated\" WITH CHECK (app.is_organization_maintainer(uid(), organization_id))\n+\n+CREATE POLICY \"members_select_policy\" ON \"app\".\"members\" FOR SELECT TO \"authenticated\" USING (true)\n+\n+CREATE POLICY \"organizations_insert_policy\" ON \"app\".\"organizations\" FOR INSERT TO \"authenticated\" WITH CHECK (true)\n+\n+CREATE POLICY \"organizations_select_policy\" ON \"app\".\"organizations\" FOR SELECT TO \"authenticated\" USING (true)\n+\n+CREATE POLICY \"organizations_update_policy\" ON \"app\".\"organizations\" FOR UPDATE TO \"authenticated\" USING (app.is_organization_maintainer(uid(), id))\n+\n+CREATE POLICY \"package_upgrades_insert_policy\" ON \"app\".\"package_upgrades\" FOR INSERT TO \"authenticated\" WITH CHECK (app.is_package_maintainer(uid(), package_id))\n+\n+CREATE POLICY \"package_upgrades_select_policy\" ON \"app\".\"package_upgrades\" FOR SELECT TO PUBLIC USING (true)\n+\n+CREATE POLICY \"package_upgrades_update_policy\" ON \"app\".\"package_upgrades\" FOR UPDATE TO \"authenticated\" USING (app.is_package_maintainer(uid(), package_id))\n+\n+CREATE POLICY \"package_versions_insert_policy\" ON \"app\".\"package_versions\" FOR INSERT TO \"authenticated\" WITH CHECK (app.is_package_maintainer(uid(), package_id))\n+\n+CREATE POLICY \"package_versions_select_policy\" ON \"app\".\"package_versions\" FOR SELECT TO PUBLIC USING (true)\n+\n+CREATE POLICY \"package_versions_update_policy\" ON \"app\".\"package_versions\" FOR UPDATE TO \"authenticated\" USING (app.is_package_maintainer(uid(), package_id))\n+\n+CREATE POLICY \"package_insert_policy\" ON \"app\".\"packages\" FOR INSERT TO \"authenticated\" WITH CHECK (app.is_handle_maintainer(uid(), handle))\n+\n+CREATE POLICY \"packages_select_policy\" ON \"app\".\"packages\" FOR SELECT TO \"authenticated\" USING (true)\n+\n+COMMENT ON EXTENSION \"citext\" IS 'data type for case-insensitive character strings'\n+\n+COMMENT ON EXTENSION \"pg_cron\" IS 'Job scheduler for PostgreSQL'\n+\n+COMMENT ON EXTENSION \"pg_trgm\" IS 'text similarity measurement and index searching based on trigrams'\n+\n+GRANT EXECUTE ON FUNCTION \"public\".\"search_packages\"(citext, citext) TO \"anon\"\n+\n+GRANT EXECUTE ON FUNCTION \"public\".\"search_packages\"(citext, citext) TO \"authenticated\"\n+\n+GRANT EXECUTE ON FUNCTION \"public\".\"search_packages\"(citext, citext) TO \"service_role\"\n+\n+GRANT USAGE ON SCHEMA \"app\" TO \"anon\"\n+\n+GRANT USAGE ON SCHEMA \"app\" TO \"authenticated\"\n+\n+GRANT SELECT ON TABLE \"app\".\"accounts\" TO \"anon\"\n+\n+GRANT SELECT ON TABLE \"app\".\"accounts\" TO \"authenticated\"\n+\n+GRANT SELECT ON TABLE \"app\".\"handle_registry\" TO \"anon\"\n+\n+GRANT SELECT ON TABLE \"app\".\"handle_registry\" TO \"authenticated\"\n+\n+GRANT SELECT ON TABLE \"app\".\"members\" TO \"anon\"\n+\n+GRANT DELETE, SELECT ON TABLE \"app\".\"members\" TO \"authenticated\"\n+\n+GRANT SELECT ON TABLE \"app\".\"organizations\" TO \"anon\"\n+\n+GRANT SELECT ON TABLE \"app\".\"organizations\" TO \"authenticated\"\n+\n+GRANT SELECT ON TABLE \"app\".\"package_upgrades\" TO \"anon\"\n+\n+GRANT SELECT ON TABLE \"app\".\"package_upgrades\" TO \"authenticated\"\n+\n+GRANT SELECT ON TABLE \"app\".\"package_versions\" TO \"anon\"\n+\n+GRANT SELECT ON TABLE \"app\".\"package_versions\" TO \"authenticated\"\n+\n+GRANT SELECT ON TABLE \"app\".\"packages\" TO \"anon\"\n+\n+GRANT SELECT ON TABLE \"app\".\"packages\" TO \"authenticated\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"accounts\" TO \"anon\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"accounts\" TO \"authenticated\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"accounts\" TO \"service_role\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"members\" TO \"anon\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"members\" TO \"authenticated\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"members\" TO \"service_role\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"organizations\" TO \"anon\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"organizations\" TO \"authenticated\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"organizations\" TO \"service_role\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_upgrades\" TO \"anon\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_upgrades\" TO \"authenticated\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_upgrades\" TO \"service_role\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_versions\" TO \"anon\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_versions\" TO \"authenticated\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_versions\" TO \"service_role\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"packages\" TO \"anon\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"packages\" TO \"authenticated\"\n+\n+GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"packages\" TO \"service_role\"\n+\n+ALTER DEFAULT PRIVILEGES FOR ROLE \"postgres\" IN SCHEMA \"app\" GRANT SELECT ON TABLES TO \"anon\"\n+\n+ALTER DEFAULT PRIVILEGES FOR ROLE \"postgres\" IN SCHEMA \"app\" GRANT SELECT ON TABLES TO \"authenticated\"\n\\ No newline at end of file\n",
+            "newStatements": [
+              "CREATE SCHEMA \"app\" AUTHORIZATION \"postgres\"",
+              "CREATE EXTENSION \"citext\" SCHEMA \"extensions\"",
+              "CREATE EXTENSION \"pg_cron\"",
+              "CREATE EXTENSION \"pg_trgm\" SCHEMA \"extensions\"",
+              "CREATE TABLE \"app\".\"accounts\" (\"avatar_id\" uuid, \"bio\" text, \"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"display_name\" text, \"id\" uuid NOT NULL)",
+              "ALTER TABLE \"app\".\"accounts\" ENABLE ROW LEVEL SECURITY",
+              "CREATE TABLE \"app\".\"handle_registry\" (\"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"is_organization\" boolean NOT NULL)",
+              "CREATE TABLE \"app\".\"members\" (\"account_id\" uuid NOT NULL, \"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"id\" uuid NOT NULL DEFAULT uuid_generate_v4(), \"organization_id\" uuid NOT NULL)",
+              "ALTER TABLE \"app\".\"members\" ENABLE ROW LEVEL SECURITY",
+              "CREATE TABLE \"app\".\"organizations\" (\"avatar_id\" uuid, \"bio\" text, \"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"display_name\" text, \"id\" uuid NOT NULL DEFAULT gen_random_uuid())",
+              "ALTER TABLE \"app\".\"organizations\" ENABLE ROW LEVEL SECURITY",
+              "CREATE TABLE \"app\".\"package_upgrades\" (\"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"id\" uuid NOT NULL DEFAULT gen_random_uuid(), \"package_id\" uuid NOT NULL, \"sql\" character varying(250000))",
+              "ALTER TABLE \"app\".\"package_upgrades\" ENABLE ROW LEVEL SECURITY",
+              "CREATE TABLE \"app\".\"package_versions\" (\"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"description_md\" character varying(250000), \"id\" uuid NOT NULL DEFAULT gen_random_uuid(), \"package_id\" uuid NOT NULL, \"sql\" character varying(250000))",
+              "ALTER TABLE \"app\".\"package_versions\" ENABLE ROW LEVEL SECURITY",
+              "CREATE TABLE \"app\".\"packages\" (\"control_description\" character varying(1000), \"control_relocatable\" boolean NOT NULL DEFAULT false, \"control_requires\" character varying(128)[] DEFAULT '{}'::character varying(128)[], \"created_at\" timestamp with time zone NOT NULL DEFAULT now(), \"id\" uuid NOT NULL DEFAULT gen_random_uuid())",
+              "ALTER TABLE \"app\".\"packages\" ENABLE ROW LEVEL SECURITY",
+              "ALTER TABLE \"app\".\"accounts\" ADD COLUMN \"is_organization\" boolean GENERATED ALWAYS AS (false) STORED",
+              "ALTER TABLE \"app\".\"organizations\" ADD COLUMN \"is_organization\" boolean GENERATED ALWAYS AS (true) STORED",
+              "CREATE DOMAIN \"app\".\"email_address\" AS citext",
+              "ALTER TABLE \"app\".\"accounts\" ADD COLUMN \"contact_email\" app.email_address",
+              "ALTER TABLE \"app\".\"organizations\" ADD COLUMN \"contact_email\" app.email_address",
+              "CREATE DOMAIN \"app\".\"valid_name\" AS citext",
+              "ALTER TABLE \"app\".\"accounts\" ADD COLUMN \"handle\" app.valid_name NOT NULL",
+              "ALTER TABLE \"app\".\"handle_registry\" ADD COLUMN \"handle\" app.valid_name NOT NULL",
+              "ALTER TABLE \"app\".\"organizations\" ADD COLUMN \"handle\" app.valid_name NOT NULL",
+              "ALTER TABLE \"app\".\"packages\" ADD COLUMN \"handle\" app.valid_name NOT NULL",
+              "ALTER TABLE \"app\".\"packages\" ADD COLUMN \"partial_name\" app.valid_name NOT NULL",
+              "CREATE TYPE \"app\".\"membership_role\" AS ENUM ('maintainer')",
+              "ALTER TABLE \"app\".\"members\" ADD COLUMN \"role\" app.membership_role NOT NULL",
+              "CREATE TYPE \"app\".\"semver_struct\" AS (\"major\" smallint, \"minor\" smallint, \"patch\" smallint)",
+              "CREATE DOMAIN \"app\".\"semver\" AS app.semver_struct",
+              "ALTER TABLE \"app\".\"package_upgrades\" ADD COLUMN \"from_version_struct\" app.semver NOT NULL",
+              "ALTER TABLE \"app\".\"package_upgrades\" ADD COLUMN \"to_version_struct\" app.semver NOT NULL",
+              "ALTER TABLE \"app\".\"package_versions\" ADD COLUMN \"version_struct\" app.semver NOT NULL",
+              "CREATE OR REPLACE FUNCTION app.exception(message text)\n RETURNS text\n LANGUAGE plpgsql\nAS $function$\n        begin\n                raise exception using errcode='22000', message=message;\n        end;\n        $function$",
+              "CREATE OR REPLACE FUNCTION app.is_handle_maintainer(account_id uuid, handle app.valid_name)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    select\n        exists(\n            select\n                1\n            from\n                app.accounts acc\n            where\n                acc.id = $1\n                and acc.handle = $2\n        )\n        or exists(\n            select\n                1\n            from\n                app.organizations o\n                join app.members m\n                    on o.id = m.organization_id\n            where\n                m.role = 'maintainer'\n                and m.account_id = $1\n                and o.handle = $2\n            )\n$function$",
+              "CREATE OR REPLACE FUNCTION app.is_organization_maintainer(account_id uuid, organization_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    -- Does the currently authenticated user have permission to admin orgs and org members?\n    select\n        exists(\n            select\n                1\n            from\n                app.members m\n            where\n                m.account_id = $1\n                and m.organization_id = $2\n                and m.role = 'maintainer'\n        )\n$function$",
+              "CREATE OR REPLACE FUNCTION app.is_package_maintainer(account_id uuid, package_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    select\n        exists(\n            select\n                1\n            from\n                app.accounts acc\n                join app.packages p\n                    on acc.handle = p.handle\n            where\n                acc.id = $1\n                and p.id = $2\n        )\n        or exists(\n            -- current user is maintainer of org that owns the package\n            select\n                1\n            from\n                app.packages p\n                join app.organizations o\n                    on p.handle = o.handle\n                join app.members m\n                    on o.id = m.organization_id\n            where\n                m.role = 'maintainer'\n                and m.account_id = $1\n                and p.id = $2\n            )\n$function$",
+              "CREATE OR REPLACE FUNCTION app.is_package_version_maintainer(account_id uuid, package_version_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n    select\n        app.is_package_maintainer($1, pv.package_id)\n    from\n        app.package_versions pv\n    where\n        pv.id = $2\n$function$",
+              "CREATE OR REPLACE FUNCTION app.is_valid(app.semver_struct)\n RETURNS boolean\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select (\n        ($1).major is not null\n        and ($1).minor is not null\n        and ($1).patch is not null\n    )\n$function$",
+              "CREATE OR REPLACE FUNCTION app.register_account()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\n    begin\n        insert into app.handle_registry (handle, is_organization)\n          values (\n            new.raw_user_meta_data ->> 'handle',\n            false\n          );",
+              "        insert into app.accounts (id, handle, display_name, bio, contact_email)\n          values (\n            new.id,\n            new.raw_user_meta_data ->> 'handle',\n            new.raw_user_meta_data ->> 'display_name',\n            new.raw_user_meta_data ->> 'bio',\n            new.raw_user_meta_data ->> 'contact_email'\n          );\n          return new;\n    end;\n    $function$",
+              "CREATE OR REPLACE FUNCTION app.register_organization_creator_as_member()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\n    begin\n        insert into app.members(organization_id, account_id, role)\n        values (new.id, auth.uid(), 'maintainer');",
+              "        return new;\n    end;\n    $function$",
+              "CREATE OR REPLACE FUNCTION app.semver_exception(version text)\n RETURNS app.semver_struct\n LANGUAGE plpgsql\n IMMUTABLE\nAS $function$\nbegin\n    raise exception using errcode='22000', message=format('Invalid semver %L', version);\nend;\n$function$",
+              "CREATE OR REPLACE FUNCTION app.semver_to_text(app.semver)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select\n        format('%s.%s.%s', $1.major, $1.minor, $1.patch)\n$function$",
+              "ALTER TABLE \"app\".\"package_upgrades\" ADD COLUMN \"from_version\" text GENERATED ALWAYS AS (app.semver_to_text(from_version_struct)) STORED NOT NULL",
+              "ALTER TABLE \"app\".\"package_upgrades\" ADD COLUMN \"to_version\" text GENERATED ALWAYS AS (app.semver_to_text(to_version_struct)) STORED NOT NULL",
+              "ALTER TABLE \"app\".\"package_versions\" ADD COLUMN \"version\" text GENERATED ALWAYS AS (app.semver_to_text(version_struct)) STORED NOT NULL",
+              "CREATE OR REPLACE FUNCTION app.simulate_login(email citext)\n RETURNS void\n LANGUAGE sql\nAS $function$\n    /*\n    Simulated JWT of logged in user\n    */",
+              "    select\n        set_config(\n            'request.jwt.claims',\n            (\n                select\n                    json_build_object(\n                        'sub',\n                        id,\n                        'role',\n                        'authenticated'\n                    )::text\n                from\n                    auth.users\n                where\n                    email = $1\n            ),\n            true\n        ),\n        set_config('role', 'authenticated', true)\n$function$",
+              "CREATE OR REPLACE FUNCTION app.text_to_semver(text)\n RETURNS app.semver_struct\n LANGUAGE sql\n IMMUTABLE STRICT\nAS $function$\n    with s(version) as (\n        select (\n            split_part($1, '.', 1),\n            split_part($1, '.', 2),\n            split_part(split_part(split_part($1, '.', 3), '-', 1), '+', 1)\n        )::app.semver_struct\n    )\n    select\n        case app.is_valid(s.version)\n            when true then s.version\n            else app.semver_exception($1)\n       end\n    from\n        s\n$function$",
+              "CREATE OR REPLACE FUNCTION app.to_package_name(handle app.valid_name, partial_name app.valid_name)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select format('%s-%s', $1, $2)\n$function$",
+              "ALTER TABLE \"app\".\"packages\" ADD COLUMN \"package_name\" text GENERATED ALWAYS AS (app.to_package_name(handle, partial_name)) STORED NOT NULL",
+              "CREATE OR REPLACE FUNCTION app.update_avatar_id()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\nAS $function$\n    declare\n        v_handle app.valid_name;\n        v_affected_account app.accounts := null;\n    begin\n        select (string_to_array(new.name, '-'::text))[1]::app.valid_name into v_handle;",
+              "        update app.accounts\n        set avatar_id = new.id\n        where handle = v_handle\n        returning * into v_affected_account;",
+              "        if not v_affected_account is null then\n            update auth.users u\n            set\n                \"raw_user_meta_data\" = u.raw_user_meta_data || jsonb_build_object(\n                    'avatar_path', new.name\n                )\n            where u.id = v_affected_account.id;\n        else\n            update app.organizations\n            set avatar_id = new.id\n            where handle = v_handle;\n        end if;",
+              "        return new;\n    end;\n    $function$",
+              "CREATE OR REPLACE FUNCTION app.version_text_to_handle(version text)\n RETURNS app.valid_name\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select split_part($1, '-', 1)\n$function$",
+              "CREATE OR REPLACE FUNCTION app.version_text_to_package_partial_name(version text)\n RETURNS app.valid_name\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n    select split_part($1, '--', 2)\n$function$",
+              "ALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_avatar_id_fkey\" FOREIGN KEY (avatar_id) REFERENCES storage.objects(id)",
+              "ALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_bio_check\" CHECK ((length(bio) <= 512))",
+              "ALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_display_name_check\" CHECK ((length(display_name) <= 128))",
+              "ALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_handle_key\" UNIQUE (handle)",
+              "ALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_id_fkey\" FOREIGN KEY (id) REFERENCES users(id)",
+              "ALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"accounts_pkey\" PRIMARY KEY (id)",
+              "ALTER DOMAIN \"app\".\"email_address\" ADD CONSTRAINT \"email_address_check\" CHECK ((VALUE ~ '^[a-zA-Z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'::citext))",
+              "ALTER TABLE \"app\".\"handle_registry\" ADD CONSTRAINT \"handle_registry_handle_is_organization_key\" UNIQUE (handle, is_organization)",
+              "ALTER TABLE \"app\".\"accounts\" ADD CONSTRAINT \"fk_handle_registry\" FOREIGN KEY (handle, is_organization) REFERENCES app.handle_registry(handle, is_organization)",
+              "ALTER TABLE \"app\".\"handle_registry\" ADD CONSTRAINT \"handle_registry_pkey\" PRIMARY KEY (handle)",
+              "ALTER TABLE \"app\".\"members\" ADD CONSTRAINT \"members_account_id_fkey\" FOREIGN KEY (account_id) REFERENCES app.accounts(id)",
+              "ALTER TABLE \"app\".\"members\" ADD CONSTRAINT \"members_organization_id_account_id_key\" UNIQUE (organization_id, account_id)",
+              "ALTER TABLE \"app\".\"members\" ADD CONSTRAINT \"members_pkey\" PRIMARY KEY (id)",
+              "ALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"fk_handle_registry\" FOREIGN KEY (handle, is_organization) REFERENCES app.handle_registry(handle, is_organization)",
+              "ALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_avatar_id_fkey\" FOREIGN KEY (avatar_id) REFERENCES storage.objects(id)",
+              "ALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_bio_check\" CHECK ((length(bio) <= 512))",
+              "ALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_display_name_check\" CHECK ((length(display_name) <= 128))",
+              "ALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_handle_key\" UNIQUE (handle)",
+              "ALTER TABLE \"app\".\"organizations\" ADD CONSTRAINT \"organizations_pkey\" PRIMARY KEY (id)",
+              "ALTER TABLE \"app\".\"members\" ADD CONSTRAINT \"members_organization_id_fkey\" FOREIGN KEY (organization_id) REFERENCES app.organizations(id)",
+              "ALTER TABLE \"app\".\"package_upgrades\" ADD CONSTRAINT \"package_upgrades_package_id_from_version_struct_to_version__key\" UNIQUE (package_id, from_version_struct, to_version_struct)",
+              "ALTER TABLE \"app\".\"package_upgrades\" ADD CONSTRAINT \"package_upgrades_pkey\" PRIMARY KEY (id)",
+              "ALTER TABLE \"app\".\"package_versions\" ADD CONSTRAINT \"package_versions_package_id_version_struct_key\" UNIQUE (package_id, version_struct)",
+              "ALTER TABLE \"app\".\"package_versions\" ADD CONSTRAINT \"package_versions_pkey\" PRIMARY KEY (id)",
+              "ALTER TABLE \"app\".\"packages\" ADD CONSTRAINT \"packages_handle_fkey\" FOREIGN KEY (handle) REFERENCES app.handle_registry(handle)",
+              "ALTER TABLE \"app\".\"packages\" ADD CONSTRAINT \"packages_handle_partial_name_key\" UNIQUE (handle, partial_name)",
+              "ALTER TABLE \"app\".\"packages\" ADD CONSTRAINT \"packages_pkey\" PRIMARY KEY (id)",
+              "ALTER TABLE \"app\".\"package_upgrades\" ADD CONSTRAINT \"package_upgrades_package_id_fkey\" FOREIGN KEY (package_id) REFERENCES app.packages(id)",
+              "ALTER TABLE \"app\".\"package_versions\" ADD CONSTRAINT \"package_versions_package_id_fkey\" FOREIGN KEY (package_id) REFERENCES app.packages(id)",
+              "ALTER DOMAIN \"app\".\"semver\" ADD CONSTRAINT \"semver_check\" CHECK (app.is_valid(VALUE))",
+              "ALTER DOMAIN \"app\".\"valid_name\" ADD CONSTRAINT \"valid_name_check\" CHECK ((VALUE ~ '^[A-z][A-z0-9\\_]{2,32}$'::citext))",
+              "CREATE VIEW \"public\".\"accounts\" AS  SELECT acc.id,\n    acc.handle,\n    obj.name AS avatar_path,\n    acc.display_name,\n    acc.bio,\n    acc.contact_email,\n    acc.created_at\n   FROM (app.accounts acc\n     LEFT JOIN storage.objects obj ON ((acc.avatar_id = obj.id)));",
+              "CREATE VIEW \"public\".\"members\" AS  SELECT aio.organization_id,\n    aio.account_id,\n    aio.role,\n    aio.created_at\n   FROM app.members aio;",
+              "CREATE VIEW \"public\".\"organizations\" AS  SELECT org.id,\n    org.handle,\n    obj.name AS avatar_path,\n    org.display_name,\n    org.bio,\n    org.contact_email,\n    org.created_at\n   FROM (app.organizations org\n     LEFT JOIN storage.objects obj ON ((org.avatar_id = obj.id)));",
+              "CREATE VIEW \"public\".\"package_upgrades\" AS  SELECT pu.id,\n    pu.package_id,\n    pa.package_name,\n    pu.from_version,\n    pu.to_version,\n    pu.sql,\n    pu.created_at\n   FROM (app.packages pa\n     JOIN app.package_upgrades pu ON ((pa.id = pu.package_id)));",
+              "CREATE VIEW \"public\".\"package_versions\" AS  SELECT pv.id,\n    pv.package_id,\n    pa.package_name,\n    pv.version,\n    pv.sql,\n    pv.description_md,\n    pa.control_description,\n    pa.control_requires,\n    pv.created_at\n   FROM (app.packages pa\n     JOIN app.package_versions pv ON ((pa.id = pv.package_id)));",
+              "CREATE VIEW \"public\".\"packages\" AS  SELECT pa.id,\n    pa.package_name,\n    pa.handle,\n    pa.partial_name,\n    newest_ver.version AS latest_version,\n    newest_ver.description_md,\n    pa.control_description,\n    pa.control_requires,\n    pa.created_at\n   FROM app.packages pa,\n    LATERAL ( SELECT pv.id,\n            pv.package_id,\n            pv.version_struct,\n            pv.version,\n            pv.sql,\n            pv.description_md,\n            pv.created_at\n           FROM app.package_versions pv\n          WHERE (pv.package_id = pa.id)\n          ORDER BY pv.version_struct\n         LIMIT 1) newest_ver;",
+              "CREATE OR REPLACE FUNCTION public.search_packages(handle citext DEFAULT NULL::citext, partial_name citext DEFAULT NULL::citext)\n RETURNS SETOF packages\n LANGUAGE sql\n STABLE\nAS $function$\n    select *\n    from public.packages\n    where\n        ($1 is null or handle <% $1 or handle ~ $1)\n        and\n        ($2 is null or partial_name <% $2 or partial_name ~ $2)\n    order by\n        coalesce(extensions.similarity($1, handle), 0) + coalesce(extensions.similarity($2, partial_name), 0) desc,\n        created_at desc;\n$function$",
+              "CREATE INDEX packages_handle_search_idx ON app.packages USING gin (handle gin_trgm_ops)",
+              "CREATE INDEX packages_partial_name_search_idx ON app.packages USING gin (partial_name gin_trgm_ops)",
+              "CREATE TRIGGER on_app_organization_created AFTER INSERT ON app.organizations FOR EACH ROW EXECUTE FUNCTION app.register_organization_creator_as_member()",
+              "CREATE POLICY \"accounts_select_policy\" ON \"app\".\"accounts\" FOR SELECT TO \"authenticated\" USING (true)",
+              "CREATE POLICY \"accounts_update_policy\" ON \"app\".\"accounts\" FOR UPDATE TO \"authenticated\" USING ((id = uid()))",
+              "CREATE POLICY \"members_delete_policy\" ON \"app\".\"members\" FOR DELETE TO \"authenticated\" USING (app.is_organization_maintainer(uid(), organization_id))",
+              "CREATE POLICY \"members_insert_policy\" ON \"app\".\"members\" FOR INSERT TO \"authenticated\" WITH CHECK (app.is_organization_maintainer(uid(), organization_id))",
+              "CREATE POLICY \"members_select_policy\" ON \"app\".\"members\" FOR SELECT TO \"authenticated\" USING (true)",
+              "CREATE POLICY \"organizations_insert_policy\" ON \"app\".\"organizations\" FOR INSERT TO \"authenticated\" WITH CHECK (true)",
+              "CREATE POLICY \"organizations_select_policy\" ON \"app\".\"organizations\" FOR SELECT TO \"authenticated\" USING (true)",
+              "CREATE POLICY \"organizations_update_policy\" ON \"app\".\"organizations\" FOR UPDATE TO \"authenticated\" USING (app.is_organization_maintainer(uid(), id))",
+              "CREATE POLICY \"package_upgrades_insert_policy\" ON \"app\".\"package_upgrades\" FOR INSERT TO \"authenticated\" WITH CHECK (app.is_package_maintainer(uid(), package_id))",
+              "CREATE POLICY \"package_upgrades_select_policy\" ON \"app\".\"package_upgrades\" FOR SELECT TO PUBLIC USING (true)",
+              "CREATE POLICY \"package_upgrades_update_policy\" ON \"app\".\"package_upgrades\" FOR UPDATE TO \"authenticated\" USING (app.is_package_maintainer(uid(), package_id))",
+              "CREATE POLICY \"package_versions_insert_policy\" ON \"app\".\"package_versions\" FOR INSERT TO \"authenticated\" WITH CHECK (app.is_package_maintainer(uid(), package_id))",
+              "CREATE POLICY \"package_versions_select_policy\" ON \"app\".\"package_versions\" FOR SELECT TO PUBLIC USING (true)",
+              "CREATE POLICY \"package_versions_update_policy\" ON \"app\".\"package_versions\" FOR UPDATE TO \"authenticated\" USING (app.is_package_maintainer(uid(), package_id))",
+              "CREATE POLICY \"package_insert_policy\" ON \"app\".\"packages\" FOR INSERT TO \"authenticated\" WITH CHECK (app.is_handle_maintainer(uid(), handle))",
+              "CREATE POLICY \"packages_select_policy\" ON \"app\".\"packages\" FOR SELECT TO \"authenticated\" USING (true)",
+              "COMMENT ON EXTENSION \"citext\" IS 'data type for case-insensitive character strings'",
+              "COMMENT ON EXTENSION \"pg_cron\" IS 'Job scheduler for PostgreSQL'",
+              "COMMENT ON EXTENSION \"pg_trgm\" IS 'text similarity measurement and index searching based on trigrams'",
+              "GRANT EXECUTE ON FUNCTION \"public\".\"search_packages\"(citext, citext) TO \"anon\"",
+              "GRANT EXECUTE ON FUNCTION \"public\".\"search_packages\"(citext, citext) TO \"authenticated\"",
+              "GRANT EXECUTE ON FUNCTION \"public\".\"search_packages\"(citext, citext) TO \"service_role\"",
+              "GRANT USAGE ON SCHEMA \"app\" TO \"anon\"",
+              "GRANT USAGE ON SCHEMA \"app\" TO \"authenticated\"",
+              "GRANT SELECT ON TABLE \"app\".\"accounts\" TO \"anon\"",
+              "GRANT SELECT ON TABLE \"app\".\"accounts\" TO \"authenticated\"",
+              "GRANT SELECT ON TABLE \"app\".\"handle_registry\" TO \"anon\"",
+              "GRANT SELECT ON TABLE \"app\".\"handle_registry\" TO \"authenticated\"",
+              "GRANT SELECT ON TABLE \"app\".\"members\" TO \"anon\"",
+              "GRANT DELETE, SELECT ON TABLE \"app\".\"members\" TO \"authenticated\"",
+              "GRANT SELECT ON TABLE \"app\".\"organizations\" TO \"anon\"",
+              "GRANT SELECT ON TABLE \"app\".\"organizations\" TO \"authenticated\"",
+              "GRANT SELECT ON TABLE \"app\".\"package_upgrades\" TO \"anon\"",
+              "GRANT SELECT ON TABLE \"app\".\"package_upgrades\" TO \"authenticated\"",
+              "GRANT SELECT ON TABLE \"app\".\"package_versions\" TO \"anon\"",
+              "GRANT SELECT ON TABLE \"app\".\"package_versions\" TO \"authenticated\"",
+              "GRANT SELECT ON TABLE \"app\".\"packages\" TO \"anon\"",
+              "GRANT SELECT ON TABLE \"app\".\"packages\" TO \"authenticated\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"accounts\" TO \"anon\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"accounts\" TO \"authenticated\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"accounts\" TO \"service_role\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"members\" TO \"anon\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"members\" TO \"authenticated\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"members\" TO \"service_role\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"organizations\" TO \"anon\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"organizations\" TO \"authenticated\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"organizations\" TO \"service_role\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_upgrades\" TO \"anon\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_upgrades\" TO \"authenticated\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_upgrades\" TO \"service_role\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_versions\" TO \"anon\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_versions\" TO \"authenticated\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"package_versions\" TO \"service_role\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"packages\" TO \"anon\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"packages\" TO \"authenticated\"",
+              "GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE \"public\".\"packages\" TO \"service_role\"",
+              "ALTER DEFAULT PRIVILEGES FOR ROLE \"postgres\" IN SCHEMA \"app\" GRANT SELECT ON TABLES TO \"anon\"",
+              "ALTER DEFAULT PRIVILEGES FOR ROLE \"postgres\" IN SCHEMA \"app\" GRANT SELECT ON TABLES TO \"authenticated\""
+            ],
+            "hasDiff": true,
+            "stmtCountMismatch": true,
+            "speedupRatio": 22.06104887382612,
+            "kind": "dbdev-fixture",
+            "applyCheck": {
+              "bucket": "old-fingerprint-gate",
+              "oldConverges": false,
+              "newConverges": true,
+              "note": "old apply status=fingerprint_mismatch"
+            }
+          },
+          {
+            "dirName": "dbdev-fixture-zero-diff",
+            "metrics": {
+              "scenario": "dbdev-fixture-zero-diff",
+              "profile": "supabase",
+              "old": {
+                "statementCount": 0,
+                "charCount": 0,
+                "planMs": 1547.0519579999982,
+                "statements": [],
+                "planNull": true
+              },
+              "new": {
+                "statementCount": 0,
+                "charCount": 0,
+                "planMs": 36.958708000001934,
+                "actionCount": 0,
+                "filteredDeltaCount": 0,
+                "renameCandidateCount": 0,
+                "safetyReport": {
+                  "destructiveActions": 0,
+                  "rewriteRiskActions": 0,
+                  "nonTransactionalActions": 0,
+                  "lockClasses": {}
+                }
+              },
+              "timing": {
+                "oldPlanMs": 1547.0519579999982,
+                "newPlanMs": 36.958708000001934,
+                "totalMs": 1841.810542000001
+              },
+              "applyCheck": {
+                "bucket": "both-converge",
+                "oldConverges": true,
+                "newConverges": true
+              }
+            },
+            "oldSql": "",
+            "newSql": "",
+            "sqlDiff": "",
+            "newStatements": [],
+            "hasDiff": false,
+            "stmtCountMismatch": false,
+            "speedupRatio": 41.85892964656441,
+            "kind": "dbdev-fixture",
+            "applyCheck": {
+              "bucket": "both-converge",
+              "oldConverges": true,
+              "newConverges": true
+            }
+          }
+        ],
+        "suiteSummary": [
+          {
+            "scenario": "table-ops--comments",
+            "kind": "corpus",
+            "oldStatements": 6,
+            "newStatements": 6,
+            "oldPlanMs": 245.77654200000006,
+            "newPlanMs": 4.339083000000073,
+            "applyBucket": "both-converge"
+          },
+          {
+            "scenario": "table-ops--empty-table",
+            "kind": "corpus",
+            "oldStatements": 2,
+            "newStatements": 2,
+            "oldPlanMs": 213.9007499999998,
+            "newPlanMs": 2.8903330000002825,
+            "applyBucket": "both-converge"
+          },
+          {
+            "scenario": "function-ops--simple-create",
+            "kind": "corpus",
+            "oldStatements": 2,
+            "newStatements": 1,
+            "oldPlanMs": 203.7461669999998,
+            "newPlanMs": 1.7964160000001357,
+            "applyBucket": "both-converge"
+          },
+          {
+            "scenario": "type-ops--enum-create",
+            "kind": "corpus",
+            "oldStatements": 1,
+            "newStatements": 1,
+            "oldPlanMs": 198.3218750000001,
+            "newPlanMs": 1.3949999999999818,
+            "applyBucket": "both-converge"
+          },
+          {
+            "scenario": "view-operations--simple-create",
+            "kind": "corpus",
+            "oldStatements": 1,
+            "newStatements": 1,
+            "oldPlanMs": 233.8597920000002,
+            "newPlanMs": 0.3445420000007289,
+            "applyBucket": "both-converge"
+          },
+          {
+            "scenario": "dbdev-fixture-core-roundtrip",
+            "kind": "dbdev-fixture",
+            "oldStatements": 142,
+            "newStatements": 154,
+            "oldPlanMs": 1009.5567919999994,
+            "newPlanMs": 45.76195800000096,
+            "applyBucket": "old-fingerprint-gate"
+          },
+          {
+            "scenario": "dbdev-fixture-zero-diff",
+            "kind": "dbdev-fixture",
+            "oldStatements": 0,
+            "newStatements": 0,
+            "oldPlanMs": 1547.0519579999982,
+            "newPlanMs": 36.958708000001934,
+            "applyBucket": "both-converge"
+          }
+        ]
+      }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/languages/sql.min.js"></script>
+    <script>
+      const BUCKET_COLORS = {
+        "both-converge": "#1a7f37",
+        "old-fingerprint-gate": "#0969da",
+        "accepted-difference-acl": "#bf8700",
+        "old-fails-new-converges": "#bf8700",
+        "new-fails-old-converges": "#cf222e",
+        "both-fail": "#cf222e",
+        "not-checked": "#656d76",
+      };
+      const payload = JSON.parse(
+        document.getElementById("payload").textContent,
+      );
+
+      function esc(s) {
+        return String(s ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
+      function bucketBadge(bucket) {
+        const color = BUCKET_COLORS[bucket] || "#656d76";
+        return (
+          '<span class="badge" style="background:' +
+          color +
+          '">' +
+          esc(bucket) +
+          "</span>"
+        );
+      }
+
+      function formatMs(ms) {
+        return ms < 10 ? ms.toFixed(1) : Math.round(ms).toString();
+      }
+
+      function scrollToScenario(id) {
+        const el = document.getElementById("scenario-" + id);
+        if (!el) return;
+        el.classList.add("open");
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        document
+          .querySelectorAll("#summary-body tr")
+          .forEach((r) => r.classList.remove("highlight"));
+        const row = document.querySelector(
+          '#summary-body tr[data-id="' + id + '"]',
+        );
+        if (row) row.classList.add("highlight");
+        document
+          .querySelectorAll("nav a")
+          .forEach((a) => a.classList.toggle("active", a.dataset.id === id));
+      }
+
+      function renderMeta() {
+        document.getElementById("meta").innerHTML =
+          "Run: <code>" +
+          esc(payload.runDir) +
+          "</code> · Generated " +
+          new Date(payload.generatedAt).toLocaleString();
+      }
+
+      function renderCards() {
+        const s = payload.summary;
+        const cards = [
+          ["Scenarios", s.scenarioCount],
+          ["Stmt mismatches", s.stmtCountMismatches],
+          ["Median speedup", s.medianSpeedup + "×"],
+          ["Prove failed", s.proveFailed],
+        ];
+        document.getElementById("cards").innerHTML = cards
+          .map(
+            ([l, v]) =>
+              '<div class="card"><div class="label">' +
+              esc(l) +
+              '</div><div class="value">' +
+              esc(v) +
+              "</div></div>",
+          )
+          .join("");
+      }
+
+      function makeChartClickHandler(labels) {
+        return (_evt, elements) => {
+          if (!elements.length) return;
+          scrollToScenario(labels[elements[0].index]);
+        };
+      }
+
+      function renderCharts() {
+        const charts = payload.summary.charts;
+        const section = document.getElementById("charts");
+        section.innerHTML =
+          '<div class="chart-box"><h3>Plan time (ms)</h3><canvas id="chart-plan"></canvas></div>' +
+          '<div class="chart-box"><h3>Speedup ratio</h3>' +
+          '<div class="chart-controls"><label><input type="checkbox" id="log-speedup" /> Log scale</label></div>' +
+          '<canvas id="chart-speedup"></canvas></div>' +
+          '<div class="chart-box"><h3>Statement counts</h3><canvas id="chart-stmts"></canvas></div>' +
+          '<div class="chart-box"><h3>Apply buckets</h3><canvas id="chart-buckets"></canvas></div>';
+
+        const planCtx = document.getElementById("chart-plan");
+        new Chart(planCtx, {
+          type: "bar",
+          data: {
+            labels: charts.planTime.labels,
+            datasets: [
+              {
+                label: "Old (pg-delta)",
+                data: charts.planTime.oldMs,
+                backgroundColor: "#8b949e",
+              },
+              {
+                label: "New (pg-delta-next)",
+                data: charts.planTime.newMs,
+                backgroundColor: "#1a7f37",
+              },
+            ],
+          },
+          options: {
+            indexAxis: "y",
+            responsive: true,
+            onClick: makeChartClickHandler(charts.planTime.labels),
+            plugins: { legend: { position: "bottom" } },
+            scales: { x: { beginAtZero: true } },
+          },
+        });
+
+        const speedupData = charts.speedup.ratios;
+        const speedupChart = new Chart(
+          document.getElementById("chart-speedup"),
+          {
+            type: "bar",
+            data: {
+              labels: charts.speedup.labels,
+              datasets: [
+                {
+                  label: "Speedup ×",
+                  data: speedupData,
+                  backgroundColor: "#0969da",
+                },
+              ],
+            },
+            options: {
+              indexAxis: "y",
+              responsive: true,
+              onClick: makeChartClickHandler(charts.speedup.labels),
+              plugins: { legend: { display: false } },
+              scales: { x: { beginAtZero: true } },
+            },
+          },
+        );
+        document
+          .getElementById("log-speedup")
+          .addEventListener("change", (e) => {
+            speedupChart.options.scales.x.type = e.target.checked
+              ? "logarithmic"
+              : "linear";
+            speedupChart.update();
+          });
+
+        new Chart(document.getElementById("chart-stmts"), {
+          type: "bar",
+          data: {
+            labels: charts.stmtCounts.labels,
+            datasets: [
+              {
+                label: "Old",
+                data: charts.stmtCounts.old,
+                backgroundColor: "#8b949e",
+              },
+              {
+                label: "New",
+                data: charts.stmtCounts.new,
+                backgroundColor: "#1a7f37",
+              },
+            ],
+          },
+          options: {
+            indexAxis: "y",
+            responsive: true,
+            onClick: makeChartClickHandler(charts.stmtCounts.labels),
+            plugins: { legend: { position: "bottom" } },
+            scales: { x: { beginAtZero: true } },
+          },
+        });
+
+        new Chart(document.getElementById("chart-buckets"), {
+          type: "doughnut",
+          data: {
+            labels: charts.applyBuckets.map((b) => b.bucket),
+            datasets: [
+              {
+                data: charts.applyBuckets.map((b) => b.count),
+                backgroundColor: charts.applyBuckets.map(
+                  (b) => BUCKET_COLORS[b.bucket] || "#656d76",
+                ),
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { position: "bottom" } },
+          },
+        });
+      }
+
+      function renderFilters() {
+        const filters = [
+          {
+            id: "filter-mismatch",
+            label: "Stmt count differs",
+            test: (s) => s.stmtCountMismatch,
+          },
+          {
+            id: "filter-diff",
+            label: "Non-empty diff",
+            test: (s) => s.hasDiff,
+          },
+          {
+            id: "filter-not-converge",
+            label: "Not both-converge",
+            test: (s) =>
+              (s.applyCheck?.bucket ?? "not-checked") !== "both-converge",
+          },
+          {
+            id: "filter-prove-fail",
+            label: "Prove failed",
+            test: (s) => s.prove !== undefined && !s.prove.ok,
+          },
+        ];
+        document.getElementById("filters").innerHTML = filters
+          .map(
+            (f) =>
+              '<label><input type="checkbox" id="' +
+              f.id +
+              '" data-filter="' +
+              f.id +
+              '" /> ' +
+              esc(f.label) +
+              "</label>",
+          )
+          .join("");
+        document.querySelectorAll("#filters input").forEach((cb) => {
+          cb.addEventListener("change", applyFilters);
+        });
+      }
+
+      function applyFilters() {
+        const active = [
+          ...document.querySelectorAll("#filters input:checked"),
+        ].map((cb) => cb.id);
+        const filterFns = {
+          "filter-mismatch": (s) => s.stmtCountMismatch,
+          "filter-diff": (s) => s.hasDiff,
+          "filter-not-converge": (s) =>
+            (s.applyCheck?.bucket ?? "not-checked") !== "both-converge",
+          "filter-prove-fail": (s) => s.prove !== undefined && !s.prove.ok,
+        };
+        payload.scenarios.forEach((s) => {
+          const show =
+            active.length === 0 || active.every((id) => filterFns[id](s));
+          const row = document.querySelector(
+            '#summary-body tr[data-id="' + s.dirName + '"]',
+          );
+          const panel = document.getElementById("scenario-" + s.dirName);
+          if (row) row.classList.toggle("hidden", !show);
+          if (panel) panel.style.display = show ? "" : "none";
+        });
+      }
+
+      function renderSummaryTable() {
+        const tbody = document.getElementById("summary-body");
+        tbody.innerHTML = payload.scenarios
+          .map((s) => {
+            const bucket = s.applyCheck?.bucket ?? "not-checked";
+            const prove =
+              s.prove === undefined ? "n/a" : s.prove.ok ? "ok" : "FAIL";
+            const classes = [s.stmtCountMismatch ? "mismatch" : ""]
+              .filter(Boolean)
+              .join(" ");
+            return (
+              '<tr data-id="' +
+              esc(s.dirName) +
+              '" class="' +
+              classes +
+              '">' +
+              '<td><a href="#scenario-' +
+              esc(s.dirName) +
+              '">' +
+              esc(s.dirName) +
+              "</a></td>" +
+              "<td>" +
+              esc(s.kind) +
+              "</td>" +
+              "<td>" +
+              s.metrics.old.statementCount +
+              "</td>" +
+              "<td>" +
+              s.metrics.new.statementCount +
+              "</td>" +
+              "<td>" +
+              formatMs(s.metrics.timing.oldPlanMs) +
+              " → " +
+              formatMs(s.metrics.timing.newPlanMs) +
+              "</td>" +
+              "<td>" +
+              (s.speedupRatio > 0 ? s.speedupRatio.toFixed(1) + "×" : "—") +
+              "</td>" +
+              "<td>" +
+              bucketBadge(bucket) +
+              "</td>" +
+              "<td>" +
+              esc(prove) +
+              "</td>" +
+              "<td>" +
+              (s.hasDiff ? "yes" : "no") +
+              "</td></tr>"
+            );
+          })
+          .join("");
+        tbody.querySelectorAll("a").forEach((a) => {
+          a.addEventListener("click", (e) => {
+            e.preventDefault();
+            scrollToScenario(a.getAttribute("href").replace("#scenario-", ""));
+          });
+        });
+      }
+
+      function renderNav() {
+        document.getElementById("nav").innerHTML =
+          "<h2>Scenarios</h2>" +
+          payload.scenarios
+            .map((s) => {
+              const bucket = s.applyCheck?.bucket ?? "not-checked";
+              const color = BUCKET_COLORS[bucket] || "#656d76";
+              const short = s.dirName
+                .replace(/^corpus-/, "")
+                .replace(/^dbdev-fixture-/, "dbdev-");
+              return (
+                '<a href="#scenario-' +
+                esc(s.dirName) +
+                '" data-id="' +
+                esc(s.dirName) +
+                '">' +
+                '<span class="dot" style="background:' +
+                color +
+                '"></span>' +
+                esc(short) +
+                "</a>"
+              );
+            })
+            .join("");
+        document.querySelectorAll("nav a").forEach((a) => {
+          a.addEventListener("click", (e) => {
+            e.preventDefault();
+            scrollToScenario(a.dataset.id);
+          });
+        });
+      }
+
+      function lockClassBar(safety) {
+        if (!safety?.lockClasses) return "";
+        const lc = safety.lockClasses;
+        const total = Object.values(lc).reduce((a, b) => a + b, 0);
+        if (total === 0) return "";
+        const colors = {
+          accessExclusive: "#cf222e",
+          shareRowExclusive: "#bf8700",
+          share: "#0969da",
+          none: "#656d76",
+        };
+        let html = '<div class="mini-chart" title="Lock classes">';
+        for (const [k, v] of Object.entries(lc)) {
+          if (!v) continue;
+          const pct = ((100 * v) / total).toFixed(1);
+          html +=
+            '<span style="display:inline-block;height:100%;width:' +
+            pct +
+            "%;background:" +
+            (colors[k] || "#ccc") +
+            '" title="' +
+            k +
+            ": " +
+            v +
+            '"></span>';
+        }
+        return html + "</div>";
+      }
+
+      function safetyChips(safety) {
+        if (!safety) return "";
+        const chips = [];
+        if (safety.destructiveActions)
+          chips.push(
+            '<span class="chip error">destructive: ' +
+              safety.destructiveActions +
+              "</span>",
+          );
+        if (safety.rewriteRiskActions)
+          chips.push(
+            '<span class="chip warn">rewrite-risk: ' +
+              safety.rewriteRiskActions +
+              "</span>",
+          );
+        if (safety.nonTransactionalActions)
+          chips.push(
+            '<span class="chip warn">non-txn: ' +
+              safety.nonTransactionalActions +
+              "</span>",
+          );
+        return chips.join("");
+      }
+
+      function renderScenario(s, idx) {
+        const bucket = s.applyCheck?.bucket ?? "not-checked";
+        const id = s.dirName;
+        const maxRows = Math.max(
+          s.metrics.old.statements.length,
+          s.newStatements.length,
+        );
+        let stmtRows = "";
+        for (let i = 0; i < maxRows; i++) {
+          stmtRows +=
+            "<tr><th>" +
+            (i + 1) +
+            "</th>" +
+            "<td><code>" +
+            esc(s.metrics.old.statements[i] ?? "—") +
+            "</code></td>" +
+            "<td><code>" +
+            esc(s.newStatements[i] ?? "—") +
+            "</code></td></tr>";
+        }
+        return (
+          '<article class="scenario" id="scenario-' +
+          esc(id) +
+          '" data-idx="' +
+          idx +
+          '">' +
+          '<div class="scenario-header">' +
+          '<span class="chevron">▶</span>' +
+          "<h2>" +
+          esc(id) +
+          "</h2>" +
+          bucketBadge(bucket) +
+          '<span class="chip">' +
+          s.metrics.old.statementCount +
+          " → " +
+          s.metrics.new.statementCount +
+          " stmts</span>" +
+          '<span class="chip">' +
+          formatMs(s.metrics.timing.oldPlanMs) +
+          "ms → " +
+          formatMs(s.metrics.timing.newPlanMs) +
+          "ms</span>" +
+          "</div>" +
+          '<div class="scenario-body">' +
+          (s.planError
+            ? '<div class="error-box">Plan error: ' +
+              esc(s.planError) +
+              "</div>"
+            : "") +
+          '<div class="metrics-strip">' +
+          '<span class="chip">profile: ' +
+          esc(s.metrics.profile) +
+          "</span>" +
+          safetyChips(s.metrics.new.safetyReport) +
+          (s.applyCheck?.note
+            ? '<span class="chip warn">' + esc(s.applyCheck.note) + "</span>"
+            : "") +
+          "</div>" +
+          lockClassBar(s.metrics.new.safetyReport) +
+          '<div class="tabs" data-scenario="' +
+          esc(id) +
+          '">' +
+          '<button class="tab active" data-tab="side">Side by side</button>' +
+          '<button class="tab" data-tab="diff">Unified diff</button>' +
+          '<button class="tab" data-tab="stmts">Statements</button>' +
+          "</div>" +
+          '<div class="tab-panel active" data-panel="side">' +
+          '<div class="sql-panes">' +
+          '<div class="sql-pane"><div class="pane-label old">old.sql (pg-delta)</div>' +
+          '<div class="sql-scroll"><pre class="hljs-sql"><code>' +
+          esc(s.oldSql) +
+          "</code></pre></div></div>" +
+          '<div class="sql-pane"><div class="pane-label new">new.sql (pg-delta-next)</div>' +
+          '<div class="sql-scroll"><pre class="hljs-sql"><code>' +
+          esc(s.newSql) +
+          "</code></pre></div></div>" +
+          "</div></div>" +
+          '<div class="tab-panel" data-panel="diff"><div class="diff-container" data-diff="' +
+          idx +
+          '"></div></div>' +
+          '<div class="tab-panel" data-panel="stmts"><table class="stmt-table"><thead><tr><th>#</th><th>Old</th><th>New</th></tr></thead><tbody>' +
+          stmtRows +
+          "</tbody></table></div>" +
+          (s.applyCheck
+            ? '<details class="collapsible"><summary>apply-check.json</summary><pre>' +
+              esc(JSON.stringify(s.applyCheck, null, 2)) +
+              "</pre></details>"
+            : "") +
+          (s.prove
+            ? '<details class="collapsible"><summary>prove.json (ok=' +
+              s.prove.ok +
+              ")</summary><pre>" +
+              esc(JSON.stringify(s.prove, null, 2)) +
+              "</pre></details>"
+            : "") +
+          "</div></article>"
+        );
+      }
+
+      const renderedDiffs = new Set();
+
+      function initScenarioPanel(el) {
+        const idx = el.dataset.idx;
+        el.querySelector(".scenario-header").addEventListener("click", () => {
+          el.classList.toggle("open");
+          if (el.classList.contains("open")) {
+            el.querySelectorAll("pre code").forEach((block) => {
+              if (typeof hljs !== "undefined") hljs.highlightElement(block);
+            });
+            const diffEl = el.querySelector('[data-diff="' + idx + '"]');
+            if (
+              diffEl &&
+              !renderedDiffs.has(idx) &&
+              typeof Diff2Html !== "undefined"
+            ) {
+              const s = payload.scenarios[Number(idx)];
+              const html = Diff2Html.html(s.sqlDiff, {
+                drawFileList: false,
+                matching: "lines",
+                outputFormat: "side-by-side",
+              });
+              diffEl.innerHTML = html;
+              renderedDiffs.add(idx);
+            }
+            syncScroll(el);
+          }
+        });
+
+        el.querySelectorAll(".tab").forEach((tab) => {
+          tab.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const name = tab.dataset.tab;
+            el.querySelectorAll(".tab").forEach((t) =>
+              t.classList.toggle("active", t.dataset.tab === name),
+            );
+            el.querySelectorAll(".tab-panel").forEach((p) =>
+              p.classList.toggle("active", p.dataset.panel === name),
+            );
+            if (name === "diff" && el.classList.contains("open")) {
+              const diffEl = el.querySelector('[data-diff="' + idx + '"]');
+              if (
+                diffEl &&
+                !renderedDiffs.has(idx) &&
+                typeof Diff2Html !== "undefined"
+              ) {
+                const s = payload.scenarios[Number(idx)];
+                diffEl.innerHTML = Diff2Html.html(s.sqlDiff, {
+                  drawFileList: false,
+                  matching: "lines",
+                  outputFormat: "side-by-side",
+                });
+                renderedDiffs.add(idx);
+              }
+            }
+          });
+        });
+      }
+
+      function syncScroll(el) {
+        const panes = el.querySelectorAll(".sql-scroll");
+        if (panes.length !== 2) return;
+        let syncing = false;
+        panes[0].addEventListener("scroll", () => {
+          if (syncing) return;
+          syncing = true;
+          panes[1].scrollTop = panes[0].scrollTop;
+          panes[1].scrollLeft = panes[0].scrollLeft;
+          syncing = false;
+        });
+        panes[1].addEventListener("scroll", () => {
+          if (syncing) return;
+          syncing = true;
+          panes[0].scrollTop = panes[1].scrollTop;
+          panes[0].scrollLeft = panes[1].scrollLeft;
+          syncing = false;
+        });
+      }
+
+      function renderScenarios() {
+        const container = document.getElementById("scenarios");
+        container.innerHTML = payload.scenarios.map(renderScenario).join("");
+        container.querySelectorAll(".scenario").forEach(initScenarioPanel);
+      }
+
+      renderMeta();
+      renderCards();
+      renderCharts();
+      renderFilters();
+      renderSummaryTable();
+      renderNav();
+      renderScenarios();
+
+      if (location.hash.startsWith("#scenario-")) {
+        scrollToScenario(location.hash.replace("#scenario-", ""));
+      }
+    </script>
+  </body>
+</html>

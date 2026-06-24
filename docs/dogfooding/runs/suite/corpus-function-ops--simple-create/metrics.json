@@ -1,0 +1,40 @@
+{
+  "scenario": "corpus-function-ops--simple-create",
+  "profile": "raw",
+  "old": {
+    "statementCount": 2,
+    "charCount": 176,
+    "planMs": 203.7461669999998,
+    "statements": [
+      "SET check_function_bodies = false",
+      "CREATE FUNCTION test_schema.add_numbers(a integer, b integer)\n RETURNS integer\n LANGUAGE sql\n IMMUTABLE\nAS $function$SELECT $1 + $2$function$"
+    ],
+    "planNull": false
+  },
+  "new": {
+    "statementCount": 1,
+    "charCount": 153,
+    "planMs": 1.7964160000001357,
+    "actionCount": 1,
+    "filteredDeltaCount": 0,
+    "renameCandidateCount": 0,
+    "safetyReport": {
+      "destructiveActions": 0,
+      "rewriteRiskActions": 0,
+      "nonTransactionalActions": 0,
+      "lockClasses": {
+        "none": 1
+      }
+    }
+  },
+  "timing": {
+    "oldPlanMs": 203.7461669999998,
+    "newPlanMs": 1.7964160000001357,
+    "totalMs": 296.18012499999986
+  },
+  "applyCheck": {
+    "bucket": "both-converge",
+    "oldConverges": true,
+    "newConverges": true
+  }
+}

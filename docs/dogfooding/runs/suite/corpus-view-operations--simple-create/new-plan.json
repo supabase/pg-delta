@@ -1,0 +1,190 @@
+{
+  "formatVersion": 1,
+  "engineVersion": "0.1.0",
+  "source": {
+    "fingerprint": "fb93119744b0fa479059a82588f6204746c5de1159b7c3e4a0cd63485473b312"
+  },
+  "target": {
+    "fingerprint": "d12a1f8090e36c7d85dacdb4b3be6bf7e17cd5dcd662b247793b8b0eb2547ad4"
+  },
+  "preamble": [
+    {
+      "name": "check_function_bodies",
+      "value": "off"
+    }
+  ],
+  "deltas": [
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "acl",
+          "target": {
+            "kind": "view",
+            "schema": "test_schema",
+            "name": "active_users"
+          },
+          "grantee": "test"
+        },
+        "parent": {
+          "kind": "view",
+          "schema": "test_schema",
+          "name": "active_users"
+        },
+        "payload": {
+          "privileges": [
+            "DELETE",
+            "INSERT",
+            "MAINTAIN",
+            "REFERENCES",
+            "SELECT",
+            "TRIGGER",
+            "TRUNCATE",
+            "UPDATE"
+          ],
+          "grantable": []
+        }
+      }
+    },
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "view",
+          "schema": "test_schema",
+          "name": "active_users"
+        },
+        "parent": {
+          "kind": "schema",
+          "name": "test_schema"
+        },
+        "payload": {
+          "def": " SELECT id,\n    name,\n    email\n   FROM test_schema.users\n  WHERE (email IS NOT NULL);",
+          "reloptions": null
+        }
+      }
+    },
+    {
+      "verb": "link",
+      "edge": {
+        "from": {
+          "kind": "view",
+          "schema": "test_schema",
+          "name": "active_users"
+        },
+        "to": {
+          "kind": "column",
+          "schema": "test_schema",
+          "table": "users",
+          "name": "email"
+        },
+        "kind": "depends"
+      }
+    },
+    {
+      "verb": "link",
+      "edge": {
+        "from": {
+          "kind": "view",
+          "schema": "test_schema",
+          "name": "active_users"
+        },
+        "to": {
+          "kind": "column",
+          "schema": "test_schema",
+          "table": "users",
+          "name": "id"
+        },
+        "kind": "depends"
+      }
+    },
+    {
+      "verb": "link",
+      "edge": {
+        "from": {
+          "kind": "view",
+          "schema": "test_schema",
+          "name": "active_users"
+        },
+        "to": {
+          "kind": "column",
+          "schema": "test_schema",
+          "table": "users",
+          "name": "name"
+        },
+        "kind": "depends"
+      }
+    },
+    {
+      "verb": "link",
+      "edge": {
+        "from": {
+          "kind": "view",
+          "schema": "test_schema",
+          "name": "active_users"
+        },
+        "to": {
+          "kind": "schema",
+          "name": "test_schema"
+        },
+        "kind": "depends"
+      }
+    },
+    {
+      "verb": "link",
+      "edge": {
+        "from": {
+          "kind": "view",
+          "schema": "test_schema",
+          "name": "active_users"
+        },
+        "to": {
+          "kind": "role",
+          "name": "test"
+        },
+        "kind": "owner"
+      }
+    }
+  ],
+  "filteredDeltas": [],
+  "capability": {
+    "role": "test",
+    "isSuperuser": true,
+    "memberOf": ["test"]
+  },
+  "renameCandidates": [],
+  "actions": [
+    {
+      "sql": "CREATE VIEW \"test_schema\".\"active_users\" AS  SELECT id,\n    name,\n    email\n   FROM test_schema.users\n  WHERE (email IS NOT NULL);",
+      "verb": "create",
+      "produces": [
+        {
+          "kind": "view",
+          "schema": "test_schema",
+          "name": "active_users"
+        }
+      ],
+      "consumes": [
+        {
+          "kind": "schema",
+          "name": "test_schema"
+        }
+      ],
+      "destroys": [],
+      "releases": [],
+      "transactionality": "transactional",
+      "lockClass": "none",
+      "newSegmentBefore": false,
+      "dataLoss": "none",
+      "rewriteRisk": false
+    }
+  ],
+  "safetyReport": {
+    "destructiveActions": 0,
+    "rewriteRiskActions": 0,
+    "nonTransactionalActions": 0,
+    "lockClasses": {
+      "none": 1
+    }
+  }
+}

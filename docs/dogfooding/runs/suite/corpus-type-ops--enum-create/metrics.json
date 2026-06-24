@@ -1,0 +1,39 @@
+{
+  "scenario": "corpus-type-ops--enum-create",
+  "profile": "raw",
+  "old": {
+    "statementCount": 1,
+    "charCount": 59,
+    "planMs": 198.3218750000001,
+    "statements": [
+      "CREATE TYPE test_schema.mood AS ENUM ('sad', 'ok', 'happy')"
+    ],
+    "planNull": false
+  },
+  "new": {
+    "statementCount": 1,
+    "charCount": 63,
+    "planMs": 1.3949999999999818,
+    "actionCount": 1,
+    "filteredDeltaCount": 0,
+    "renameCandidateCount": 0,
+    "safetyReport": {
+      "destructiveActions": 0,
+      "rewriteRiskActions": 0,
+      "nonTransactionalActions": 0,
+      "lockClasses": {
+        "none": 1
+      }
+    }
+  },
+  "timing": {
+    "oldPlanMs": 198.3218750000001,
+    "newPlanMs": 1.3949999999999818,
+    "totalMs": 387.2792079999999
+  },
+  "applyCheck": {
+    "bucket": "both-converge",
+    "oldConverges": true,
+    "newConverges": true
+  }
+}

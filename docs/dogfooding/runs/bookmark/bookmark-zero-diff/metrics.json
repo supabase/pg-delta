@@ -1,0 +1,30 @@
+{
+  "scenario": "bookmark-zero-diff",
+  "profile": "supabase",
+  "old": {
+    "statementCount": 0,
+    "charCount": 0,
+    "planMs": 438.743833,
+    "statements": [],
+    "planNull": true
+  },
+  "new": {
+    "statementCount": 0,
+    "charCount": 0,
+    "planMs": 34.70470900000009,
+    "actionCount": 0,
+    "filteredDeltaCount": 0,
+    "renameCandidateCount": 0,
+    "safetyReport": {
+      "destructiveActions": 0,
+      "rewriteRiskActions": 0,
+      "nonTransactionalActions": 0,
+      "lockClasses": {}
+    }
+  },
+  "timing": {
+    "oldPlanMs": 438.743833,
+    "newPlanMs": 34.70470900000009,
+    "totalMs": 660.7420420000003
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "bookmark-zero-diff": {
+    "oldStatements": 0,
+    "newStatements": 0,
+    "oldPlanMs": 438.743833,
+    "newPlanMs": 34.70470900000009,
+    "applyBucket": "n/a"
+  },
+  "bookmark-add-column": {
+    "oldStatements": 1,
+    "newStatements": 1,
+    "oldPlanMs": 384.2209590000002,
+    "newPlanMs": 30.07995800000026,
+    "applyBucket": "both-converge"
+  },
+  "bookmark-rls-change": {
+    "oldStatements": 1,
+    "newStatements": 1,
+    "oldPlanMs": 391.5308329999998,
+    "newPlanMs": 27.816667000000052,
+    "applyBucket": "both-converge"
+  }
+}

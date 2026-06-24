@@ -1,0 +1,40 @@
+{
+  "scenario": "corpus-table-ops--empty-table",
+  "profile": "raw",
+  "old": {
+    "statementCount": 2,
+    "charCount": 85,
+    "planMs": 213.9007499999998,
+    "statements": [
+      "CREATE SCHEMA test_schema AUTHORIZATION test",
+      "CREATE TABLE test_schema.empty_table ()"
+    ],
+    "planNull": false
+  },
+  "new": {
+    "statementCount": 2,
+    "charCount": 93,
+    "planMs": 2.8903330000002825,
+    "actionCount": 2,
+    "filteredDeltaCount": 0,
+    "renameCandidateCount": 0,
+    "safetyReport": {
+      "destructiveActions": 0,
+      "rewriteRiskActions": 0,
+      "nonTransactionalActions": 0,
+      "lockClasses": {
+        "none": 2
+      }
+    }
+  },
+  "timing": {
+    "oldPlanMs": 213.9007499999998,
+    "newPlanMs": 2.8903330000002825,
+    "totalMs": 300.02029200000015
+  },
+  "applyCheck": {
+    "bucket": "both-converge",
+    "oldConverges": true,
+    "newConverges": true
+  }
+}

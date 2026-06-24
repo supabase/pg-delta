@@ -1,0 +1,12 @@
+--- /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-old-54052.sql	2026-06-23 20:06:28
++++ /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-new-54052.sql	2026-06-23 20:06:28
+@@ -1,5 +1,5 @@
+-CREATE VIEW test_schema.active_users AS SELECT id,
++CREATE VIEW "test_schema"."active_users" AS  SELECT id,
+     name,
+     email
+    FROM test_schema.users
+-  WHERE (email IS NOT NULL)
+\ No newline at end of file
++  WHERE (email IS NOT NULL);
+\ No newline at end of file

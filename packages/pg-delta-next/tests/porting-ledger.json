@@ -387,56 +387,56 @@
   {
     "file": "integration/catalog-model.test.ts",
     "testName": "extract schemas and basic tables",
-    "disposition": "not-ported",
-    "reason": "Requires the Supabase image (base schema fixtures); also asserts old extraction internals"
+    "disposition": "merged",
+    "reason": "Generic extraction proven by tests/extract.test.ts (fact ring) + the bidirectional corpus (every modeled kind); the old Catalog-shape assertions are not re-ported."
   },
   {
     "file": "integration/catalog-model.test.ts",
     "testName": "extract table structure and constraints",
-    "disposition": "not-ported",
-    "reason": "Requires the Supabase image (base schema fixtures); also asserts old extraction internals"
+    "disposition": "merged",
+    "reason": "Generic extraction proven by tests/extract.test.ts (fact ring) + the bidirectional corpus (every modeled kind); the old Catalog-shape assertions are not re-ported."
   },
   {
     "file": "integration/catalog-model.test.ts",
     "testName": "extract view system",
-    "disposition": "not-ported",
-    "reason": "Requires the Supabase image (base schema fixtures); also asserts old extraction internals"
+    "disposition": "merged",
+    "reason": "Generic extraction proven by tests/extract.test.ts (fact ring) + the bidirectional corpus (every modeled kind); the old Catalog-shape assertions are not re-ported."
   },
   {
     "file": "integration/catalog-model.test.ts",
     "testName": "extract database objects",
-    "disposition": "not-ported",
-    "reason": "Requires the Supabase image (base schema fixtures); also asserts old extraction internals"
+    "disposition": "merged",
+    "reason": "Generic extraction proven by tests/extract.test.ts (fact ring) + the bidirectional corpus (every modeled kind); the old Catalog-shape assertions are not re-ported."
   },
   {
     "file": "integration/catalog-model.test.ts",
     "testName": "extract event triggers",
-    "disposition": "not-ported",
-    "reason": "Requires the Supabase image (base schema fixtures); also asserts old extraction internals"
+    "disposition": "merged",
+    "reason": "Generic extraction proven by tests/extract.test.ts (fact ring) + the bidirectional corpus (every modeled kind); the old Catalog-shape assertions are not re-ported."
   },
   {
     "file": "integration/catalog-model.test.ts",
     "testName": "extract advanced features",
-    "disposition": "not-ported",
-    "reason": "Requires the Supabase image (base schema fixtures); also asserts old extraction internals"
+    "disposition": "merged",
+    "reason": "Generic extraction proven by tests/extract.test.ts (fact ring) + the bidirectional corpus (every modeled kind); the old Catalog-shape assertions are not re-ported."
   },
   {
     "file": "integration/catalog-model.test.ts",
     "testName": "extract temporal table constraints",
-    "disposition": "not-ported",
-    "reason": "Requires the Supabase image (base schema fixtures); also asserts old extraction internals"
+    "disposition": "ported",
+    "corpus": "constraint-ops--temporal-pk-fk"
   },
   {
     "file": "integration/catalog-model.test.ts",
     "testName": "extract type system and dependencies",
-    "disposition": "not-ported",
-    "reason": "Requires the Supabase image (base schema fixtures); also asserts old extraction internals"
+    "disposition": "merged",
+    "reason": "Generic extraction proven by tests/extract.test.ts (fact ring) + the bidirectional corpus (every modeled kind); the old Catalog-shape assertions are not re-ported."
   },
   {
     "file": "integration/catalog-model.test.ts",
     "testName": "extract system objects and filtering",
-    "disposition": "not-ported",
-    "reason": "Requires the Supabase image (base schema fixtures); also asserts old extraction internals"
+    "disposition": "merged",
+    "reason": "Supabase managed-schema/role filtering is covered by tests/supabase-dsl-e2e.test.ts + tests/policy.test.ts (managed-view projection)."
   },
   {
     "file": "integration/check-constraint-ordering.test.ts",

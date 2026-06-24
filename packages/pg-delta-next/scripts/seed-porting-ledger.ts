@@ -335,6 +335,30 @@ const OVERRIDES: Record<string, Omit<LedgerEntry, "file" | "testName">> = {
         "v2 suppresses them structurally: the server/foreign-table/user-mapping are parented to the owner-excluded FDW, so resolveView cascades the exclusion (no Wasm-name match needed). Residual accepted delta (Old-12): a Wasm FDW owned by a NON-system role like postgres would not be owner-excluded.",
     },
 
+  // Tier 4: catalog-model extraction cases. pg-delta-next proves extraction by
+  // the fact-ring (tests/extract.test.ts) + bidirectional corpus round-trips,
+  // not by re-asserting the old Catalog shape. The one distinct case — PG18
+  // temporal PK/FK — is ported as a minVersion:18 corpus scenario (constraints
+  // carry WITHOUT OVERLAPS / PERIOD via pg_get_constraintdef, so they round-trip).
+  "integration/catalog-model.test.ts :: extract temporal table constraints": {
+    disposition: "ported",
+    corpus: "constraint-ops--temporal-pk-fk",
+  },
+  "integration/catalog-model.test.ts :: extract system objects and filtering": {
+    disposition: "merged",
+    reason:
+      "Supabase managed-schema/role filtering is covered by tests/supabase-dsl-e2e.test.ts + tests/policy.test.ts (managed-view projection).",
+  },
+  ...catalogModelMerged([
+    "extract schemas and basic tables",
+    "extract table structure and constraints",
+    "extract view system",
+    "extract database objects",
+    "extract event triggers",
+    "extract advanced features",
+    "extract type system and dependencies",
+  ]),
+
   // Tier 4: Supabase bare-image integration (self-gated, supabaseCluster).
   "integration/extension-operations.test.ts :: preserves pgvector typmod dimensions in catalog extraction and diff SQL":
     { disposition: "ported", nextTest: "supabase-integration.test.ts" },
@@ -388,6 +412,20 @@ function labelPorted(
     out[`integration/security-label-operations.test.ts :: ${n}`] = {
       disposition: "ported",
       nextTest: "security-label-proof.test.ts",
+    };
+  }
+  return out;
+}
+
+function catalogModelMerged(
+  names: string[],
+): Record<string, Omit<LedgerEntry, "file" | "testName">> {
+  const out: Record<string, Omit<LedgerEntry, "file" | "testName">> = {};
+  for (const n of names) {
+    out[`integration/catalog-model.test.ts :: ${n}`] = {
+      disposition: "merged",
+      reason:
+        "Generic extraction proven by tests/extract.test.ts (fact ring) + the bidirectional corpus (every modeled kind); the old Catalog-shape assertions are not re-ported.",
     };
   }
   return out;

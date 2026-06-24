@@ -1,0 +1,341 @@
+{
+  "formatVersion": 1,
+  "engineVersion": "0.1.0",
+  "source": {
+    "fingerprint": "bad635630e2607788e6e5de77181767e66bfebe52f7ecaaf9b18fb6818337a78"
+  },
+  "target": {
+    "fingerprint": "7676ad34909904af8b7b405ad89eac973e13515ca60850c7cbeb8ef7bc661583"
+  },
+  "preamble": [
+    {
+      "name": "check_function_bodies",
+      "value": "off"
+    }
+  ],
+  "deltas": [
+    {
+      "verb": "set",
+      "id": {
+        "kind": "column",
+        "schema": "test_schema",
+        "table": "events",
+        "name": "id"
+      },
+      "attr": "notNull",
+      "from": false,
+      "to": true
+    },
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "comment",
+          "target": {
+            "kind": "column",
+            "schema": "test_schema",
+            "table": "events",
+            "name": "created_at"
+          }
+        },
+        "parent": {
+          "kind": "column",
+          "schema": "test_schema",
+          "table": "events",
+          "name": "created_at"
+        },
+        "payload": {
+          "text": "This is a created_at column"
+        }
+      }
+    },
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "comment",
+          "target": {
+            "kind": "column",
+            "schema": "test_schema",
+            "table": "events",
+            "name": "description"
+          }
+        },
+        "parent": {
+          "kind": "column",
+          "schema": "test_schema",
+          "table": "events",
+          "name": "description"
+        },
+        "payload": {
+          "text": "This is a description column"
+        }
+      }
+    },
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "comment",
+          "target": {
+            "kind": "constraint",
+            "schema": "test_schema",
+            "table": "events",
+            "name": "events_pkey"
+          }
+        },
+        "parent": {
+          "kind": "constraint",
+          "schema": "test_schema",
+          "table": "events",
+          "name": "events_pkey"
+        },
+        "payload": {
+          "text": "This is a test constraint"
+        }
+      }
+    },
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "comment",
+          "target": {
+            "kind": "table",
+            "schema": "test_schema",
+            "name": "events"
+          }
+        },
+        "parent": {
+          "kind": "table",
+          "schema": "test_schema",
+          "name": "events"
+        },
+        "payload": {
+          "text": "This is a test table"
+        }
+      }
+    },
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "constraint",
+          "schema": "test_schema",
+          "table": "events",
+          "name": "events_pkey"
+        },
+        "parent": {
+          "kind": "table",
+          "schema": "test_schema",
+          "name": "events"
+        },
+        "payload": {
+          "def": "PRIMARY KEY (id)",
+          "type": "p",
+          "validated": true
+        }
+      }
+    },
+    {
+      "verb": "link",
+      "edge": {
+        "from": {
+          "kind": "constraint",
+          "schema": "test_schema",
+          "table": "events",
+          "name": "events_pkey"
+        },
+        "to": {
+          "kind": "column",
+          "schema": "test_schema",
+          "table": "events",
+          "name": "id"
+        },
+        "kind": "depends"
+      }
+    }
+  ],
+  "filteredDeltas": [],
+  "capability": {
+    "role": "test",
+    "isSuperuser": true,
+    "memberOf": ["test"]
+  },
+  "renameCandidates": [],
+  "actions": [
+    {
+      "sql": "ALTER TABLE \"test_schema\".\"events\" ALTER COLUMN \"id\" SET NOT NULL",
+      "verb": "alter",
+      "produces": [],
+      "consumes": [
+        {
+          "kind": "column",
+          "schema": "test_schema",
+          "table": "events",
+          "name": "id"
+        }
+      ],
+      "destroys": [],
+      "releases": [],
+      "transactionality": "transactional",
+      "lockClass": "accessExclusive",
+      "newSegmentBefore": false,
+      "dataLoss": "none",
+      "rewriteRisk": false
+    },
+    {
+      "sql": "ALTER TABLE \"test_schema\".\"events\" ADD CONSTRAINT \"events_pkey\" PRIMARY KEY (id)",
+      "verb": "create",
+      "produces": [
+        {
+          "kind": "constraint",
+          "schema": "test_schema",
+          "table": "events",
+          "name": "events_pkey"
+        }
+      ],
+      "consumes": [
+        {
+          "kind": "table",
+          "schema": "test_schema",
+          "name": "events"
+        }
+      ],
+      "destroys": [],
+      "releases": [],
+      "transactionality": "transactional",
+      "lockClass": "accessExclusive",
+      "newSegmentBefore": false,
+      "dataLoss": "none",
+      "rewriteRisk": false
+    },
+    {
+      "sql": "COMMENT ON COLUMN \"test_schema\".\"events\".\"created_at\" IS 'This is a created_at column'",
+      "verb": "create",
+      "produces": [
+        {
+          "kind": "comment",
+          "target": {
+            "kind": "column",
+            "schema": "test_schema",
+            "table": "events",
+            "name": "created_at"
+          }
+        }
+      ],
+      "consumes": [
+        {
+          "kind": "column",
+          "schema": "test_schema",
+          "table": "events",
+          "name": "created_at"
+        }
+      ],
+      "destroys": [],
+      "releases": [],
+      "transactionality": "transactional",
+      "lockClass": "none",
+      "newSegmentBefore": false,
+      "dataLoss": "none",
+      "rewriteRisk": false
+    },
+    {
+      "sql": "COMMENT ON COLUMN \"test_schema\".\"events\".\"description\" IS 'This is a description column'",
+      "verb": "create",
+      "produces": [
+        {
+          "kind": "comment",
+          "target": {
+            "kind": "column",
+            "schema": "test_schema",
+            "table": "events",
+            "name": "description"
+          }
+        }
+      ],
+      "consumes": [
+        {
+          "kind": "column",
+          "schema": "test_schema",
+          "table": "events",
+          "name": "description"
+        }
+      ],
+      "destroys": [],
+      "releases": [],
+      "transactionality": "transactional",
+      "lockClass": "none",
+      "newSegmentBefore": false,
+      "dataLoss": "none",
+      "rewriteRisk": false
+    },
+    {
+      "sql": "COMMENT ON CONSTRAINT \"events_pkey\" ON \"test_schema\".\"events\" IS 'This is a test constraint'",
+      "verb": "create",
+      "produces": [
+        {
+          "kind": "comment",
+          "target": {
+            "kind": "constraint",
+            "schema": "test_schema",
+            "table": "events",
+            "name": "events_pkey"
+          }
+        }
+      ],
+      "consumes": [
+        {
+          "kind": "constraint",
+          "schema": "test_schema",
+          "table": "events",
+          "name": "events_pkey"
+        }
+      ],
+      "destroys": [],
+      "releases": [],
+      "transactionality": "transactional",
+      "lockClass": "none",
+      "newSegmentBefore": false,
+      "dataLoss": "none",
+      "rewriteRisk": false
+    },
+    {
+      "sql": "COMMENT ON TABLE \"test_schema\".\"events\" IS 'This is a test table'",
+      "verb": "create",
+      "produces": [
+        {
+          "kind": "comment",
+          "target": {
+            "kind": "table",
+            "schema": "test_schema",
+            "name": "events"
+          }
+        }
+      ],
+      "consumes": [
+        {
+          "kind": "table",
+          "schema": "test_schema",
+          "name": "events"
+        }
+      ],
+      "destroys": [],
+      "releases": [],
+      "transactionality": "transactional",
+      "lockClass": "none",
+      "newSegmentBefore": false,
+      "dataLoss": "none",
+      "rewriteRisk": false
+    }
+  ],
+  "safetyReport": {
+    "destructiveActions": 0,
+    "rewriteRiskActions": 0,
+    "nonTransactionalActions": 0,
+    "lockClasses": {
+      "accessExclusive": 2,
+      "none": 4
+    }
+  }
+}

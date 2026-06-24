@@ -1,0 +1,214 @@
+{
+  "formatVersion": 1,
+  "engineVersion": "0.1.0",
+  "source": {
+    "fingerprint": "35ed5f944f302c31adc6fb958eb426d6077c3322ea5ecd38a76cd8a3938fcee5"
+  },
+  "target": {
+    "fingerprint": "601a1997ace21b3bcf0681b2c2790f11f4d15f6f107d65c84b1102fced91e9a9"
+  },
+  "preamble": [
+    {
+      "name": "check_function_bodies",
+      "value": "off"
+    }
+  ],
+  "deltas": [
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "acl",
+          "target": {
+            "kind": "schema",
+            "name": "test_schema"
+          },
+          "grantee": "test"
+        },
+        "parent": {
+          "kind": "schema",
+          "name": "test_schema"
+        },
+        "payload": {
+          "privileges": ["CREATE", "USAGE"],
+          "grantable": []
+        }
+      }
+    },
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "acl",
+          "target": {
+            "kind": "table",
+            "schema": "test_schema",
+            "name": "empty_table"
+          },
+          "grantee": "test"
+        },
+        "parent": {
+          "kind": "table",
+          "schema": "test_schema",
+          "name": "empty_table"
+        },
+        "payload": {
+          "privileges": [
+            "DELETE",
+            "INSERT",
+            "MAINTAIN",
+            "REFERENCES",
+            "SELECT",
+            "TRIGGER",
+            "TRUNCATE",
+            "UPDATE"
+          ],
+          "grantable": []
+        }
+      }
+    },
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "schema",
+          "name": "test_schema"
+        },
+        "payload": {}
+      }
+    },
+    {
+      "verb": "link",
+      "edge": {
+        "from": {
+          "kind": "schema",
+          "name": "test_schema"
+        },
+        "to": {
+          "kind": "role",
+          "name": "test"
+        },
+        "kind": "owner"
+      }
+    },
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "table",
+          "schema": "test_schema",
+          "name": "empty_table"
+        },
+        "parent": {
+          "kind": "schema",
+          "name": "test_schema"
+        },
+        "payload": {
+          "persistence": "p",
+          "rowSecurity": false,
+          "forceRowSecurity": false,
+          "replicaIdentity": "d",
+          "replicaIdentityIndex": null,
+          "partitionKey": null,
+          "partitionBound": null,
+          "parentTable": null,
+          "reloptions": null
+        }
+      }
+    },
+    {
+      "verb": "link",
+      "edge": {
+        "from": {
+          "kind": "table",
+          "schema": "test_schema",
+          "name": "empty_table"
+        },
+        "to": {
+          "kind": "schema",
+          "name": "test_schema"
+        },
+        "kind": "depends"
+      }
+    },
+    {
+      "verb": "link",
+      "edge": {
+        "from": {
+          "kind": "table",
+          "schema": "test_schema",
+          "name": "empty_table"
+        },
+        "to": {
+          "kind": "role",
+          "name": "test"
+        },
+        "kind": "owner"
+      }
+    }
+  ],
+  "filteredDeltas": [],
+  "capability": {
+    "role": "test",
+    "isSuperuser": true,
+    "memberOf": ["test"]
+  },
+  "renameCandidates": [],
+  "actions": [
+    {
+      "sql": "CREATE SCHEMA \"test_schema\" AUTHORIZATION \"test\"",
+      "verb": "create",
+      "produces": [
+        {
+          "kind": "schema",
+          "name": "test_schema"
+        }
+      ],
+      "consumes": [
+        {
+          "kind": "role",
+          "name": "test"
+        }
+      ],
+      "destroys": [],
+      "releases": [],
+      "transactionality": "transactional",
+      "lockClass": "none",
+      "newSegmentBefore": false,
+      "dataLoss": "none",
+      "rewriteRisk": false
+    },
+    {
+      "sql": "CREATE TABLE \"test_schema\".\"empty_table\" ()",
+      "verb": "create",
+      "produces": [
+        {
+          "kind": "table",
+          "schema": "test_schema",
+          "name": "empty_table"
+        }
+      ],
+      "consumes": [
+        {
+          "kind": "schema",
+          "name": "test_schema"
+        }
+      ],
+      "destroys": [],
+      "releases": [],
+      "transactionality": "transactional",
+      "lockClass": "none",
+      "newSegmentBefore": false,
+      "dataLoss": "none",
+      "rewriteRisk": false
+    }
+  ],
+  "safetyReport": {
+    "destructiveActions": 0,
+    "rewriteRiskActions": 0,
+    "nonTransactionalActions": 0,
+    "lockClasses": {
+      "none": 2
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "bucket": "old-fingerprint-gate",
+  "oldConverges": false,
+  "newConverges": true,
+  "note": "old apply status=fingerprint_mismatch"
+}

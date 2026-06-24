@@ -1,0 +1,7 @@
+--- /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-old-57124.sql	2026-06-23 17:08:24
++++ /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-new-57124.sql	2026-06-23 17:08:24
+@@ -1 +1 @@
+-CREATE POLICY "Postgres can view all bookmarks" ON public.bookmarks FOR SELECT TO postgres USING (true)
+\ No newline at end of file
++CREATE POLICY "Postgres can view all bookmarks" ON "public"."bookmarks" FOR SELECT TO "postgres" USING (true)
+\ No newline at end of file

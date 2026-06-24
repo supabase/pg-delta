@@ -1,0 +1,160 @@
+{
+  "formatVersion": 1,
+  "engineVersion": "0.1.0",
+  "source": {
+    "fingerprint": "9968eedea5389ca00567762957b2125ce8a4d72ea3950d657855b2d03677b9fd"
+  },
+  "target": {
+    "fingerprint": "5af9ef91b1048b908c9d83bc9119596b54db10fe839cf0122f8d3e9db1468c91"
+  },
+  "preamble": [
+    {
+      "name": "check_function_bodies",
+      "value": "off"
+    }
+  ],
+  "deltas": [
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "acl",
+          "target": {
+            "kind": "function",
+            "schema": "test_schema",
+            "name": "add_numbers",
+            "args": ["integer", "integer"]
+          },
+          "grantee": "PUBLIC"
+        },
+        "parent": {
+          "kind": "function",
+          "schema": "test_schema",
+          "name": "add_numbers",
+          "args": ["integer", "integer"]
+        },
+        "payload": {
+          "privileges": ["EXECUTE"],
+          "grantable": []
+        }
+      }
+    },
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "acl",
+          "target": {
+            "kind": "function",
+            "schema": "test_schema",
+            "name": "add_numbers",
+            "args": ["integer", "integer"]
+          },
+          "grantee": "test"
+        },
+        "parent": {
+          "kind": "function",
+          "schema": "test_schema",
+          "name": "add_numbers",
+          "args": ["integer", "integer"]
+        },
+        "payload": {
+          "privileges": ["EXECUTE"],
+          "grantable": []
+        }
+      }
+    },
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "function",
+          "schema": "test_schema",
+          "name": "add_numbers",
+          "args": ["integer", "integer"]
+        },
+        "parent": {
+          "kind": "schema",
+          "name": "test_schema"
+        },
+        "payload": {
+          "def": "CREATE OR REPLACE FUNCTION test_schema.add_numbers(a integer, b integer)\n RETURNS integer\n LANGUAGE sql\n IMMUTABLE\nAS $function$SELECT $1 + $2$function$\n"
+        }
+      }
+    },
+    {
+      "verb": "link",
+      "edge": {
+        "from": {
+          "kind": "function",
+          "schema": "test_schema",
+          "name": "add_numbers",
+          "args": ["integer", "integer"]
+        },
+        "to": {
+          "kind": "schema",
+          "name": "test_schema"
+        },
+        "kind": "depends"
+      }
+    },
+    {
+      "verb": "link",
+      "edge": {
+        "from": {
+          "kind": "function",
+          "schema": "test_schema",
+          "name": "add_numbers",
+          "args": ["integer", "integer"]
+        },
+        "to": {
+          "kind": "role",
+          "name": "test"
+        },
+        "kind": "owner"
+      }
+    }
+  ],
+  "filteredDeltas": [],
+  "capability": {
+    "role": "test",
+    "isSuperuser": true,
+    "memberOf": ["test"]
+  },
+  "renameCandidates": [],
+  "actions": [
+    {
+      "sql": "CREATE OR REPLACE FUNCTION test_schema.add_numbers(a integer, b integer)\n RETURNS integer\n LANGUAGE sql\n IMMUTABLE\nAS $function$SELECT $1 + $2$function$\n",
+      "verb": "create",
+      "produces": [
+        {
+          "kind": "function",
+          "schema": "test_schema",
+          "name": "add_numbers",
+          "args": ["integer", "integer"]
+        }
+      ],
+      "consumes": [
+        {
+          "kind": "schema",
+          "name": "test_schema"
+        }
+      ],
+      "destroys": [],
+      "releases": [],
+      "transactionality": "transactional",
+      "lockClass": "none",
+      "newSegmentBefore": false,
+      "dataLoss": "none",
+      "rewriteRisk": false
+    }
+  ],
+  "safetyReport": {
+    "destructiveActions": 0,
+    "rewriteRiskActions": 0,
+    "nonTransactionalActions": 0,
+    "lockClasses": {
+      "none": 1
+    }
+  }
+}

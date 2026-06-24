@@ -1,0 +1,1 @@
+CREATE POLICY "Postgres can view all bookmarks" ON public.bookmarks FOR SELECT TO postgres USING (true)

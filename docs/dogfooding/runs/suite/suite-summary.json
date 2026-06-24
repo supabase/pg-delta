@@ -1,0 +1,65 @@
+[
+  {
+    "scenario": "table-ops--comments",
+    "kind": "corpus",
+    "oldStatements": 6,
+    "newStatements": 6,
+    "oldPlanMs": 245.77654200000006,
+    "newPlanMs": 4.339083000000073,
+    "applyBucket": "both-converge"
+  },
+  {
+    "scenario": "table-ops--empty-table",
+    "kind": "corpus",
+    "oldStatements": 2,
+    "newStatements": 2,
+    "oldPlanMs": 213.9007499999998,
+    "newPlanMs": 2.8903330000002825,
+    "applyBucket": "both-converge"
+  },
+  {
+    "scenario": "function-ops--simple-create",
+    "kind": "corpus",
+    "oldStatements": 2,
+    "newStatements": 1,
+    "oldPlanMs": 203.7461669999998,
+    "newPlanMs": 1.7964160000001357,
+    "applyBucket": "both-converge"
+  },
+  {
+    "scenario": "type-ops--enum-create",
+    "kind": "corpus",
+    "oldStatements": 1,
+    "newStatements": 1,
+    "oldPlanMs": 198.3218750000001,
+    "newPlanMs": 1.3949999999999818,
+    "applyBucket": "both-converge"
+  },
+  {
+    "scenario": "view-operations--simple-create",
+    "kind": "corpus",
+    "oldStatements": 1,
+    "newStatements": 1,
+    "oldPlanMs": 233.8597920000002,
+    "newPlanMs": 0.3445420000007289,
+    "applyBucket": "both-converge"
+  },
+  {
+    "scenario": "dbdev-fixture-core-roundtrip",
+    "kind": "dbdev-fixture",
+    "oldStatements": 142,
+    "newStatements": 154,
+    "oldPlanMs": 1009.5567919999994,
+    "newPlanMs": 45.76195800000096,
+    "applyBucket": "old-fingerprint-gate"
+  },
+  {
+    "scenario": "dbdev-fixture-zero-diff",
+    "kind": "dbdev-fixture",
+    "oldStatements": 0,
+    "newStatements": 0,
+    "oldPlanMs": 1547.0519579999982,
+    "newPlanMs": 36.958708000001934,
+    "applyBucket": "both-converge"
+  }
+]

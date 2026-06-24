@@ -1,0 +1,7 @@
+--- /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-old-57124.sql	2026-06-23 17:08:23
++++ /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-new-57124.sql	2026-06-23 17:08:23
+@@ -1 +1 @@
+-ALTER TABLE public.bookmarks ADD COLUMN tags text[]
+\ No newline at end of file
++ALTER TABLE "public"."bookmarks" ADD COLUMN "tags" text[]
+\ No newline at end of file

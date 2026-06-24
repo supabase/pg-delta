@@ -1,0 +1,7 @@
+--- /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-old-54052.sql	2026-06-23 20:06:27
++++ /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-new-54052.sql	2026-06-23 20:06:27
+@@ -1 +1 @@
+-CREATE TYPE test_schema.mood AS ENUM ('sad', 'ok', 'happy')
+\ No newline at end of file
++CREATE TYPE "test_schema"."mood" AS ENUM ('sad', 'ok', 'happy')
+\ No newline at end of file

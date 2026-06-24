@@ -1,0 +1,39 @@
+{
+  "scenario": "corpus-view-operations--simple-create",
+  "profile": "raw",
+  "old": {
+    "statementCount": 1,
+    "charCount": 124,
+    "planMs": 233.8597920000002,
+    "statements": [
+      "CREATE VIEW test_schema.active_users AS SELECT id,\n    name,\n    email\n   FROM test_schema.users\n  WHERE (email IS NOT NULL)"
+    ],
+    "planNull": false
+  },
+  "new": {
+    "statementCount": 1,
+    "charCount": 130,
+    "planMs": 0.3445420000007289,
+    "actionCount": 1,
+    "filteredDeltaCount": 0,
+    "renameCandidateCount": 0,
+    "safetyReport": {
+      "destructiveActions": 0,
+      "rewriteRiskActions": 0,
+      "nonTransactionalActions": 0,
+      "lockClasses": {
+        "none": 1
+      }
+    }
+  },
+  "timing": {
+    "oldPlanMs": 233.8597920000002,
+    "newPlanMs": 0.3445420000007289,
+    "totalMs": 374.4945829999997
+  },
+  "applyCheck": {
+    "bucket": "both-converge",
+    "oldConverges": true,
+    "newConverges": true
+  }
+}

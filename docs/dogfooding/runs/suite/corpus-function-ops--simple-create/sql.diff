@@ -1,0 +1,13 @@
+--- /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-old-54052.sql	2026-06-23 20:06:26
++++ /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-new-54052.sql	2026-06-23 20:06:26
+@@ -1,7 +1,5 @@
+-SET check_function_bodies = false
+-
+-CREATE FUNCTION test_schema.add_numbers(a integer, b integer)
++CREATE OR REPLACE FUNCTION test_schema.add_numbers(a integer, b integer)
+  RETURNS integer
+  LANGUAGE sql
+  IMMUTABLE
+-AS $function$SELECT $1 + $2$function$
+\ No newline at end of file
++AS $function$SELECT $1 + $2$function$

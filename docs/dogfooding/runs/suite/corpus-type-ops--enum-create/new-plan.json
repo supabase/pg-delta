@@ -1,0 +1,153 @@
+{
+  "formatVersion": 1,
+  "engineVersion": "0.1.0",
+  "source": {
+    "fingerprint": "9968eedea5389ca00567762957b2125ce8a4d72ea3950d657855b2d03677b9fd"
+  },
+  "target": {
+    "fingerprint": "10edb13360902a14ff6f90dc4346f4291c24f17a8460085f8855914dfc0ea185"
+  },
+  "preamble": [
+    {
+      "name": "check_function_bodies",
+      "value": "off"
+    }
+  ],
+  "deltas": [
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "acl",
+          "target": {
+            "kind": "type",
+            "schema": "test_schema",
+            "name": "mood"
+          },
+          "grantee": "PUBLIC"
+        },
+        "parent": {
+          "kind": "type",
+          "schema": "test_schema",
+          "name": "mood"
+        },
+        "payload": {
+          "privileges": ["USAGE"],
+          "grantable": []
+        }
+      }
+    },
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "acl",
+          "target": {
+            "kind": "type",
+            "schema": "test_schema",
+            "name": "mood"
+          },
+          "grantee": "test"
+        },
+        "parent": {
+          "kind": "type",
+          "schema": "test_schema",
+          "name": "mood"
+        },
+        "payload": {
+          "privileges": ["USAGE"],
+          "grantable": []
+        }
+      }
+    },
+    {
+      "verb": "add",
+      "fact": {
+        "id": {
+          "kind": "type",
+          "schema": "test_schema",
+          "name": "mood"
+        },
+        "parent": {
+          "kind": "schema",
+          "name": "test_schema"
+        },
+        "payload": {
+          "variant": "enum",
+          "values": ["sad", "ok", "happy"]
+        }
+      }
+    },
+    {
+      "verb": "link",
+      "edge": {
+        "from": {
+          "kind": "type",
+          "schema": "test_schema",
+          "name": "mood"
+        },
+        "to": {
+          "kind": "schema",
+          "name": "test_schema"
+        },
+        "kind": "depends"
+      }
+    },
+    {
+      "verb": "link",
+      "edge": {
+        "from": {
+          "kind": "type",
+          "schema": "test_schema",
+          "name": "mood"
+        },
+        "to": {
+          "kind": "role",
+          "name": "test"
+        },
+        "kind": "owner"
+      }
+    }
+  ],
+  "filteredDeltas": [],
+  "capability": {
+    "role": "test",
+    "isSuperuser": true,
+    "memberOf": ["test"]
+  },
+  "renameCandidates": [],
+  "actions": [
+    {
+      "sql": "CREATE TYPE \"test_schema\".\"mood\" AS ENUM ('sad', 'ok', 'happy')",
+      "verb": "create",
+      "produces": [
+        {
+          "kind": "type",
+          "schema": "test_schema",
+          "name": "mood"
+        }
+      ],
+      "consumes": [
+        {
+          "kind": "schema",
+          "name": "test_schema"
+        }
+      ],
+      "destroys": [],
+      "releases": [],
+      "transactionality": "transactional",
+      "lockClass": "none",
+      "newSegmentBefore": false,
+      "dataLoss": "none",
+      "rewriteRisk": false
+    }
+  ],
+  "safetyReport": {
+    "destructiveActions": 0,
+    "rewriteRiskActions": 0,
+    "nonTransactionalActions": 0,
+    "lockClasses": {
+      "none": 1
+    }
+  }
+}

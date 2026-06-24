@@ -1,0 +1,490 @@
+{
+  "formatVersion": 1,
+  "engineVersion": "0.1.0",
+  "source": {
+    "fingerprint": "be71d5d175df57963d8438ef363a14fbceaf6c8c1ac706fbf669003c09af8051"
+  },
+  "target": {
+    "fingerprint": "be71d5d175df57963d8438ef363a14fbceaf6c8c1ac706fbf669003c09af8051"
+  },
+  "preamble": [
+    {
+      "name": "check_function_bodies",
+      "value": "off"
+    }
+  ],
+  "deltas": [],
+  "filteredDeltas": [],
+  "policy": {
+    "id": "supabase",
+    "assumedRoles": [
+      "anon",
+      "authenticated",
+      "authenticator",
+      "cli_login_postgres",
+      "dashboard_user",
+      "pgbouncer",
+      "pgsodium_keyholder",
+      "pgsodium_keyiduser",
+      "pgsodium_keymaker",
+      "pgtle_admin",
+      "service_role",
+      "supabase_admin",
+      "supabase_auth_admin",
+      "supabase_etl_admin",
+      "supabase_functions_admin",
+      "supabase_read_only_user",
+      "supabase_realtime_admin",
+      "supabase_replication_admin",
+      "supabase_storage_admin",
+      "supabase_superuser"
+    ],
+    "assumedSchemas": [
+      "_analytics",
+      "_realtime",
+      "_supavisor",
+      "auth",
+      "cron",
+      "etl",
+      "extensions",
+      "graphql",
+      "graphql_public",
+      "information_schema",
+      "net",
+      "pgbouncer",
+      "pgmq",
+      "pgmq_public",
+      "pgsodium",
+      "pgsodium_masks",
+      "pgtle",
+      "realtime",
+      "storage",
+      "supabase_functions",
+      "supabase_migrations",
+      "vault"
+    ],
+    "serialize": [],
+    "filter": [
+      {
+        "match": {
+          "all": [
+            {
+              "kind": "extension"
+            },
+            {
+              "name": [
+                "pg_graphql",
+                "pg_stat_statements",
+                "pgsodium",
+                "supabase_vault"
+              ]
+            }
+          ]
+        },
+        "action": "exclude"
+      },
+      {
+        "match": {
+          "all": [
+            {
+              "kind": "extension"
+            },
+            {
+              "verb": ["add", "remove"]
+            }
+          ]
+        },
+        "action": "include"
+      },
+      {
+        "match": {
+          "all": [
+            {
+              "kind": "trigger"
+            },
+            {
+              "schema": [
+                "_analytics",
+                "_realtime",
+                "_supavisor",
+                "auth",
+                "cron",
+                "etl",
+                "extensions",
+                "graphql",
+                "graphql_public",
+                "information_schema",
+                "net",
+                "pgbouncer",
+                "pgmq",
+                "pgmq_public",
+                "pgsodium",
+                "pgsodium_masks",
+                "pgtle",
+                "realtime",
+                "storage",
+                "supabase_functions",
+                "supabase_migrations",
+                "vault"
+              ]
+            },
+            {
+              "not": {
+                "edgeTo": {
+                  "kind": "function",
+                  "schema": [
+                    "_analytics",
+                    "_realtime",
+                    "_supavisor",
+                    "auth",
+                    "cron",
+                    "etl",
+                    "extensions",
+                    "graphql",
+                    "graphql_public",
+                    "information_schema",
+                    "net",
+                    "pgbouncer",
+                    "pgmq",
+                    "pgmq_public",
+                    "pgsodium",
+                    "pgsodium_masks",
+                    "pgtle",
+                    "realtime",
+                    "storage",
+                    "supabase_functions",
+                    "supabase_migrations",
+                    "vault"
+                  ]
+                }
+              }
+            },
+            {
+              "not": {
+                "all": [
+                  {
+                    "schema": "pgmq"
+                  },
+                  {
+                    "any": [
+                      {
+                        "idField": {
+                          "field": "table",
+                          "glob": "q_*"
+                        }
+                      },
+                      {
+                        "idField": {
+                          "field": "table",
+                          "glob": "a_*"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "action": "include"
+      },
+      {
+        "match": {
+          "schema": [
+            "_analytics",
+            "_realtime",
+            "_supavisor",
+            "auth",
+            "cron",
+            "etl",
+            "extensions",
+            "graphql",
+            "graphql_public",
+            "information_schema",
+            "net",
+            "pgbouncer",
+            "pgmq",
+            "pgmq_public",
+            "pgsodium",
+            "pgsodium_masks",
+            "pgtle",
+            "realtime",
+            "storage",
+            "supabase_functions",
+            "supabase_migrations",
+            "vault"
+          ]
+        },
+        "action": "exclude"
+      },
+      {
+        "match": {
+          "all": [
+            {
+              "kind": "schema"
+            },
+            {
+              "name": [
+                "_analytics",
+                "_realtime",
+                "_supavisor",
+                "auth",
+                "cron",
+                "etl",
+                "extensions",
+                "graphql",
+                "graphql_public",
+                "information_schema",
+                "net",
+                "pgbouncer",
+                "pgmq",
+                "pgmq_public",
+                "pgsodium",
+                "pgsodium_masks",
+                "pgtle",
+                "realtime",
+                "storage",
+                "supabase_functions",
+                "supabase_migrations",
+                "vault"
+              ]
+            }
+          ]
+        },
+        "action": "exclude"
+      },
+      {
+        "match": {
+          "owner": [
+            "anon",
+            "authenticated",
+            "authenticator",
+            "cli_login_postgres",
+            "dashboard_user",
+            "pgbouncer",
+            "pgsodium_keyholder",
+            "pgsodium_keyiduser",
+            "pgsodium_keymaker",
+            "pgtle_admin",
+            "service_role",
+            "supabase_admin",
+            "supabase_auth_admin",
+            "supabase_etl_admin",
+            "supabase_functions_admin",
+            "supabase_read_only_user",
+            "supabase_realtime_admin",
+            "supabase_replication_admin",
+            "supabase_storage_admin",
+            "supabase_superuser"
+          ]
+        },
+        "action": "exclude"
+      },
+      {
+        "match": {
+          "all": [
+            {
+              "kind": "role"
+            },
+            {
+              "name": [
+                "anon",
+                "authenticated",
+                "authenticator",
+                "cli_login_postgres",
+                "dashboard_user",
+                "pgbouncer",
+                "pgsodium_keyholder",
+                "pgsodium_keyiduser",
+                "pgsodium_keymaker",
+                "pgtle_admin",
+                "service_role",
+                "supabase_admin",
+                "supabase_auth_admin",
+                "supabase_etl_admin",
+                "supabase_functions_admin",
+                "supabase_read_only_user",
+                "supabase_realtime_admin",
+                "supabase_replication_admin",
+                "supabase_storage_admin",
+                "supabase_superuser"
+              ]
+            }
+          ]
+        },
+        "action": "exclude"
+      },
+      {
+        "match": {
+          "all": [
+            {
+              "kind": "membership"
+            },
+            {
+              "idField": {
+                "field": "member",
+                "glob": [
+                  "anon",
+                  "authenticated",
+                  "authenticator",
+                  "cli_login_postgres",
+                  "dashboard_user",
+                  "pgbouncer",
+                  "pgsodium_keyholder",
+                  "pgsodium_keyiduser",
+                  "pgsodium_keymaker",
+                  "pgtle_admin",
+                  "service_role",
+                  "supabase_admin",
+                  "supabase_auth_admin",
+                  "supabase_etl_admin",
+                  "supabase_functions_admin",
+                  "supabase_read_only_user",
+                  "supabase_realtime_admin",
+                  "supabase_replication_admin",
+                  "supabase_storage_admin",
+                  "supabase_superuser"
+                ]
+              }
+            }
+          ]
+        },
+        "action": "exclude"
+      },
+      {
+        "match": {
+          "all": [
+            {
+              "kind": "membership"
+            },
+            {
+              "idField": {
+                "field": "role",
+                "glob": [
+                  "anon",
+                  "authenticated",
+                  "authenticator",
+                  "cli_login_postgres",
+                  "dashboard_user",
+                  "pgbouncer",
+                  "pgsodium_keyholder",
+                  "pgsodium_keyiduser",
+                  "pgsodium_keymaker",
+                  "pgtle_admin",
+                  "service_role",
+                  "supabase_admin",
+                  "supabase_auth_admin",
+                  "supabase_etl_admin",
+                  "supabase_functions_admin",
+                  "supabase_read_only_user",
+                  "supabase_realtime_admin",
+                  "supabase_replication_admin",
+                  "supabase_storage_admin",
+                  "supabase_superuser"
+                ]
+              }
+            }
+          ]
+        },
+        "action": "exclude"
+      },
+      {
+        "match": {
+          "all": [
+            {
+              "kind": "acl"
+            },
+            {
+              "target": {
+                "kind": "fdw"
+              }
+            }
+          ]
+        },
+        "action": "exclude"
+      },
+      {
+        "match": {
+          "all": [
+            {
+              "kind": ["acl", "comment", "securityLabel"]
+            },
+            {
+              "any": [
+                {
+                  "target": {
+                    "schema": [
+                      "_analytics",
+                      "_realtime",
+                      "_supavisor",
+                      "auth",
+                      "cron",
+                      "etl",
+                      "extensions",
+                      "graphql",
+                      "graphql_public",
+                      "information_schema",
+                      "net",
+                      "pgbouncer",
+                      "pgmq",
+                      "pgmq_public",
+                      "pgsodium",
+                      "pgsodium_masks",
+                      "pgtle",
+                      "realtime",
+                      "storage",
+                      "supabase_functions",
+                      "supabase_migrations",
+                      "vault"
+                    ]
+                  }
+                },
+                {
+                  "target": {
+                    "kind": "schema",
+                    "name": [
+                      "_analytics",
+                      "_realtime",
+                      "_supavisor",
+                      "auth",
+                      "cron",
+                      "etl",
+                      "extensions",
+                      "graphql",
+                      "graphql_public",
+                      "information_schema",
+                      "net",
+                      "pgbouncer",
+                      "pgmq",
+                      "pgmq_public",
+                      "pgsodium",
+                      "pgsodium_masks",
+                      "pgtle",
+                      "realtime",
+                      "storage",
+                      "supabase_functions",
+                      "supabase_migrations",
+                      "vault"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "action": "exclude"
+      }
+    ]
+  },
+  "profile": {
+    "id": "supabase"
+  },
+  "renameCandidates": [],
+  "actions": [],
+  "safetyReport": {
+    "destructiveActions": 0,
+    "rewriteRiskActions": 0,
+    "nonTransactionalActions": 0,
+    "lockClasses": {}
+  }
+}

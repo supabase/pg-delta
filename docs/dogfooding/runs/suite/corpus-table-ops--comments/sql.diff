@@ -1,0 +1,22 @@
+--- /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-old-54052.sql	2026-06-23 20:06:25
++++ /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-new-54052.sql	2026-06-23 20:06:25
+@@ -1,11 +1,11 @@
+-ALTER TABLE test_schema.events ALTER COLUMN id SET NOT NULL
++ALTER TABLE "test_schema"."events" ALTER COLUMN "id" SET NOT NULL
+ 
+-COMMENT ON TABLE test_schema.events IS 'This is a test table'
++ALTER TABLE "test_schema"."events" ADD CONSTRAINT "events_pkey" PRIMARY KEY (id)
+ 
+-COMMENT ON COLUMN test_schema.events.created_at IS 'This is a created_at column'
++COMMENT ON COLUMN "test_schema"."events"."created_at" IS 'This is a created_at column'
+ 
+-COMMENT ON COLUMN test_schema.events.description IS 'This is a description column'
++COMMENT ON COLUMN "test_schema"."events"."description" IS 'This is a description column'
+ 
+-ALTER TABLE test_schema.events ADD CONSTRAINT events_pkey PRIMARY KEY (id)
++COMMENT ON CONSTRAINT "events_pkey" ON "test_schema"."events" IS 'This is a test constraint'
+ 
+-COMMENT ON CONSTRAINT events_pkey ON test_schema.events IS 'This is a test constraint'
+\ No newline at end of file
++COMMENT ON TABLE "test_schema"."events" IS 'This is a test table'
+\ No newline at end of file

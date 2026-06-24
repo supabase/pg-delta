@@ -1,0 +1,10 @@
+--- /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-old-54052.sql	2026-06-23 20:06:25
++++ /var/folders/8j/bsf30qpn2bj3spvtqmnfqqgm0000gn/T/pgdelta-compare-new-54052.sql	2026-06-23 20:06:25
+@@ -1,3 +1,3 @@
+-CREATE SCHEMA test_schema AUTHORIZATION test
++CREATE SCHEMA "test_schema" AUTHORIZATION "test"
+ 
+-CREATE TABLE test_schema.empty_table ()
+\ No newline at end of file
++CREATE TABLE "test_schema"."empty_table" ()
+\ No newline at end of file

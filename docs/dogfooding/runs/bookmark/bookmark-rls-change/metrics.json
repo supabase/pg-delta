@@ -1,0 +1,39 @@
+{
+  "scenario": "bookmark-rls-change",
+  "profile": "supabase",
+  "old": {
+    "statementCount": 1,
+    "charCount": 103,
+    "planMs": 391.5308329999998,
+    "statements": [
+      "CREATE POLICY \"Postgres can view all bookmarks\" ON public.bookmarks FOR SELECT TO postgres USING (true)"
+    ],
+    "planNull": false
+  },
+  "new": {
+    "statementCount": 1,
+    "charCount": 109,
+    "planMs": 27.816667000000052,
+    "actionCount": 1,
+    "filteredDeltaCount": 0,
+    "renameCandidateCount": 0,
+    "safetyReport": {
+      "destructiveActions": 0,
+      "rewriteRiskActions": 0,
+      "nonTransactionalActions": 0,
+      "lockClasses": {
+        "accessExclusive": 1
+      }
+    }
+  },
+  "timing": {
+    "oldPlanMs": 391.5308329999998,
+    "newPlanMs": 27.816667000000052,
+    "totalMs": 533.1556249999994
+  },
+  "applyCheck": {
+    "bucket": "both-converge",
+    "oldConverges": true,
+    "newConverges": true
+  }
+}
