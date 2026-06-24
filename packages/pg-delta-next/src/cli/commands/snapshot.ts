@@ -16,11 +16,12 @@ export async function cmdSnapshot(args: string[]): Promise<void> {
       source: { type: "value", required: true },
       out: { type: "value", required: true },
       "strict-coverage": { type: "boolean" },
+      "unsafe-show-secrets": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
-        `${err.message}\nUsage: pg-delta-next snapshot --source <pg-url> --out <file> [--strict-coverage]\n`,
+        `${err.message}\nUsage: pg-delta-next snapshot --source <pg-url> --out <file> [--strict-coverage] [--unsafe-show-secrets]\n`,
       );
       process.exit(2);
     }
@@ -30,11 +31,14 @@ export async function cmdSnapshot(args: string[]): Promise<void> {
   const { flags } = parsed;
   const sourceUrl = flags["source"];
   const outPath = flags["out"];
+  const redactSecrets = !flags["unsafe-show-secrets"];
 
   const src = makePool(sourceUrl);
   try {
     process.stderr.write("Extracting...\n");
-    const { factBase, pgVersion, diagnostics } = await extract(src.pool);
+    const { factBase, pgVersion, diagnostics } = await extract(src.pool, {
+      redactSecrets,
+    });
     printDiagnostics(diagnostics);
     exitIfBlocking(diagnostics, {
       strictCoverage: flags["strict-coverage"],

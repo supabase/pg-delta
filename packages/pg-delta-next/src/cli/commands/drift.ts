@@ -19,11 +19,12 @@ export async function cmdDrift(args: string[]): Promise<void> {
       env: { type: "value", required: true },
       snapshot: { type: "value", required: true },
       "strict-coverage": { type: "boolean" },
+      "unsafe-show-secrets": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
-        `${err.message}\nUsage: pg-delta-next drift --env <pg-url> --snapshot <file> [--strict-coverage]\n`,
+        `${err.message}\nUsage: pg-delta-next drift --env <pg-url> --snapshot <file> [--strict-coverage] [--unsafe-show-secrets]\n`,
       );
       process.exit(2);
     }
@@ -33,6 +34,9 @@ export async function cmdDrift(args: string[]): Promise<void> {
   const { flags } = parsed;
   const envUrl = flags["env"];
   const snapshotPath = flags["snapshot"];
+  // Match the snapshot's redaction setting so a snapshot saved with
+  // --unsafe-show-secrets is compared against an equally-unredacted live extract.
+  const redactSecrets = !flags["unsafe-show-secrets"];
 
   const env = makePool(envUrl);
   try {
@@ -47,7 +51,7 @@ export async function cmdDrift(args: string[]): Promise<void> {
       factBase: liveFb,
       pgVersion: livePgVersion,
       diagnostics,
-    } = await extract(env.pool);
+    } = await extract(env.pool, { redactSecrets });
     printDiagnostics(diagnostics);
     exitIfBlocking(diagnostics, {
       strictCoverage: flags["strict-coverage"],

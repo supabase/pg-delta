@@ -64,6 +64,12 @@ Commands:
 Notes:
   --renames defaults to "prompt" for the CLI (library default is "off").
   --accept-rename: confirm a rename from a prior prompt run; repeatable.
+  --unsafe-show-secrets (plan, diff, drift, snapshot, schema export):
+    emit REAL foreign-data option values and subscription conninfo instead of
+    redacted placeholders. Off by default; raises a loud warning when set.
+    Only for output destined for a trusted target. An unredacted plan's
+    fingerprint differs from a default (redacted) re-extract, so applying one
+    requires "apply --force".
 
 Old → New mapping:
   plan              -> plan

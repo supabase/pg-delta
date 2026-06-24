@@ -29,7 +29,8 @@ const USAGE =
   "Usage: pg-delta-next plan --source <pg-url> --desired <pg-url> " +
   `[--profile ${PROFILE_IDS}] ` +
   "[--renames auto|prompt|off] [--no-compact] [--out <plan.json>] " +
-  "[--accept-rename <from>=<to>] ... [--restrict-to-applier] [--strict-coverage]\n";
+  "[--accept-rename <from>=<to>] ... [--restrict-to-applier] [--strict-coverage] " +
+  "[--unsafe-show-secrets]\n";
 
 export async function cmdPlan(args: string[]): Promise<void> {
   let parsed;
@@ -44,6 +45,7 @@ export async function cmdPlan(args: string[]): Promise<void> {
       "accept-rename": { type: "multi" },
       "restrict-to-applier": { type: "boolean" },
       "strict-coverage": { type: "boolean" },
+      "unsafe-show-secrets": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
@@ -106,11 +108,12 @@ export async function cmdPlan(args: string[]): Promise<void> {
       restrictToApplier: flags["restrict-to-applier"],
     });
 
+    const redactSecrets = !flags["unsafe-show-secrets"];
     process.stderr.write("Extracting source...\n");
     process.stderr.write("Extracting desired...\n");
     const [sourceResult, desiredResult] = await Promise.all([
-      ctx.extract(src.pool),
-      ctx.extract(dst.pool),
+      ctx.extract(src.pool, { redactSecrets }),
+      ctx.extract(dst.pool, { redactSecrets }),
     ]);
 
     // surface extraction diagnostics (review finding 2); --strict-coverage

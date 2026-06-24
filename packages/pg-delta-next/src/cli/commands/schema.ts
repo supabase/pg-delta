@@ -65,12 +65,13 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       layout: { type: "value" },
       profile: { type: "value" },
       "strict-coverage": { type: "boolean" },
+      "unsafe-show-secrets": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pg-delta-next schema export --source <pg-url> --out-dir <dir> ` +
-          `[--layout ordered] [--profile ${PROFILE_IDS}] [--strict-coverage]\n`,
+          `[--layout ordered] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets]\n`,
       );
       process.exit(2);
     }
@@ -98,7 +99,9 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     // handler-aware managed view as the profile-aware DB-to-DB path (review P1).
     const ctx = await resolveCliProfile(src.pool, flags["profile"]);
     process.stderr.write("Extracting...\n");
-    const { factBase, diagnostics } = await ctx.extract(src.pool);
+    const { factBase, diagnostics } = await ctx.extract(src.pool, {
+      redactSecrets: !flags["unsafe-show-secrets"],
+    });
     printDiagnostics(diagnostics);
     exitIfBlocking(diagnostics, {
       strictCoverage: flags["strict-coverage"],

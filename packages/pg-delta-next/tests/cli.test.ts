@@ -7,7 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { loadSnapshot } from "../src/frontends/snapshot-file.ts";
 import { sharedCluster } from "./containers.ts";
 
@@ -401,4 +401,55 @@ describe("CLI: schema profile-awareness", () => {
       await Promise.all([shadow.drop(), target.drop()]);
     }
   }, 90_000);
+});
+
+describe("CLI: secret redaction surface", () => {
+  // Custom FDW (NO HANDLER/VALIDATOR) accepts arbitrary option keys, so we can
+  // plant a credential in a server option on stock alpine.
+  const FDW_SQL = `
+    CREATE FOREIGN DATA WRAPPER cli_redact_fdw;
+    CREATE SERVER cli_redact_srv FOREIGN DATA WRAPPER cli_redact_fdw
+      OPTIONS (host 'h.example.com', password 'cli-secret-xyz');
+  `;
+
+  test("snapshot redacts by default; --unsafe-show-secrets emits real values + warns", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_redact_src");
+    try {
+      await source.pool.query(FDW_SQL);
+
+      // default: redacted, no warning
+      const redactedFile = join(tmpdir(), `pgdn-redact-${Date.now()}.json`);
+      const r1 = await runCli([
+        "snapshot",
+        "--source",
+        source.uri,
+        "--out",
+        redactedFile,
+      ]);
+      expect(r1.exitCode).toBe(0);
+      const redacted = readFileSync(redactedFile, "utf8");
+      expect(redacted).not.toContain("cli-secret-xyz");
+      expect(redacted).toContain("__OPTION_PASSWORD__");
+      expect(r1.stderr).not.toContain("Secret redaction is DISABLED");
+
+      // opt-out: real value emitted, loud warning on stderr
+      const rawFile = join(tmpdir(), `pgdn-raw-${Date.now()}.json`);
+      const r2 = await runCli([
+        "snapshot",
+        "--source",
+        source.uri,
+        "--out",
+        rawFile,
+        "--unsafe-show-secrets",
+      ]);
+      expect(r2.exitCode).toBe(0);
+      const raw = readFileSync(rawFile, "utf8");
+      expect(raw).toContain("cli-secret-xyz");
+      expect(raw).not.toContain("__OPTION_PASSWORD__");
+      expect(r2.stderr).toContain("Secret redaction is DISABLED");
+    } finally {
+      await source.drop();
+    }
+  }, 60_000);
 });
