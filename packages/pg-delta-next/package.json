@@ -15,6 +15,7 @@
     "./proof": "./src/proof/prove.ts",
     "./frontends": "./src/frontends/index.ts",
     "./sql-order": "./src/frontends/sql-order.ts",
+    "./sql-format": "./src/frontends/sql-format/index.ts",
     "./core": "./src/core/index.ts",
     "./policy": "./src/policy/policy.ts",
     "./integrations": "./src/integrations/index.ts"

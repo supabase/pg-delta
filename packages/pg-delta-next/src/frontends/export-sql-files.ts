@@ -17,6 +17,10 @@ import { buildFactBase, type FactBase } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
 import { plan, type Action } from "../plan/plan.ts";
 import type { SqlFile } from "./load-sql-files.ts";
+import {
+  formatSqlStatements,
+  type SqlFormatOptions,
+} from "./sql-format/index.ts";
 
 /** Group objects by a name pattern into a named directory/file (v1 parity). */
 export interface ExportGroupingPattern {
@@ -42,8 +46,25 @@ export interface ExportOptions {
   layout?: "by-object" | "ordered" | "grouped";
   /** Grouping rules for the "grouped" layout; ignored by other layouts. */
   grouping?: ExportGrouping;
+  /** Pretty-print each file's SQL with the formatter (frontends/sql-format).
+   *  Off by default (output is the renderer's raw SQL). Layout-agnostic.
+   *  Advisory/cosmetic — the fidelity gate (load(export) ≡ fb) still holds. */
+  format?: SqlFormatOptions;
   /** Non-fatal warnings (e.g. an invalid group-pattern regex). */
   onWarning?: (message: string) => void;
+}
+
+/** Assemble a file's SQL from bare (semicolon-less) statements: optionally
+ *  pretty-print them, then re-attach `;` and join. Centralizes the
+ *  format-or-not decision so every layout formats identically. */
+function renderFileSql(
+  bareStatements: string[],
+  format: SqlFormatOptions | undefined,
+): string {
+  const statements = format
+    ? formatSqlStatements(bareStatements, format)
+    : bareStatements;
+  return `${statements.map((s) => `${s};`).join("\n\n")}\n`;
 }
 
 /** The subject deciding an action's file: produced fact, else consumed. */
@@ -312,13 +333,14 @@ export function exportSqlFiles(
   }
 
   // group statements by file, preserving plan order within AND across
-  // groups (first-statement order decides file order)
+  // groups (first-statement order decides file order). Statements are stored
+  // BARE (no trailing `;`) so the optional formatter sees clean input.
   const files = new Map<string, { firstAt: number; statements: string[] }>();
   rendered.actions.forEach((action, position) => {
     const subject = subjectOf(action);
     const path = subject === undefined ? "cluster/misc.sql" : pathFor(subject);
     const entry = files.get(path) ?? { firstAt: position, statements: [] };
-    entry.statements.push(`${action.sql};`);
+    entry.statements.push(action.sql);
     files.set(path, entry);
   });
 
@@ -334,14 +356,14 @@ export function exportSqlFiles(
         subject === undefined ? "cluster/misc.sql" : pathFor(subject);
       const last = runs[runs.length - 1];
       if (last !== undefined && last.path === path) {
-        last.statements.push(`${action.sql};`);
+        last.statements.push(action.sql);
       } else {
-        runs.push({ path, statements: [`${action.sql};`] });
+        runs.push({ path, statements: [action.sql] });
       }
     });
     return runs.map((run, index) => ({
       name: `${String(index).padStart(4, "0")}_${run.path.replaceAll("/", "_")}`,
-      sql: `${run.statements.join("\n\n")}\n`,
+      sql: renderFileSql(run.statements, options.format),
     }));
   }
 
@@ -350,7 +372,7 @@ export function exportSqlFiles(
   );
   return ordered.map(([path, entry]) => ({
     name: path,
-    sql: `${entry.statements.join("\n\n")}\n`,
+    sql: renderFileSql(entry.statements, options.format),
   }));
 }
 
@@ -444,7 +466,7 @@ function exportGrouped(
     const category = subject === undefined ? "misc" : categoryOf(subject);
     const entry = files.get(path) ?? { category, items: [] };
     entry.items.push({
-      sql: `${action.sql};`,
+      sql: action.sql,
       verbRank: VERB_PRIORITY[action.verb] ?? 99,
       scopeRank: subject === undefined ? 0 : scopeRank(subject),
       at,
@@ -467,6 +489,6 @@ function exportGrouped(
           a.verbRank - b.verbRank || a.scopeRank - b.scopeRank || a.at - b.at,
       )
       .map((item) => item.sql);
-    return { name: path, sql: `${statements.join("\n\n")}\n` };
+    return { name: path, sql: renderFileSql(statements, options.format) };
   });
 }

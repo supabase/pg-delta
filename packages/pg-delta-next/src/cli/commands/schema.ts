@@ -15,6 +15,10 @@
  *         --flat-schemas partman,audit   (collapse a schema to one file/category)
  *         --no-group-partitions          (keep partition children in their own files)
  *
+ *   --format-options '<json>'  (any layout) — pretty-print each file's SQL with
+ *     the formatter (frontends/sql-format), e.g. '{"keywordCase":"upper","maxWidth":180}'.
+ *     Off by default (raw renderer output). Cosmetic — load(export) ≡ db still holds.
+ *
  * schema apply --dir <dir> --shadow <pg-url> --target <pg-url>
  *              [--renames auto|prompt|off] [--force]
  *              [--accept-rename <from>=<to>] (repeatable) [--no-reorder]
@@ -49,6 +53,7 @@ import {
   type ExportGrouping,
   type ExportGroupingPattern,
 } from "../../frontends/export-sql-files.ts";
+import type { SqlFormatOptions } from "../../frontends/sql-format/index.ts";
 import {
   loadSqlFiles,
   ShadowLoadError,
@@ -110,12 +115,14 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       "group-patterns": { type: "value" },
       "flat-schemas": { type: "value" },
       "no-group-partitions": { type: "boolean" },
+      "format-options": { type: "value" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pg-delta-next schema export --source <pg-url> --out-dir <dir> ` +
           `[--layout by-object|ordered|grouped] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets]\n` +
+          `  [--format-options '{"keywordCase":"upper","maxWidth":180}']  (pretty-print SQL; any layout)\n` +
           `  Grouped-layout options (only with --layout grouped):\n` +
           `    [--grouping-mode single-file|subdirectory] [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]\n`,
       );
@@ -192,6 +199,24 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     };
   }
 
+  // SQL formatting is opt-in and layout-agnostic. Parse it up front so a
+  // malformed value fails before connecting to the database.
+  let format: SqlFormatOptions | undefined;
+  if (flags["format-options"] !== undefined) {
+    try {
+      const raw = JSON.parse(flags["format-options"]) as unknown;
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+        throw new Error("expected a JSON object");
+      }
+      format = raw as SqlFormatOptions;
+    } catch (e) {
+      process.stderr.write(
+        `--format-options must be a JSON object (e.g. '{"keywordCase":"upper","maxWidth":180}'): ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+      process.exit(2);
+    }
+  }
+
   const src = makePool(sourceUrl);
   try {
     // resolve the profile against the source pool so export sees the SAME
@@ -221,6 +246,7 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     const files = exportSqlFiles(view, {
       layout,
       ...(grouping !== undefined ? { grouping } : {}),
+      ...(format !== undefined ? { format } : {}),
       onWarning: (message) => process.stderr.write(`  WARNING: ${message}\n`),
     });
 

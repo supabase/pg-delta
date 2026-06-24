@@ -110,6 +110,12 @@ pg-delta-next schema export --source "$SOURCE_URL" --out-dir ./schema
 #   --group-patterns '[{"pattern":"^auth_","name":"auth"}]'   (first match wins)
 #   --flat-schemas partman,audit                (one file per category)
 #   --no-group-partitions                       (keep partition children separate)
+#
+# --format-options pretty-prints the exported SQL (any layout; off by default):
+#   --format-options '{"keywordCase":"upper","maxWidth":180}'
+# It is cosmetic — the load(export(db)) ≡ db guarantee still holds. The same
+# formatter is available as a library helper at @supabase/pg-delta-next/sql-format
+# (formatSqlStatements).
 ```
 
 > The shadow database must be a fresh, empty Postgres. Auto-provisioning an

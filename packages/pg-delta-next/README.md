@@ -111,7 +111,9 @@ All engineering stages are implemented:
   with the `load(export(fb)) ≡ fb` gate (+ an "ordered" layout that
   loads in a single pass, and a "grouped" layout that restores the old
   engine's category-grouped/readable output with opt-in name-pattern,
-  flat-schema, and partition grouping), drift, finalized public API (subpath
+  flat-schema, and partition grouping; opt-in SQL pretty-printing via
+  `--format-options`, also exposed as the `@supabase/pg-delta-next/sql-format`
+  library helper), drift, finalized public API (subpath
   exports, reviewed name-by-name in `API-REVIEW.md`), CLI v2.
 
 The proof loop now verifies the two safety fields state-proof alone can't
