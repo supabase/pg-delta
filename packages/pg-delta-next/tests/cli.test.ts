@@ -551,4 +551,50 @@ describe("CLI: schema export --layout grouped", () => {
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("--group-patterns");
   });
+
+  test("--format-options pretty-prints the exported SQL", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_export_format");
+    try {
+      await source.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (id integer PRIMARY KEY, name text NOT NULL);
+      `);
+      const outDir = join(tmpdir(), `pg-delta-next-export-fmt-${Date.now()}`);
+      const result = await runCli([
+        "schema",
+        "export",
+        "--source",
+        source.uri,
+        "--out-dir",
+        outDir,
+        "--format-options",
+        '{"keywordCase":"lower"}',
+      ]);
+      expect(result.exitCode).toBe(0);
+      const sql = readFileSync(
+        join(outDir, "schemas/app/tables/t.sql"),
+        "utf8",
+      );
+      expect(sql).toContain("create table");
+      expect(sql).not.toContain("CREATE TABLE");
+    } finally {
+      await source.drop();
+    }
+  }, 60_000);
+
+  test("rejects a malformed --format-options before connecting (exit 2)", async () => {
+    const result = await runCli([
+      "schema",
+      "export",
+      "--source",
+      "postgresql://localhost/unused",
+      "--out-dir",
+      join(tmpdir(), `pg-delta-next-export-badfmt-${Date.now()}`),
+      "--format-options",
+      "[1,2,3]",
+    ]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("--format-options");
+  });
 });
