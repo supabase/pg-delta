@@ -306,6 +306,38 @@ const OVERRIDES: Record<string, Omit<LedgerEntry, "file" | "testName">> = {
       reason:
         "Connection-layer (pool onConnect async setup); no schema-state representation. Exclusion per plan Tier 8.",
     },
+  // Tier 4: supabase-dsl-e2e under supabasePolicy (self-gated, supabaseCluster).
+  "integration/supabase-dsl-e2e.test.ts :: captures pg_net extension drops in createPlan":
+    { disposition: "ported", nextTest: "supabase-dsl-e2e.test.ts" },
+  "integration/supabase-dsl-e2e.test.ts :: roundtrips pg_net extension drops through the supabase integration":
+    {
+      disposition: "merged",
+      reason:
+        "merged into the pg_net case in supabase-dsl-e2e.test.ts (drop is asserted and applied/roundtripped in one test).",
+    },
+  "integration/supabase-dsl-e2e.test.ts :: suppresses CREATE FOREIGN DATA WRAPPER backed by extensions.* handler":
+    { disposition: "ported", nextTest: "supabase-dsl-e2e.test.ts" },
+  "integration/supabase-dsl-e2e.test.ts :: preserves user-owned postgres_fdw server, foreign table, and user mapping":
+    { disposition: "ported", nextTest: "supabase-dsl-e2e.test.ts" },
+  "integration/supabase-dsl-e2e.test.ts :: suppresses GRANT/REVOKE on FOREIGN DATA WRAPPER even when owned by postgres":
+    { disposition: "ported", nextTest: "supabase-dsl-e2e.test.ts" },
+  "integration/supabase-dsl-e2e.test.ts :: preserves GRANT on user-owned FOREIGN SERVER":
+    { disposition: "ported", nextTest: "supabase-dsl-e2e.test.ts" },
+  "integration/supabase-dsl-e2e.test.ts :: suppresses user triggers on pgmq queue tables when pg_depend link is missing":
+    { disposition: "ported", nextTest: "supabase-dsl-e2e.test.ts" },
+  "integration/supabase-dsl-e2e.test.ts :: captures user-defined triggers attached to auth.users":
+    {
+      disposition: "not-ported",
+      reason:
+        "KNOWN v2 GAP (filed): user trigger on a managed-schema table is dropped — resolveView prunes it as a descendant of the excluded auth.users, defeating supabasePolicy Rule 3, and the planner guard rejects its edge to the non-managed table. test.skip in supabase-dsl-e2e.test.ts; fix needs view-resolution + guard changes, or the committed Supabase baseline.",
+    },
+  "integration/supabase-dsl-e2e.test.ts :: suppresses Wasm FDW server, foreign table, and user mapping dependents":
+    {
+      disposition: "not-ported",
+      reason:
+        "Intentional v2 delta (Old-12 in supabase.ts): the precise wasm_fdw_handler/validator name match is obsolete; extension-member FDWs/servers are excluded at extract time via pg_depend 'e', and the owner rule covers the rest. A postgres-owned dependent of a fabricated Wasm wrapper is the residual the name-match would have caught — not ported by design.",
+    },
+
   // Tier 4: Supabase bare-image integration (self-gated, supabaseCluster).
   "integration/extension-operations.test.ts :: preserves pgvector typmod dimensions in catalog extraction and diff SQL":
     { disposition: "ported", nextTest: "supabase-integration.test.ts" },
