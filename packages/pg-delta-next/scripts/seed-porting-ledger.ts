@@ -232,8 +232,8 @@ const OVERRIDES: Record<string, Omit<LedgerEntry, "file" | "testName">> = {
   "integration/sensitive-and-env-dependent-handling.test.ts :: subscription: changing conninfo does not generate ALTER":
     { disposition: "ported", nextTest: "redaction-output.test.ts" },
 
-  // --- security-label-operations: proof test mirrors most kinds; enum + role
-  //     labels are the narrow remaining gaps (plan Tier 7). ---
+  // --- security-label-operations: proof test mirrors every modeled target
+  //     kind; the enum + role label gaps are closed in Tier 7. ---
   ...labelPorted([
     "label on new table",
     "label on column",
@@ -244,23 +244,14 @@ const OVERRIDES: Record<string, Omit<LedgerEntry, "file" | "testName">> = {
     "sequence label",
     "domain label",
     "composite TYPE label",
+    "enum (TYPE) label",
     "function label",
+    "role label (shared catalog)",
     "add label to new schema",
     "add label to existing schema",
     "change label value",
     "drop label",
   ]),
-  "integration/security-label-operations.test.ts :: enum (TYPE) label": {
-    disposition: "not-ported",
-    reason:
-      "Tier 7 gap — explicit enum (TYPE) label not yet exercised by security-label-proof.test.ts (KIND_CASES `type` is composite); needs a dedicated enum case.",
-  },
-  "integration/security-label-operations.test.ts :: role label (shared catalog)":
-    {
-      disposition: "not-ported",
-      reason:
-        "Tier 7 gap — role security labels are cluster-scoped; security-label-proof.test.ts is DB-scoped and does not cover roles yet.",
-    },
 
   // --- declarative-schema-export: fidelity + tree covered by export.test.ts;
   //     file co-location / path layout cases are Tier 6 (export-layout). ---

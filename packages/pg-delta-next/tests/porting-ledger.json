@@ -2360,8 +2360,8 @@
   {
     "file": "integration/security-label-operations.test.ts",
     "testName": "enum (TYPE) label",
-    "disposition": "not-ported",
-    "reason": "Tier 7 gap — explicit enum (TYPE) label not yet exercised by security-label-proof.test.ts (KIND_CASES `type` is composite); needs a dedicated enum case."
+    "disposition": "ported",
+    "nextTest": "security-label-proof.test.ts"
   },
   {
     "file": "integration/security-label-operations.test.ts",
@@ -2378,8 +2378,8 @@
   {
     "file": "integration/security-label-operations.test.ts",
     "testName": "role label (shared catalog)",
-    "disposition": "not-ported",
-    "reason": "Tier 7 gap — role security labels are cluster-scoped; security-label-proof.test.ts is DB-scoped and does not cover roles yet."
+    "disposition": "ported",
+    "nextTest": "security-label-proof.test.ts"
   },
   {
     "file": "integration/security-label-operations.test.ts",
