@@ -202,6 +202,10 @@ export interface ExtractContext {
   facts: Fact[];
   edges: DependencyEdge[];
   diagnostics: Diagnostic[];
+  /** When false, sensitive option values and subscription conninfo are kept in
+   *  cleartext in the fact base (and therefore in every downstream channel).
+   *  Default true; see sensitive-options.ts and extract.ts. */
+  redactSecrets: boolean;
   pushWithMeta: (
     fact: Fact,
     row: Row,
@@ -219,6 +223,7 @@ export interface ExtractContext {
 export function createExtractContext(
   client: PoolClient,
   statementTimeoutMs?: number,
+  redactSecrets = true,
 ): ExtractContext {
   const facts: Fact[] = [];
   const edges: DependencyEdge[] = [];
@@ -319,6 +324,7 @@ export function createExtractContext(
     facts,
     edges,
     diagnostics,
+    redactSecrets,
     pushWithMeta,
     pushMemberEdge,
     pushOwnerEdge,

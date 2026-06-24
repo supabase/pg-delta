@@ -88,6 +88,17 @@ export interface ExtractOptions {
    * handlers here so the managed view is coherent.
    */
   handlers?: readonly ExtensionHandler[];
+  /**
+   * Redact sensitive foreign-data option values and subscription conninfo at
+   * extract time (default true). When false, real credentials are kept in the
+   * fact base and therefore surface in EVERY downstream channel — plan SQL,
+   * snapshot, declarative export, plan artifact, and the fingerprint digest.
+   * This is an explicit, loud escape hatch (it raises a `secret-redaction-
+   * disabled` warning diagnostic): only disable it when the output is destined
+   * for a trusted target that needs working credentials. Source and desired
+   * extractions must use the SAME setting or the diff is meaningless.
+   */
+  redactSecrets?: boolean;
 }
 
 export async function extract(
@@ -111,6 +122,7 @@ export async function extract(
       options.source ?? "liveDb",
       options.statementTimeoutMs,
       options.handlers ?? [],
+      options.redactSecrets ?? true,
     );
     await client.query("COMMIT");
     return result;
@@ -127,8 +139,21 @@ async function extractOnClient(
   source: FactSource,
   statementTimeoutMs: number | undefined,
   handlers: readonly ExtensionHandler[],
+  redactSecrets: boolean,
 ): Promise<ExtractResult> {
-  const ctx = createExtractContext(client, statementTimeoutMs);
+  const ctx = createExtractContext(client, statementTimeoutMs, redactSecrets);
+
+  // Explicit, loud opt-out: disabling redaction means real credentials flow
+  // into plan SQL, snapshot, export, the plan artifact, and the fingerprint.
+  // Surface it as a warning so it is never silent.
+  if (!redactSecrets) {
+    ctx.diagnostics.push({
+      code: "secret-redaction-disabled",
+      severity: "warning",
+      message:
+        "Secret redaction is DISABLED: foreign-data option values and subscription conninfo are emitted in cleartext in plan SQL, the catalog snapshot, declarative export, and the plan artifact. Do not persist these artifacts to untrusted locations.",
+    });
+  }
 
   const pgVersion =
     ((await ctx.q(`SHOW server_version`))[0]?.["server_version"] as string) ??
