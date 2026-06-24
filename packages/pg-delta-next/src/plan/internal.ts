@@ -62,6 +62,27 @@ export function buildActionGraph(
     return key;
   };
 
+  // A reference target that is present-at-apply but kept out of the managed
+  // view: built-in roles (pg_*/PUBLIC), policy-declared assumed roles, an
+  // assumed SCHEMA object, or any object WITHIN an assumed schema (e.g. Supabase
+  // keeps `auth`/`extensions` reference-only). Such a target satisfies a
+  // `consumes` or `depends` requirement without being produced by the plan.
+  const isAmbient = (id: StableId): boolean => {
+    if (id.kind === "role") {
+      const name = (id as { name: string }).name;
+      if (name.startsWith("pg_") || name === "PUBLIC") return true;
+      if (assumedRoleNames.has(name)) return true;
+    }
+    if (
+      id.kind === "schema" &&
+      assumedSchemaNames.has((id as { name: string }).name)
+    ) {
+      return true;
+    }
+    const schema = (id as { schema?: string }).schema;
+    return schema !== undefined && assumedSchemaNames.has(schema);
+  };
+
   // alter actions indexed by their primary fact (opts.consumes[0])
   const alterersOf = new Map<string, number[]>();
   actions.forEach((action, index) => {
@@ -98,38 +119,11 @@ export function buildActionGraph(
       }
       // the id must exist on the target before apply (source) or be
       // produced by this plan; "it's in the desired state" is not enough —
-      // a policy filter can hide the delta that would have created it.
-      // Built-in roles (pg_*) and PUBLIC are guaranteed by PostgreSQL itself and
-      // never extracted as facts. Policy-declared assumedRoles (e.g. Supabase
-      // anon/authenticated) are the same idea: present at apply time but kept out
-      // of the managed view, so grants targeting them are valid, not stranded.
-      const isAmbientRole =
-        id.kind === "role" &&
-        ((id as { name: string }).name.startsWith("pg_") ||
-          (id as { name: string }).name === "PUBLIC" ||
-          assumedRoleNames.has((id as { name: string }).name));
-      // Policy-declared assumedSchemas (e.g. Supabase's `extensions`) mirror the
-      // assumed-role exemption: present at apply time but filtered out of the
-      // managed view, so a `consumes schema:<name>` edge is a valid target.
-      const isAmbientSchema =
-        id.kind === "schema" &&
-        assumedSchemaNames.has((id as { name: string }).name);
-      // An object that LIVES IN an assumed schema is also present at apply time:
-      // if the schema is assumed (e.g. Supabase's `auth`/`extensions`), so are
-      // its contents, so a `consumes table:auth.users` from a kept managed
-      // object (a user trigger / FK on a managed-schema table) is a valid
-      // reference, not stranded. Generalizes the assumed-schema-OBJECT exemption
-      // above to objects WITHIN an assumed schema.
-      const idSchema = (id as { schema?: string }).schema;
-      const isAmbientWithinAssumedSchema =
-        idSchema !== undefined && assumedSchemaNames.has(idSchema);
-      if (
-        producer === undefined &&
-        !source.has(id) &&
-        !isAmbientRole &&
-        !isAmbientSchema &&
-        !isAmbientWithinAssumedSchema
-      ) {
+      // a policy filter can hide the delta that would have created it. Ambient
+      // targets (built-in/assumed roles, assumed schemas, objects within them)
+      // are present at apply time though kept out of the view, so they satisfy
+      // the requirement.
+      if (producer === undefined && !source.has(id) && !isAmbient(id)) {
         throw new Error(
           `missing requirement: action "${action.sql}" consumes ${key}, which neither exists on the target nor is produced by this plan${desired.has(id) ? " — a filter may be hiding its creation" : ""}`,
         );
@@ -168,7 +162,11 @@ export function buildActionGraph(
           // dependency, leaving a CREATE that references a missing object (P0-1).
           // (An altered-in-place dependency is in `source`, so this never fires
           // for it; built-in endpoints resolve to no edge at all.)
-          if (edge.kind === "depends" && !source.has(edge.to)) {
+          if (
+            edge.kind === "depends" &&
+            !source.has(edge.to) &&
+            !isAmbient(edge.to)
+          ) {
             throw new Error(
               `missing requirement: action "${action.sql}" produces ${encodeId(id)}, ` +
                 `which depends on ${targetKey} — neither produced by this plan nor ` +

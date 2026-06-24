@@ -54,6 +54,7 @@
 
 import type { Delta } from "../core/diff.ts";
 import type { DependencyEdge, EdgeKind, Fact, FactBase } from "../core/fact.ts";
+import { buildFactBase } from "../core/fact.ts";
 import type { FactKind, StableId } from "../core/stable-id.ts";
 import { encodeId } from "../core/stable-id.ts";
 import { KNOWN_PARAMS, type PlanParams } from "../plan/rules.ts";
@@ -818,16 +819,52 @@ export function resolveView(
     if (capRoots.size > 0) base = excludeFactsAndDescendants(base, capRoots);
   }
   if (!policy) return base;
-  const rules = flattenPolicy(policy).filter;
+  const flat = flattenPolicy(policy);
+  const rules = flat.filter;
   if (rules.length === 0) return base;
 
-  const roots = new Set<string>();
+  // An excluded fact whose schema is an assumedSchema (e.g. Supabase's `auth`)
+  // is kept REFERENCE-ONLY rather than pruned: it stays in the view so a managed
+  // dependent (a user trigger on `auth.users`) can resolve its parent, but diff
+  // never emits a delta for it (see diff.ts). Everything else excluded is hard-
+  // pruned as before. `assumedSchemas` is the policy's declaration that those
+  // schemas are present-but-unmanaged at apply time — the same set the
+  // requirement guard treats as ambient — so this is per-side deterministic
+  // (no cross-side dependency → fingerprint/proof stay consistent).
+  const assumed = new Set(flat.assumedSchemas);
+  const assumedSchemaOf = (id: StableId): string | undefined =>
+    id.kind === "schema" ? getName(id) : getSchema(id);
+
+  const hardRoots = new Set<string>();
+  const referenceOnly = new Set<string>();
   for (const fact of base.facts()) {
-    if (factScopeExcluded(fact, rules, base)) {
-      roots.add(encodeId(fact.id));
+    if (!factScopeExcluded(fact, rules, base)) continue;
+    const schema = assumedSchemaOf(fact.id);
+    if (schema !== undefined && assumed.has(schema)) {
+      referenceOnly.add(encodeId(fact.id));
+    } else {
+      hardRoots.add(encodeId(fact.id));
     }
   }
-  return excludeFactsAndDescendants(base, roots);
+  if (referenceOnly.size === 0) {
+    return excludeFactsAndDescendants(base, hardRoots);
+  }
+
+  const pruned = excludeFactsAndDescendants(base, hardRoots);
+  // a reference-only fact may itself sit under a hard-pruned ancestor; keep only
+  // the ones that actually survived pruning.
+  const survivingRefOnly = new Set(
+    pruned
+      .facts()
+      .map((f) => encodeId(f.id))
+      .filter((key) => referenceOnly.has(key)),
+  );
+  return buildFactBase(
+    pruned.facts(),
+    [...pruned.edges],
+    pruned.source,
+    survivingRefOnly,
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -57,19 +57,12 @@ async function supabasePlanSql(
 }
 
 describe.skipIf(!runSupabaseBareTests)("supabase policy e2e", () => {
-  // KNOWN v2 GAP (filed): a user trigger on a managed-schema table
-  // (issue #254) is dropped by the managed view. supabasePolicy Rule 3 keeps
-  // the trigger FACT (factScopeExcluded returns false for it), but resolveView
-  // makes the parent table (auth.users) an exclusion root via the system-schema
-  // rule, and excludeFactsAndDescendants then prunes the trigger as a
-  // descendant — overriding the include. Even if kept, the planner's
-  // missing-requirement guard would reject the trigger's edge to the
-  // non-managed table (only assumed ROLES/SCHEMAS are exempt, not tables in
-  // them). Fixing it needs coordinated changes to view-resolution (don't prune
-  // an explicitly-included descendant) AND the guard (treat managed-schema
-  // objects as assumed), or the committed Supabase baseline (then auth.users is
-  // subtracted, not excluded-as-root). Enable this test once that lands.
-  test.skip("captures a user trigger attached to a managed (auth) schema table", async () => {
+  // Regression for issue #254. A user trigger on a managed-schema table is now
+  // captured: resolveView keeps assumed-schema objects (auth.users) REFERENCE-
+  // ONLY instead of pruning them, so the trigger's parent resolves and the
+  // include rule survives (A1'); the requirement guard treats objects within
+  // assumed schemas as ambient (change B).
+  test("captures a user trigger attached to a managed (auth) schema table", async () => {
     const cluster = await supabaseCluster();
     const main = await cluster.createDb("supa_dsl_trig_main");
     const branch = await cluster.createDb("supa_dsl_trig_branch");
@@ -95,11 +88,15 @@ describe.skipIf(!runSupabaseBareTests)("supabase policy e2e", () => {
 
       const sql = await supabasePlanSql(main, branch);
       expect(
-        sql.some((s) => /CREATE TRIGGER "on_auth_user_created"/.test(s)),
+        sql.some((s) =>
+          /CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth\.users/.test(
+            s,
+          ),
+        ),
       ).toBe(true);
-      expect(
-        sql.some((s) => /CREATE FUNCTION "public"\."handle_new_user"/.test(s)),
-      ).toBe(true);
+      expect(sql.some((s) => /FUNCTION public\.handle_new_user/.test(s))).toBe(
+        true,
+      );
     } finally {
       await Promise.all([main.drop(), branch.drop()]);
     }

@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { apply } from "../src/apply/apply.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
+import { encodeId } from "../src/core/stable-id.ts";
 import { supabasePolicy } from "../src/policy/supabase.ts";
 import { resolveView, type Policy } from "../src/policy/policy.ts";
 import { sharedCluster } from "./containers.ts";
@@ -52,17 +53,21 @@ describe("policy: managed-schema invisibility", () => {
         }
       }
 
-      // auth objects are excluded by SCOPE → projected out of the managed view
-      // at the FACT level (move 3), not silently: the resolved view explicitly
-      // lacks them, while the raw (no-policy) plan below still contains them.
+      // auth objects are an assumed schema → kept REFERENCE-ONLY in the managed
+      // view (A1'): present so dependents (a user trigger on auth.*) can resolve
+      // their parent, but never planned (asserted above) — flagged in
+      // view.referenceOnly. The raw (no-policy) plan below still contains them.
       const view = resolveView(desiredState.factBase, supabasePolicy);
-      const viewHasAuth = view.facts().some((fct) => {
+      const authFacts = view.facts().filter((fct) => {
         const id = fct.id as { schema?: string; kind: string; name?: string };
         return (
           id.schema === "auth" || (id.kind === "schema" && id.name === "auth")
         );
       });
-      expect(viewHasAuth).toBe(false);
+      expect(authFacts.length).toBeGreaterThan(0);
+      for (const f of authFacts) {
+        expect(view.referenceOnly.has(encodeId(f.id))).toBe(true);
+      }
 
       // public.user_stuff table IS in the plan
       const hasUserStuff = policyPlan.actions.some((a) =>

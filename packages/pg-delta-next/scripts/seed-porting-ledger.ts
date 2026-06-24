@@ -326,11 +326,7 @@ const OVERRIDES: Record<string, Omit<LedgerEntry, "file" | "testName">> = {
   "integration/supabase-dsl-e2e.test.ts :: suppresses user triggers on pgmq queue tables when pg_depend link is missing":
     { disposition: "ported", nextTest: "supabase-dsl-e2e.test.ts" },
   "integration/supabase-dsl-e2e.test.ts :: captures user-defined triggers attached to auth.users":
-    {
-      disposition: "not-ported",
-      reason:
-        "KNOWN v2 GAP (filed): user trigger on a managed-schema table is dropped — resolveView prunes it as a descendant of the excluded auth.users, defeating supabasePolicy Rule 3, and the planner guard rejects its edge to the non-managed table. test.skip in supabase-dsl-e2e.test.ts; fix needs view-resolution + guard changes, or the committed Supabase baseline.",
-    },
+    { disposition: "ported", nextTest: "supabase-dsl-e2e.test.ts" },
   "integration/supabase-dsl-e2e.test.ts :: suppresses Wasm FDW server, foreign table, and user mapping dependents":
     {
       disposition: "ported",
