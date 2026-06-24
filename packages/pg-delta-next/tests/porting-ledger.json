@@ -645,7 +645,7 @@
     "file": "integration/declarative-schema-export.test.ts",
     "testName": "table with index",
     "disposition": "not-ported",
-    "reason": "Tier 6 — file co-location/path layout assertion; current v2 layout differs (indexes under schemas/<>/indexes/, matviews under materialized_views/). Fidelity covered by export.test.ts; layout parity tracked for export-layout.test.ts."
+    "reason": "Intentional v2 layout delta (Tier 6) — old engine co-located this in the table/matview file; v2 files indexes under schemas/<>/indexes/, matviews under materialized_views/, and partition children as their own tables/<child>.sql. The v2 by-object mapping is pinned by tests/export-layout.test.ts; fidelity by tests/export.test.ts."
   },
   {
     "file": "integration/declarative-schema-export.test.ts",
@@ -668,32 +668,32 @@
   {
     "file": "integration/declarative-schema-export.test.ts",
     "testName": "foreign key constraints in table file",
-    "disposition": "not-ported",
-    "reason": "Tier 6 — file co-location/path layout assertion; current v2 layout differs (indexes under schemas/<>/indexes/, matviews under materialized_views/). Fidelity covered by export.test.ts; layout parity tracked for export-layout.test.ts."
+    "disposition": "ported",
+    "nextTest": "export-layout.test.ts"
   },
   {
     "file": "integration/declarative-schema-export.test.ts",
     "testName": "triggers in table file",
-    "disposition": "not-ported",
-    "reason": "Tier 6 — file co-location/path layout assertion; current v2 layout differs (indexes under schemas/<>/indexes/, matviews under materialized_views/). Fidelity covered by export.test.ts; layout parity tracked for export-layout.test.ts."
+    "disposition": "ported",
+    "nextTest": "export-layout.test.ts"
   },
   {
     "file": "integration/declarative-schema-export.test.ts",
     "testName": "RLS policies in table file",
-    "disposition": "not-ported",
-    "reason": "Tier 6 — file co-location/path layout assertion; current v2 layout differs (indexes under schemas/<>/indexes/, matviews under materialized_views/). Fidelity covered by export.test.ts; layout parity tracked for export-layout.test.ts."
+    "disposition": "ported",
+    "nextTest": "export-layout.test.ts"
   },
   {
     "file": "integration/declarative-schema-export.test.ts",
     "testName": "partitioned tables",
     "disposition": "not-ported",
-    "reason": "Tier 6 — file co-location/path layout assertion; current v2 layout differs (indexes under schemas/<>/indexes/, matviews under materialized_views/). Fidelity covered by export.test.ts; layout parity tracked for export-layout.test.ts."
+    "reason": "Intentional v2 layout delta (Tier 6) — old engine co-located this in the table/matview file; v2 files indexes under schemas/<>/indexes/, matviews under materialized_views/, and partition children as their own tables/<child>.sql. The v2 by-object mapping is pinned by tests/export-layout.test.ts; fidelity by tests/export.test.ts."
   },
   {
     "file": "integration/declarative-schema-export.test.ts",
     "testName": "materialized views with indexes",
     "disposition": "not-ported",
-    "reason": "Tier 6 — file co-location/path layout assertion; current v2 layout differs (indexes under schemas/<>/indexes/, matviews under materialized_views/). Fidelity covered by export.test.ts; layout parity tracked for export-layout.test.ts."
+    "reason": "Intentional v2 layout delta (Tier 6) — old engine co-located this in the table/matview file; v2 files indexes under schemas/<>/indexes/, matviews under materialized_views/, and partition children as their own tables/<child>.sql. The v2 by-object mapping is pinned by tests/export-layout.test.ts; fidelity by tests/export.test.ts."
   },
   {
     "file": "integration/default-privileges-dependency-ordering.test.ts",

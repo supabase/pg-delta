@@ -270,11 +270,17 @@ const OVERRIDES: Record<string, Omit<LedgerEntry, "file" | "testName">> = {
     "roles and extensions",
     "views and functions",
   ]),
-  ...exportLayoutGap([
-    "table with index",
+  // table satellites that v2 STILL co-locates into the table file (old intent
+  // preserved) — ported to export-layout.test.ts.
+  ...exportLayoutPorted([
     "foreign key constraints in table file",
     "triggers in table file",
     "RLS policies in table file",
+  ]),
+  // deliberate v2 path deltas (old engine asserted the opposite) — pinned as
+  // v2 behavior in export-layout.test.ts, recorded as intentional not-ported.
+  ...exportLayoutGap([
+    "table with index",
     "partitioned tables",
     "materialized views with indexes",
   ]),
@@ -513,6 +519,19 @@ function exportPorted(
   return out;
 }
 
+function exportLayoutPorted(
+  names: string[],
+): Record<string, Omit<LedgerEntry, "file" | "testName">> {
+  const out: Record<string, Omit<LedgerEntry, "file" | "testName">> = {};
+  for (const n of names) {
+    out[`integration/declarative-schema-export.test.ts :: ${n}`] = {
+      disposition: "ported",
+      nextTest: "export-layout.test.ts",
+    };
+  }
+  return out;
+}
+
 function exportLayoutGap(
   names: string[],
 ): Record<string, Omit<LedgerEntry, "file" | "testName">> {
@@ -521,7 +540,7 @@ function exportLayoutGap(
     out[`integration/declarative-schema-export.test.ts :: ${n}`] = {
       disposition: "not-ported",
       reason:
-        "Tier 6 — file co-location/path layout assertion; current v2 layout differs (indexes under schemas/<>/indexes/, matviews under materialized_views/). Fidelity covered by export.test.ts; layout parity tracked for export-layout.test.ts.",
+        "Intentional v2 layout delta (Tier 6) — old engine co-located this in the table/matview file; v2 files indexes under schemas/<>/indexes/, matviews under materialized_views/, and partition children as their own tables/<child>.sql. The v2 by-object mapping is pinned by tests/export-layout.test.ts; fidelity by tests/export.test.ts.",
     };
   }
   return out;
