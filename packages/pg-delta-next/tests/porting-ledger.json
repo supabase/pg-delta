@@ -978,20 +978,20 @@
   {
     "file": "integration/extension-operations.test.ts",
     "testName": "create extension",
-    "disposition": "not-ported",
-    "reason": "Requires Supabase image (pgvector); stock-extension coverage exists via index-extension-deps scenarios"
+    "disposition": "merged",
+    "reason": "vector extension create is exercised by the pgvector typmod case in supabase-integration.test.ts; generic CREATE EXTENSION roundtrip is covered by the extension-member-* corpus/tests."
   },
   {
     "file": "integration/extension-operations.test.ts",
     "testName": "extension with comment",
-    "disposition": "not-ported",
-    "reason": "Requires Supabase image (pgvector); stock-extension coverage exists via index-extension-deps scenarios"
+    "disposition": "merged",
+    "reason": "extension COMMENT roundtrip covered by the `comments` corpus + extension-member-* coverage; vector-specific create exercised in supabase-integration.test.ts."
   },
   {
     "file": "integration/extension-operations.test.ts",
     "testName": "preserves pgvector typmod dimensions in catalog extraction and diff SQL",
-    "disposition": "not-ported",
-    "reason": "Requires Supabase image (pgvector); stock-extension coverage exists via index-extension-deps scenarios"
+    "disposition": "ported",
+    "nextTest": "supabase-integration.test.ts"
   },
   {
     "file": "integration/fdw-option-secret-redaction.test.ts",
@@ -1818,8 +1818,8 @@
   {
     "file": "integration/pgmq-declarative-roundtrip.test.ts",
     "testName": "exported schema reapplies cleanly with supabase integration",
-    "disposition": "not-ported",
-    "reason": "Requires Supabase image (pgmq) + old declarative engine + integration DSL (stage 8)"
+    "disposition": "ported",
+    "nextTest": "supabase-integration.test.ts"
   },
   {
     "file": "integration/policy-dependencies.test.ts",

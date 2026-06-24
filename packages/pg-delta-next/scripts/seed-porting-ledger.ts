@@ -306,6 +306,22 @@ const OVERRIDES: Record<string, Omit<LedgerEntry, "file" | "testName">> = {
       reason:
         "Connection-layer (pool onConnect async setup); no schema-state representation. Exclusion per plan Tier 8.",
     },
+  // Tier 4: Supabase bare-image integration (self-gated, supabaseCluster).
+  "integration/extension-operations.test.ts :: preserves pgvector typmod dimensions in catalog extraction and diff SQL":
+    { disposition: "ported", nextTest: "supabase-integration.test.ts" },
+  "integration/pgmq-declarative-roundtrip.test.ts :: exported schema reapplies cleanly with supabase integration":
+    { disposition: "ported", nextTest: "supabase-integration.test.ts" },
+  "integration/extension-operations.test.ts :: create extension": {
+    disposition: "merged",
+    reason:
+      "vector extension create is exercised by the pgvector typmod case in supabase-integration.test.ts; generic CREATE EXTENSION roundtrip is covered by the extension-member-* corpus/tests.",
+  },
+  "integration/extension-operations.test.ts :: extension with comment": {
+    disposition: "merged",
+    reason:
+      "extension COMMENT roundtrip covered by the `comments` corpus + extension-member-* coverage; vector-specific create exercised in supabase-integration.test.ts.",
+  },
+
   // Tier 3: subscription slot parity. pg-delta-next's behavior was already
   // correct (create reuses an existing slot via connect=false, staying
   // transactional; drop-with-slot self-declares nonTransactional) — these tests

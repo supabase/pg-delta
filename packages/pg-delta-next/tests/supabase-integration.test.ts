@@ -1,0 +1,155 @@
+/**
+ * Supabase-image integration suite (Tier 4 of the port-parity plan).
+ *
+ * These exercise behavior that only the Supabase bare image
+ * (`supabaseCluster()`, PG17, ships pgvector / pgmq / pg_partman / pg_cron) can
+ * reach — they are NOT corpus scenarios. The whole file self-gates via
+ * `runSupabaseBareTests` so a PR spins the heavy image only on the matching
+ * matrix leg, never on all five (see tests/containers.ts).
+ *
+ * Ported from:
+ *  - pg-delta/tests/integration/extension-operations.test.ts (pgvector typmod)
+ *  - pg-delta/tests/integration/pgmq-declarative-roundtrip.test.ts
+ */
+import { describe, expect, test } from "bun:test";
+import { apply } from "../src/apply/apply.ts";
+import { resolveCliProfile } from "../src/cli/profile.ts";
+import { extract } from "../src/extract/extract.ts";
+import { plan } from "../src/plan/plan.ts";
+import {
+  runSupabaseBareTests,
+  supabaseCluster,
+  type TestDb,
+} from "./containers.ts";
+
+describe.skipIf(!runSupabaseBareTests)(
+  "supabase bare-image integration",
+  () => {
+    test("preserves pgvector typmod dimensions through extraction and ADD COLUMN SQL", async () => {
+      const cluster = await supabaseCluster();
+      const main = await cluster.createDb("supa_vec_main");
+      const branch = await cluster.createDb("supa_vec_branch");
+      try {
+        const setup = `
+          CREATE SCHEMA test_schema;
+          CREATE EXTENSION IF NOT EXISTS vector SCHEMA test_schema;
+          CREATE TABLE test_schema.embeddings (
+            id serial PRIMARY KEY,
+            title text NOT NULL,
+            embedding test_schema.halfvec(384) NOT NULL
+          );
+          CREATE INDEX embeddings_hnsw_idx
+            ON test_schema.embeddings
+            USING hnsw (embedding test_schema.halfvec_l2_ops)
+            WITH (m = 16, ef_construction = 64);
+        `;
+        await main.pool.query(setup);
+        await branch.pool.query(setup);
+        await branch.pool.query(`
+          ALTER TABLE test_schema.embeddings
+            ADD COLUMN embedding_v2 test_schema.vector(768);
+        `);
+
+        const [s, d] = [await extract(main.pool), await extract(branch.pool)];
+
+        // typmod survives extraction on the existing and the new column.
+        const columnType = (fb: typeof d.factBase, col: string): string => {
+          const fact = fb
+            .facts()
+            .find(
+              (f) =>
+                f.id.kind === "column" &&
+                (f.id as { name: string }).name === col &&
+                (f.id as { table?: string }).table === "embeddings",
+            );
+          if (!fact) throw new Error(`column ${col} not found`);
+          return (fact.payload as { type: string }).type;
+        };
+        expect(columnType(d.factBase, "embedding")).toContain("halfvec(384)");
+        expect(columnType(d.factBase, "embedding_v2")).toContain("vector(768)");
+
+        // and the diff emits exactly the typmod-bearing ADD COLUMN.
+        const thePlan = plan(s.factBase, d.factBase);
+        const addCol = thePlan.actions.filter((a) =>
+          a.sql.includes("ADD COLUMN"),
+        );
+        expect(addCol).toHaveLength(1);
+        expect(addCol[0]!.sql).toContain("vector(768)");
+        expect(addCol[0]!.sql).not.toContain("vector(0)");
+      } finally {
+        await Promise.all([main.drop(), branch.drop()]);
+      }
+    }, 180_000);
+
+    test("pgmq extension + queue + SECURITY DEFINER functions roundtrip cleanly under the supabase profile", async () => {
+      const cluster = await supabaseCluster();
+      const main = await cluster.createDb("supa_pgmq_main");
+      const branch = await cluster.createDb("supa_pgmq_branch");
+      const dbs: TestDb[] = [main, branch];
+      try {
+        // branch: pgmq extension, a queue, and the public SECURITY DEFINER
+        // wrappers Supabase ships around pgmq.* (the user-managed objects that
+        // must round-trip; pgmq's own schema objects are extension members the
+        // profile projects out).
+        await branch.pool.query(`
+          CREATE EXTENSION pgmq;
+          SELECT FROM pgmq.create('my_queue');
+
+          CREATE FUNCTION public.pgmq_read(
+            queue_name text, sleep_seconds integer DEFAULT 0, n integer DEFAULT 1
+          ) RETURNS SETOF pgmq.message_record
+            LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'pgmq'
+            AS $fn$
+            BEGIN
+              RETURN QUERY SELECT * FROM pgmq.read(queue_name, sleep_seconds, n);
+            END;
+            $fn$;
+
+          CREATE FUNCTION public.pgmq_delete(queue_name text, message_id bigint)
+            RETURNS boolean
+            LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'pgmq'
+            AS $fn$
+            BEGIN
+              RETURN pgmq.delete(queue_name, message_id);
+            END;
+            $fn$;
+        `);
+
+        const ctx = await resolveCliProfile(main.pool, "supabase");
+        const extractFn = ctx.extract ?? extract;
+        const [s, d] = await Promise.all([
+          extractFn(main.pool),
+          extractFn(branch.pool),
+        ]);
+
+        const thePlan = plan(s.factBase, d.factBase, {
+          compact: true,
+          ...ctx.planOptions,
+        });
+        expect(thePlan.actions.length).toBeGreaterThan(0);
+
+        const report = await apply(thePlan, main.pool, {
+          fingerprintGate: false,
+          ...ctx.applyOptions,
+        });
+        if (report.status !== "applied") {
+          throw new Error(
+            `apply failed at action ${report.error?.actionIndex ?? "?"}: ${report.error?.message ?? report.status}\nSQL: ${report.error?.sql ?? "(none)"}`,
+          );
+        }
+
+        // converges: a profile-scoped re-plan against the branch is empty.
+        const after = await extractFn(main.pool);
+        const drift = plan(after.factBase, d.factBase, ctx.planOptions);
+        if (drift.actions.length > 0) {
+          throw new Error(
+            `${drift.actions.length} drift action(s) after apply:\n${drift.actions.map((a) => a.sql).join("\n")}`,
+          );
+        }
+        expect(drift.actions).toEqual([]);
+      } finally {
+        await Promise.all(dbs.map((db) => db.drop()));
+      }
+    }, 240_000);
+  },
+);
