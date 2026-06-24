@@ -109,7 +109,9 @@ All engineering stages are implemented:
   (`renames: "auto" | "prompt" | "off"`, ambiguity/near-miss verdicts,
   data preservation proven down to column values), declarative export
   with the `load(export(fb)) ≡ fb` gate (+ an "ordered" layout that
-  loads in a single pass), drift, finalized public API (subpath
+  loads in a single pass, and a "grouped" layout that restores the old
+  engine's category-grouped/readable output with opt-in name-pattern,
+  flat-schema, and partition grouping), drift, finalized public API (subpath
   exports, reviewed name-by-name in `API-REVIEW.md`), CLI v2.
 
 The proof loop now verifies the two safety fields state-proof alone can't

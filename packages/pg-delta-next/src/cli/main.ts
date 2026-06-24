@@ -24,7 +24,7 @@
  *   diff           --source <pg-url> --desired <pg-url>
  *   drift          --env <pg-url> --snapshot <file>
  *   snapshot       --source <pg-url> --out <file>
- *   schema export  --source <pg-url> --out-dir <dir> [--layout ordered]
+ *   schema export  --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
  *   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
  *                  [--renames auto|prompt|off] [--force]
  *                  [--accept-rename <from>=<to>] ... [--no-reorder]
@@ -63,7 +63,9 @@ Commands:
   diff           --source <pg-url> --desired <pg-url>
   drift          --env <pg-url> --snapshot <file>
   snapshot       --source <pg-url> --out <file>
-  schema export  --source <pg-url> --out-dir <dir> [--layout ordered]
+  schema export  --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
+                 grouped adds: [--grouping-mode single-file|subdirectory]
+                 [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
                  [--renames auto|prompt|off] [--force]
                  [--accept-rename <from>=<to>] ... [--no-reorder]

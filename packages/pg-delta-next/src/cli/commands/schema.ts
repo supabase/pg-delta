@@ -1,7 +1,19 @@
 /**
- * schema export --source <pg-url> --out-dir <dir> [--layout ordered]
+ * schema export --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
  *   Export the source database as SQL files written to disk.
  *   Maps to old `declarative-export`.
+ *
+ *   Layouts:
+ *     by-object (default) — the familiar tree (schemas/<s>/tables/<t>.sql, …),
+ *       files in dependency/plan order.
+ *     ordered — numbered files in plan order; the loader converges in one pass.
+ *     grouped — the old engine's "nice" export: files ordered by semantic
+ *       category (cluster → schema → types → tables → views → …), statements
+ *       sorted within a file for readability, plus opt-in grouping:
+ *         --grouping-mode single-file|subdirectory  (default subdirectory)
+ *         --group-patterns '[{"pattern":"^auth_","name":"auth"}]'  (first match wins)
+ *         --flat-schemas partman,audit   (collapse a schema to one file/category)
+ *         --no-group-partitions          (keep partition children in their own files)
  *
  * schema apply --dir <dir> --shadow <pg-url> --target <pg-url>
  *              [--renames auto|prompt|off] [--force]
@@ -32,7 +44,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, dirname, resolve, sep } from "node:path";
-import { exportSqlFiles } from "../../frontends/export-sql-files.ts";
+import {
+  exportSqlFiles,
+  type ExportGrouping,
+  type ExportGroupingPattern,
+} from "../../frontends/export-sql-files.ts";
 import {
   loadSqlFiles,
   ShadowLoadError,
@@ -90,12 +106,18 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       profile: { type: "value" },
       "strict-coverage": { type: "boolean" },
       "unsafe-show-secrets": { type: "boolean" },
+      "grouping-mode": { type: "value" },
+      "group-patterns": { type: "value" },
+      "flat-schemas": { type: "value" },
+      "no-group-partitions": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pg-delta-next schema export --source <pg-url> --out-dir <dir> ` +
-          `[--layout ordered] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets]\n`,
+          `[--layout by-object|ordered|grouped] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets]\n` +
+          `  Grouped-layout options (only with --layout grouped):\n` +
+          `    [--grouping-mode single-file|subdirectory] [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]\n`,
       );
       process.exit(2);
     }
@@ -105,16 +127,69 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
   const { flags } = parsed;
   const sourceUrl = flags["source"];
   const outDir = flags["out-dir"];
-  let layout: "by-object" | "ordered" = "by-object";
+  let layout: "by-object" | "ordered" | "grouped" = "by-object";
   if (flags["layout"] !== undefined) {
     const v = flags["layout"];
-    if (v !== "by-object" && v !== "ordered") {
+    if (v !== "by-object" && v !== "ordered" && v !== "grouped") {
       process.stderr.write(
-        `--layout must be by-object or ordered (got: ${v})\n`,
+        `--layout must be by-object, ordered, or grouped (got: ${v})\n`,
       );
       process.exit(2);
     }
     layout = v;
+  }
+
+  // Grouping options apply only to the grouped layout. Parse them up front so
+  // a malformed value fails before connecting to the database.
+  let grouping: ExportGrouping | undefined;
+  if (layout === "grouped") {
+    const mode = flags["grouping-mode"];
+    if (
+      mode !== undefined &&
+      mode !== "single-file" &&
+      mode !== "subdirectory"
+    ) {
+      process.stderr.write(
+        `--grouping-mode must be single-file or subdirectory (got: ${mode})\n`,
+      );
+      process.exit(2);
+    }
+    let groupPatterns: ExportGroupingPattern[] | undefined;
+    if (flags["group-patterns"] !== undefined) {
+      try {
+        const raw = JSON.parse(flags["group-patterns"]) as unknown;
+        if (
+          !Array.isArray(raw) ||
+          !raw.every(
+            (p): p is ExportGroupingPattern =>
+              typeof p === "object" &&
+              p !== null &&
+              typeof (p as { pattern?: unknown }).pattern === "string" &&
+              typeof (p as { name?: unknown }).name === "string",
+          )
+        ) {
+          throw new Error("expected an array of { pattern, name } objects");
+        }
+        groupPatterns = raw;
+      } catch (e) {
+        process.stderr.write(
+          `--group-patterns must be JSON array of { pattern, name }: ${e instanceof Error ? e.message : String(e)}\n`,
+        );
+        process.exit(2);
+      }
+    }
+    const flatSchemas = flags["flat-schemas"]
+      ?.split(",")
+      .map((s) => s.trim())
+      .filter((s) => s !== "");
+    grouping = {
+      ...(mode !== undefined ? { mode } : {}),
+      ...(groupPatterns !== undefined ? { groupPatterns } : {}),
+      ...(flatSchemas !== undefined && flatSchemas.length > 0
+        ? { flatSchemas }
+        : {}),
+      ...(flags["no-group-partitions"] ? { autoGroupPartitions: false } : {}),
+    };
   }
 
   const src = makePool(sourceUrl);
@@ -143,7 +218,11 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       ctx.planOptions.capability,
       ctx.planOptions.baseline,
     );
-    const files = exportSqlFiles(view, { layout });
+    const files = exportSqlFiles(view, {
+      layout,
+      ...(grouping !== undefined ? { grouping } : {}),
+      onWarning: (message) => process.stderr.write(`  WARNING: ${message}\n`),
+    });
 
     const outRoot = resolve(outDir);
     for (const file of files) {

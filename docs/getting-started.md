@@ -102,6 +102,14 @@ Export the inverse — a live database back out to `.sql` files:
 pg-delta-next schema export --source "$SOURCE_URL" --out-dir ./schema
 # --layout by-object (default) groups by schema/kind; --layout ordered emits a
 # single load order with the load(export(db)) ≡ db guarantee
+#
+# --layout grouped restores the old engine's "nice" export: files ordered by
+# semantic category, statements sorted within a file for readability, plus
+# opt-in grouping:
+#   --grouping-mode single-file|subdirectory   (default subdirectory)
+#   --group-patterns '[{"pattern":"^auth_","name":"auth"}]'   (first match wins)
+#   --flat-schemas partman,audit                (one file per category)
+#   --no-group-partitions                       (keep partition children separate)
 ```
 
 > The shadow database must be a fresh, empty Postgres. Auto-provisioning an
