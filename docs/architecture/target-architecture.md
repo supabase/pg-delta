@@ -244,7 +244,8 @@ re-implemented inside an imperative diff.
     extracted — never corrupt the desired state, because Postgres remains
     the elaborator. (The objection to round-retry was as a *production
     apply engine* against live targets; on a throwaway shadow it is
-    harmless.)
+    harmless.) The pre-sort is the **statement reordering assist** — an
+    opt-in, degradable layer above the parser-free loader; see §4.4.1.
   - **Body validation is restored before extraction.** Loading runs with
     `check_function_bodies = off`; accepting the catalog without
     re-checking would admit a typo'd routine body into the desired state —
@@ -610,6 +611,72 @@ dependency leaves the core install —
 on every consumer.) The dev layer is today's pg-topo continuing as-is; its
 evolution is deliberately **outside the staged build** (§9) — stage 7 treats
 it as an optional, degradable assist, never a dependency.
+
+#### 4.4.1 Statement reordering assist for shadow loading
+
+**Context.** The shadow loader (§3.2) is parser-free by design: it sequences
+*files* into the shadow in bounded retry rounds (a whole file is one
+transaction, applied in textual order). That tolerates **cross-file** disorder
+— a file is retried after the files it depends on build — but it cannot reorder
+statements *within* a file. So `CREATE VIEW v …;` authored before
+`CREATE TABLE t …;` **in the same file** never converges (the file is one
+transaction and always fails the same way), and inline mutual foreign keys
+across files need a manual `ALTER TABLE … ADD CONSTRAINT` split. The old
+`pg-delta declarative-apply` avoided this by flattening every file into
+statements and topologically sorting them — exactly the DX the declarative
+workflow exists to provide, and a regression in the rewrite.
+
+**Decision.** Restore "author in any internal order, any split, it still loads"
+**without** putting a parser back in the trusted path:
+
+- The fix is the **split**, not the sort. Splitting a file into one-statement
+  units already removes the intra-file regression, because the loader's
+  defer-and-retry rounds float a `CREATE VIEW` after its `CREATE TABLE` either
+  way. The topological pre-sort is only an optimization on top: fewer rounds, a
+  deterministic first pass, and cycle diagnostics.
+- The assist returns **one statement per `SqlFile`** with a zero-padded ordinal
+  name prefix (`0007__schema/users.sql`). Fed that, the existing loader becomes
+  statement-granular with **zero core change** — its rounds, transaction-control
+  rejection, non-transactional handling, and mutual-FK hint all carry over, and
+  its per-round lexicographic name sort reproduces the assist's order. The
+  loader cannot tell it was fed sorted statements.
+- Every input statement is preserved **exactly once** — including statements the
+  analyzer cannot classify and statements trapped in a cycle (the analyzer's
+  ordered output is a *total* order; cycle members land at a best-effort
+  position rather than being dropped). Statement text is carried **verbatim**;
+  output is **deterministic** for the same input.
+
+**Trust posture.** The assist is the developer-experience layer of §4.4, not a
+trusted component. pg-topo is loaded through a guarded dynamic `import()` and
+declared an *optional peer dependency*; merely importing the core never pulls
+the libpg-query WASM parser — only calling the `@supabase/pg-delta-next/sql-order`
+subpath does. Reorder is always-on in pg-delta-next's own CLI (`schema apply`,
+with `--no-reorder` to reproduce raw file granularity); other consumers
+(supabase/cli) opt in by adding pg-topo themselves and calling the subpath.
+When the peer is absent the subpath throws a typed `ReorderUnavailableError`
+with an install hint (and `canReorder()` lets a caller probe instead of catch).
+
+**Failure UX.** On a non-converging load the shadow's real Postgres errors are
+authoritative. When the assist ran and flagged a **shadow-load cycle**, its
+members are attached as a clearly-labeled, advisory static-analysis hint
+(`suspected cycle a → b → a`) on top of the PG error — the assist annotates a
+failure Postgres already produced, it never decides the load failed. A separate
+`schema lint` command surfaces the analyzer's diagnostics for proactive
+authoring, deliberately kept **out of the apply path** so apply stays
+Postgres-truth.
+
+**Consequences.** Correctness lives in the split plus the shadow's rounds; the
+assist can degrade to nothing (uninstalled, or `--no-reorder`) and the loader
+still works at file granularity. The only state the design must guard against —
+the subpath imported without the peer declared — is covered by the guarded
+import and the typed error.
+
+**Alternatives rejected.** A `preserveOrder` flag on the loader (rejected: keep
+the core blind to whether input was sorted; the ordinal name convention carries
+order instead). A separate package that structurally guarantees pg-topo
+(rejected: one guarded subpath plus a typed error already covers the only bad
+state). Re-parsing `pg_get_expr()`-style output to recover references in the
+trusted path (rejected by P1; the assist is dev-layer only).
 
 ### 4.5 Packaging that falls out instead of being debated
 

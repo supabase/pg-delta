@@ -25,6 +25,32 @@ database with fail-safe ordering (bounded rounds), routine-body
 re-validation, shared-object leak detection, and parser-free DML rejection
 — then the result flows through the same plan/prove path.
 
+### Statement reordering assist (opt-in)
+
+`loadSqlFiles` is parser-free: it sequences whole *files* into the shadow, so it
+tolerates cross-file disorder but cannot reorder statements *within* a file. The
+opt-in **statement reordering assist** restores "author in any internal order,
+it still loads" by splitting files into one-statement units and topologically
+pre-sorting them (via `@supabase/pg-topo`) before the loader runs. See
+[target-architecture §4.4.1](../../docs/architecture/target-architecture.md).
+
+- **Subpath:** `@supabase/pg-delta-next/sql-order` exposes
+  `orderForShadow(files)` / `analyzeForShadow(files)` (returning single-statement
+  `SqlFile`s ready to feed straight into `loadSqlFiles`), `canReorder()`, and the
+  typed `ReorderUnavailableError`.
+- **Dependency posture:** `@supabase/pg-topo` is an **optional peer dependency**,
+  loaded only through a guarded dynamic `import()` when this subpath runs —
+  importing the core (`fact` / `diff` / `plan` / `apply` / `loadSqlFiles`) never
+  pulls the libpg-query WASM parser. If the peer is absent the subpath throws
+  `ReorderUnavailableError` with an install hint; `canReorder()` probes instead.
+- **CLI:** `schema apply` runs the assist by default (`--no-reorder` reproduces
+  raw file granularity for debugging). On a non-converging load it rewrites
+  synthetic ordinal names back to `file:line:col` and attaches any detected
+  shadow-load cycle as an advisory hint on top of the authoritative Postgres
+  error. `schema lint --dir <dir>` runs the analyzer statically (no database) to
+  surface cycles and other diagnostics for proactive authoring — deliberately
+  out of the apply path so apply stays Postgres-truth.
+
 - **Corpus proof loop**: every scenario in `corpus/` proven in BOTH
   directions (build and teardown) — state proof = zero drift deltas after
   applying the plan to a clone; data proof = seeded rows survive. The proof
