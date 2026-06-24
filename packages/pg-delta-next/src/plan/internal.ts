@@ -114,11 +114,21 @@ export function buildActionGraph(
       const isAmbientSchema =
         id.kind === "schema" &&
         assumedSchemaNames.has((id as { name: string }).name);
+      // An object that LIVES IN an assumed schema is also present at apply time:
+      // if the schema is assumed (e.g. Supabase's `auth`/`extensions`), so are
+      // its contents, so a `consumes table:auth.users` from a kept managed
+      // object (a user trigger / FK on a managed-schema table) is a valid
+      // reference, not stranded. Generalizes the assumed-schema-OBJECT exemption
+      // above to objects WITHIN an assumed schema.
+      const idSchema = (id as { schema?: string }).schema;
+      const isAmbientWithinAssumedSchema =
+        idSchema !== undefined && assumedSchemaNames.has(idSchema);
       if (
         producer === undefined &&
         !source.has(id) &&
         !isAmbientRole &&
-        !isAmbientSchema
+        !isAmbientSchema &&
+        !isAmbientWithinAssumedSchema
       ) {
         throw new Error(
           `missing requirement: action "${action.sql}" consumes ${key}, which neither exists on the target nor is produced by this plan${desired.has(id) ? " — a filter may be hiding its creation" : ""}`,
