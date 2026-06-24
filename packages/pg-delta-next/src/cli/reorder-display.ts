@@ -15,6 +15,7 @@ import { ShadowLoadError } from "../frontends/load-sql-files.ts";
 import type {
   OrderedSqlFile,
   ShadowLoadCycle,
+  ShadowOrderDiagnostic,
   StatementProvenance,
 } from "../frontends/sql-order.ts";
 
@@ -167,4 +168,74 @@ export function appendShadowCycleHint(
     ...error.details,
     ...hintDetails,
   ]);
+}
+
+/** pg-topo diagnostic codes that make a `schema lint` run fail (genuine
+ *  authoring bugs). `CYCLE_DETECTED` is handled separately via the structured
+ *  cycle list. Everything else is advisory (warning) — unresolved references,
+ *  for instance, are commonly external (extension-provided) in a partial dir. */
+const LINT_ERROR_CODES: ReadonlySet<string> = new Set([
+  "PARSE_ERROR",
+  "DISCOVERY_ERROR",
+  "DUPLICATE_PRODUCER",
+]);
+
+/** Result of {@link formatLintReport}: human-readable lines plus counts and a
+ *  blocking flag the CLI maps to its exit code. */
+export interface LintReport {
+  lines: string[];
+  errorCount: number;
+  warningCount: number;
+  blocking: boolean;
+}
+
+/**
+ * Turn a static-analysis result (`analyzeForShadow`) into a lint report for
+ * `schema lint`: one labeled line per finding, with cycles rendered as their
+ * `a → b → (back to a)` chain and other pg-topo diagnostics shown at their
+ * source location. Purely static — no shadow database is involved (apply stays
+ * Postgres-truth). Cycles, parse errors and duplicate producers are blocking;
+ * other diagnostics are advisory warnings.
+ */
+export function formatLintReport(
+  result: {
+    diagnostics: readonly ShadowOrderDiagnostic[];
+    cycles: readonly ShadowLoadCycle[];
+  },
+  originalSqlByName: ReadonlyMap<string, string>,
+): LintReport {
+  const lines: string[] = [];
+  let errorCount = 0;
+  let warningCount = 0;
+
+  for (const cycle of result.cycles) {
+    errorCount += 1;
+    lines.push(
+      `ERROR [CYCLE_DETECTED] ${formatCycleChain(cycle, originalSqlByName)}`,
+    );
+  }
+
+  for (const diagnostic of result.diagnostics) {
+    // cycles are already rendered above from the structured list
+    if (diagnostic.code === "CYCLE_DETECTED") {
+      continue;
+    }
+    const isError = LINT_ERROR_CODES.has(diagnostic.code);
+    if (isError) {
+      errorCount += 1;
+    } else {
+      warningCount += 1;
+    }
+    const location = diagnostic.location
+      ? formatStatementLocation(
+          diagnostic.location,
+          originalSqlByName.get(diagnostic.location.filePath),
+        )
+      : "(no location)";
+    lines.push(
+      `${isError ? "ERROR" : "WARNING"} [${diagnostic.code}] ${location}: ${diagnostic.message}`,
+    );
+  }
+
+  return { lines, errorCount, warningCount, blocking: errorCount > 0 };
 }

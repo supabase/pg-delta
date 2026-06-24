@@ -44,6 +44,7 @@ import {
 } from "../../frontends/sql-order.ts";
 import {
   appendShadowCycleHint,
+  formatLintReport,
   rewriteReorderedShadowError,
 } from "../reorder-display.ts";
 import { plan } from "../../plan/plan.ts";
@@ -383,5 +384,54 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     }
   } finally {
     await Promise.all([shadow.end(), tgt.end()]);
+  }
+}
+
+export async function cmdSchemaLint(args: string[]): Promise<void> {
+  let parsed;
+  try {
+    parsed = parseFlags(args, {
+      dir: { type: "value", required: true },
+    });
+  } catch (err) {
+    if (err instanceof UsageError) {
+      process.stderr.write(
+        `${err.message}\nUsage: pg-delta-next schema lint --dir <dir>\n`,
+      );
+      process.exit(2);
+    }
+    throw err;
+  }
+
+  const { flags } = parsed;
+  const dir = flags["dir"];
+  const files = collectSqlFiles(dir);
+  if (files.length === 0) {
+    process.stderr.write(`No .sql files found in ${dir}.\n`);
+    return;
+  }
+
+  // Pure static analysis — no shadow/target database. Surfaces pg-topo
+  // diagnostics (cycles, unknown statements, duplicate producers, …) for
+  // proactive authoring; deliberately kept OUT of the apply path so apply stays
+  // Postgres-truth. Throws ReorderUnavailableError (with an install hint) when
+  // @supabase/pg-topo is absent.
+  const { cycles, diagnostics } = await analyzeForShadow(files);
+  const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
+  const report = formatLintReport({ cycles, diagnostics }, originalSqlByName);
+
+  process.stderr.write(`Linted ${files.length} file(s) in ${dir}.\n`);
+  for (const line of report.lines) {
+    process.stderr.write(`  ${line}\n`);
+  }
+  if (report.lines.length === 0) {
+    process.stderr.write("No issues found.\n");
+  } else {
+    process.stderr.write(
+      `\n${report.errorCount} error(s), ${report.warningCount} warning(s).\n`,
+    );
+  }
+  if (report.blocking) {
+    process.exit(1);
   }
 }

@@ -70,11 +70,24 @@ export interface ShadowLoadCycle {
   objectKeys: string[];
 }
 
+/** A pg-topo static-analysis diagnostic, mapped back to the original source.
+ *  Surfaced for proactive authoring (`schema lint`) — advisory, never consulted
+ *  on the apply path. */
+export interface ShadowOrderDiagnostic {
+  /** pg-topo diagnostic code (e.g. `UNKNOWN_STATEMENT_CLASS`, `CYCLE_DETECTED`). */
+  code: string;
+  message: string;
+  /** Source location of the offending statement, when pg-topo provides one. */
+  location?: StatementProvenance;
+}
+
 /** Result of analyzing files for shadow loading: the reordered single-statement
- *  files plus any statically-detected shadow-load cycles. */
+ *  files, any statically-detected shadow-load cycles, and the raw pg-topo
+ *  diagnostics (for lint). */
 export interface ShadowOrderResult {
   files: OrderedSqlFile[];
   cycles: ShadowLoadCycle[];
+  diagnostics: ShadowOrderDiagnostic[];
 }
 
 /**
@@ -153,7 +166,7 @@ export async function analyzeForShadow(
   options: OrderForShadowOptions = {},
 ): Promise<ShadowOrderResult> {
   if (files.length === 0) {
-    return { files: [], cycles: [] };
+    return { files: [], cycles: [], diagnostics: [] };
   }
 
   const { analyzeAndSort } = await loadPgTopo();
@@ -224,7 +237,16 @@ export async function analyzeForShadow(
     };
   });
 
-  return { files: orderedFiles, cycles };
+  // map every pg-topo diagnostic back to source for `schema lint`.
+  const orderDiagnostics: ShadowOrderDiagnostic[] = diagnostics.map((d) => ({
+    code: d.code,
+    message: d.message,
+    ...(d.statementId === undefined
+      ? {}
+      : { location: toProvenance(d.statementId) }),
+  }));
+
+  return { files: orderedFiles, cycles, diagnostics: orderDiagnostics };
 }
 
 /**

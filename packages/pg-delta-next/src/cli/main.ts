@@ -28,6 +28,9 @@
  *   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
  *                  [--renames auto|prompt|off] [--force]
  *                  [--accept-rename <from>=<to>] ... [--no-reorder]
+ *   schema lint    --dir <dir>
+ *                  Statically check the SQL files (pg-topo) for shadow-load
+ *                  cycles and other issues, without touching a database.
  *
  * --renames default for the CLI is "prompt" (the library default is "off").
  * --accept-rename <from>=<to>
@@ -42,7 +45,11 @@ import { cmdProve } from "./commands/prove.ts";
 import { cmdDiff } from "./commands/diff.ts";
 import { cmdDrift } from "./commands/drift.ts";
 import { cmdSnapshot } from "./commands/snapshot.ts";
-import { cmdSchemaExport, cmdSchemaApply } from "./commands/schema.ts";
+import {
+  cmdSchemaExport,
+  cmdSchemaApply,
+  cmdSchemaLint,
+} from "./commands/schema.ts";
 
 const USAGE = `
 pg-delta-next <command> [options]
@@ -60,6 +67,7 @@ Commands:
   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
                  [--renames auto|prompt|off] [--force]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
+  schema lint    --dir <dir>
 
 Notes:
   --renames defaults to "prompt" for the CLI (library default is "off").
@@ -117,10 +125,12 @@ async function main(): Promise<void> {
           await cmdSchemaExport(subArgs);
         } else if (sub === "apply") {
           await cmdSchemaApply(subArgs);
+        } else if (sub === "lint") {
+          await cmdSchemaLint(subArgs);
         } else {
           process.stderr.write(
             `Unknown schema subcommand: ${sub ?? "(none)"}\n` +
-              "Available: export, apply\n",
+              "Available: export, apply, lint\n",
           );
           process.exit(2);
         }
