@@ -490,3 +490,65 @@ describe("CLI: schema lint", () => {
     expect(result.stderr).toMatch(/error\(s\)/);
   });
 });
+
+describe("CLI: schema export --layout grouped", () => {
+  test("writes the grouped tree, honoring --group-patterns", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_export_grouped");
+    try {
+      await source.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.auth_users (id integer PRIMARY KEY);
+        CREATE TABLE app.billing_invoices (id integer PRIMARY KEY);
+      `);
+      const outDir = join(
+        tmpdir(),
+        `pg-delta-next-export-grouped-${Date.now()}`,
+      );
+      const result = await runCli([
+        "schema",
+        "export",
+        "--source",
+        source.uri,
+        "--out-dir",
+        outDir,
+        "--layout",
+        "grouped",
+        "--group-patterns",
+        '[{"pattern":"^auth_","name":"auth"}]',
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toContain("layout: grouped");
+      // auth_users consolidated under the auth group; the other table keeps its file
+      expect(
+        readFileSync(join(outDir, "schemas/app/auth/tables.sql"), "utf8"),
+      ).toContain("auth_users");
+      expect(
+        readFileSync(
+          join(outDir, "schemas/app/tables/billing_invoices.sql"),
+          "utf8",
+        ),
+      ).toContain("billing_invoices");
+    } finally {
+      await source.drop();
+    }
+  }, 60_000);
+
+  test("rejects a malformed --group-patterns before connecting (exit 2)", async () => {
+    const result = await runCli([
+      "schema",
+      "export",
+      "--source",
+      "postgresql://localhost/unused",
+      "--out-dir",
+      join(tmpdir(), `pg-delta-next-export-bad-${Date.now()}`),
+      "--layout",
+      "grouped",
+      "--group-patterns",
+      "not json",
+    ]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("--group-patterns");
+  });
+});
