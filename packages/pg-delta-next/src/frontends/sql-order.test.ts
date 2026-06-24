@@ -245,3 +245,29 @@ describe("analyzeForShadow — cycle surfacing (D6)", () => {
     expect(cycles).toEqual([]);
   });
 });
+
+describe("analyzeForShadow — pg-topo diagnostics (lint)", () => {
+  test("surfaces an UNKNOWN_STATEMENT_CLASS diagnostic mapped to its file", async () => {
+    const { diagnostics } = await analyzeForShadow([
+      file("t.sql", "create table public.t(id int primary key);"),
+      file("vacuum.sql", "vacuum public.t;"),
+    ]);
+    const unknown = diagnostics.find(
+      (d) => d.code === "UNKNOWN_STATEMENT_CLASS",
+    );
+    expect(unknown).toBeDefined();
+    expect(unknown?.location?.filePath).toBe("vacuum.sql");
+  });
+
+  test("has no error-class diagnostics for a clean acyclic schema", async () => {
+    const { diagnostics } = await analyzeForShadow([
+      file("t.sql", "create table public.t(id int primary key);"),
+      file("v.sql", "create view public.v as select id from public.t;"),
+    ]);
+    expect(
+      diagnostics.some(
+        (d) => d.code === "CYCLE_DETECTED" || d.code === "PARSE_ERROR",
+      ),
+    ).toBe(false);
+  });
+});

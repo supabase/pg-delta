@@ -14,6 +14,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   appendShadowCycleHint,
+  formatLintReport,
   formatStatementLocation,
   positionToLineColumn,
   rewriteReorderedShadowError,
@@ -23,6 +24,7 @@ import { ShadowLoadError } from "../frontends/load-sql-files.ts";
 import type {
   OrderedSqlFile,
   ShadowLoadCycle,
+  ShadowOrderDiagnostic,
 } from "../frontends/sql-order.ts";
 
 describe("stripOrdinalPrefix", () => {
@@ -201,5 +203,73 @@ describe("appendShadowCycleHint (D6)", () => {
     const same = appendShadowCycleHint(error, [], originalSqlByName);
     expect(same.message).toBe(error.message);
     expect(same.details).toHaveLength(error.details.length);
+  });
+});
+
+describe("formatLintReport (schema lint)", () => {
+  const diag = (
+    code: string,
+    message: string,
+    location?: ShadowOrderDiagnostic["location"],
+  ): ShadowOrderDiagnostic =>
+    location ? { code, message, location } : { code, message };
+
+  test("a clean schema yields no findings and is not blocking", () => {
+    const report = formatLintReport({ diagnostics: [], cycles: [] }, new Map());
+    expect(report.blocking).toBe(false);
+    expect(report.errorCount).toBe(0);
+    expect(report.lines).toHaveLength(0);
+  });
+
+  test("a cycle is a blocking ERROR rendered as a chain", () => {
+    const cycle: ShadowLoadCycle = {
+      members: [
+        { filePath: "a.sql", statementIndex: 0 },
+        { filePath: "b.sql", statementIndex: 0 },
+      ],
+      objectKeys: ["view:public.v1", "view:public.v2"],
+    };
+    const report = formatLintReport(
+      { diagnostics: [], cycles: [cycle] },
+      new Map(),
+    );
+    expect(report.blocking).toBe(true);
+    expect(report.errorCount).toBe(1);
+    const text = report.lines.join("\n");
+    expect(text).toContain("a.sql");
+    expect(text).toContain("→");
+    expect(text.toUpperCase()).toContain("ERROR");
+  });
+
+  test("UNKNOWN_STATEMENT_CLASS is a non-blocking WARNING with its location", () => {
+    const report = formatLintReport(
+      {
+        diagnostics: [
+          diag("UNKNOWN_STATEMENT_CLASS", "Unsupported statement", {
+            filePath: "vacuum.sql",
+            statementIndex: 0,
+          }),
+        ],
+        cycles: [],
+      },
+      new Map(),
+    );
+    expect(report.blocking).toBe(false);
+    expect(report.warningCount).toBe(1);
+    const text = report.lines.join("\n");
+    expect(text).toContain("vacuum.sql");
+    expect(text.toUpperCase()).toContain("WARNING");
+  });
+
+  test("DUPLICATE_PRODUCER is a blocking ERROR", () => {
+    const report = formatLintReport(
+      {
+        diagnostics: [diag("DUPLICATE_PRODUCER", "defined twice")],
+        cycles: [],
+      },
+      new Map(),
+    );
+    expect(report.blocking).toBe(true);
+    expect(report.errorCount).toBe(1);
   });
 });

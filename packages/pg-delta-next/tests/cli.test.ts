@@ -7,7 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { loadSnapshot } from "../src/frontends/snapshot-file.ts";
 import { sharedCluster } from "./containers.ts";
 
@@ -452,4 +452,41 @@ describe("CLI: secret redaction surface", () => {
       await source.drop();
     }
   }, 60_000);
+});
+
+describe("CLI: schema lint", () => {
+  // Pure static analysis — no database, so these run without a container.
+  const writeFixture = (
+    label: string,
+    files: Record<string, string>,
+  ): string => {
+    const dir = join(tmpdir(), `pg-delta-next-lint-${label}-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    for (const [name, sql] of Object.entries(files)) {
+      writeFileSync(join(dir, name), sql, "utf8");
+    }
+    return dir;
+  };
+
+  test("a clean schema lints successfully (exit 0)", async () => {
+    const dir = writeFixture("clean", {
+      "01_table.sql": "CREATE TABLE public.t (id integer PRIMARY KEY);",
+      "02_view.sql": "CREATE VIEW public.v AS SELECT id FROM public.t;",
+    });
+    const result = await runCli(["schema", "lint", "--dir", dir]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("No issues found");
+  });
+
+  test("a shadow-load cycle fails the lint (exit 1) with a labeled chain", async () => {
+    const dir = writeFixture("cycle", {
+      "v1.sql": "CREATE VIEW public.v1 AS SELECT * FROM public.v2;",
+      "v2.sql": "CREATE VIEW public.v2 AS SELECT * FROM public.v1;",
+    });
+    const result = await runCli(["schema", "lint", "--dir", dir]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("CYCLE_DETECTED");
+    expect(result.stderr).toContain("→");
+    expect(result.stderr).toMatch(/error\(s\)/);
+  });
 });
