@@ -20,6 +20,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   __setPgTopoImporterForTests,
+  analyzeForShadow,
   canReorder,
   orderForShadow,
   ReorderUnavailableError,
@@ -199,5 +200,48 @@ describe("orderForShadow — degradation when pg-topo is absent", () => {
 
     __setPgTopoImporterForTests(null);
     expect(await canReorder()).toBe(true);
+  });
+});
+
+describe("analyzeForShadow — cycle surfacing (D6)", () => {
+  test("reports cycle members mapped back to real provenance", async () => {
+    // inline mutual FK across two files → a shadow-load cycle pg-topo detects
+    const files = [
+      file(
+        "a.sql",
+        "create table public.a(id int primary key, b_id int references public.b(id));",
+      ),
+      file(
+        "b.sql",
+        "create table public.b(id int primary key, a_id int references public.a(id));",
+      ),
+    ];
+
+    const { files: ordered, cycles } = await analyzeForShadow(files);
+
+    // files are still the full single-statement set (Slice 1 contract intact)
+    expect(ordered).toHaveLength(2);
+
+    // a cycle is surfaced, with members mapped to the ORIGINAL file names
+    expect(cycles.length).toBeGreaterThan(0);
+    const memberFiles = cycles
+      .flatMap((c) => c.members.map((m) => m.filePath))
+      .sort();
+    expect(memberFiles).toEqual(["a.sql", "b.sql"]);
+    // members carry their statement index; none reference the synthetic <input:i>
+    for (const cycle of cycles) {
+      for (const member of cycle.members) {
+        expect(member.filePath).not.toMatch(/^<input:\d+>$/);
+        expect(typeof member.statementIndex).toBe("number");
+      }
+    }
+  });
+
+  test("reports no cycles for an acyclic schema", async () => {
+    const { cycles } = await analyzeForShadow([
+      file("t.sql", "create table public.t(id int primary key);"),
+      file("v.sql", "create view public.v as select id from public.t;"),
+    ]);
+    expect(cycles).toEqual([]);
   });
 });

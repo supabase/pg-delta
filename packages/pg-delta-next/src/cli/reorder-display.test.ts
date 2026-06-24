@@ -13,13 +13,17 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  appendShadowCycleHint,
   formatStatementLocation,
   positionToLineColumn,
   rewriteReorderedShadowError,
   stripOrdinalPrefix,
 } from "./reorder-display.ts";
 import { ShadowLoadError } from "../frontends/load-sql-files.ts";
-import type { OrderedSqlFile } from "../frontends/sql-order.ts";
+import type {
+  OrderedSqlFile,
+  ShadowLoadCycle,
+} from "../frontends/sql-order.ts";
 
 describe("stripOrdinalPrefix", () => {
   test("removes a zero-padded ordinal prefix", () => {
@@ -129,5 +133,73 @@ describe("rewriteReorderedShadowError", () => {
     const error = new ShadowLoadError("shadow database is not empty", []);
     const rewritten = rewriteReorderedShadowError(error, [], new Map());
     expect(rewritten.message).toBe("shadow database is not empty");
+  });
+});
+
+describe("appendShadowCycleHint (D6)", () => {
+  const content =
+    "create table public.a(id int primary key, b_id int references public.b(id));\n" +
+    "create table public.b(id int primary key, a_id int references public.a(id));";
+  const originalSqlByName = new Map([["schema.sql", content]]);
+  const cycle: ShadowLoadCycle = {
+    members: [
+      { filePath: "schema.sql", statementIndex: 0, sourceOffset: 0 },
+      {
+        filePath: "schema.sql",
+        statementIndex: 1,
+        sourceOffset: content.indexOf("create table public.b"),
+      },
+    ],
+    objectKeys: ["table:public.a", "table:public.b"],
+  };
+
+  const stuckError = (): ShadowLoadError =>
+    new ShadowLoadError(
+      "shadow load stuck after 1 round(s): 2 file(s) cannot apply",
+      [
+        {
+          code: "stuck_statement",
+          severity: "error",
+          message: 'schema.sql:1:1: relation "public.b" does not exist',
+        },
+      ],
+    );
+
+  test("appends a clearly-labeled, advisory static-analysis hint", () => {
+    const enriched = appendShadowCycleHint(
+      stuckError(),
+      [cycle],
+      originalSqlByName,
+    );
+
+    // the message keeps the authoritative PG-driven stuck text…
+    expect(enriched.message).toContain("shadow load stuck");
+    // …and gains a labeled, advisory cycle hint
+    expect(enriched.message.toLowerCase()).toContain("suspected");
+    expect(enriched.message.toLowerCase()).toMatch(
+      /advisory|static analysis|authoritative/,
+    );
+    // rendered as the cycle chain with real file:line:col + a back-edge
+    expect(enriched.message).toContain("schema.sql:1:1");
+    expect(enriched.message).toContain("schema.sql:2:1");
+    expect(enriched.message).toContain("→");
+    // object keys surfaced
+    expect(enriched.message).toContain("table:public.a");
+
+    // a structured hint diagnostic is added without disturbing the PG one
+    const codes = enriched.details.map((d) => d.code);
+    expect(codes).toContain("stuck_statement");
+    expect(codes).toContain("suspected_shadow_load_cycle");
+    const hint = enriched.details.find(
+      (d) => d.code === "suspected_shadow_load_cycle",
+    );
+    expect(hint?.severity).toBe("warning");
+  });
+
+  test("is a no-op when there are no cycles", () => {
+    const error = stuckError();
+    const same = appendShadowCycleHint(error, [], originalSqlByName);
+    expect(same.message).toBe(error.message);
+    expect(same.details).toHaveLength(error.details.length);
   });
 });

@@ -17,8 +17,14 @@ import {
   loadSqlFiles,
   ShadowLoadError,
 } from "../src/frontends/load-sql-files.ts";
-import { orderForShadow } from "../src/frontends/sql-order.ts";
-import { rewriteReorderedShadowError } from "../src/cli/reorder-display.ts";
+import {
+  analyzeForShadow,
+  orderForShadow,
+} from "../src/frontends/sql-order.ts";
+import {
+  appendShadowCycleHint,
+  rewriteReorderedShadowError,
+} from "../src/cli/reorder-display.ts";
 import { createTestDb } from "./containers.ts";
 
 async function captureError(promise: Promise<unknown>): Promise<unknown> {
@@ -141,6 +147,52 @@ describe("statement-reordering assist (orderForShadow → loadSqlFiles)", () => 
       expect(detailText).not.toMatch(/\d+__schema\.sql/);
       // Postgres' own text is preserved
       expect(detailText.toLowerCase()).toContain("missing");
+    } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+
+  test("an unbreakable inline mutual FK stays stuck and gains a labeled cycle hint (D6)", async () => {
+    // both FKs are inline, so neither table can be created first — a genuine
+    // shadow-load cycle that round-retry cannot resolve. The assist statically
+    // detects it; the CLI attaches the members as an advisory hint on top of the
+    // (authoritative) Postgres stuck error.
+    const content =
+      "CREATE TABLE public.a (id integer PRIMARY KEY, b_id integer REFERENCES public.b(id));\n" +
+      "CREATE TABLE public.b (id integer PRIMARY KEY, a_id integer REFERENCES public.a(id));";
+    const files = [{ name: "schema.sql", sql: content }];
+
+    const shadow = await createTestDb("shadow");
+    try {
+      const { files: ordered, cycles } = await analyzeForShadow(files);
+      expect(cycles.length).toBeGreaterThan(0);
+
+      const error = (await captureError(
+        loadSqlFiles(ordered, shadow.pool),
+      )) as ShadowLoadError;
+      expect(error).toBeInstanceOf(ShadowLoadError);
+
+      const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
+      const enriched = appendShadowCycleHint(
+        rewriteReorderedShadowError(error, ordered, originalSqlByName),
+        cycles,
+        originalSqlByName,
+      );
+
+      // the authoritative PG-driven stuck text remains…
+      expect(enriched.message.toLowerCase()).toMatch(/stuck|did not converge/);
+      // …with a clearly-labeled, advisory cycle hint rendered as the chain of
+      // real source locations of the two mutually-referencing statements
+      expect(enriched.message.toLowerCase()).toContain("suspected");
+      expect(enriched.message).toContain("→");
+      expect(enriched.message).toContain("schema.sql:1:1");
+      expect(enriched.message).toContain("schema.sql:2:1");
+      // pg-topo identifies the cycle by the two FK constraints (a and b)
+      expect(enriched.message).toContain("public:a");
+      expect(enriched.message).toContain("public:b");
+      expect(
+        enriched.details.some((d) => d.code === "suspected_shadow_load_cycle"),
+      ).toBe(true);
     } finally {
       await shadow.drop();
     }
