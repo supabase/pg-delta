@@ -2667,14 +2667,14 @@
   {
     "file": "integration/supabase-all-extensions-roundtrip.test.ts",
     "testName": "every pinned-schema extension reapplies cleanly via the supabase integration",
-    "disposition": "not-ported",
-    "reason": "Requires Supabase image; policy-layer concern (stage 8)"
+    "disposition": "merged",
+    "reason": "CI-skipped breadth canary for the CREATE EXTENSION … WITH SCHEMA <pinned-schema> path (issue #222). That path — a pinned schema that is an assumedSchema (extensions/pgmq) — is exercised by the ported postgres_fdw/pgvector/pgmq roundtrips in supabase-integration.test.ts + supabase-dsl-e2e.test.ts; breadth across every extension does not change the code path."
   },
   {
     "file": "integration/supabase-base-init.test.ts",
     "testName": "replays the full-stack base init before test code runs",
-    "disposition": "not-ported",
-    "reason": "Requires Supabase image; policy-layer concern (stage 8)"
+    "disposition": "merged",
+    "reason": "Base-init replay is exercised end-to-end by tests/dbdev-roundtrip.test.ts (bootstrapDbdevFixture applies the base-init fixture before a full roundtrip); a standalone storage.buckets smoke adds no coverage."
   },
   {
     "file": "integration/supabase-dsl-e2e.test.ts",

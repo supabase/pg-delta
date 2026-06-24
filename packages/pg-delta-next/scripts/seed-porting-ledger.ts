@@ -335,6 +335,20 @@ const OVERRIDES: Record<string, Omit<LedgerEntry, "file" | "testName">> = {
         "v2 suppresses them structurally: the server/foreign-table/user-mapping are parented to the owner-excluded FDW, so resolveView cascades the exclusion (no Wasm-name match needed). Residual accepted delta (Old-12): a Wasm FDW owned by a NON-system role like postgres would not be owner-excluded.",
     },
 
+  // Tier 4: the two low-value Supabase smokes are covered, not re-ported.
+  "integration/supabase-base-init.test.ts :: replays the full-stack base init before test code runs":
+    {
+      disposition: "merged",
+      reason:
+        "Base-init replay is exercised end-to-end by tests/dbdev-roundtrip.test.ts (bootstrapDbdevFixture applies the base-init fixture before a full roundtrip); a standalone storage.buckets smoke adds no coverage.",
+    },
+  "integration/supabase-all-extensions-roundtrip.test.ts :: every pinned-schema extension reapplies cleanly via the supabase integration":
+    {
+      disposition: "merged",
+      reason:
+        "CI-skipped breadth canary for the CREATE EXTENSION … WITH SCHEMA <pinned-schema> path (issue #222). That path — a pinned schema that is an assumedSchema (extensions/pgmq) — is exercised by the ported postgres_fdw/pgvector/pgmq roundtrips in supabase-integration.test.ts + supabase-dsl-e2e.test.ts; breadth across every extension does not change the code path.",
+    },
+
   // Tier 4: catalog-model extraction cases. pg-delta-next proves extraction by
   // the fact-ring (tests/extract.test.ts) + bidirectional corpus round-trips,
   // not by re-asserting the old Catalog shape. The one distinct case — PG18
