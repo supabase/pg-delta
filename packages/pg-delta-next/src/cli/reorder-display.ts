@@ -14,6 +14,7 @@
 import { ShadowLoadError } from "../frontends/load-sql-files.ts";
 import type {
   OrderedSqlFile,
+  ShadowLoadCycle,
   StatementProvenance,
 } from "../frontends/sql-order.ts";
 
@@ -103,4 +104,67 @@ export function rewriteReorderedShadowError(
       message: rewrite(diagnostic.message),
     })),
   );
+}
+
+/** Render one cycle as `loc0 → loc1 → (back to loc0)` using real source
+ *  locations when resolvable, plus the involved object keys. */
+function formatCycleChain(
+  cycle: ShadowLoadCycle,
+  originalSqlByName: ReadonlyMap<string, string>,
+): string {
+  const chain = cycle.members.map((member) =>
+    formatStatementLocation(member, originalSqlByName.get(member.filePath)),
+  );
+  const arrow =
+    chain.length > 0
+      ? [...chain, `(back to ${chain[0]})`].join(" → ")
+      : "(empty cycle)";
+  const objects =
+    cycle.objectKeys.length > 0
+      ? ` [objects: ${cycle.objectKeys.join(", ")}]`
+      : "";
+  return `${arrow}${objects}`;
+}
+
+/**
+ * Attach statically-detected shadow-load cycles to a stuck {@link ShadowLoadError}
+ * as a clearly-labeled, advisory hint (D6). The Postgres-driven message and
+ * details remain first and authoritative — the assist only annotates a failure
+ * Postgres already produced, it never decides the load failed.
+ *
+ * No-op when `cycles` is empty. Call this only for a genuinely non-converging
+ * load (stuck / max-rounds); attaching a cycle hint to an unrelated rejection
+ * (transaction control, data statements, …) would mislead.
+ */
+export function appendShadowCycleHint(
+  error: ShadowLoadError,
+  cycles: readonly ShadowLoadCycle[],
+  originalSqlByName: ReadonlyMap<string, string>,
+): ShadowLoadError {
+  if (cycles.length === 0) {
+    return error;
+  }
+
+  const chains = cycles.map((cycle) =>
+    formatCycleChain(cycle, originalSqlByName),
+  );
+  const hintBlock = [
+    "",
+    "Suspected shadow-load cycle(s) detected by the reordering assist " +
+      "(static analysis — advisory; the PostgreSQL errors above are authoritative):",
+    ...chains.map((chain) => `  ${chain}`),
+    "If two objects reference each other, break the cycle by splitting one " +
+      "reference into a separate ALTER statement.",
+  ].join("\n");
+
+  const hintDetails = cycles.map((cycle) => ({
+    code: "suspected_shadow_load_cycle",
+    severity: "warning" as const,
+    message: `suspected cycle (static analysis, advisory): ${formatCycleChain(cycle, originalSqlByName)}`,
+  }));
+
+  return new ShadowLoadError(`${error.message}\n${hintBlock}`, [
+    ...error.details,
+    ...hintDetails,
+  ]);
 }

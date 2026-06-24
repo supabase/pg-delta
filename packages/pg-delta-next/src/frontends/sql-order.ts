@@ -28,7 +28,7 @@
  * - statement text carried **verbatim**;
  * - **deterministic** output for the same input.
  */
-import type { AnalyzeOptions, ObjectRef } from "@supabase/pg-topo";
+import type { AnalyzeOptions, ObjectRef, StatementId } from "@supabase/pg-topo";
 import type { SqlFile } from "./load-sql-files.ts";
 
 /** Provenance back to the authored source, so a caller can render
@@ -56,6 +56,25 @@ export interface OrderForShadowOptions {
    *  to pg-topo so they are not flagged as unresolved. Optional; the lowest-risk
    *  default is none — round-retry + diagnostics handle externals. */
   externalProviders?: ObjectRef[];
+}
+
+/**
+ * A shadow-load cycle the assist statically detected (e.g. inline mutual FK).
+ * Advisory only — the assist never decides correctness; this is annotation a
+ * caller can attach to a real (Postgres-driven) stuck error (D6).
+ */
+export interface ShadowLoadCycle {
+  /** The statements forming the cycle, in cycle order, mapped back to source. */
+  members: StatementProvenance[];
+  /** pg-topo object keys involved in the cycle (e.g. `table:public.a`), if any. */
+  objectKeys: string[];
+}
+
+/** Result of analyzing files for shadow loading: the reordered single-statement
+ *  files plus any statically-detected shadow-load cycles. */
+export interface ShadowOrderResult {
+  files: OrderedSqlFile[];
+  cycles: ShadowLoadCycle[];
 }
 
 /**
@@ -119,18 +138,22 @@ export async function canReorder(): Promise<boolean> {
 }
 
 /**
- * Split `files` into one-statement units and topologically pre-sort them for
- * shadow loading. Returns single-statement `OrderedSqlFile`s in topo order, each
- * with a zero-padded ordinal `name` prefix and provenance back to the source.
+ * Analyze `files` for shadow loading: split them into one-statement units,
+ * topologically pre-sort them, and surface any statically-detected shadow-load
+ * cycles. Returns the reordered single-statement `OrderedSqlFile`s (each with a
+ * zero-padded ordinal `name` prefix and provenance) plus the cycles.
+ *
+ * Both outputs are advisory — Postgres still elaborates the shadow (P1). The
+ * cycles let a caller annotate a real (Postgres-driven) stuck load (D6).
  *
  * @throws {ReorderUnavailableError} when `@supabase/pg-topo` is not installed.
  */
-export async function orderForShadow(
+export async function analyzeForShadow(
   files: SqlFile[],
   options: OrderForShadowOptions = {},
-): Promise<OrderedSqlFile[]> {
+): Promise<ShadowOrderResult> {
   if (files.length === 0) {
-    return [];
+    return { files: [], cycles: [] };
   }
 
   const { analyzeAndSort } = await loadPgTopo();
@@ -142,35 +165,83 @@ export async function orderForShadow(
     options.externalProviders === undefined
       ? undefined
       : { externalProviders: options.externalProviders };
-  const { ordered } = await analyzeAndSort(sql, analyzeOptions);
+  const { ordered, diagnostics, graph } = await analyzeAndSort(
+    sql,
+    analyzeOptions,
+  );
+
+  const toProvenance = (id: StatementId): StatementProvenance => {
+    const inputIndex = parseInputIndex(id.filePath);
+    const originalName =
+      inputIndex !== null && inputIndex < files.length
+        ? (files[inputIndex] as SqlFile).name
+        : id.filePath;
+    return {
+      filePath: originalName,
+      statementIndex: id.statementIndex,
+      // omit `sourceOffset` when pg-topo did not resolve it (exactOptionalPropertyTypes)
+      ...(id.sourceOffset === undefined
+        ? {}
+        : { sourceOffset: id.sourceOffset }),
+    };
+  };
 
   // zero-pad ordinals to a fixed width so lexicographic name sort == topo order
   // even past 9 / 99 statements (the loader re-sorts `pending` by name each
   // round). `ordered` is already a total order (pg-topo never drops a statement,
   // including UNKNOWN classes and cycle members), so this is a 1:1 remap.
   const width = String(Math.max(ordered.length - 1, 0)).length;
-
-  return ordered.map((node, index) => {
-    const inputIndex = parseInputIndex(node.id.filePath);
-    const originalName =
-      inputIndex !== null && inputIndex < files.length
-        ? (files[inputIndex] as SqlFile).name
-        : node.id.filePath;
+  const orderedFiles: OrderedSqlFile[] = ordered.map((node, index) => {
+    const provenance = toProvenance(node.id);
     const ordinal = String(index).padStart(width, "0");
-    const provenance: StatementProvenance = {
-      filePath: originalName,
-      statementIndex: node.id.statementIndex,
-      // omit `sourceOffset` when pg-topo did not resolve it (exactOptionalPropertyTypes)
-      ...(node.id.sourceOffset === undefined
-        ? {}
-        : { sourceOffset: node.id.sourceOffset }),
-    };
     return {
-      name: `${ordinal}__${originalName}`,
+      name: `${ordinal}__${provenance.filePath}`,
       sql: node.sql,
       provenance,
     };
   });
+
+  // map pg-topo's cycle groups (statement ids, in cycle order) to provenance,
+  // pulling the object keys from the matching CYCLE_DETECTED diagnostic.
+  const cycleDiagnostics = diagnostics.filter(
+    (d) => d.code === "CYCLE_DETECTED",
+  );
+  const cycles: ShadowLoadCycle[] = graph.cycleGroups.map((group) => {
+    const head = group[0];
+    const diagnostic = cycleDiagnostics.find(
+      (d) =>
+        d.statementId !== undefined &&
+        head !== undefined &&
+        d.statementId.filePath === head.filePath &&
+        d.statementId.statementIndex === head.statementIndex,
+    );
+    const objectKeys = diagnostic?.details?.["cycleObjectKeys"];
+    return {
+      members: group.map(toProvenance),
+      objectKeys: Array.isArray(objectKeys)
+        ? objectKeys.filter((k): k is string => typeof k === "string")
+        : [],
+    };
+  });
+
+  return { files: orderedFiles, cycles };
+}
+
+/**
+ * Split `files` into one-statement units and topologically pre-sort them for
+ * shadow loading. Returns single-statement `OrderedSqlFile`s in topo order, each
+ * with a zero-padded ordinal `name` prefix and provenance back to the source.
+ *
+ * Thin wrapper over {@link analyzeForShadow} for callers that only need the
+ * files (the statically-detected cycles are discarded).
+ *
+ * @throws {ReorderUnavailableError} when `@supabase/pg-topo` is not installed.
+ */
+export async function orderForShadow(
+  files: SqlFile[],
+  options: OrderForShadowOptions = {},
+): Promise<OrderedSqlFile[]> {
+  return (await analyzeForShadow(files, options)).files;
 }
 
 /** Parse the `i` out of pg-topo's synthetic `<input:i>` file path. */

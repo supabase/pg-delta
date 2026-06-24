@@ -38,10 +38,14 @@ import {
   ShadowLoadError,
 } from "../../frontends/load-sql-files.ts";
 import {
-  orderForShadow,
+  analyzeForShadow,
   type OrderedSqlFile,
+  type ShadowLoadCycle,
 } from "../../frontends/sql-order.ts";
-import { rewriteReorderedShadowError } from "../reorder-display.ts";
+import {
+  appendShadowCycleHint,
+  rewriteReorderedShadowError,
+} from "../reorder-display.ts";
 import { plan } from "../../plan/plan.ts";
 import { resolveView } from "../../policy/policy.ts";
 import { apply } from "../../apply/apply.ts";
@@ -254,12 +258,15 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     // error back to real `file:line:col`, leaving the PG text authoritative.
     const reorder = !flags["no-reorder"];
     let orderedFiles: OrderedSqlFile[] | null = null;
+    let cycles: ShadowLoadCycle[] = [];
     let loadInput: SqlFile[] = files;
     if (reorder) {
-      orderedFiles = await orderForShadow(files);
-      loadInput = orderedFiles;
+      const analyzed = await analyzeForShadow(files);
+      orderedFiles = analyzed.files;
+      cycles = analyzed.cycles;
+      loadInput = analyzed.files;
       process.stderr.write(
-        `  Reordered into ${orderedFiles.length} statement(s) (use --no-reorder to disable)\n`,
+        `  Reordered into ${analyzed.files.length} statement(s) (use --no-reorder to disable)\n`,
       );
     }
     const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
@@ -273,11 +280,23 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       });
     } catch (error) {
       if (error instanceof ShadowLoadError && orderedFiles) {
-        throw rewriteReorderedShadowError(
+        // rewrite synthetic ordinal names back to real file:line:col, then —
+        // only on a genuinely non-converging load — attach the assist's cycle
+        // members as a clearly-labeled advisory hint (D6). The loader's
+        // Postgres-driven errors stay first and authoritative.
+        let enriched = rewriteReorderedShadowError(
           error,
           orderedFiles,
           originalSqlByName,
         );
+        const nonConverging = error.details.some(
+          (d) =>
+            d.code === "stuck_statement" || d.code === "max_rounds_exceeded",
+        );
+        if (nonConverging) {
+          enriched = appendShadowCycleHint(enriched, cycles, originalSqlByName);
+        }
+        throw enriched;
       }
       throw error;
     }
