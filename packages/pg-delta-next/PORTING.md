@@ -31,6 +31,13 @@ or not ported with a reason.
                                           diff-suppression ported via redaction-output.test.ts;
                                           FDW/server/user-mapping option redaction also covered
                                           by the sensitive-handling--* corpus scenarios
+  Tier 3 (subscription replication-slot parity) — ported via
+  tests/subscription-slot.test.ts (slots are cluster state the TEMPLATE-cloning
+  corpus runner skips; behavior was already correct, no engine change needed):
+  - subscription-operations.test.ts "creates a subscription reusing an existing
+    replication slot inside a transaction"  → create stays transactional (connect=false)
+  - subscription-operations.test.ts "drops a subscription with an associated
+    replication slot outside a transaction block" → DROP self-declares nonTransactional
 -->
 
 | Old file | Reason |

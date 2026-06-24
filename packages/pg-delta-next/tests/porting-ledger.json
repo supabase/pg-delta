@@ -2655,14 +2655,14 @@
   {
     "file": "integration/subscription-operations.test.ts",
     "testName": "creates a subscription reusing an existing replication slot inside a transaction",
-    "disposition": "not-ported",
-    "reason": "Subscription slot reuse — cluster/shared-catalog-adjacent apply behavior, not standard corpus. Gap owned by plan Tier 3."
+    "disposition": "ported",
+    "nextTest": "subscription-slot.test.ts"
   },
   {
     "file": "integration/subscription-operations.test.ts",
     "testName": "drops a subscription with an associated replication slot outside a transaction block",
-    "disposition": "not-ported",
-    "reason": "Subscription drop-with-slot non-transactional segmentation. Gap owned by plan Tier 3."
+    "disposition": "ported",
+    "nextTest": "subscription-slot.test.ts"
   },
   {
     "file": "integration/supabase-all-extensions-roundtrip.test.ts",

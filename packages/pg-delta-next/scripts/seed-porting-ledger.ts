@@ -306,18 +306,15 @@ const OVERRIDES: Record<string, Omit<LedgerEntry, "file" | "testName">> = {
       reason:
         "Connection-layer (pool onConnect async setup); no schema-state representation. Exclusion per plan Tier 8.",
     },
+  // Tier 3: subscription slot parity. pg-delta-next's behavior was already
+  // correct (create reuses an existing slot via connect=false, staying
+  // transactional; drop-with-slot self-declares nonTransactional) — these tests
+  // prove convergence end-to-end. Not corpus: slots are cluster/shared-catalog
+  // state the TEMPLATE-cloning corpus runner skips.
   "integration/subscription-operations.test.ts :: creates a subscription reusing an existing replication slot inside a transaction":
-    {
-      disposition: "not-ported",
-      reason:
-        "Subscription slot reuse — cluster/shared-catalog-adjacent apply behavior, not standard corpus. Gap owned by plan Tier 3.",
-    },
+    { disposition: "ported", nextTest: "subscription-slot.test.ts" },
   "integration/subscription-operations.test.ts :: drops a subscription with an associated replication slot outside a transaction block":
-    {
-      disposition: "not-ported",
-      reason:
-        "Subscription drop-with-slot non-transactional segmentation. Gap owned by plan Tier 3.",
-    },
+    { disposition: "ported", nextTest: "subscription-slot.test.ts" },
   "integration/trigger-operations.test.ts :: trigger with dependencies roundtrip":
     {
       disposition: "not-ported",
