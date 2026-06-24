@@ -264,4 +264,51 @@ describe("analyzeAndSort", () => {
     expect(first?.id).toBeDefined();
     expect(typeof first?.id.sourceOffset).toBe("number");
   });
+
+  test("ordered is a total order: cycle members are kept, not dropped", async () => {
+    // Two views referencing each other form a dependency cycle. Kahn's
+    // algorithm can drain neither, but `ordered` must still be a complete
+    // permutation of the input — downstream consumers (e.g. pg-delta-next's
+    // shadow-load reordering assist) feed `ordered` straight into a
+    // defer-and-retry loader and must receive every statement exactly once.
+    const result = await analyzeAndSort([
+      "create view public.v1 as select * from public.v2;",
+      "create view public.v2 as select * from public.v1;",
+    ]);
+
+    // the cycle is still reported
+    expect(
+      result.diagnostics.filter(
+        (diagnostic) => diagnostic.code === "CYCLE_DETECTED",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(result.graph.cycleGroups.length).toBeGreaterThan(0);
+
+    // but no statement is dropped from the output
+    expect(result.ordered.length).toBe(2);
+    const orderedKeys = result.ordered
+      .map((statement) => statement.sql.toLowerCase())
+      .sort();
+    expect(orderedKeys).toEqual([
+      "create view public.v1 as select * from public.v2;",
+      "create view public.v2 as select * from public.v1;",
+    ]);
+
+    // determinism: the same input yields the same ordered ids
+    const again = await analyzeAndSort([
+      "create view public.v1 as select * from public.v2;",
+      "create view public.v2 as select * from public.v1;",
+    ]);
+    expect(
+      again.ordered.map(
+        (statement) =>
+          `${statement.id.filePath}:${statement.id.statementIndex}`,
+      ),
+    ).toEqual(
+      result.ordered.map(
+        (statement) =>
+          `${statement.id.filePath}:${statement.id.statementIndex}`,
+      ),
+    );
+  });
 });
