@@ -5,9 +5,20 @@
  *
  * schema apply --dir <dir> --shadow <pg-url> --target <pg-url>
  *              [--renames auto|prompt|off] [--force]
- *              [--accept-rename <from>=<to>] (repeatable)
+ *              [--accept-rename <from>=<to>] (repeatable) [--no-reorder]
  *   Read .sql files recursively (lexicographic), load into shadow, extract
  *   target, plan, apply.  Maps to old `declarative-apply` / `sync`.
+ *
+ *   By default the SQL files are passed through the statement-reordering assist
+ *   (target-architecture §4.4.1): each file is split into one-statement units
+ *   and topologically pre-sorted before loading, so authoring order within a
+ *   file no longer matters and the shadow loader converges in fewer rounds. The
+ *   assist is advisory — Postgres still elaborates the shadow — so it can only
+ *   fail to BUILD the shadow (a visible error), never corrupt the desired state.
+ *
+ *   --no-reorder
+ *     Skip the reordering assist and load the raw files at file granularity
+ *     (the original behavior). Useful for debugging a stuck load.
  *
  *   --accept-rename <from>=<to>
  *     Confirm one rename candidate by the encoded stable-ids shown in a prior
@@ -22,7 +33,15 @@ import {
 } from "node:fs";
 import { join, dirname, resolve, sep } from "node:path";
 import { exportSqlFiles } from "../../frontends/export-sql-files.ts";
-import { loadSqlFiles } from "../../frontends/load-sql-files.ts";
+import {
+  loadSqlFiles,
+  ShadowLoadError,
+} from "../../frontends/load-sql-files.ts";
+import {
+  orderForShadow,
+  type OrderedSqlFile,
+} from "../../frontends/sql-order.ts";
+import { rewriteReorderedShadowError } from "../reorder-display.ts";
 import { plan } from "../../plan/plan.ts";
 import { resolveView } from "../../policy/policy.ts";
 import { apply } from "../../apply/apply.ts";
@@ -155,13 +174,14 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       profile: { type: "value" },
       "restrict-to-applier": { type: "boolean" },
       "strict-coverage": { type: "boolean" },
+      "no-reorder": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pg-delta-next schema apply --dir <dir> --shadow <pg-url> --target <pg-url> ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
-          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage]\n`,
+          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder]\n`,
       );
       process.exit(2);
     }
@@ -224,11 +244,43 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     process.stderr.write("Loading SQL files into shadow...\n");
     const files = collectSqlFiles(dir);
     process.stderr.write(`  ${files.length} file(s) found\n`);
+
+    // Reorder is on by default: split files into one-statement units and
+    // topologically pre-sort them so the shadow loader becomes statement-granular
+    // and tolerates intra-file ordering / inline-FK splits (target-arch §4.4.1).
+    // --no-reorder reproduces the raw file-granular behavior for debugging. The
+    // assist is advisory — Postgres still elaborates the shadow (P1) — so on a
+    // stuck load we only rewrite the synthetic ordinal names in the loader's
+    // error back to real `file:line:col`, leaving the PG text authoritative.
+    const reorder = !flags["no-reorder"];
+    let orderedFiles: OrderedSqlFile[] | null = null;
+    let loadInput: SqlFile[] = files;
+    if (reorder) {
+      orderedFiles = await orderForShadow(files);
+      loadInput = orderedFiles;
+      process.stderr.write(
+        `  Reordered into ${orderedFiles.length} statement(s) (use --no-reorder to disable)\n`,
+      );
+    }
+    const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
+
     // the shadow desired state must be projected with the SAME handlers as the
     // target, so pass the profile extractor through to loadSqlFiles.
-    const loadResult = await loadSqlFiles(files, shadow.pool, {
-      extract: (p, o) => ctx.extract(p, o),
-    });
+    let loadResult;
+    try {
+      loadResult = await loadSqlFiles(loadInput, shadow.pool, {
+        extract: (p, o) => ctx.extract(p, o),
+      });
+    } catch (error) {
+      if (error instanceof ShadowLoadError && orderedFiles) {
+        throw rewriteReorderedShadowError(
+          error,
+          orderedFiles,
+          originalSqlByName,
+        );
+      }
+      throw error;
+    }
     process.stderr.write(
       `  Shadow loaded: ${loadResult.factBase.facts().length} facts (${loadResult.rounds} round(s))\n`,
     );

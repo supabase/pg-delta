@@ -27,7 +27,7 @@
  *   schema export  --source <pg-url> --out-dir <dir> [--layout ordered]
  *   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
  *                  [--renames auto|prompt|off] [--force]
- *                  [--accept-rename <from>=<to>] ...
+ *                  [--accept-rename <from>=<to>] ... [--no-reorder]
  *
  * --renames default for the CLI is "prompt" (the library default is "off").
  * --accept-rename <from>=<to>
@@ -59,11 +59,15 @@ Commands:
   schema export  --source <pg-url> --out-dir <dir> [--layout ordered]
   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
                  [--renames auto|prompt|off] [--force]
-                 [--accept-rename <from>=<to>] ...
+                 [--accept-rename <from>=<to>] ... [--no-reorder]
 
 Notes:
   --renames defaults to "prompt" for the CLI (library default is "off").
   --accept-rename: confirm a rename from a prior prompt run; repeatable.
+  --no-reorder (schema apply): skip the statement-reordering assist and load
+    raw files at file granularity. Reorder is on by default — it splits files
+    into one-statement units and topologically pre-sorts them so authoring
+    order within a file no longer matters.
   --unsafe-show-secrets (plan, diff, drift, snapshot, schema export):
     emit REAL foreign-data option values and subscription conninfo instead of
     redacted placeholders. Off by default; raises a loud warning when set.
