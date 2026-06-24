@@ -23,6 +23,8 @@
     "test": "bun test src/",
     "test:integration": "bun test tests/",
     "test:all": "bun test src/ tests/",
+    "audit:porting": "bun scripts/audit-porting-ledger.ts",
+    "seed:porting": "bun scripts/seed-porting-ledger.ts",
     "docker:clean": "bun scripts/clean-testcontainers.ts"
   },
   "dependencies": {

@@ -34,6 +34,9 @@ jobs:
       - name: Type check
         working-directory: packages/pg-delta-next
         run: bun run check-types
+      - name: Porting-ledger audit (old pg-delta suite is fully accounted for)
+        working-directory: packages/pg-delta-next
+        run: bun run audit:porting
       - name: Unit tests
         working-directory: packages/pg-delta-next
         run: bun test src/
