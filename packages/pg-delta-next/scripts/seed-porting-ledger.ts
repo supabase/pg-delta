@@ -335,6 +335,61 @@ const OVERRIDES: Record<string, Omit<LedgerEntry, "file" | "testName">> = {
         "v2 suppresses them structurally: the server/foreign-table/user-mapping are parented to the owner-excluded FDW, so resolveView cascades the exclusion (no Wasm-name match needed). Residual accepted delta (Old-12): a Wasm FDW owned by a NON-system role like postgres would not be owner-excluded.",
     },
 
+  // Tier 5: policy / filter DSL → Policy v2. Predicate matching (kind, schema/
+  // name glob, not/any/all, owner, ownedByExtension) is exhaustively unit-tested
+  // in src/policy/policy.test.ts; managed-view + edgeTo + concurrentIndexes in
+  // tests/policy.test.ts. tests/policy-filter-integration.test.ts adds the two
+  // end-to-end behaviors those don't cover.
+  "integration/catalog-export-filter.test.ts :: filterCatalog keeps only objects matching the filter":
+    { disposition: "ported", nextTest: "policy-filter-integration.test.ts" },
+  "integration/catalog-export-filter.test.ts :: round-trip: filtered snapshot diffs to zero against live source with same filter":
+    { disposition: "ported", nextTest: "policy-filter-integration.test.ts" },
+  "integration/catalog-export-filter.test.ts :: round-trip matches realtime usage: schema filter survives plan":
+    { disposition: "ported", nextTest: "policy-filter-integration.test.ts" },
+  "integration/catalog-export-filter.test.ts :: filterCatalog drops pg_depend edges that touch pruned objects":
+    {
+      disposition: "merged",
+      reason:
+        "v2 prunes edges whose endpoints are projected out in excludeFactsAndDescendants; covered by src/policy/resolve-view.test.ts.",
+    },
+  "integration/catalog-export-filter.test.ts :: schema filter keeps schema even when its owner role is filtered out":
+    {
+      disposition: "merged",
+      reason:
+        "Owner is an edge in v2 (owner-as-edge); a kept schema whose owner role is excluded simply loses the owner edge — covered by owner-edge.test.ts + tests/policy.test.ts (grants to assumed roles).",
+    },
+  "integration/catalog-export-filter.test.ts :: filterCatalog rejects cascade: true with an explanatory error":
+    {
+      disposition: "not-ported",
+      reason:
+        "Old filterCatalog `cascade: true` API concept has no Policy v2 analog — projection cascades to descendants by construction (excludeFactsAndDescendants); there is no cascade flag to reject.",
+    },
+  "integration/filter-wildcard.test.ts :: */schema filters by schema across object types":
+    {
+      disposition: "merged",
+      reason:
+        "schema glob predicate + filterDeltas: src/policy/policy.test.ts (schema glob) + tests/policy-filter-integration.test.ts (schema projection roundtrip).",
+    },
+  "integration/filter-wildcard.test.ts :: objectType filters by change type": {
+    disposition: "merged",
+    reason: "kind predicate: src/policy/policy.test.ts (factMatches — kind).",
+  },
+  "integration/filter-wildcard.test.ts :: not with */schema excludes schema": {
+    disposition: "merged",
+    reason:
+      "not combinator: src/policy/policy.test.ts (factMatches — combinators).",
+  },
+  "integration/filter-wildcard.test.ts :: --filter AND-combines with integration filter":
+    {
+      disposition: "not-ported",
+      reason:
+        "CLI `--filter` AND-combine is an old-API shape; v2 composes filters via policy `extends` (src/policy/policy.test.ts flattenPolicy extends), not a CLI flag merged with the integration filter.",
+    },
+  "integration/security-label-filter.test.ts :: excludes all security_label changes when scope is negated":
+    { disposition: "ported", nextTest: "policy-filter-integration.test.ts" },
+  "integration/security-label-filter.test.ts :: provider filter excludes only matching provider":
+    { disposition: "ported", nextTest: "policy-filter-integration.test.ts" },
+
   // Tier 4: the two low-value Supabase smokes are covered, not re-ported.
   "integration/supabase-base-init.test.ts :: replays the full-stack base init before test code runs":
     {

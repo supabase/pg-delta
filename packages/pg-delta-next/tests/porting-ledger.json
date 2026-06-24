@@ -351,38 +351,38 @@
   {
     "file": "integration/catalog-export-filter.test.ts",
     "testName": "filterCatalog keeps only objects matching the filter",
-    "disposition": "not-ported",
-    "reason": "Asserts old catalog-snapshot filtering — policy layer (stage 8)"
+    "disposition": "ported",
+    "nextTest": "policy-filter-integration.test.ts"
   },
   {
     "file": "integration/catalog-export-filter.test.ts",
     "testName": "filterCatalog drops pg_depend edges that touch pruned objects",
-    "disposition": "not-ported",
-    "reason": "Asserts old catalog-snapshot filtering — policy layer (stage 8)"
+    "disposition": "merged",
+    "reason": "v2 prunes edges whose endpoints are projected out in excludeFactsAndDescendants; covered by src/policy/resolve-view.test.ts."
   },
   {
     "file": "integration/catalog-export-filter.test.ts",
     "testName": "round-trip: filtered snapshot diffs to zero against live source with same filter",
-    "disposition": "not-ported",
-    "reason": "Asserts old catalog-snapshot filtering — policy layer (stage 8)"
+    "disposition": "ported",
+    "nextTest": "policy-filter-integration.test.ts"
   },
   {
     "file": "integration/catalog-export-filter.test.ts",
     "testName": "schema filter keeps schema even when its owner role is filtered out",
-    "disposition": "not-ported",
-    "reason": "Asserts old catalog-snapshot filtering — policy layer (stage 8)"
+    "disposition": "merged",
+    "reason": "Owner is an edge in v2 (owner-as-edge); a kept schema whose owner role is excluded simply loses the owner edge — covered by owner-edge.test.ts + tests/policy.test.ts (grants to assumed roles)."
   },
   {
     "file": "integration/catalog-export-filter.test.ts",
     "testName": "round-trip matches realtime usage: schema filter survives plan",
-    "disposition": "not-ported",
-    "reason": "Asserts old catalog-snapshot filtering — policy layer (stage 8)"
+    "disposition": "ported",
+    "nextTest": "policy-filter-integration.test.ts"
   },
   {
     "file": "integration/catalog-export-filter.test.ts",
     "testName": "filterCatalog rejects cascade: true with an explanatory error",
     "disposition": "not-ported",
-    "reason": "Asserts old catalog-snapshot filtering — policy layer (stage 8)"
+    "reason": "Old filterCatalog `cascade: true` API concept has no Policy v2 analog — projection cascades to descendants by construction (excludeFactsAndDescendants); there is no cascade flag to reject."
   },
   {
     "file": "integration/catalog-model.test.ts",
@@ -1002,20 +1002,20 @@
   {
     "file": "integration/filter-wildcard.test.ts",
     "testName": "*/schema filters by schema across object types",
-    "disposition": "not-ported",
-    "reason": "Filter DSL mechanics — policy layer (stage 8)"
+    "disposition": "merged",
+    "reason": "schema glob predicate + filterDeltas: src/policy/policy.test.ts (schema glob) + tests/policy-filter-integration.test.ts (schema projection roundtrip)."
   },
   {
     "file": "integration/filter-wildcard.test.ts",
     "testName": "objectType filters by change type",
-    "disposition": "not-ported",
-    "reason": "Filter DSL mechanics — policy layer (stage 8)"
+    "disposition": "merged",
+    "reason": "kind predicate: src/policy/policy.test.ts (factMatches — kind)."
   },
   {
     "file": "integration/filter-wildcard.test.ts",
     "testName": "not with */schema excludes schema",
-    "disposition": "not-ported",
-    "reason": "Filter DSL mechanics — policy layer (stage 8)"
+    "disposition": "merged",
+    "reason": "not combinator: src/policy/policy.test.ts (factMatches — combinators)."
   },
   {
     "file": "integration/filter-wildcard.test.ts",
@@ -1033,7 +1033,7 @@
     "file": "integration/filter-wildcard.test.ts",
     "testName": "--filter AND-combines with integration filter",
     "disposition": "not-ported",
-    "reason": "Filter DSL mechanics — policy layer (stage 8)"
+    "reason": "CLI `--filter` AND-combine is an old-API shape; v2 composes filters via policy `extends` (src/policy/policy.test.ts flattenPolicy extends), not a CLI flag merged with the integration filter."
   },
   {
     "file": "integration/fk-constraint-ordering.test.ts",
@@ -2300,14 +2300,14 @@
   {
     "file": "integration/security-label-filter.test.ts",
     "testName": "excludes all security_label changes when scope is negated",
-    "disposition": "not-ported",
-    "reason": "Same dummy_seclabel requirement, plus filter DSL (stage 8)"
+    "disposition": "ported",
+    "nextTest": "policy-filter-integration.test.ts"
   },
   {
     "file": "integration/security-label-filter.test.ts",
     "testName": "provider filter excludes only matching provider",
-    "disposition": "not-ported",
-    "reason": "Same dummy_seclabel requirement, plus filter DSL (stage 8)"
+    "disposition": "ported",
+    "nextTest": "policy-filter-integration.test.ts"
   },
   {
     "file": "integration/security-label-operations.test.ts",
