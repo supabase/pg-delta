@@ -158,6 +158,56 @@ describe.skipIf(!runSupabaseBareTests)("supabase policy e2e", () => {
     }
   }, 180_000);
 
+  test("suppresses Wasm-FDW dependents via the owner-excluded wrapper", async () => {
+    const cluster = await supabaseCluster();
+    const main = await cluster.createDb("supa_dsl_wasm_main");
+    const branch = await cluster.createDb("supa_dsl_wasm_branch");
+    try {
+      // The FDW is owned by the connection role supabase_admin (system) → the
+      // owner rule excludes it; its server / foreign-table / user-mapping are
+      // parented to it, so the managed view cascades the exclusion to them. v2
+      // achieves the old Wasm-name suppression structurally — no name match.
+      // (Residual, accepted: a Wasm FDW owned by a NON-system role like
+      // `postgres` would not be owner-excluded; old Old-12 delta.)
+      await branch.pool.query(`
+        CREATE SCHEMA IF NOT EXISTS extensions;
+        CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
+        CREATE FUNCTION extensions.wasm_fdw_handler() RETURNS fdw_handler
+          LANGUAGE c AS '$libdir/postgres_fdw', 'postgres_fdw_handler';
+        CREATE FUNCTION extensions.wasm_fdw_validator(text[], oid) RETURNS void
+          LANGUAGE c AS '$libdir/postgres_fdw', 'postgres_fdw_validator';
+        CREATE FOREIGN DATA WRAPPER clerk_oauth
+          HANDLER extensions.wasm_fdw_handler VALIDATOR extensions.wasm_fdw_validator;
+      `);
+      await enableOwnerRole(branch.pool);
+      await branch.pool.query(
+        `GRANT USAGE ON FOREIGN DATA WRAPPER clerk_oauth TO dsl_owner`,
+      );
+      await branch.pool.query(`
+        SET ROLE dsl_owner;
+        CREATE SERVER wasm_server FOREIGN DATA WRAPPER clerk_oauth;
+        CREATE SCHEMA wasm_fdw_test;
+        CREATE FOREIGN TABLE wasm_fdw_test.remote_row (id integer)
+          SERVER wasm_server OPTIONS (schema_name 'public', table_name 'remote_row');
+        CREATE USER MAPPING FOR dsl_owner SERVER wasm_server
+          OPTIONS (user 'remote', password 'secret');
+        RESET ROLE;
+      `);
+      const sql = await supabasePlanSql(main, branch);
+      expect(sql.filter((s) => /CREATE SERVER "wasm_server"/.test(s))).toEqual(
+        [],
+      );
+      expect(
+        sql.filter((s) => /CREATE FOREIGN TABLE "wasm_fdw_test"/.test(s)),
+      ).toEqual([]);
+      expect(
+        sql.filter((s) => /CREATE USER MAPPING[^;]*"wasm_server"/.test(s)),
+      ).toEqual([]);
+    } finally {
+      await Promise.all([main.drop(), branch.drop()]);
+    }
+  }, 180_000);
+
   test("preserves a user-owned postgres_fdw server, foreign table, and user mapping", async () => {
     const cluster = await supabaseCluster();
     const main = await cluster.createDb("supa_dsl_pgfdw_main");

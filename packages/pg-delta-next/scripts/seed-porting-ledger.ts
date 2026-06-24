@@ -333,9 +333,10 @@ const OVERRIDES: Record<string, Omit<LedgerEntry, "file" | "testName">> = {
     },
   "integration/supabase-dsl-e2e.test.ts :: suppresses Wasm FDW server, foreign table, and user mapping dependents":
     {
-      disposition: "not-ported",
+      disposition: "ported",
+      nextTest: "supabase-dsl-e2e.test.ts",
       reason:
-        "Intentional v2 delta (Old-12 in supabase.ts): the precise wasm_fdw_handler/validator name match is obsolete; extension-member FDWs/servers are excluded at extract time via pg_depend 'e', and the owner rule covers the rest. A postgres-owned dependent of a fabricated Wasm wrapper is the residual the name-match would have caught — not ported by design.",
+        "v2 suppresses them structurally: the server/foreign-table/user-mapping are parented to the owner-excluded FDW, so resolveView cascades the exclusion (no Wasm-name match needed). Residual accepted delta (Old-12): a Wasm FDW owned by a NON-system role like postgres would not be owner-excluded.",
     },
 
   // Tier 4: Supabase bare-image integration (self-gated, supabaseCluster).
