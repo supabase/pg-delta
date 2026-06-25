@@ -12,6 +12,10 @@ import {
 import { CreateCommentOnProcedure } from "./changes/procedure.comment.ts";
 import { CreateProcedure } from "./changes/procedure.create.ts";
 import { DropProcedure } from "./changes/procedure.drop.ts";
+import {
+  GrantProcedurePrivileges,
+  RevokeProcedurePrivileges,
+} from "./changes/procedure.privilege.ts";
 import { diffProcedures } from "./procedure.diff.ts";
 import { Procedure, type ProcedureProps } from "./procedure.model.ts";
 
@@ -54,6 +58,88 @@ const testContext = {
   defaultPrivilegeState: new DefaultPrivilegeState({}),
   mainRoles: {},
 };
+
+function procedure(overrides: Partial<ProcedureProps> = {}): Procedure {
+  return new Procedure({
+    ...base,
+    owner: "postgres",
+    privileges: [],
+    ...overrides,
+  });
+}
+
+function publicExecutePrivilege() {
+  return [{ grantee: "PUBLIC", privilege: "EXECUTE", grantable: false }];
+}
+
+function defaultPrivilegesWithPublicExecute(): DefaultPrivilegeState {
+  const defaultPrivilegeState = new DefaultPrivilegeState({});
+  defaultPrivilegeState.applyGrant("postgres", "f", null, "PUBLIC", [
+    { privilege: "EXECUTE", grantable: false },
+  ]);
+  return defaultPrivilegeState;
+}
+
+function defaultPrivilegesWithSchemaRoutineGrant(): DefaultPrivilegeState {
+  const defaultPrivilegeState = defaultPrivilegesWithPublicExecute();
+  defaultPrivilegeState.applyGrant("postgres", "f", "public", "anon", [
+    { privilege: "EXECUTE", grantable: false },
+  ]);
+  return defaultPrivilegeState;
+}
+
+function contextWith(
+  overrides: Partial<typeof testContext> & {
+    skipDefaultPrivilegeSubtraction?: boolean;
+  } = {},
+) {
+  return {
+    ...testContext,
+    defaultPrivilegeState: new DefaultPrivilegeState({}),
+    ...overrides,
+  };
+}
+
+function expectPublicRevoke(
+  changes: ReturnType<typeof diffProcedures>,
+  expectedSql = "REVOKE ALL ON FUNCTION public.fn1() FROM PUBLIC",
+): RevokeProcedurePrivileges {
+  const revokes = changes.filter(
+    (change) => change instanceof RevokeProcedurePrivileges,
+  ) as RevokeProcedurePrivileges[];
+
+  expect(revokes).toHaveLength(1);
+  expect(revokes[0].grantee).toBe("PUBLIC");
+  expect(
+    revokes[0].privileges.map(({ privilege, grantable }) => ({
+      privilege,
+      grantable,
+    })),
+  ).toEqual([{ privilege: "EXECUTE", grantable: false }]);
+  expect(revokes[0].serialize()).toBe(expectedSql);
+  return revokes[0];
+}
+
+function expectPublicGrant(
+  changes: ReturnType<typeof diffProcedures>,
+): GrantProcedurePrivileges {
+  const grants = changes.filter(
+    (change) => change instanceof GrantProcedurePrivileges,
+  ) as GrantProcedurePrivileges[];
+
+  expect(grants).toHaveLength(1);
+  expect(grants[0].grantee).toBe("PUBLIC");
+  expect(
+    grants[0].privileges.map(({ privilege, grantable }) => ({
+      privilege,
+      grantable,
+    })),
+  ).toEqual([{ privilege: "EXECUTE", grantable: false }]);
+  expect(grants[0].serialize()).toBe(
+    "GRANT ALL ON FUNCTION public.fn1() TO PUBLIC",
+  );
+  return grants[0];
+}
 
 describe.concurrent("procedure.diff", () => {
   test("create and drop", () => {
@@ -280,5 +366,141 @@ describe.concurrent("procedure.diff", () => {
     expect(
       changes.some((change) => change instanceof CreateCommentOnProcedure),
     ).toBe(true);
+  });
+
+  test("create emits PUBLIC EXECUTE revoke when the default is absent in the target", () => {
+    const p = procedure();
+    const changes = diffProcedures(
+      contextWith({
+        defaultPrivilegeState: defaultPrivilegesWithPublicExecute(),
+      }),
+      {},
+      { [p.stableId]: p },
+    );
+
+    expect(changes[0]).toBeInstanceOf(CreateProcedure);
+    expectPublicRevoke(changes);
+  });
+
+  test("create emits PUBLIC EXECUTE revoke for procedures as well as functions", () => {
+    const p = procedure({
+      name: "proc1",
+      kind: "p",
+      return_type: "void",
+      definition:
+        "CREATE PROCEDURE public.proc1() LANGUAGE sql AS $$ SELECT 1 $$",
+    });
+    const changes = diffProcedures(
+      contextWith({
+        defaultPrivilegeState: defaultPrivilegesWithPublicExecute(),
+      }),
+      {},
+      { [p.stableId]: p },
+    );
+
+    expect(changes[0]).toBeInstanceOf(CreateProcedure);
+    expectPublicRevoke(
+      changes,
+      "REVOKE ALL ON PROCEDURE public.proc1() FROM PUBLIC",
+    );
+  });
+
+  test("create does not emit PUBLIC EXECUTE grant when the target keeps the built-in default", () => {
+    const p = procedure({ privileges: publicExecutePrivilege() });
+    const changes = diffProcedures(
+      contextWith({
+        defaultPrivilegeState: defaultPrivilegesWithPublicExecute(),
+      }),
+      {},
+      { [p.stableId]: p },
+    );
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toBeInstanceOf(CreateProcedure);
+  });
+
+  test("create combines global routine defaults with schema-specific routine defaults", () => {
+    const p = procedure({ privileges: publicExecutePrivilege() });
+    const changes = diffProcedures(
+      contextWith({
+        defaultPrivilegeState: defaultPrivilegesWithSchemaRoutineGrant(),
+      }),
+      {},
+      { [p.stableId]: p },
+    );
+
+    const revokes = changes.filter(
+      (change) => change instanceof RevokeProcedurePrivileges,
+    ) as RevokeProcedurePrivileges[];
+
+    expect(changes[0]).toBeInstanceOf(CreateProcedure);
+    expect(
+      changes.some((change) => change instanceof GrantProcedurePrivileges),
+    ).toBe(false);
+    expect(revokes).toHaveLength(1);
+    expect(revokes[0].grantee).toBe("anon");
+    expect(revokes[0].serialize()).toBe(
+      "REVOKE ALL ON FUNCTION public.fn1() FROM anon",
+    );
+  });
+
+  test("alter emits PUBLIC EXECUTE revoke when an existing routine removes the built-in default", () => {
+    const main = procedure({ privileges: publicExecutePrivilege() });
+    const branch = procedure();
+    const changes = diffProcedures(
+      contextWith(),
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+
+    expectPublicRevoke(changes);
+  });
+
+  test("alter emits PUBLIC EXECUTE grant when an existing routine restores the built-in default", () => {
+    const main = procedure();
+    const branch = procedure({ privileges: publicExecutePrivilege() });
+    const changes = diffProcedures(
+      contextWith(),
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+
+    expectPublicGrant(changes);
+  });
+
+  test("create after a global default privilege revoke does not emit a redundant routine revoke", () => {
+    const p = procedure();
+    const changes = diffProcedures(
+      contextWith({ defaultPrivilegeState: new DefaultPrivilegeState({}) }),
+      {},
+      { [p.stableId]: p },
+    );
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toBeInstanceOf(CreateProcedure);
+  });
+
+  test("declarative create does not emit PUBLIC EXECUTE grant when the target keeps the built-in default", () => {
+    const p = procedure({ privileges: publicExecutePrivilege() });
+    const changes = diffProcedures(
+      contextWith({ skipDefaultPrivilegeSubtraction: true }),
+      {},
+      { [p.stableId]: p },
+    );
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toBeInstanceOf(CreateProcedure);
+  });
+
+  test("declarative create emits PUBLIC EXECUTE revoke when the target removes the built-in default", () => {
+    const p = procedure();
+    const changes = diffProcedures(
+      contextWith({ skipDefaultPrivilegeSubtraction: true }),
+      {},
+      { [p.stableId]: p },
+    );
+
+    expect(changes[0]).toBeInstanceOf(CreateProcedure);
+    expectPublicRevoke(changes);
   });
 });
