@@ -24,10 +24,13 @@
  *   diff           --source <pg-url> --desired <pg-url>
  *   drift          --env <pg-url> --snapshot <file>
  *   snapshot       --source <pg-url> --out <file>
- *   schema export  --source <pg-url> --out-dir <dir> [--layout ordered]
+ *   schema export  --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
  *   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
  *                  [--renames auto|prompt|off] [--force]
- *                  [--accept-rename <from>=<to>] ...
+ *                  [--accept-rename <from>=<to>] ... [--no-reorder]
+ *   schema lint    --dir <dir>
+ *                  Statically check the SQL files (pg-topo) for shadow-load
+ *                  cycles and other issues, without touching a database.
  *
  * --renames default for the CLI is "prompt" (the library default is "off").
  * --accept-rename <from>=<to>
@@ -42,7 +45,11 @@ import { cmdProve } from "./commands/prove.ts";
 import { cmdDiff } from "./commands/diff.ts";
 import { cmdDrift } from "./commands/drift.ts";
 import { cmdSnapshot } from "./commands/snapshot.ts";
-import { cmdSchemaExport, cmdSchemaApply } from "./commands/schema.ts";
+import {
+  cmdSchemaExport,
+  cmdSchemaApply,
+  cmdSchemaLint,
+} from "./commands/schema.ts";
 
 const USAGE = `
 pg-delta-next <command> [options]
@@ -56,14 +63,28 @@ Commands:
   diff           --source <pg-url> --desired <pg-url>
   drift          --env <pg-url> --snapshot <file>
   snapshot       --source <pg-url> --out <file>
-  schema export  --source <pg-url> --out-dir <dir> [--layout ordered]
+  schema export  --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
+                 [--format-options <json>]   (pretty-print SQL; any layout)
+                 grouped adds: [--grouping-mode single-file|subdirectory]
+                 [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
                  [--renames auto|prompt|off] [--force]
-                 [--accept-rename <from>=<to>] ...
+                 [--accept-rename <from>=<to>] ... [--no-reorder]
+  schema lint    --dir <dir>
 
 Notes:
   --renames defaults to "prompt" for the CLI (library default is "off").
   --accept-rename: confirm a rename from a prior prompt run; repeatable.
+  --no-reorder (schema apply): skip the statement-reordering assist and load
+    raw files at file granularity. Reorder is on by default — it splits files
+    into one-statement units and topologically pre-sorts them so authoring
+    order within a file no longer matters.
+  --unsafe-show-secrets (plan, diff, drift, snapshot, schema export):
+    emit REAL foreign-data option values and subscription conninfo instead of
+    redacted placeholders. Off by default; raises a loud warning when set.
+    Only for output destined for a trusted target. An unredacted plan's
+    fingerprint differs from a default (redacted) re-extract, so applying one
+    requires "apply --force".
 
 Old → New mapping:
   plan              -> plan
@@ -107,10 +128,12 @@ async function main(): Promise<void> {
           await cmdSchemaExport(subArgs);
         } else if (sub === "apply") {
           await cmdSchemaApply(subArgs);
+        } else if (sub === "lint") {
+          await cmdSchemaLint(subArgs);
         } else {
           process.stderr.write(
             `Unknown schema subcommand: ${sub ?? "(none)"}\n` +
-              "Available: export, apply\n",
+              "Available: export, apply, lint\n",
           );
           process.exit(2);
         }

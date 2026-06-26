@@ -54,6 +54,7 @@
 
 import type { Delta } from "../core/diff.ts";
 import type { DependencyEdge, EdgeKind, Fact, FactBase } from "../core/fact.ts";
+import { buildFactBase } from "../core/fact.ts";
 import type { FactKind, StableId } from "../core/stable-id.ts";
 import { encodeId } from "../core/stable-id.ts";
 import { KNOWN_PARAMS, type PlanParams } from "../plan/rules.ts";
@@ -218,6 +219,26 @@ export interface Policy {
   serialize?: SerializeRule[];
   baseline?: string;
   extends?: Policy[];
+  /**
+   * Role names assumed to exist at apply time but NOT managed by this policy —
+   * platform-preset roles (e.g. Supabase's `anon`, `authenticated`) whose role
+   * OBJECT is filtered out of the managed view, yet which remain valid grant /
+   * ownership targets. The planner treats these like `pg_*` / `PUBLIC`: a
+   * `consumes` edge to one does not strand the missing-requirement guard. This
+   * lets the engine emit `GRANT … TO anon` (which old pg-delta and dbdev rely
+   * on) without re-admitting the role into the diff.
+   */
+  assumedRoles?: string[];
+  /**
+   * Schema names assumed to exist at apply time but NOT managed by this policy —
+   * platform-managed schemas (e.g. Supabase's `extensions`) whose schema OBJECT
+   * is filtered out of the managed view, yet which remain valid dependency
+   * targets. The planner treats these like assumed roles / `pg_*` / `PUBLIC`: a
+   * `consumes` edge to one does not strand the missing-requirement guard. This
+   * lets the engine emit `CREATE EXTENSION … SCHEMA extensions` (which old
+   * pg-delta and dbdev rely on) without re-admitting the schema into the diff.
+   */
+  assumedSchemas?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -567,6 +588,8 @@ export function flattenPolicy(policy: Policy): {
   id: string;
   filter: FilterRule[];
   serialize: SerializeRule[];
+  assumedRoles: string[];
+  assumedSchemas: string[];
   baseline?: string;
 } {
   const visited = new Set<string>();
@@ -580,6 +603,8 @@ function flattenInner(
   id: string;
   filter: FilterRule[];
   serialize: SerializeRule[];
+  assumedRoles: string[];
+  assumedSchemas: string[];
   baseline?: string;
 } {
   if (visited.has(policy.id)) {
@@ -591,8 +616,12 @@ function flattenInner(
 
   const ownFilter: FilterRule[] = policy.filter ?? [];
   const ownSerialize: SerializeRule[] = policy.serialize ?? [];
+  const ownAssumedRoles: string[] = policy.assumedRoles ?? [];
+  const ownAssumedSchemas: string[] = policy.assumedSchemas ?? [];
   const parentFilter: FilterRule[] = [];
   const parentSerialize: SerializeRule[] = [];
+  const parentAssumedRoles: string[] = [];
+  const parentAssumedSchemas: string[] = [];
 
   if (policy.extends) {
     for (const parent of policy.extends) {
@@ -603,6 +632,8 @@ function flattenInner(
       const flat = flattenInner(parent, branch);
       parentFilter.push(...flat.filter);
       parentSerialize.push(...flat.serialize);
+      parentAssumedRoles.push(...flat.assumedRoles);
+      parentAssumedSchemas.push(...flat.assumedSchemas);
     }
   }
 
@@ -612,11 +643,18 @@ function flattenInner(
     id: string;
     filter: FilterRule[];
     serialize: SerializeRule[];
+    assumedRoles: string[];
+    assumedSchemas: string[];
     baseline?: string;
   } = {
     id: policy.id,
     filter: [...ownFilter, ...parentFilter],
     serialize: [...ownSerialize, ...parentSerialize],
+    // own ∪ parent, de-duplicated (membership test only — order irrelevant).
+    assumedRoles: [...new Set([...ownAssumedRoles, ...parentAssumedRoles])],
+    assumedSchemas: [
+      ...new Set([...ownAssumedSchemas, ...parentAssumedSchemas]),
+    ],
   };
   if (policy.baseline !== undefined) {
     result.baseline = policy.baseline;
@@ -781,16 +819,52 @@ export function resolveView(
     if (capRoots.size > 0) base = excludeFactsAndDescendants(base, capRoots);
   }
   if (!policy) return base;
-  const rules = flattenPolicy(policy).filter;
+  const flat = flattenPolicy(policy);
+  const rules = flat.filter;
   if (rules.length === 0) return base;
 
-  const roots = new Set<string>();
+  // An excluded fact whose schema is an assumedSchema (e.g. Supabase's `auth`)
+  // is kept REFERENCE-ONLY rather than pruned: it stays in the view so a managed
+  // dependent (a user trigger on `auth.users`) can resolve its parent, but diff
+  // never emits a delta for it (see diff.ts). Everything else excluded is hard-
+  // pruned as before. `assumedSchemas` is the policy's declaration that those
+  // schemas are present-but-unmanaged at apply time — the same set the
+  // requirement guard treats as ambient — so this is per-side deterministic
+  // (no cross-side dependency → fingerprint/proof stay consistent).
+  const assumed = new Set(flat.assumedSchemas);
+  const assumedSchemaOf = (id: StableId): string | undefined =>
+    id.kind === "schema" ? getName(id) : getSchema(id);
+
+  const hardRoots = new Set<string>();
+  const referenceOnly = new Set<string>();
   for (const fact of base.facts()) {
-    if (factScopeExcluded(fact, rules, base)) {
-      roots.add(encodeId(fact.id));
+    if (!factScopeExcluded(fact, rules, base)) continue;
+    const schema = assumedSchemaOf(fact.id);
+    if (schema !== undefined && assumed.has(schema)) {
+      referenceOnly.add(encodeId(fact.id));
+    } else {
+      hardRoots.add(encodeId(fact.id));
     }
   }
-  return excludeFactsAndDescendants(base, roots);
+  if (referenceOnly.size === 0) {
+    return excludeFactsAndDescendants(base, hardRoots);
+  }
+
+  const pruned = excludeFactsAndDescendants(base, hardRoots);
+  // a reference-only fact may itself sit under a hard-pruned ancestor; keep only
+  // the ones that actually survived pruning.
+  const survivingRefOnly = new Set(
+    pruned
+      .facts()
+      .map((f) => encodeId(f.id))
+      .filter((key) => referenceOnly.has(key)),
+  );
+  return buildFactBase(
+    pruned.facts(),
+    [...pruned.edges],
+    pruned.source,
+    survivingRefOnly,
+  );
 }
 
 // ---------------------------------------------------------------------------

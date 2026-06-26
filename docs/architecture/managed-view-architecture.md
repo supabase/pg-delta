@@ -66,6 +66,30 @@ extractor wherever `pg_catalog` has an owner column (`nspowner`, `relowner`,
   action for most kinds, compactable into the create like column folds) lives in
   the rule table. The planner holds no owner logic.
 
+> **Known non-goal — do NOT elide third-party GRANTs on co-created objects to
+> shrink the diff.** The apply model is **creates-as-applier + `ALTER … OWNER
+> TO`**: an object is created by the connected applier (e.g. `test`), then
+> ownership is transferred by a follow-up ALTER. There is **no** `SET ROLE` /
+> `SET SESSION AUTHORIZATION` in the apply path, and `pg_default_acl` defaults
+> fire on the role that *creates* the object (`defaclrole`). So a
+> `defaultPrivilege FOR ROLE owner` does **not** fire on an applier-created
+> object — the grantee would be left with **no privilege at all** if the explicit
+> `GRANT` were dropped. This is exactly why the proposed "whole REVOKE+GRANT
+> group" elision (historically "Item 2a") was rejected as a convergence bug, and
+> why the dbdev fixture's extra GRANTs over the old engine (~12) are
+> **load-bearing correctness, not cosmetic noise**. The compaction passes only
+> trim the *cosmetic leading `REVOKE ALL`* (`elideCoCreateRevokeBeforeGrant`,
+> guarded by a strict-superset check) and fold ownership
+> (`foldCoCreateOwnership`) — they never drop a GRANT.
+>
+> The only way those defaults could fire (making the extra GRANTs genuinely
+> redundant) is to change the create model so objects are created **as their
+> owner** (`SET ROLE`/session-authorization, or owner-scoped `CREATE …
+> AUTHORIZATION` applied as that role). That is a deep change with its own
+> capability and ordering risks; it is **out of scope** and must not be
+> back-doored via a compaction pass. Revisit the create model first, with its own
+> proof, before any attempt to remove these GRANTs.
+
 ### 2. Object-intrinsic render flags become fact fields, from the catalog
 
 `skipSchema` (rules.ts:604) encodes a property of the *extension*

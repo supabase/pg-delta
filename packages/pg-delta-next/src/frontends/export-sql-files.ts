@@ -17,9 +17,54 @@ import { buildFactBase, type FactBase } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
 import { plan, type Action } from "../plan/plan.ts";
 import type { SqlFile } from "./load-sql-files.ts";
+import {
+  formatSqlStatements,
+  type SqlFormatOptions,
+} from "./sql-format/index.ts";
+
+/** Group objects by a name pattern into a named directory/file (v1 parity). */
+export interface ExportGroupingPattern {
+  /** Regex (as a string) tested against the object's name; first match wins. */
+  pattern: string;
+  /** Group name used as the directory (subdirectory mode) or file (single-file). */
+  name: string;
+}
+
+/** v1-parity grouping options, honored only by the "grouped" layout. */
+export interface ExportGrouping {
+  /** How a matched group is organized on disk (default: "subdirectory"). */
+  mode?: "single-file" | "subdirectory";
+  /** Name-pattern → group rules; first match wins. */
+  groupPatterns?: ExportGroupingPattern[];
+  /** Schemas collapsed to one file per category (e.g. schemas/partman/tables.sql). */
+  flatSchemas?: string[];
+  /** File partition children into their parent table's file (default: true). */
+  autoGroupPartitions?: boolean;
+}
 
 export interface ExportOptions {
-  layout?: "by-object" | "ordered";
+  layout?: "by-object" | "ordered" | "grouped";
+  /** Grouping rules for the "grouped" layout; ignored by other layouts. */
+  grouping?: ExportGrouping;
+  /** Pretty-print each file's SQL with the formatter (frontends/sql-format).
+   *  Off by default (output is the renderer's raw SQL). Layout-agnostic.
+   *  Advisory/cosmetic — the fidelity gate (load(export) ≡ fb) still holds. */
+  format?: SqlFormatOptions;
+  /** Non-fatal warnings (e.g. an invalid group-pattern regex). */
+  onWarning?: (message: string) => void;
+}
+
+/** Assemble a file's SQL from bare (semicolon-less) statements: optionally
+ *  pretty-print them, then re-attach `;` and join. Centralizes the
+ *  format-or-not decision so every layout formats identically. */
+function renderFileSql(
+  bareStatements: string[],
+  format: SqlFormatOptions | undefined,
+): string {
+  const statements = format
+    ? formatSqlStatements(bareStatements, format)
+    : bareStatements;
+  return `${statements.map((s) => `${s};`).join("\n\n")}\n`;
 }
 
 /** The subject deciding an action's file: produced fact, else consumed. */
@@ -33,6 +78,150 @@ function fileTarget(id: StableId): StableId {
     return fileTarget((id as { target: StableId }).target);
   }
   return id;
+}
+
+/** Like {@link fileTarget} but also unwraps securityLabel — used for category
+ *  classification in the grouped layout (kept out of the by-object path). */
+function groupingTarget(id: StableId): StableId {
+  if (
+    id.kind === "comment" ||
+    id.kind === "acl" ||
+    id.kind === "securityLabel"
+  ) {
+    return groupingTarget((id as { target: StableId }).target);
+  }
+  return id;
+}
+
+/** Semantic file categories, in the fixed emission order the grouped layout
+ *  uses (ported + extended from the v1 exporter). */
+const CATEGORY_ORDER = [
+  "cluster",
+  "schema",
+  "extensions",
+  "types",
+  "domains",
+  "collations",
+  "sequences",
+  "tables",
+  "indexes",
+  "foreign_tables",
+  "views",
+  "matviews",
+  "functions",
+  "procedures",
+  "aggregates",
+  "publications",
+  "subscriptions",
+  "event_triggers",
+  "misc",
+] as const;
+type Category = (typeof CATEGORY_ORDER)[number];
+const CATEGORY_PRIORITY: Record<Category, number> = Object.fromEntries(
+  CATEGORY_ORDER.map((c, i) => [c, i]),
+) as Record<Category, number>;
+
+/** Stable-id kind → category. Table-scoped satellites and indexes map to where
+ *  their DDL is filed, so a file holds one category. */
+const CATEGORY_OF_KIND: Record<string, Category> = {
+  role: "cluster",
+  membership: "cluster",
+  defaultPrivilege: "cluster",
+  fdw: "cluster",
+  server: "cluster",
+  userMapping: "cluster",
+  publication: "publications",
+  subscription: "subscriptions",
+  eventTrigger: "event_triggers",
+  extension: "extensions",
+  schema: "schema",
+  type: "types",
+  domain: "domains",
+  collation: "collations",
+  sequence: "sequences",
+  table: "tables",
+  column: "tables",
+  default: "tables",
+  constraint: "tables",
+  trigger: "tables",
+  policy: "tables",
+  rule: "tables",
+  index: "indexes",
+  foreignTable: "foreign_tables",
+  view: "views",
+  materializedView: "matviews",
+  function: "functions",
+  procedure: "procedures",
+  aggregate: "aggregates",
+};
+
+function categoryOf(id: StableId): Category {
+  return CATEGORY_OF_KIND[groupingTarget(id).kind] ?? "misc";
+}
+
+/** The schema + grouping name of an object, or `undefined` schema for
+ *  cluster-level objects (which the grouped layout never regroups). */
+function schemaAndName(id: StableId): {
+  schema?: string;
+  objectName?: string;
+} {
+  const t = groupingTarget(id);
+  if (t.kind === "schema") {
+    const name = (t as { name: string }).name;
+    return { schema: name, objectName: name };
+  }
+  // table-scoped satellites group under their owning table's name
+  if (TABLE_SCOPED.has(t.kind)) {
+    const s = t as { schema: string; table: string };
+    return { schema: s.schema, objectName: s.table };
+  }
+  if ("schema" in t && "name" in t) {
+    const s = t as { schema: string; name: string };
+    return { schema: s.schema, objectName: s.name };
+  }
+  return {};
+}
+
+/** If the action's table is a partition child, the parent table's name. */
+function partitionParentName(id: StableId, fb: FactBase): string | undefined {
+  const t = groupingTarget(id);
+  let tableId: StableId | undefined;
+  if (t.kind === "table") {
+    tableId = t;
+  } else if (TABLE_SCOPED.has(t.kind)) {
+    const s = t as { schema: string; table: string };
+    tableId = { kind: "table", schema: s.schema, name: s.table };
+  }
+  if (tableId === undefined) return undefined;
+  const payload = fb.get(tableId)?.payload as
+    | { partitionBound?: unknown; parentTable?: { name: string } | null }
+    | undefined;
+  if (
+    payload?.partitionBound != null &&
+    payload.parentTable != null &&
+    typeof payload.parentTable.name === "string"
+  ) {
+    return payload.parentTable.name;
+  }
+  return undefined;
+}
+
+const VERB_PRIORITY: Record<string, number> = { create: 0, alter: 1, drop: 2 };
+function scopeRank(id: StableId): number {
+  switch (id.kind) {
+    case "comment":
+      return 1;
+    case "securityLabel":
+      return 2;
+    case "acl":
+      return 3;
+    case "defaultPrivilege":
+      return 4;
+    case "membership":
+      return 5;
+    default:
+      return 0;
+  }
 }
 
 const CLUSTER_FILES: Record<string, string> = {
@@ -139,14 +328,19 @@ export function exportSqlFiles(
   const baseline = buildFactBase(pristine, []);
   const rendered = plan(baseline, fb);
 
+  if (layout === "grouped") {
+    return exportGrouped(rendered.actions, fb, options);
+  }
+
   // group statements by file, preserving plan order within AND across
-  // groups (first-statement order decides file order)
+  // groups (first-statement order decides file order). Statements are stored
+  // BARE (no trailing `;`) so the optional formatter sees clean input.
   const files = new Map<string, { firstAt: number; statements: string[] }>();
   rendered.actions.forEach((action, position) => {
     const subject = subjectOf(action);
     const path = subject === undefined ? "cluster/misc.sql" : pathFor(subject);
     const entry = files.get(path) ?? { firstAt: position, statements: [] };
-    entry.statements.push(`${action.sql};`);
+    entry.statements.push(action.sql);
     files.set(path, entry);
   });
 
@@ -162,14 +356,14 @@ export function exportSqlFiles(
         subject === undefined ? "cluster/misc.sql" : pathFor(subject);
       const last = runs[runs.length - 1];
       if (last !== undefined && last.path === path) {
-        last.statements.push(`${action.sql};`);
+        last.statements.push(action.sql);
       } else {
-        runs.push({ path, statements: [`${action.sql};`] });
+        runs.push({ path, statements: [action.sql] });
       }
     });
     return runs.map((run, index) => ({
       name: `${String(index).padStart(4, "0")}_${run.path.replaceAll("/", "_")}`,
-      sql: `${run.statements.join("\n\n")}\n`,
+      sql: renderFileSql(run.statements, options.format),
     }));
   }
 
@@ -178,6 +372,123 @@ export function exportSqlFiles(
   );
   return ordered.map(([path, entry]) => ({
     name: path,
-    sql: `${entry.statements.join("\n\n")}\n`,
+    sql: renderFileSql(entry.statements, options.format),
   }));
+}
+
+interface CompiledPattern {
+  regex: RegExp;
+  name: string;
+}
+
+function compilePatterns(
+  patterns: ExportGroupingPattern[],
+  onWarning?: (message: string) => void,
+): CompiledPattern[] {
+  const compiled: CompiledPattern[] = [];
+  for (const p of patterns) {
+    try {
+      compiled.push({ regex: new RegExp(p.pattern), name: p.name });
+    } catch (error) {
+      onWarning?.(
+        `ignoring invalid group-pattern /${p.pattern}/: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return compiled;
+}
+
+/**
+ * The "grouped" layout (v1 parity): order files by semantic category rather than
+ * plan order, sort statements within a file for readability, and apply opt-in
+ * grouping — flat schemas, partition-with-parent, and name patterns. Fidelity is
+ * still the gate (the loader's retry rounds absorb the non-dependency order).
+ */
+function exportGrouped(
+  actions: Action[],
+  fb: FactBase,
+  options: ExportOptions,
+): SqlFile[] {
+  const grouping = options.grouping ?? {};
+  const mode = grouping.mode ?? "subdirectory";
+  const autoGroupPartitions = grouping.autoGroupPartitions !== false;
+  const flatSet = new Set(grouping.flatSchemas ?? []);
+  const patterns = compilePatterns(
+    grouping.groupPatterns ?? [],
+    options.onWarning,
+  );
+
+  const groupedPath = (id: StableId): string => {
+    const base = pathFor(id);
+    const { schema, objectName } = schemaAndName(id);
+    // cluster-level objects (no schema) are never regrouped
+    if (schema === undefined) return base;
+
+    const category = categoryOf(id);
+
+    // flat schema: collapse to one file per category (schema.sql stays put)
+    if (flatSet.has(schema)) {
+      return category === "schema"
+        ? base
+        : `schemas/${seg(schema)}/${category}.sql`;
+    }
+
+    // partition child → its parent table's file (co-locate with the parent)
+    if (autoGroupPartitions) {
+      const parent = partitionParentName(id, fb);
+      if (parent !== undefined) {
+        return `schemas/${seg(schema)}/tables/${seg(parent)}.sql`;
+      }
+    }
+
+    // name patterns: first match wins
+    if (objectName !== undefined) {
+      for (const p of patterns) {
+        if (p.regex.test(objectName)) {
+          return mode === "single-file"
+            ? `schemas/${seg(schema)}/${category}/${seg(p.name)}.sql`
+            : `schemas/${seg(schema)}/${seg(p.name)}/${category}.sql`;
+        }
+      }
+    }
+    return base;
+  };
+
+  interface GroupedFile {
+    category: Category;
+    items: { sql: string; verbRank: number; scopeRank: number; at: number }[];
+  }
+  const files = new Map<string, GroupedFile>();
+  actions.forEach((action, at) => {
+    const subject = subjectOf(action);
+    const path =
+      subject === undefined ? "cluster/misc.sql" : groupedPath(subject);
+    const category = subject === undefined ? "misc" : categoryOf(subject);
+    const entry = files.get(path) ?? { category, items: [] };
+    entry.items.push({
+      sql: action.sql,
+      verbRank: VERB_PRIORITY[action.verb] ?? 99,
+      scopeRank: subject === undefined ? 0 : scopeRank(subject),
+      at,
+    });
+    files.set(path, entry);
+  });
+
+  // file order: category priority, then path (deterministic, not plan order)
+  const orderedPaths = [...files.entries()].sort((a, b) => {
+    const c =
+      CATEGORY_PRIORITY[a[1].category] - CATEGORY_PRIORITY[b[1].category];
+    return c !== 0 ? c : a[0].localeCompare(b[0]);
+  });
+
+  return orderedPaths.map(([path, entry]) => {
+    // within-file order: create→alter, then object→comment→…, stable by position
+    const statements = [...entry.items]
+      .sort(
+        (a, b) =>
+          a.verbRank - b.verbRank || a.scopeRank - b.scopeRank || a.at - b.at,
+      )
+      .map((item) => item.sql);
+    return { name: path, sql: renderFileSql(statements, options.format) };
+  });
 }

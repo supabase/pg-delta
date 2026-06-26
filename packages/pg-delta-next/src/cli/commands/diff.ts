@@ -43,11 +43,12 @@ export async function cmdDiff(args: string[]): Promise<void> {
       source: { type: "value", required: true },
       desired: { type: "value", required: true },
       "strict-coverage": { type: "boolean" },
+      "unsafe-show-secrets": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
-        `${err.message}\nUsage: pg-delta-next diff --source <pg-url> --desired <pg-url> [--strict-coverage]\n`,
+        `${err.message}\nUsage: pg-delta-next diff --source <pg-url> --desired <pg-url> [--strict-coverage] [--unsafe-show-secrets]\n`,
       );
       process.exit(2);
     }
@@ -57,14 +58,15 @@ export async function cmdDiff(args: string[]): Promise<void> {
   const { flags } = parsed;
   const sourceUrl = flags["source"];
   const desiredUrl = flags["desired"];
+  const redactSecrets = !flags["unsafe-show-secrets"];
 
   const src = makePool(sourceUrl);
   const dst = makePool(desiredUrl);
   try {
     process.stderr.write("Extracting source...\n");
     const [sourceResult, desiredResult] = await Promise.all([
-      extract(src.pool),
-      extract(dst.pool),
+      extract(src.pool, { redactSecrets }),
+      extract(dst.pool, { redactSecrets }),
     ]);
     process.stderr.write("Extracting desired...\n");
 

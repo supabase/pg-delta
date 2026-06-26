@@ -184,6 +184,50 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     );
   }
 
+  // replaces: drop old + create new (+ recreate unchanged descendants).
+  // Emitted BEFORE the added-creates loop so a replaced parent's CREATE registers
+  // its inlined delta-set children (publication members, etc.) in `producerOf`
+  // first — the added loop's producerOf check then suppresses the redundant
+  // standalone create of a child the replacement already materialized (a member
+  // ADDed by CREATE … FOR TABLE must not also emit ALTER PUBLICATION ADD TABLE).
+  // Emission order does not affect apply order (the action graph re-sorts).
+  const recreatedByReplace = new Set<string>();
+  for (const key of replaceIds) {
+    const oldFact = source.getByEncoded(key) as Fact;
+    // the replacement is rendered from the PROJECTED plan target, so a filtered
+    // attribute change or child fact is not baked into the recreated SQL (P1 #1)
+    const newFact = projectedDesired.getByEncoded(key) as Fact;
+    // old descendants die with the drop
+    const oldDescendants: StableId[] = [oldFact.id];
+    const walkOld = (id: StableId): void => {
+      for (const child of source.childrenOf(id)) {
+        oldDescendants.push(child.id);
+        walkOld(child.id);
+      }
+    };
+    walkOld(oldFact.id);
+    const dropSpec = rulesFor(oldFact.id.kind).drop(oldFact);
+    pushAction("drop", dropSpec, {
+      consumes: oldFact.parent !== undefined ? [oldFact.parent] : [],
+      destroys: oldDescendants,
+    });
+    emitCreate(newFact, projectedDesired);
+    // recreate surviving descendants from the PROJECTED plan target (satellites,
+    // sub-facts). Descendants with their own attribute deltas are covered: the
+    // create renders the projected payload, so their alters are skipped; a
+    // descendant whose add was policy-filtered is absent and so not recreated.
+    const recreate = (id: StableId): void => {
+      for (const child of projectedDesired.childrenOf(id)) {
+        const childKey = encodeId(child.id);
+        if (added.has(childKey)) continue; // already created via add delta
+        recreatedByReplace.add(childKey);
+        emitCreate(child, projectedDesired);
+        recreate(child.id);
+      }
+    };
+    recreate(newFact.id);
+  }
+
   // creates — parents first, so a parent's delta-set inlining (e.g. a
   // partitioned table's columns rendered inside its CREATE, registered via
   // alsoProduces) is visible before its children are considered
@@ -304,44 +348,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       // the root fact leads: it is the action's subject (tie-break, locks)
       destroys: [fact.id, ...destroyList.filter((id) => encodeId(id) !== key)],
     });
-  }
-
-  // replaces: drop old + create new (+ recreate unchanged descendants)
-  const recreatedByReplace = new Set<string>();
-  for (const key of replaceIds) {
-    const oldFact = source.getByEncoded(key) as Fact;
-    // the replacement is rendered from the PROJECTED plan target, so a filtered
-    // attribute change or child fact is not baked into the recreated SQL (P1 #1)
-    const newFact = projectedDesired.getByEncoded(key) as Fact;
-    // old descendants die with the drop
-    const oldDescendants: StableId[] = [oldFact.id];
-    const walkOld = (id: StableId): void => {
-      for (const child of source.childrenOf(id)) {
-        oldDescendants.push(child.id);
-        walkOld(child.id);
-      }
-    };
-    walkOld(oldFact.id);
-    const dropSpec = rulesFor(oldFact.id.kind).drop(oldFact);
-    pushAction("drop", dropSpec, {
-      consumes: oldFact.parent !== undefined ? [oldFact.parent] : [],
-      destroys: oldDescendants,
-    });
-    emitCreate(newFact, projectedDesired);
-    // recreate surviving descendants from the PROJECTED plan target (satellites,
-    // sub-facts). Descendants with their own attribute deltas are covered: the
-    // create renders the projected payload, so their alters are skipped; a
-    // descendant whose add was policy-filtered is absent and so not recreated.
-    const recreate = (id: StableId): void => {
-      for (const child of projectedDesired.childrenOf(id)) {
-        const childKey = encodeId(child.id);
-        if (added.has(childKey)) continue; // already created via add delta
-        recreatedByReplace.add(childKey);
-        emitCreate(child, projectedDesired);
-        recreate(child.id);
-      }
-    };
-    recreate(newFact.id);
   }
 
   // in-place alters (skipped for facts a replace already recreated)

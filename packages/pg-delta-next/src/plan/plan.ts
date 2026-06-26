@@ -165,6 +165,22 @@ export function plan(
     ? flattenPolicy(options.policy).serialize
     : [];
 
+  // roles the policy assumes exist at apply time but does not manage (e.g.
+  // Supabase's anon/authenticated). Threaded into the action-graph guard so a
+  // kept `GRANT … TO <role>` whose role object is filtered out of the view is
+  // not mistaken for a stranded requirement (§ managed-view-architecture).
+  const assumedRoleNames = new Set(
+    options?.policy ? flattenPolicy(options.policy).assumedRoles : [],
+  );
+
+  // schemas the policy assumes exist at apply time but does not manage (e.g.
+  // Supabase's `extensions`). Threaded into the action-graph guard so a kept
+  // `CREATE EXTENSION … SCHEMA <schema>` whose schema object is filtered out of
+  // the view is not mistaken for a stranded requirement (§ managed-view-architecture).
+  const assumedSchemaNames = new Set(
+    options?.policy ? flattenPolicy(options.policy).assumedSchemas : [],
+  );
+
   // ── phase 2: replacement expansion + drop-root suppression ────────────
   // Classify set-deltas (alter vs replace), expand the forced dependent
   // rebuild, and compute drop-root suppression/redirect (./phases/
@@ -221,6 +237,9 @@ export function plan(
     renameActionIndices,
     foldHints,
     acceptsFolds,
+    assumedRoleNames,
+    assumedSchemaNames,
+    capability: options?.capability,
     compact: options?.compact !== false,
   });
 

@@ -7,9 +7,13 @@ import {
   parseAcl,
   USER_SCHEMA_FILTER,
 } from "./scope.ts";
+import { redactOptionStrings } from "./sensitive-options.ts";
 
 export async function extractForeign(ctx: ExtractContext): Promise<void> {
   const { q, facts, pushWithMeta, pushOwnerEdge } = ctx;
+  // Redact sensitive option values unless the caller explicitly opted out.
+  const opts = (raw: string[]): string[] =>
+    ctx.redactSecrets ? redactOptionStrings(raw) : raw;
   // ── foreign data wrappers / servers / user mappings / foreign tables ─
   for (const row of await q(`
     SELECT f.fdwname AS name, r.rolname AS owner,
@@ -30,7 +34,7 @@ export async function extractForeign(ctx: ExtractContext): Promise<void> {
           handler: row["handler"] == null ? null : (row["handler"] as string),
           validator:
             row["validator"] == null ? null : (row["validator"] as string),
-          options: (row["options"] as string[]).map(String),
+          options: opts((row["options"] as string[]).map(String)),
         },
       },
       row,
@@ -70,7 +74,7 @@ export async function extractForeign(ctx: ExtractContext): Promise<void> {
           fdw: String(row["fdw"]),
           type: row["type"] == null ? null : (row["type"] as string),
           version: row["version"] == null ? null : (row["version"] as string),
-          options: (row["options"] as string[]).map(String),
+          options: opts((row["options"] as string[]).map(String)),
         },
       },
       row,
@@ -92,7 +96,9 @@ export async function extractForeign(ctx: ExtractContext): Promise<void> {
         role: String(row["role"]),
       },
       parent: { kind: "server", name: String(row["server"]) },
-      payload: { options: (row["options"] as string[]).map(String) },
+      payload: {
+        options: opts((row["options"] as string[]).map(String)),
+      },
     });
   }
   for (const row of await q(`
@@ -120,7 +126,7 @@ export async function extractForeign(ctx: ExtractContext): Promise<void> {
         parent: { kind: "server", name: String(row["server"]) },
         payload: {
           server: String(row["server"]),
-          options: (row["options"] as string[]).map(String),
+          options: opts((row["options"] as string[]).map(String)),
         },
       },
       row,

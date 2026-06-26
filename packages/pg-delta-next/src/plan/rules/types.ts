@@ -16,11 +16,12 @@ export const typeRules: Record<string, KindRules> = {
   domain: {
     weight: 7,
     cascadesToChildren: true,
+    defaclObjtype: "T", // ALTER DEFAULT PRIVILEGES … ON TYPES covers domains
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
       return `ALTER DOMAIN ${rel(id.schema, id.name)}`;
     }),
-    create: (fact) => {
+    create: (fact, view) => {
       const id = fact.id as { schema: string; name: string };
       let sql = `CREATE DOMAIN ${rel(id.schema, id.name)} AS ${str(p(fact, "baseType"))}`;
       const collation = p(fact, "collation");
@@ -28,7 +29,19 @@ export const typeRules: Record<string, KindRules> = {
       const def = p(fact, "default");
       if (def != null) sql += ` DEFAULT ${str(def)}`;
       if (p(fact, "notNull")) sql += ` NOT NULL`;
-      return [{ sql }];
+      // Inline CHECK constraints into the CREATE (delta-set, like composite
+      // attributes): a domain already used by a composite type or table column
+      // cannot be ALTERed to add a constraint ("cannot alter type … because
+      // column … uses it"), so the constraint must exist at creation time. Their
+      // standalone ADD is then skipped via alsoProduces. A constraint CHANGE on
+      // an EXISTING domain still flows through the ALTER DOMAIN constraint path.
+      const alsoProduces: StableId[] = [];
+      for (const child of view.childrenOf(fact.id)) {
+        if (child.id.kind !== "constraint") continue;
+        sql += ` CONSTRAINT ${qid((child.id as { name: string }).name)} ${str(p(child, "def"))}`;
+        alsoProduces.push(child.id);
+      }
+      return [alsoProduces.length > 0 ? { sql, alsoProduces } : { sql }];
     },
     drop: (fact) => {
       const id = fact.id as { schema: string; name: string };
@@ -66,6 +79,7 @@ export const typeRules: Record<string, KindRules> = {
   type: {
     weight: 7,
     cascadesToChildren: true,
+    defaclObjtype: "T", // ALTER DEFAULT PRIVILEGES … ON TYPES
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
       return `ALTER TYPE ${rel(id.schema, id.name)}`;

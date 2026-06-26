@@ -1,6 +1,7 @@
 /** Publications (+ their table / schema member facts) and subscriptions. */
 import type { StableId } from "../core/stable-id.ts";
 import { type ExtractContext, notExtensionMember } from "./scope.ts";
+import { SUBSCRIPTION_CONNINFO_PLACEHOLDER } from "./sensitive-options.ts";
 
 export async function extractPublications(ctx: ExtractContext): Promise<void> {
   const { q, facts, pushWithMeta, pushOwnerEdge } = ctx;
@@ -156,7 +157,12 @@ export async function extractSubscriptions(ctx: ExtractContext): Promise<void> {
         id: subId,
         payload: {
           enabled: Boolean(row["enabled"]),
-          conninfo: String(row["conninfo"]),
+          // conninfo is fully env-dependent and carries credentials — emit the
+          // placeholder unless the caller explicitly opted out of redaction
+          // (see sensitive-options.ts).
+          conninfo: ctx.redactSecrets
+            ? SUBSCRIPTION_CONNINFO_PLACEHOLDER
+            : String(row["conninfo"]),
           slotName:
             row["slot_name"] == null ? null : (row["slot_name"] as string),
           publications: (row["publications"] as string[]).map(String).sort(),

@@ -1,13 +1,40 @@
 /**
- * schema export --source <pg-url> --out-dir <dir> [--layout ordered]
+ * schema export --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
  *   Export the source database as SQL files written to disk.
  *   Maps to old `declarative-export`.
  *
+ *   Layouts:
+ *     by-object (default) — the familiar tree (schemas/<s>/tables/<t>.sql, …),
+ *       files in dependency/plan order.
+ *     ordered — numbered files in plan order; the loader converges in one pass.
+ *     grouped — the old engine's "nice" export: files ordered by semantic
+ *       category (cluster → schema → types → tables → views → …), statements
+ *       sorted within a file for readability, plus opt-in grouping:
+ *         --grouping-mode single-file|subdirectory  (default subdirectory)
+ *         --group-patterns '[{"pattern":"^auth_","name":"auth"}]'  (first match wins)
+ *         --flat-schemas partman,audit   (collapse a schema to one file/category)
+ *         --no-group-partitions          (keep partition children in their own files)
+ *
+ *   --format-options '<json>'  (any layout) — pretty-print each file's SQL with
+ *     the formatter (frontends/sql-format), e.g. '{"keywordCase":"upper","maxWidth":180}'.
+ *     Off by default (raw renderer output). Cosmetic — load(export) ≡ db still holds.
+ *
  * schema apply --dir <dir> --shadow <pg-url> --target <pg-url>
  *              [--renames auto|prompt|off] [--force]
- *              [--accept-rename <from>=<to>] (repeatable)
+ *              [--accept-rename <from>=<to>] (repeatable) [--no-reorder]
  *   Read .sql files recursively (lexicographic), load into shadow, extract
  *   target, plan, apply.  Maps to old `declarative-apply` / `sync`.
+ *
+ *   By default the SQL files are passed through the statement-reordering assist
+ *   (target-architecture §4.4.1): each file is split into one-statement units
+ *   and topologically pre-sorted before loading, so authoring order within a
+ *   file no longer matters and the shadow loader converges in fewer rounds. The
+ *   assist is advisory — Postgres still elaborates the shadow — so it can only
+ *   fail to BUILD the shadow (a visible error), never corrupt the desired state.
+ *
+ *   --no-reorder
+ *     Skip the reordering assist and load the raw files at file granularity
+ *     (the original behavior). Useful for debugging a stuck load.
  *
  *   --accept-rename <from>=<to>
  *     Confirm one rename candidate by the encoded stable-ids shown in a prior
@@ -21,8 +48,26 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, dirname, resolve, sep } from "node:path";
-import { exportSqlFiles } from "../../frontends/export-sql-files.ts";
-import { loadSqlFiles } from "../../frontends/load-sql-files.ts";
+import {
+  exportSqlFiles,
+  type ExportGrouping,
+  type ExportGroupingPattern,
+} from "../../frontends/export-sql-files.ts";
+import type { SqlFormatOptions } from "../../frontends/sql-format/index.ts";
+import {
+  loadSqlFiles,
+  ShadowLoadError,
+} from "../../frontends/load-sql-files.ts";
+import {
+  analyzeForShadow,
+  type OrderedSqlFile,
+  type ShadowLoadCycle,
+} from "../../frontends/sql-order.ts";
+import {
+  appendShadowCycleHint,
+  formatLintReport,
+  rewriteReorderedShadowError,
+} from "../reorder-display.ts";
 import { plan } from "../../plan/plan.ts";
 import { resolveView } from "../../policy/policy.ts";
 import { apply } from "../../apply/apply.ts";
@@ -65,12 +110,21 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       layout: { type: "value" },
       profile: { type: "value" },
       "strict-coverage": { type: "boolean" },
+      "unsafe-show-secrets": { type: "boolean" },
+      "grouping-mode": { type: "value" },
+      "group-patterns": { type: "value" },
+      "flat-schemas": { type: "value" },
+      "no-group-partitions": { type: "boolean" },
+      "format-options": { type: "value" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pg-delta-next schema export --source <pg-url> --out-dir <dir> ` +
-          `[--layout ordered] [--profile ${PROFILE_IDS}] [--strict-coverage]\n`,
+          `[--layout by-object|ordered|grouped] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets]\n` +
+          `  [--format-options '{"keywordCase":"upper","maxWidth":180}']  (pretty-print SQL; any layout)\n` +
+          `  Grouped-layout options (only with --layout grouped):\n` +
+          `    [--grouping-mode single-file|subdirectory] [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]\n`,
       );
       process.exit(2);
     }
@@ -80,16 +134,87 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
   const { flags } = parsed;
   const sourceUrl = flags["source"];
   const outDir = flags["out-dir"];
-  let layout: "by-object" | "ordered" = "by-object";
+  let layout: "by-object" | "ordered" | "grouped" = "by-object";
   if (flags["layout"] !== undefined) {
     const v = flags["layout"];
-    if (v !== "by-object" && v !== "ordered") {
+    if (v !== "by-object" && v !== "ordered" && v !== "grouped") {
       process.stderr.write(
-        `--layout must be by-object or ordered (got: ${v})\n`,
+        `--layout must be by-object, ordered, or grouped (got: ${v})\n`,
       );
       process.exit(2);
     }
     layout = v;
+  }
+
+  // Grouping options apply only to the grouped layout. Parse them up front so
+  // a malformed value fails before connecting to the database.
+  let grouping: ExportGrouping | undefined;
+  if (layout === "grouped") {
+    const mode = flags["grouping-mode"];
+    if (
+      mode !== undefined &&
+      mode !== "single-file" &&
+      mode !== "subdirectory"
+    ) {
+      process.stderr.write(
+        `--grouping-mode must be single-file or subdirectory (got: ${mode})\n`,
+      );
+      process.exit(2);
+    }
+    let groupPatterns: ExportGroupingPattern[] | undefined;
+    if (flags["group-patterns"] !== undefined) {
+      try {
+        const raw = JSON.parse(flags["group-patterns"]) as unknown;
+        if (
+          !Array.isArray(raw) ||
+          !raw.every(
+            (p): p is ExportGroupingPattern =>
+              typeof p === "object" &&
+              p !== null &&
+              typeof (p as { pattern?: unknown }).pattern === "string" &&
+              typeof (p as { name?: unknown }).name === "string",
+          )
+        ) {
+          throw new Error("expected an array of { pattern, name } objects");
+        }
+        groupPatterns = raw;
+      } catch (e) {
+        process.stderr.write(
+          `--group-patterns must be JSON array of { pattern, name }: ${e instanceof Error ? e.message : String(e)}\n`,
+        );
+        process.exit(2);
+      }
+    }
+    const flatSchemas = flags["flat-schemas"]
+      ?.split(",")
+      .map((s) => s.trim())
+      .filter((s) => s !== "");
+    grouping = {
+      ...(mode !== undefined ? { mode } : {}),
+      ...(groupPatterns !== undefined ? { groupPatterns } : {}),
+      ...(flatSchemas !== undefined && flatSchemas.length > 0
+        ? { flatSchemas }
+        : {}),
+      ...(flags["no-group-partitions"] ? { autoGroupPartitions: false } : {}),
+    };
+  }
+
+  // SQL formatting is opt-in and layout-agnostic. Parse it up front so a
+  // malformed value fails before connecting to the database.
+  let format: SqlFormatOptions | undefined;
+  if (flags["format-options"] !== undefined) {
+    try {
+      const raw = JSON.parse(flags["format-options"]) as unknown;
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+        throw new Error("expected a JSON object");
+      }
+      format = raw as SqlFormatOptions;
+    } catch (e) {
+      process.stderr.write(
+        `--format-options must be a JSON object (e.g. '{"keywordCase":"upper","maxWidth":180}'): ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+      process.exit(2);
+    }
   }
 
   const src = makePool(sourceUrl);
@@ -98,7 +223,9 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     // handler-aware managed view as the profile-aware DB-to-DB path (review P1).
     const ctx = await resolveCliProfile(src.pool, flags["profile"]);
     process.stderr.write("Extracting...\n");
-    const { factBase, diagnostics } = await ctx.extract(src.pool);
+    const { factBase, diagnostics } = await ctx.extract(src.pool, {
+      redactSecrets: !flags["unsafe-show-secrets"],
+    });
     printDiagnostics(diagnostics);
     exitIfBlocking(diagnostics, {
       strictCoverage: flags["strict-coverage"],
@@ -116,7 +243,12 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       ctx.planOptions.capability,
       ctx.planOptions.baseline,
     );
-    const files = exportSqlFiles(view, { layout });
+    const files = exportSqlFiles(view, {
+      layout,
+      ...(grouping !== undefined ? { grouping } : {}),
+      ...(format !== undefined ? { format } : {}),
+      onWarning: (message) => process.stderr.write(`  WARNING: ${message}\n`),
+    });
 
     const outRoot = resolve(outDir);
     for (const file of files) {
@@ -152,13 +284,14 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       profile: { type: "value" },
       "restrict-to-applier": { type: "boolean" },
       "strict-coverage": { type: "boolean" },
+      "no-reorder": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pg-delta-next schema apply --dir <dir> --shadow <pg-url> --target <pg-url> ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
-          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage]\n`,
+          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder]\n`,
       );
       process.exit(2);
     }
@@ -221,11 +354,58 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     process.stderr.write("Loading SQL files into shadow...\n");
     const files = collectSqlFiles(dir);
     process.stderr.write(`  ${files.length} file(s) found\n`);
+
+    // Reorder is on by default: split files into one-statement units and
+    // topologically pre-sort them so the shadow loader becomes statement-granular
+    // and tolerates intra-file ordering / inline-FK splits (target-arch §4.4.1).
+    // --no-reorder reproduces the raw file-granular behavior for debugging. The
+    // assist is advisory — Postgres still elaborates the shadow (P1) — so on a
+    // stuck load we only rewrite the synthetic ordinal names in the loader's
+    // error back to real `file:line:col`, leaving the PG text authoritative.
+    const reorder = !flags["no-reorder"];
+    let orderedFiles: OrderedSqlFile[] | null = null;
+    let cycles: ShadowLoadCycle[] = [];
+    let loadInput: SqlFile[] = files;
+    if (reorder) {
+      const analyzed = await analyzeForShadow(files);
+      orderedFiles = analyzed.files;
+      cycles = analyzed.cycles;
+      loadInput = analyzed.files;
+      process.stderr.write(
+        `  Reordered into ${analyzed.files.length} statement(s) (use --no-reorder to disable)\n`,
+      );
+    }
+    const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
+
     // the shadow desired state must be projected with the SAME handlers as the
     // target, so pass the profile extractor through to loadSqlFiles.
-    const loadResult = await loadSqlFiles(files, shadow.pool, {
-      extract: (p, o) => ctx.extract(p, o),
-    });
+    let loadResult;
+    try {
+      loadResult = await loadSqlFiles(loadInput, shadow.pool, {
+        extract: (p, o) => ctx.extract(p, o),
+      });
+    } catch (error) {
+      if (error instanceof ShadowLoadError && orderedFiles) {
+        // rewrite synthetic ordinal names back to real file:line:col, then —
+        // only on a genuinely non-converging load — attach the assist's cycle
+        // members as a clearly-labeled advisory hint (D6). The loader's
+        // Postgres-driven errors stay first and authoritative.
+        let enriched = rewriteReorderedShadowError(
+          error,
+          orderedFiles,
+          originalSqlByName,
+        );
+        const nonConverging = error.details.some(
+          (d) =>
+            d.code === "stuck_statement" || d.code === "max_rounds_exceeded",
+        );
+        if (nonConverging) {
+          enriched = appendShadowCycleHint(enriched, cycles, originalSqlByName);
+        }
+        throw enriched;
+      }
+      throw error;
+    }
     process.stderr.write(
       `  Shadow loaded: ${loadResult.factBase.facts().length} facts (${loadResult.rounds} round(s))\n`,
     );
@@ -309,5 +489,54 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     }
   } finally {
     await Promise.all([shadow.end(), tgt.end()]);
+  }
+}
+
+export async function cmdSchemaLint(args: string[]): Promise<void> {
+  let parsed;
+  try {
+    parsed = parseFlags(args, {
+      dir: { type: "value", required: true },
+    });
+  } catch (err) {
+    if (err instanceof UsageError) {
+      process.stderr.write(
+        `${err.message}\nUsage: pg-delta-next schema lint --dir <dir>\n`,
+      );
+      process.exit(2);
+    }
+    throw err;
+  }
+
+  const { flags } = parsed;
+  const dir = flags["dir"];
+  const files = collectSqlFiles(dir);
+  if (files.length === 0) {
+    process.stderr.write(`No .sql files found in ${dir}.\n`);
+    return;
+  }
+
+  // Pure static analysis — no shadow/target database. Surfaces pg-topo
+  // diagnostics (cycles, unknown statements, duplicate producers, …) for
+  // proactive authoring; deliberately kept OUT of the apply path so apply stays
+  // Postgres-truth. Throws ReorderUnavailableError (with an install hint) when
+  // @supabase/pg-topo is absent.
+  const { cycles, diagnostics } = await analyzeForShadow(files);
+  const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
+  const report = formatLintReport({ cycles, diagnostics }, originalSqlByName);
+
+  process.stderr.write(`Linted ${files.length} file(s) in ${dir}.\n`);
+  for (const line of report.lines) {
+    process.stderr.write(`  ${line}\n`);
+  }
+  if (report.lines.length === 0) {
+    process.stderr.write("No issues found.\n");
+  } else {
+    process.stderr.write(
+      `\n${report.errorCount} error(s), ${report.warningCount} warning(s).\n`,
+    );
+  }
+  if (report.blocking) {
+    process.exit(1);
   }
 }

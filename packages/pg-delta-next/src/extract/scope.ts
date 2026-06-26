@@ -133,7 +133,16 @@ export const memberExtensionExpr = (classid: string, oidExpr: string): string =>
  *  A NULL acl column means "the built-in default" — coalescing through
  *  acldefault() (pg_dump's model) makes NULL and an explicitly
  *  instantiated default extract identically, so a REVOKE that merely
- *  materializes the owner's implicit grant is not a diff. */
+ *  materializes the owner's implicit grant is not a diff.
+ *
+ *  Revoked PUBLIC default: PostgreSQL grants the built-in default (USAGE on
+ *  types/languages, EXECUTE on functions) to PUBLIC automatically on CREATE.
+ *  When the acl is customized (non-NULL) and that PUBLIC default has been taken
+ *  away (no PUBLIC row), we still emit an empty PUBLIC entry so the diff plans a
+ *  `REVOKE ALL … FROM PUBLIC` that clears the create-time default. Without it a
+ *  freshly created object would keep the default and never converge. The
+ *  "kind has a PUBLIC default" test is derived from acldefault() itself, so it
+ *  stays correct across object kinds and PG versions. */
 export const aclJson = (
   aclColumn: string,
   objtype: string,
@@ -151,6 +160,14 @@ export const aclJson = (
        FROM aclexplode(COALESCE(${aclColumn}, acldefault('${objtype}', ${ownerColumn}))) e
        LEFT JOIN pg_roles g ON g.oid = e.grantee
        GROUP BY 1
+       UNION ALL
+       SELECT 'PUBLIC', ARRAY[]::text[], NULL::text[]
+       WHERE ${aclColumn} IS NOT NULL
+         AND EXISTS (
+           SELECT 1 FROM aclexplode(acldefault('${objtype}', ${ownerColumn})) d
+           WHERE d.grantee = 0)
+         AND NOT EXISTS (
+           SELECT 1 FROM aclexplode(${aclColumn}) a WHERE a.grantee = 0)
      ) acl)`;
 
 export const parseAcl = (
@@ -185,6 +202,10 @@ export interface ExtractContext {
   facts: Fact[];
   edges: DependencyEdge[];
   diagnostics: Diagnostic[];
+  /** When false, sensitive option values and subscription conninfo are kept in
+   *  cleartext in the fact base (and therefore in every downstream channel).
+   *  Default true; see sensitive-options.ts and extract.ts. */
+  redactSecrets: boolean;
   pushWithMeta: (
     fact: Fact,
     row: Row,
@@ -202,6 +223,7 @@ export interface ExtractContext {
 export function createExtractContext(
   client: PoolClient,
   statementTimeoutMs?: number,
+  redactSecrets = true,
 ): ExtractContext {
   const facts: Fact[] = [];
   const edges: DependencyEdge[] = [];
@@ -302,6 +324,7 @@ export function createExtractContext(
     facts,
     edges,
     diagnostics,
+    redactSecrets,
     pushWithMeta,
     pushMemberEdge,
     pushOwnerEdge,

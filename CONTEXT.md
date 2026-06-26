@@ -36,6 +36,22 @@ _Avoid_: Publication drop cycle, dropped-table publication membership cycle
 Cycle-breaking change injection that creates explicit foreign-key constraint drops and makes table drops stop claiming those constraint stable identifiers.
 _Avoid_: Relaxed publication requirement, when resolving dropped-table publication membership cycles
 
+**Migration-plan topological ordering**:
+The exact, trusted sort of the diff's typed **Changes**, computed from catalog dependency edges. This is the ordering that produces the apply.
+_Avoid_: "Ordering" unqualified; topological sort, when the context is loading raw SQL into the shadow
+
+**Shadow-load ordering**:
+The best-effort, fail-safe sequencing of raw SQL **statements** into the shadow database. Advisory and approximate: it can only fail to build the shadow (a visible error before extraction), never corrupt the extracted desired state, because Postgres is the elaborator.
+_Avoid_: Topological sort; "ordering" unqualified, when the migration-plan ordering is meant
+
+**Statement reordering assist**:
+The optional pg-topo pre-sort that produces a shadow-load ordering — it splits files into one-statement units and topologically pre-sorts them. Advisory and degradable: correctness comes from the split plus the shadow's retry rounds, never from trusting the assist's order.
+_Avoid_: Topological sort, when the trusted migration-plan ordering is meant; "the sorter", when ambiguous with the plan sort
+
+**Shadow-load cycle**:
+A raw-SQL cycle (e.g. inline mutual foreign key) that stops the shadow from converging. Distinct from a **Dependency cycle**, which is a cycle in the migration-plan graph of **Changes**.
+_Avoid_: Dependency cycle, when the cycle is in raw SQL rather than the plan graph
+
 ## Relationships
 
 - A **Migration plan** contains one or more **Changes**.
@@ -47,6 +63,9 @@ _Avoid_: Relaxed publication requirement, when resolving dropped-table publicati
 - In a **Publication FK-chain constraint-drop cycle**, the terminal referenced-constraint drop table must be part of the publication membership being removed.
 - **FK constraint-drop injection** for a **Publication FK-chain constraint-drop cycle** is cycle-local: inject only FK drops that point to a dropped table in the cycle or to the terminal referenced constraint being dropped.
 - **FK constraint-drop injection** can be shared by multiple cycle breakers; each breaker still owns its own matcher and safety checks.
+- **Migration-plan topological ordering** is trusted and operates on **Changes**; **Shadow-load ordering** is advisory and operates on raw SQL **statements**. They are different orderings at different stages.
+- A **Statement reordering assist** produces a **Shadow-load ordering**; it never feeds the **Migration-plan topological ordering**.
+- A **Shadow-load cycle** stops the shadow load and is surfaced as an advisory hint on the (authoritative) Postgres error; a **Dependency cycle** is resolved by **Cycle-breaking change injection** in the plan.
 
 ## Example dialogue
 
@@ -58,3 +77,4 @@ _Avoid_: Relaxed publication requirement, when resolving dropped-table publicati
 - "Whole-plan interaction" was used for both **Structural normalization** and **Cycle-breaking change injection**. Resolved: deterministic rewrites of the final change list are structural normalization; rewrites triggered by a concrete unbreakable dependency cycle are cycle-breaking change injection.
 - `AlterTableDropConstraint` was first described as optional in the publication/table drop cycle. Resolved: the observed production cycle is a **Publication FK-chain constraint-drop cycle**, so a separately emitted referenced-constraint drop is part of that specific matcher.
 - Rebuilding `AlterPublicationDropTables` with relaxed requirements was considered for **Publication FK-chain constraint-drop cycles**. Resolved: keep publication membership changes unchanged and break the foreign-key chain with **FK constraint-drop injection**.
+- "Ordering" / "topological sort" was used for both the trusted plan sort and the best-effort shadow load. Resolved: the trusted sort of typed **Changes** is **Migration-plan topological ordering**; the best-effort sequencing of raw SQL **statements** into the shadow is **Shadow-load ordering**, produced by the advisory **Statement reordering assist**. A cycle in raw SQL is a **Shadow-load cycle**, not a **Dependency cycle**.

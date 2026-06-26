@@ -9,6 +9,16 @@ export const policyRules: Record<string, KindRules> = {
     weight: 16,
     cascadesToChildren: true,
     rebuildable: true,
+    // Never fold a policy's drop into its table's DROP (mirrors the FK-constraint
+    // exception). A policy's USING / WITH CHECK can reference another object (a
+    // view, function, …) dropped separately; PostgreSQL refuses to drop that
+    // object while the policy still references it, and the table-cascade would
+    // only remove the policy AFTER the table — which itself must drop after the
+    // referenced object, forming an unbreakable teardown cycle. An explicit DROP
+    // POLICY ordered before the referenced drop makes teardown constructible. A
+    // redundant explicit drop (policy with no external reference) is trimmed by
+    // the cosmetic elideCascadeSubsumedPolicyDrops compaction pass.
+    suppressible: () => false,
     rename: (fact, to) => {
       const id = fact.id as { schema: string; table: string; name: string };
       return {
