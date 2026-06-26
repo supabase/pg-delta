@@ -477,17 +477,24 @@ export function defaultPrivilegeActions(
   return specs;
 }
 
-/** The `TABLE rel [(cols)] [WHERE (…)]` clause for a publicationRel fact. */
-export function publicationRelClause(fact: Fact): string {
+/** The `rel [(cols)] [WHERE (…)]` member for a publicationRel fact, without the
+ *  leading `TABLE` keyword (so it can be grouped under a single `TABLE`). */
+function publicationRelMember(fact: Fact): string {
   const id = fact.id as { schema: string; table: string };
-  let clause = `TABLE ${rel(id.schema, id.table)}`;
+  let member = rel(id.schema, id.table);
   const cols = p(fact, "columns") as string[] | null;
   if (cols != null && cols.length > 0) {
-    clause += ` (${cols.map((c) => qid(c)).join(", ")})`;
+    member += ` (${cols.map((c) => qid(c)).join(", ")})`;
   }
   const where = p(fact, "where");
-  if (where != null) clause += ` WHERE (${str(where)})`;
-  return clause;
+  if (where != null) member += ` WHERE (${str(where)})`;
+  return member;
+}
+
+/** The `TABLE rel [(cols)] [WHERE (…)]` clause for a publicationRel fact, used
+ *  by the standalone `ALTER PUBLICATION … ADD TABLE` path. */
+export function publicationRelClause(fact: Fact): string {
+  return `TABLE ${publicationRelMember(fact)}`;
 }
 
 /** Inlined FOR-clause object list for a fresh publication, gathered from its
@@ -497,21 +504,31 @@ export function publicationObjects(
   fact: Fact,
   view: FactView,
 ): { clauses: string[]; consumes: StableId[]; produced: StableId[] } {
-  const clauses: string[] = [];
+  // Group all table relations under a single `TABLE` keyword and all schemas
+  // under a single `TABLES IN SCHEMA`. Repeating the keyword per item
+  // (`FOR TABLE a, TABLE b`) is only valid grammar on PG15+; PG14 requires the
+  // collapsed `FOR TABLE a, b` form, and the collapsed form is valid on every
+  // version (PG14 never has schema members).
+  const tableMembers: string[] = [];
+  const schemaMembers: string[] = [];
   const consumes: StableId[] = [];
   const produced: StableId[] = [];
   for (const child of view.childrenOf(fact.id)) {
     if (child.id.kind === "publicationRel") {
       const cid = child.id as { schema: string; table: string };
-      clauses.push(publicationRelClause(child));
+      tableMembers.push(publicationRelMember(child));
       consumes.push({ kind: "table", schema: cid.schema, name: cid.table });
       produced.push(child.id);
     } else if (child.id.kind === "publicationSchema") {
       const cid = child.id as { schema: string };
-      clauses.push(`TABLES IN SCHEMA ${qid(cid.schema)}`);
+      schemaMembers.push(qid(cid.schema));
       consumes.push({ kind: "schema", name: cid.schema });
       produced.push(child.id);
     }
   }
+  const clauses: string[] = [];
+  if (tableMembers.length > 0) clauses.push(`TABLE ${tableMembers.join(", ")}`);
+  if (schemaMembers.length > 0)
+    clauses.push(`TABLES IN SCHEMA ${schemaMembers.join(", ")}`);
   return { clauses, consumes, produced };
 }
