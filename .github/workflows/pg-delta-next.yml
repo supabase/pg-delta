@@ -31,6 +31,13 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
+      # The optional @supabase/pg-topo peer is consumed at runtime via the `bun`
+      # export condition (TS source), but `tsc` resolves it through the `types`
+      # field (dist/*.d.ts), which is gitignored and not produced by install.
+      # Build it so the sql-order reorder assist type-checks.
+      - name: Build @supabase/pg-topo (provides .d.ts for the type check)
+        working-directory: packages/pg-topo
+        run: bun run build
       - name: Type check
         working-directory: packages/pg-delta-next
         run: bun run check-types
