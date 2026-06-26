@@ -612,6 +612,52 @@ describe("flattenPolicy — extends composition", () => {
     const flat = flattenPolicy(policy);
     expect(flat.baseline).toBe("supabase-17.6");
   });
+
+  test("assumedRoles compose across extends and de-duplicate", () => {
+    const parent: Policy = {
+      id: "parent-assumed",
+      assumedRoles: ["anon", "authenticated"],
+    };
+    const child: Policy = {
+      id: "child-assumed",
+      assumedRoles: ["anon", "service_role"],
+      extends: [parent],
+    };
+    const flat = flattenPolicy(child);
+    expect([...flat.assumedRoles].sort()).toEqual([
+      "anon",
+      "authenticated",
+      "service_role",
+    ]);
+  });
+
+  test("assumedRoles defaults to empty array when unset", () => {
+    const flat = flattenPolicy({ id: "no-assumed" });
+    expect(flat.assumedRoles).toEqual([]);
+  });
+
+  test("assumedSchemas compose across extends and de-duplicate", () => {
+    const parent: Policy = {
+      id: "parent-assumed-schemas",
+      assumedSchemas: ["extensions", "auth"],
+    };
+    const child: Policy = {
+      id: "child-assumed-schemas",
+      assumedSchemas: ["extensions", "storage"],
+      extends: [parent],
+    };
+    const flat = flattenPolicy(child);
+    expect([...flat.assumedSchemas].sort()).toEqual([
+      "auth",
+      "extensions",
+      "storage",
+    ]);
+  });
+
+  test("assumedSchemas defaults to empty array when unset", () => {
+    const flat = flattenPolicy({ id: "no-assumed-schemas" });
+    expect(flat.assumedSchemas).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
