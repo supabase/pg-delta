@@ -7,6 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
+import { probeApplierCapability } from "../src/policy/capability.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import { sharedCluster } from "./containers.ts";
 
@@ -145,6 +146,281 @@ describe("compaction", () => {
       expect(verdictB.ok).toBe(true);
     } finally {
       await Promise.all([srcA.drop(), srcB.drop(), desired.drop()]);
+    }
+  }, 120_000);
+
+  test("default-ACL elision: a fresh CREATE emits no default REVOKE/GRANT; same proof on/off", async () => {
+    const cluster = await sharedCluster();
+    const cloneA = await cluster.createDb("compact_defacl_a");
+    const cloneB = await cluster.createDb("compact_defacl_b");
+    const desired = await cluster.createDb("compact_defacl_dst");
+    try {
+      // a type (PUBLIC USAGE + owner USAGE are PG defaults) and a table
+      // (owner gets the full default set, PUBLIC gets nothing) — both fresh.
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TYPE app.mood AS ENUM ('sad', 'ok', 'happy');
+        CREATE TABLE app.t (id int);
+      `);
+      const desiredState = await extract(desired.pool);
+      const emptyA = await extract(cloneA.pool);
+      const emptyB = await extract(cloneB.pool);
+
+      const compacted = plan(emptyA.factBase, desiredState.factBase);
+      const decomposed = plan(emptyB.factBase, desiredState.factBase, {
+        compact: false,
+      });
+
+      // the decomposed plan spells out the default REVOKE/GRANT pairs…
+      const defaultAclNoise = (p: typeof compacted) =>
+        p.actions.filter(
+          (a) =>
+            a.sql.startsWith("REVOKE ALL ON") || a.sql.startsWith("GRANT "),
+        ).length;
+      expect(defaultAclNoise(decomposed)).toBeGreaterThan(0);
+      // …and the compacted plan elides every one of them (all grants here are
+      // built-in defaults on co-created objects).
+      expect(defaultAclNoise(compacted)).toBe(0);
+      expect(compacted.actions.length).toBeLessThan(decomposed.actions.length);
+
+      // cosmetic by contract: identical clean proof with elision on and off.
+      const [verdictA, verdictB] = [
+        await provePlan(compacted, cloneA.pool, desiredState.factBase),
+        await provePlan(decomposed, cloneB.pool, desiredState.factBase),
+      ];
+      expect(verdictA.ok).toBe(true);
+      expect(verdictB.ok).toBe(true);
+    } finally {
+      await Promise.all([cloneA.drop(), cloneB.drop(), desired.drop()]);
+    }
+  }, 120_000);
+
+  test("generated columns stay as ADD COLUMN so dependency columns exist first", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("compact_gen_src");
+    const desired = await cluster.createDb("compact_gen_dst");
+    try {
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (
+          base int NOT NULL,
+          doubled int GENERATED ALWAYS AS (base * 2) STORED
+        );
+      `);
+      const [sourceState, desiredState] = [
+        await extract(source.pool),
+        await extract(desired.pool),
+      ];
+      const thePlan = plan(sourceState.factBase, desiredState.factBase);
+      const createTable = thePlan.actions.find(
+        (a) => a.verb === "create" && a.produces[0]?.kind === "table",
+      );
+      expect(createTable?.sql).not.toContain("GENERATED ALWAYS AS");
+      const addGenerated = thePlan.actions.find((a) =>
+        a.sql.includes("GENERATED ALWAYS AS"),
+      );
+      expect(addGenerated?.sql).toMatch(/ADD COLUMN.*GENERATED ALWAYS AS/);
+
+      const verdict = await provePlan(
+        thePlan,
+        source.pool,
+        desiredState.factBase,
+      );
+      expect(verdict.ok).toBe(true);
+    } finally {
+      await Promise.all([source.drop(), desired.drop()]);
+    }
+  }, 60_000);
+
+  test("co-create ownership fold: schema AUTHORIZATION + applier-owner ALTER elided (4→2); same proof on/off", async () => {
+    const cluster = await sharedCluster();
+    const cloneA = await cluster.createDb("compact_own_a");
+    const cloneB = await cluster.createDb("compact_own_b");
+    const desired = await cluster.createDb("compact_own_dst");
+    try {
+      // a bare schema + table, both freshly created and owned by the applier
+      // (`test`). Decomposed: CREATE SCHEMA, ALTER SCHEMA OWNER, CREATE TABLE,
+      // ALTER TABLE OWNER (4). Compacted: CREATE SCHEMA … AUTHORIZATION test,
+      // CREATE TABLE (2) — schema owner folded, table owner ALTER elided.
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (id int);
+      `);
+      const desiredState = await extract(desired.pool);
+      const emptyA = await extract(cloneA.pool);
+      const emptyB = await extract(cloneB.pool);
+      // probe the applier (connection user `test`) so the no-op owner ALTER is
+      // elided exactly as it would be at apply time.
+      const capability = await probeApplierCapability(cloneA.pool);
+
+      const compacted = plan(emptyA.factBase, desiredState.factBase, {
+        capability,
+      });
+      const decomposed = plan(emptyB.factBase, desiredState.factBase, {
+        compact: false,
+        capability,
+      });
+
+      const owns = (p: typeof compacted) =>
+        p.actions.filter((a) => a.sql.includes(" OWNER TO ")).length;
+      // decomposed spells out both owner ALTERs; compacted has none
+      expect(owns(decomposed)).toBe(2);
+      expect(owns(compacted)).toBe(0);
+      // the headline win: schema + table, two statements, no owner residue
+      expect(compacted.actions).toHaveLength(2);
+      expect(compacted.actions[0]?.sql).toBe(
+        `CREATE SCHEMA "app" AUTHORIZATION "test"`,
+      );
+      expect(compacted.actions[1]?.sql).toContain(`CREATE TABLE "app"."t"`);
+      expect(decomposed.actions.length).toBeGreaterThan(
+        compacted.actions.length,
+      );
+
+      const [verdictA, verdictB] = [
+        await provePlan(compacted, cloneA.pool, desiredState.factBase),
+        await provePlan(decomposed, cloneB.pool, desiredState.factBase),
+      ];
+      expect(verdictA.ok).toBe(true);
+      expect(verdictB.ok).toBe(true);
+    } finally {
+      await Promise.all([cloneA.drop(), cloneB.drop(), desired.drop()]);
+    }
+  }, 120_000);
+
+  test("co-create REVOKE elision: third-party grant keeps GRANT, drops leading REVOKE; same proof on/off", async () => {
+    const cluster = await sharedCluster();
+    const cloneA = await cluster.createDb("compact_corevoke_a");
+    const cloneB = await cluster.createDb("compact_corevoke_b");
+    const desired = await cluster.createDb("compact_corevoke_dst");
+    await cluster.adminPool
+      .query(`CREATE ROLE compact_co_grantee NOLOGIN`)
+      .catch(() => {});
+    try {
+      // a fresh type with a third-party USAGE grant (the grantee has no default
+      // privilege) — the leading REVOKE ALL is cosmetic.
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TYPE app.mood AS ENUM ('a', 'b');
+        GRANT USAGE ON TYPE app.mood TO compact_co_grantee;
+      `);
+      const desiredState = await extract(desired.pool);
+      const emptyA = await extract(cloneA.pool);
+      const emptyB = await extract(cloneB.pool);
+      const capability = await probeApplierCapability(cloneA.pool);
+
+      const compacted = plan(emptyA.factBase, desiredState.factBase, {
+        capability,
+      });
+      const decomposed = plan(emptyB.factBase, desiredState.factBase, {
+        compact: false,
+        capability,
+      });
+
+      const grantSql = `GRANT USAGE ON TYPE "app"."mood" TO "compact_co_grantee"`;
+      const revokeSql = `REVOKE ALL ON TYPE "app"."mood" FROM "compact_co_grantee"`;
+      // decomposed keeps the REVOKE+GRANT pair…
+      expect(decomposed.actions.map((a) => a.sql)).toContain(revokeSql);
+      expect(decomposed.actions.map((a) => a.sql)).toContain(grantSql);
+      // …compacted drops the REVOKE but keeps the load-bearing GRANT
+      expect(compacted.actions.map((a) => a.sql)).not.toContain(revokeSql);
+      expect(compacted.actions.map((a) => a.sql)).toContain(grantSql);
+
+      const [verdictA, verdictB] = [
+        await provePlan(compacted, cloneA.pool, desiredState.factBase),
+        await provePlan(decomposed, cloneB.pool, desiredState.factBase),
+      ];
+      expect(verdictA.ok).toBe(true);
+      expect(verdictB.ok).toBe(true);
+    } finally {
+      await Promise.all([cloneA.drop(), cloneB.drop(), desired.drop()]);
+    }
+  }, 120_000);
+
+  test("co-create REVOKE elision: subset default keeps the load-bearing REVOKE; converges on/off", async () => {
+    const cluster = await sharedCluster();
+    const cloneA = await cluster.createDb("compact_subset_a");
+    const cloneB = await cluster.createDb("compact_subset_b");
+    const desired = await cluster.createDb("compact_subset_dst");
+    await cluster.adminPool
+      .query(`CREATE ROLE compact_subset_grantee NOLOGIN`)
+      .catch(() => {});
+    try {
+      // applier (`test`) carries a default privilege granting SELECT+INSERT on
+      // tables in `app` to the grantee; the table's explicit ACL keeps only
+      // SELECT. The leading REVOKE ALL is load-bearing — without it the
+      // create-time default INSERT would survive. The superset guard must keep
+      // it (capability.role === test === the default's role).
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        ALTER DEFAULT PRIVILEGES FOR ROLE test IN SCHEMA app
+          GRANT SELECT, INSERT ON TABLES TO compact_subset_grantee;
+        CREATE TABLE app.t (id int);
+        REVOKE INSERT ON app.t FROM compact_subset_grantee;
+      `);
+      const desiredState = await extract(desired.pool);
+      const emptyA = await extract(cloneA.pool);
+      const emptyB = await extract(cloneB.pool);
+      const capability = await probeApplierCapability(cloneA.pool);
+
+      const compacted = plan(emptyA.factBase, desiredState.factBase, {
+        capability,
+      });
+      const decomposed = plan(emptyB.factBase, desiredState.factBase, {
+        compact: false,
+        capability,
+      });
+
+      const revokeSql = `REVOKE ALL ON TABLE "app"."t" FROM "compact_subset_grantee"`;
+      // the guard keeps the REVOKE even under compaction
+      expect(compacted.actions.map((a) => a.sql)).toContain(revokeSql);
+
+      const [verdictA, verdictB] = [
+        await provePlan(compacted, cloneA.pool, desiredState.factBase),
+        await provePlan(decomposed, cloneB.pool, desiredState.factBase),
+      ];
+      expect(verdictA.ok).toBe(true);
+      expect(verdictB.ok).toBe(true);
+    } finally {
+      await Promise.all([cloneA.drop(), cloneB.drop(), desired.drop()]);
+    }
+  }, 120_000);
+
+  test("co-create REVOKE elision: dropping the kept REVOKE would diverge (guard is load-bearing)", async () => {
+    // The subset test above proves the engine KEEPS the REVOKE. This proves the
+    // necessity, deterministically at the catalog level: with a create-time
+    // default of SELECT+INSERT for the grantee, applying the kept GRANT SELECT
+    // WITHOUT the leading REVOKE leaves the default INSERT behind, so the state
+    // does NOT converge to the SELECT-only desired. (Explicit SQL order — the
+    // default privilege is established before the table — so this never depends
+    // on plan action ordering.)
+    const cluster = await sharedCluster();
+    const clone = await cluster.createDb("compact_subsetneg_clone");
+    const desired = await cluster.createDb("compact_subsetneg_dst");
+    await cluster.adminPool
+      .query(`CREATE ROLE compact_subsetneg_grantee NOLOGIN`)
+      .catch(() => {});
+    try {
+      const setup = (withRevoke: boolean) => `
+        CREATE SCHEMA app;
+        ALTER DEFAULT PRIVILEGES FOR ROLE test IN SCHEMA app
+          GRANT SELECT, INSERT ON TABLES TO compact_subsetneg_grantee;
+        CREATE TABLE app.t (id int);
+        ${withRevoke ? "REVOKE ALL ON app.t FROM compact_subsetneg_grantee;" : ""}
+        GRANT SELECT ON app.t TO compact_subsetneg_grantee;
+      `;
+      // desired = the engine's kept-REVOKE form (converges to SELECT only)
+      await desired.pool.query(setup(true));
+      // the REVOKE-dropped form leaves the default-granted INSERT in place
+      await clone.pool.query(setup(false));
+      const [desiredState, cloneState] = [
+        await extract(desired.pool),
+        await extract(clone.pool),
+      ];
+      expect(cloneState.factBase.rootHash).not.toBe(
+        desiredState.factBase.rootHash,
+      );
+    } finally {
+      await Promise.all([clone.drop(), desired.drop()]);
     }
   }, 120_000);
 });

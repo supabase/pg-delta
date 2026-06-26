@@ -129,6 +129,14 @@ describe.skipIf(skipSeclabelProof)("security-label end-to-end proof", () => {
       on: `TYPE public.ty`,
     },
     {
+      // enum and composite are both the engine's `type` kind but extract via
+      // different catalog paths (pg_enum vs pg_attribute); the old engine's
+      // security-label-operations suite exercised an enum TYPE label explicitly.
+      name: "enum-type",
+      setup: `CREATE TYPE public.status AS ENUM ('active', 'inactive');`,
+      on: `TYPE public.status`,
+    },
+    {
       name: "function",
       setup: `CREATE FUNCTION public.f() RETURNS integer LANGUAGE sql AS 'SELECT 1';`,
       on: `FUNCTION public.f()`,
@@ -168,6 +176,38 @@ describe.skipIf(skipSeclabelProof)("security-label end-to-end proof", () => {
       expect(v.ok).toBe(true);
     }, 240_000);
   }
+
+  test("a role security label is extracted, planned, and converges (shared catalog)", async () => {
+    // Roles and their labels live in the SHARED catalog (pg_shseclabel), so they
+    // are cluster-wide, not per-database. proveTransition cannot be reused: it
+    // extracts both sides AFTER applying the desired SQL, but a cluster-global
+    // label set on `desired` is immediately visible from `source` too, making
+    // the diff vacuous. So capture the source factBase BEFORE the label exists.
+    const cluster = await seclabelCluster();
+    const source = await cluster.createDb("sl_role_src");
+    const desired = await cluster.createDb("sl_role_dst");
+    dbs.push(source, desired);
+    const role = "tier7_sl_role";
+    const ensureRole = `DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN
+        CREATE ROLE ${role};
+      END IF; END $$;`;
+    await source.pool.query(ensureRole);
+    await desired.pool.query(ensureRole);
+    const sourceState = await extract(source.pool);
+    await desired.pool.query(
+      `SECURITY LABEL FOR 'dummy' ON ROLE ${role} IS 'classified';`,
+    );
+    const desiredState = await extract(desired.pool);
+    const thePlan = plan(sourceState.factBase, desiredState.factBase);
+    expect(thePlan.actions.length).toBeGreaterThan(0); // label not dropped
+    const clone = await source.clone();
+    dbs.push(clone);
+    const v = await provePlan(thePlan, clone.pool, desiredState.factBase);
+    expect(v.applyError).toBeUndefined();
+    expect(v.driftDeltas).toEqual([]);
+    expect(v.ok).toBe(true);
+  }, 240_000);
 
   test("a label on an unsupported target is reported, never silently dropped", async () => {
     const cluster = await seclabelCluster();

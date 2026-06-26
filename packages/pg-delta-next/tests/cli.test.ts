@@ -7,7 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { loadSnapshot } from "../src/frontends/snapshot-file.ts";
 import { sharedCluster } from "./containers.ts";
 
@@ -401,4 +401,200 @@ describe("CLI: schema profile-awareness", () => {
       await Promise.all([shadow.drop(), target.drop()]);
     }
   }, 90_000);
+});
+
+describe("CLI: secret redaction surface", () => {
+  // Custom FDW (NO HANDLER/VALIDATOR) accepts arbitrary option keys, so we can
+  // plant a credential in a server option on stock alpine.
+  const FDW_SQL = `
+    CREATE FOREIGN DATA WRAPPER cli_redact_fdw;
+    CREATE SERVER cli_redact_srv FOREIGN DATA WRAPPER cli_redact_fdw
+      OPTIONS (host 'h.example.com', password 'cli-secret-xyz');
+  `;
+
+  test("snapshot redacts by default; --unsafe-show-secrets emits real values + warns", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_redact_src");
+    try {
+      await source.pool.query(FDW_SQL);
+
+      // default: redacted, no warning
+      const redactedFile = join(tmpdir(), `pgdn-redact-${Date.now()}.json`);
+      const r1 = await runCli([
+        "snapshot",
+        "--source",
+        source.uri,
+        "--out",
+        redactedFile,
+      ]);
+      expect(r1.exitCode).toBe(0);
+      const redacted = readFileSync(redactedFile, "utf8");
+      expect(redacted).not.toContain("cli-secret-xyz");
+      expect(redacted).toContain("__OPTION_PASSWORD__");
+      expect(r1.stderr).not.toContain("Secret redaction is DISABLED");
+
+      // opt-out: real value emitted, loud warning on stderr
+      const rawFile = join(tmpdir(), `pgdn-raw-${Date.now()}.json`);
+      const r2 = await runCli([
+        "snapshot",
+        "--source",
+        source.uri,
+        "--out",
+        rawFile,
+        "--unsafe-show-secrets",
+      ]);
+      expect(r2.exitCode).toBe(0);
+      const raw = readFileSync(rawFile, "utf8");
+      expect(raw).toContain("cli-secret-xyz");
+      expect(raw).not.toContain("__OPTION_PASSWORD__");
+      expect(r2.stderr).toContain("Secret redaction is DISABLED");
+    } finally {
+      await source.drop();
+    }
+  }, 60_000);
+});
+
+describe("CLI: schema lint", () => {
+  // Pure static analysis — no database, so these run without a container.
+  const writeFixture = (
+    label: string,
+    files: Record<string, string>,
+  ): string => {
+    const dir = join(tmpdir(), `pg-delta-next-lint-${label}-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    for (const [name, sql] of Object.entries(files)) {
+      writeFileSync(join(dir, name), sql, "utf8");
+    }
+    return dir;
+  };
+
+  test("a clean schema lints successfully (exit 0)", async () => {
+    const dir = writeFixture("clean", {
+      "01_table.sql": "CREATE TABLE public.t (id integer PRIMARY KEY);",
+      "02_view.sql": "CREATE VIEW public.v AS SELECT id FROM public.t;",
+    });
+    const result = await runCli(["schema", "lint", "--dir", dir]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("No issues found");
+  });
+
+  test("a shadow-load cycle fails the lint (exit 1) with a labeled chain", async () => {
+    const dir = writeFixture("cycle", {
+      "v1.sql": "CREATE VIEW public.v1 AS SELECT * FROM public.v2;",
+      "v2.sql": "CREATE VIEW public.v2 AS SELECT * FROM public.v1;",
+    });
+    const result = await runCli(["schema", "lint", "--dir", dir]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("CYCLE_DETECTED");
+    expect(result.stderr).toContain("→");
+    expect(result.stderr).toMatch(/error\(s\)/);
+  });
+});
+
+describe("CLI: schema export --layout grouped", () => {
+  test("writes the grouped tree, honoring --group-patterns", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_export_grouped");
+    try {
+      await source.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.auth_users (id integer PRIMARY KEY);
+        CREATE TABLE app.billing_invoices (id integer PRIMARY KEY);
+      `);
+      const outDir = join(
+        tmpdir(),
+        `pg-delta-next-export-grouped-${Date.now()}`,
+      );
+      const result = await runCli([
+        "schema",
+        "export",
+        "--source",
+        source.uri,
+        "--out-dir",
+        outDir,
+        "--layout",
+        "grouped",
+        "--group-patterns",
+        '[{"pattern":"^auth_","name":"auth"}]',
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toContain("layout: grouped");
+      // auth_users consolidated under the auth group; the other table keeps its file
+      expect(
+        readFileSync(join(outDir, "schemas/app/auth/tables.sql"), "utf8"),
+      ).toContain("auth_users");
+      expect(
+        readFileSync(
+          join(outDir, "schemas/app/tables/billing_invoices.sql"),
+          "utf8",
+        ),
+      ).toContain("billing_invoices");
+    } finally {
+      await source.drop();
+    }
+  }, 60_000);
+
+  test("rejects a malformed --group-patterns before connecting (exit 2)", async () => {
+    const result = await runCli([
+      "schema",
+      "export",
+      "--source",
+      "postgresql://localhost/unused",
+      "--out-dir",
+      join(tmpdir(), `pg-delta-next-export-bad-${Date.now()}`),
+      "--layout",
+      "grouped",
+      "--group-patterns",
+      "not json",
+    ]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("--group-patterns");
+  });
+
+  test("--format-options pretty-prints the exported SQL", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_export_format");
+    try {
+      await source.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (id integer PRIMARY KEY, name text NOT NULL);
+      `);
+      const outDir = join(tmpdir(), `pg-delta-next-export-fmt-${Date.now()}`);
+      const result = await runCli([
+        "schema",
+        "export",
+        "--source",
+        source.uri,
+        "--out-dir",
+        outDir,
+        "--format-options",
+        '{"keywordCase":"lower"}',
+      ]);
+      expect(result.exitCode).toBe(0);
+      const sql = readFileSync(
+        join(outDir, "schemas/app/tables/t.sql"),
+        "utf8",
+      );
+      expect(sql).toContain("create table");
+      expect(sql).not.toContain("CREATE TABLE");
+    } finally {
+      await source.drop();
+    }
+  }, 60_000);
+
+  test("rejects a malformed --format-options before connecting (exit 2)", async () => {
+    const result = await runCli([
+      "schema",
+      "export",
+      "--source",
+      "postgresql://localhost/unused",
+      "--out-dir",
+      join(tmpdir(), `pg-delta-next-export-badfmt-${Date.now()}`),
+      "--format-options",
+      "[1,2,3]",
+    ]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("--format-options");
+  });
 });
