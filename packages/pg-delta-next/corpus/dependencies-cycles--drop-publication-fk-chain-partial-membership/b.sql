@@ -1,0 +1,1 @@
+-- Empty: all FK-chain tables and the publication are dropped.
