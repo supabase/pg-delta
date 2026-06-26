@@ -16,6 +16,7 @@ import type {
   GraphReport,
   StatementNode,
 } from "./model/types.ts";
+import { breakForeignKeyCycles } from "./rewrite/break-fk-cycles.ts";
 
 const dedupeDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] => {
   const map = new Map<string, Diagnostic>();
@@ -114,6 +115,59 @@ const EMPTY_RESULT: AnalyzeResult = {
   },
 };
 
+/**
+ * Classify and extract dependencies for a parsed statement, producing a
+ * StatementNode plus any classification diagnostics. Factored out so the
+ * pipeline can rebuild nodes after FK-cycle rewriting without duplicating
+ * the logic.
+ */
+const buildStatementNode = (
+  statement: ParsedStatement,
+): { node: StatementNode; diagnostics: Diagnostic[] } => {
+  const diagnostics: Diagnostic[] = [];
+  const statementClass = classifyStatement(statement.ast);
+  if (statementClass === "UNKNOWN") {
+    diagnostics.push({
+      code: "UNKNOWN_STATEMENT_CLASS",
+      message: `Unsupported statement AST root '${statementClassAstNode(statement.ast) ?? "unknown"}'.`,
+      statementId: statement.id,
+    });
+  }
+
+  const extraction = extractDependencies(
+    statementClass,
+    statement.ast,
+    statement.annotations,
+  );
+
+  return {
+    node: {
+      id: statement.id,
+      sql: statement.sql,
+      statementClass,
+      provides: extraction.provides,
+      requires: extraction.requires,
+      phase:
+        statement.annotations.phase ?? phaseForStatementClass(statementClass),
+      annotations: statement.annotations,
+    },
+    diagnostics,
+  };
+};
+
+const buildStatementNodes = (
+  statements: readonly ParsedStatement[],
+): { nodes: StatementNode[]; diagnostics: Diagnostic[] } => {
+  const nodes: StatementNode[] = [];
+  const diagnostics: Diagnostic[] = [];
+  for (const statement of statements) {
+    const built = buildStatementNode(statement);
+    nodes.push(built.node);
+    diagnostics.push(...built.diagnostics);
+  }
+  return { nodes, diagnostics };
+};
+
 export const analyzeAndSort = async (
   sql: string[],
   options?: AnalyzeOptions,
@@ -130,49 +184,45 @@ export const analyzeAndSort = async (
     };
   }
 
-  const diagnostics: Diagnostic[] = [];
-  const parsedStatements: ParsedStatement[] = [];
+  const parseDiagnostics: Diagnostic[] = [];
+  let workingStatements: ParsedStatement[] = [];
 
   for (let i = 0; i < sql.length; i += 1) {
     const parsed = await parseSqlContent(sql[i], `<input:${i}>`);
-    parsedStatements.push(...parsed.statements);
-    diagnostics.push(...parsed.diagnostics);
+    workingStatements.push(...parsed.statements);
+    parseDiagnostics.push(...parsed.diagnostics);
   }
 
-  const statementNodes: StatementNode[] = [];
-  for (const parsedStatement of parsedStatements) {
-    const statementClass = classifyStatement(parsedStatement.ast);
-    if (statementClass === "UNKNOWN") {
-      diagnostics.push({
-        code: "UNKNOWN_STATEMENT_CLASS",
-        message: `Unsupported statement AST root '${statementClassAstNode(parsedStatement.ast) ?? "unknown"}'.`,
-        statementId: parsedStatement.id,
-      });
-    }
+  let built = buildStatementNodes(workingStatements);
+  let statementNodes = built.nodes;
+  let graphState = buildGraph(statementNodes, options?.externalProviders);
+  let topoResult = topoSort(statementNodes, graphState.edges);
 
-    const extraction = extractDependencies(
-      statementClass,
-      parsedStatement.ast,
-      parsedStatement.annotations,
+  // Break inline foreign-key cycles (pg_dump style) by deferring the
+  // cross-cycle FK into a standalone ALTER TABLE ... ADD CONSTRAINT. Only
+  // runs when a cycle is actually present, and re-derives the graph from the
+  // rewritten statement set so downstream consumers see an acyclic order.
+  if (topoResult.cycleGroups.length > 0) {
+    const rewritten = await breakForeignKeyCycles(
+      workingStatements,
+      statementNodes,
+      topoResult.cycleGroups,
     );
-
-    statementNodes.push({
-      id: parsedStatement.id,
-      sql: parsedStatement.sql,
-      statementClass,
-      provides: extraction.provides,
-      requires: extraction.requires,
-      phase:
-        parsedStatement.annotations.phase ??
-        phaseForStatementClass(statementClass),
-      annotations: parsedStatement.annotations,
-    });
+    if (rewritten) {
+      workingStatements = rewritten;
+      built = buildStatementNodes(workingStatements);
+      statementNodes = built.nodes;
+      graphState = buildGraph(statementNodes, options?.externalProviders);
+      topoResult = topoSort(statementNodes, graphState.edges);
+    }
   }
 
-  const graphState = buildGraph(statementNodes, options?.externalProviders);
-  diagnostics.push(...graphState.diagnostics);
+  const diagnostics: Diagnostic[] = [
+    ...parseDiagnostics,
+    ...built.diagnostics,
+    ...graphState.diagnostics,
+  ];
 
-  const topoResult = topoSort(statementNodes, graphState.edges);
   if (topoResult.cycleGroups.length > 0) {
     for (const cycleGroup of topoResult.cycleGroups) {
       const firstCycleIndex = cycleGroup[0];
@@ -221,7 +271,25 @@ export const analyzeAndSort = async (
     }
   }
 
-  const ordered = topoResult.orderedIndices
+  // A statement must never be silently dropped from the result. Kahn's
+  // algorithm omits any node left in a cycle (and everything downstream of
+  // one), so append those trailing nodes in a deterministic order after the
+  // acyclic prefix. The CYCLE_DETECTED diagnostic above still flags the
+  // unresolved cycle; consumers (e.g. the declarative apply engine) then see
+  // every statement and can surface a real error instead of building an
+  // incomplete schema from a truncated list.
+  const orderedIndexSet = new Set(topoResult.orderedIndices);
+  const trailingIndices: number[] = [];
+  for (let index = 0; index < statementNodes.length; index += 1) {
+    if (!orderedIndexSet.has(index)) {
+      trailingIndices.push(index);
+    }
+  }
+  trailingIndices.sort((left, right) =>
+    compareStatementIndices(left, right, statementNodes),
+  );
+
+  const ordered = [...topoResult.orderedIndices, ...trailingIndices]
     .map((index) => statementNodes[index])
     .filter((statementNode): statementNode is StatementNode =>
       Boolean(statementNode),
