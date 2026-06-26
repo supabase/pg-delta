@@ -299,39 +299,60 @@ function diffEnumLabels(mainEnum: Enum, branchEnum: Enum): EnumChange[] {
     (a, b) => a.sort_order - b.sort_order,
   );
   const workingLabels = [...mainEnum.labels].map((l) => l.label);
+  const pendingValues = new Set(addedValues);
 
-  for (const newValue of addedValues) {
-    const branchIdx = branchOrdered.findIndex((l) => l.label === newValue);
-    if (branchIdx === -1) continue;
+  while (pendingValues.size > 0) {
+    let emitted = false;
 
-    const prevBranch = branchOrdered[branchIdx - 1]?.label;
-    const nextBranch = branchOrdered[branchIdx + 1]?.label;
+    for (const newValue of pendingValues) {
+      const branchIdx = branchOrdered.findIndex((l) => l.label === newValue);
+      if (branchIdx === -1) {
+        pendingValues.delete(newValue);
+        emitted = true;
+        continue;
+      }
 
-    let position: { before?: string; after?: string } | undefined;
+      const prevBranch = branchOrdered[branchIdx - 1]?.label;
+      const nextBranch = branchOrdered[branchIdx + 1]?.label;
 
-    // Prefer AFTER when prevBranch exists in workingLabels (more natural for sequential additions)
-    // Use BEFORE only when we need to insert before the first value or when prevBranch doesn't exist
-    if (prevBranch && workingLabels.includes(prevBranch)) {
-      position = { after: prevBranch };
-      // Insert after the previous label in our working list
-      const prevIdx = workingLabels.indexOf(prevBranch);
-      workingLabels.splice(prevIdx + 1, 0, newValue);
-    } else if (nextBranch && workingLabels.includes(nextBranch)) {
-      // Insert before nextBranch when prevBranch doesn't exist (e.g., adding at beginning)
-      position = { before: nextBranch };
-      const nextIdx = workingLabels.indexOf(nextBranch);
-      workingLabels.splice(nextIdx, 0, newValue);
-    } else if (nextBranch) {
-      // nextBranch exists but not in workingLabels yet (shouldn't happen in normal flow)
-      position = { before: nextBranch };
-      workingLabels.push(newValue);
-    } else {
-      // Fallback: append to the end
-      position = { after: workingLabels[workingLabels.length - 1] };
-      workingLabels.push(newValue);
+      let position: { before?: string; after?: string } | undefined;
+      let insertIdx: number | undefined;
+
+      // Prefer AFTER when prevBranch exists in workingLabels (more natural for sequential additions)
+      // Use BEFORE only when we need to insert before the first value or when prevBranch doesn't exist
+      if (prevBranch && workingLabels.includes(prevBranch)) {
+        position = { after: prevBranch };
+        // Insert after the previous label in our working list
+        insertIdx = workingLabels.indexOf(prevBranch) + 1;
+      } else if (nextBranch && workingLabels.includes(nextBranch)) {
+        // Insert before nextBranch when prevBranch doesn't exist (e.g., adding at beginning)
+        position = { before: nextBranch };
+        insertIdx = workingLabels.indexOf(nextBranch);
+      } else if (nextBranch) {
+        // nextBranch exists but not in workingLabels yet (shouldn't happen in normal flow)
+        continue;
+      } else {
+        // Fallback: append to the end
+        if (prevBranch) continue;
+        if (workingLabels.length === 0) continue;
+        position = { after: workingLabels[workingLabels.length - 1] };
+        insertIdx = workingLabels.length;
+      }
+
+      if (insertIdx === undefined) continue;
+      workingLabels.splice(insertIdx, 0, newValue);
+      changes.push(
+        new AlterEnumAddValue({ enum: mainEnum, newValue, position }),
+      );
+      pendingValues.delete(newValue);
+      emitted = true;
     }
 
-    changes.push(new AlterEnumAddValue({ enum: mainEnum, newValue, position }));
+    if (!emitted) {
+      throw new Error(
+        `Unable to plan enum label additions for ${mainEnum.schema}.${mainEnum.name}: no pending value has an existing enum label anchor`,
+      );
+    }
   }
 
   // Complex changes (removals, resorting) are currently not auto-handled.

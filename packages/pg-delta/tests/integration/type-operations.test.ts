@@ -28,6 +28,46 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
     test(
+      "add multiple leading enum values before the first existing value",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+            CREATE SCHEMA test_schema;
+            CREATE TYPE test_schema.status AS ENUM ('c');
+          `,
+          testSql: `
+            DROP TYPE test_schema.status;
+            CREATE TYPE test_schema.status AS ENUM ('a', 'b', 'c');
+          `,
+        });
+      }),
+    );
+    test(
+      "add leading and trailing enum values around an existing value",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+            CREATE SCHEMA test_schema;
+            CREATE TYPE test_schema.status AS ENUM ('b');
+          `,
+          testSql: `
+            DROP TYPE test_schema.status;
+            CREATE TYPE test_schema.status AS ENUM ('a', 'b', 'c');
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toEqual([
+              "ALTER TYPE test_schema.status ADD VALUE 'a' BEFORE 'b'",
+              "ALTER TYPE test_schema.status ADD VALUE 'c' AFTER 'b'",
+            ]);
+          },
+        });
+      }),
+    );
+    test(
       "add enum value before setting default to the new value",
       withDb(pgVersion, async (db) => {
         const initialSetup = `

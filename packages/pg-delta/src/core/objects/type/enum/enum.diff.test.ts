@@ -25,6 +25,20 @@ const testContext = {
   mainRoles: {},
 };
 
+function testEnum(labels: string[]) {
+  return new Enum({
+    schema: "public",
+    name: "e1",
+    owner: "o1",
+    labels: labels.map((label, index) => ({
+      label,
+      sort_order: index + 1,
+    })),
+    comment: null,
+    privileges: [],
+  });
+}
+
 describe.concurrent("enum.diff", () => {
   test("create and drop", () => {
     const props: EnumProps = {
@@ -122,6 +136,30 @@ describe.concurrent("enum.diff", () => {
     expect(add?.position?.after).toBeUndefined();
   });
 
+  test("add multiple leading values from right to left using existing anchors", () => {
+    const main = testEnum(["c"]);
+    const branch = testEnum(["a", "b", "c"]);
+
+    const changes = diffEnums(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    const adds = changes.filter(
+      (c): c is AlterEnumAddValue => c instanceof AlterEnumAddValue,
+    );
+
+    expect(
+      adds.map((add) => ({
+        newValue: add.newValue,
+        position: add.position,
+      })),
+    ).toEqual([
+      { newValue: "b", position: { before: "c" } },
+      { newValue: "a", position: { before: "b" } },
+    ]);
+  });
+
   test("add value in middle (AFTER previous)", () => {
     const main = new Enum({
       schema: "public",
@@ -158,6 +196,30 @@ describe.concurrent("enum.diff", () => {
     expect(add).toBeDefined();
     expect(add?.position?.after).toBe("a");
     expect(add?.position?.before).toBeUndefined();
+  });
+
+  test("add multiple middle values left to right after existing anchor", () => {
+    const main = testEnum(["a", "d"]);
+    const branch = testEnum(["a", "b", "c", "d"]);
+
+    const changes = diffEnums(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    const adds = changes.filter(
+      (c): c is AlterEnumAddValue => c instanceof AlterEnumAddValue,
+    );
+
+    expect(
+      adds.map((add) => ({
+        newValue: add.newValue,
+        position: add.position,
+      })),
+    ).toEqual([
+      { newValue: "b", position: { after: "a" } },
+      { newValue: "c", position: { after: "b" } },
+    ]);
   });
 
   test("add value at end (AFTER last)", () => {
