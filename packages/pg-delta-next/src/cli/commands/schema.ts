@@ -55,6 +55,7 @@ import {
 } from "../../frontends/export-sql-files.ts";
 import type { SqlFormatOptions } from "../../frontends/sql-format/index.ts";
 import {
+  findSessionSettingStatements,
   loadSqlFiles,
   ShadowLoadError,
 } from "../../frontends/load-sql-files.ts";
@@ -69,7 +70,7 @@ import {
   rewriteReorderedShadowError,
 } from "../reorder-display.ts";
 import { plan } from "../../plan/plan.ts";
-import { resolveView } from "../../policy/policy.ts";
+import { flattenPolicy, resolveView } from "../../policy/policy.ts";
 import { apply } from "../../apply/apply.ts";
 import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
@@ -243,10 +244,24 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       ctx.planOptions.capability,
       ctx.planOptions.baseline,
     );
+    // The view is already policy/capability/baseline-resolved, but it can keep
+    // actions that consume assumed-but-filtered objects (a relocatable extension
+    // in `extensions`, a GRANT to `anon`). Forward the profile's assumed
+    // schema/role sets so the export plan's requirement guard exempts them
+    // exactly like the DB-to-DB `plan --profile` path (review P1).
+    const assumed = ctx.planOptions.policy
+      ? flattenPolicy(ctx.planOptions.policy)
+      : undefined;
     const files = exportSqlFiles(view, {
       layout,
       ...(grouping !== undefined ? { grouping } : {}),
       ...(format !== undefined ? { format } : {}),
+      ...(assumed !== undefined
+        ? {
+            assumedSchemas: assumed.assumedSchemas,
+            assumedRoles: assumed.assumedRoles,
+          }
+        : {}),
       onWarning: (message) => process.stderr.write(`  WARNING: ${message}\n`),
     });
 
@@ -285,13 +300,14 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       "restrict-to-applier": { type: "boolean" },
       "strict-coverage": { type: "boolean" },
       "no-reorder": { type: "boolean" },
+      "unsafe-show-secrets": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pg-delta-next schema apply --dir <dir> --shadow <pg-url> --target <pg-url> ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
-          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder]\n`,
+          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder] [--unsafe-show-secrets]\n`,
       );
       process.exit(2);
     }
@@ -368,21 +384,72 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     let loadInput: SqlFile[] = files;
     if (reorder) {
       const analyzed = await analyzeForShadow(files);
-      orderedFiles = analyzed.files;
-      cycles = analyzed.cycles;
-      loadInput = analyzed.files;
-      process.stderr.write(
-        `  Reordered into ${analyzed.files.length} statement(s) (use --no-reorder to disable)\n`,
+
+      // Two conditions make the reorder assist unsafe; in both we fall back to
+      // raw, file-granular loading (the --no-reorder behavior, which preserves
+      // the authored lexicographic order) rather than silently degrade:
+      //
+      // 1. A pg-topo PARSE_ERROR/DISCOVERY_ERROR returns NO statement nodes for
+      //    the offending file, so the reordered input would silently OMIT it and
+      //    plan destructive changes against a partial desired state. Raw loading
+      //    sends the bad file to Postgres, which fails loudly (review P1).
+      // 2. Session-setting statements (SET search_path / SET ROLE / SET SESSION
+      //    AUTHORIZATION) are classed by pg-topo as no-dependency bootstrap and
+      //    can be moved relative to the DDL they scope, changing the shadow
+      //    state. Raw loading keeps them in their authored position (review P1).
+      const parseErrors = analyzed.diagnostics.filter(
+        (d) => d.code === "PARSE_ERROR" || d.code === "DISCOVERY_ERROR",
       );
+      const sessionSettingFiles = files.filter(
+        (f) => findSessionSettingStatements(f.sql).length > 0,
+      );
+
+      if (parseErrors.length > 0 || sessionSettingFiles.length > 0) {
+        const reasons: string[] = [];
+        if (parseErrors.length > 0) {
+          reasons.push(
+            `pg-topo could not parse ${parseErrors.length} input(s) — reordering would silently drop them`,
+          );
+        }
+        if (sessionSettingFiles.length > 0) {
+          reasons.push(
+            `session-setting statements (e.g. SET search_path / SET ROLE) in ${sessionSettingFiles
+              .map((f) => f.name)
+              .join(", ")} must not be reordered`,
+          );
+        }
+        process.stderr.write(
+          `  WARNING: reorder assist disabled — ${reasons.join(
+            "; ",
+          )}. Loading files raw at file granularity; fix the file(s) or pass --no-reorder to silence this.\n`,
+        );
+        // leave orderedFiles=null / loadInput=files → raw file-granular load
+      } else {
+        orderedFiles = analyzed.files;
+        cycles = analyzed.cycles;
+        loadInput = analyzed.files;
+        process.stderr.write(
+          `  Reordered into ${analyzed.files.length} statement(s) (use --no-reorder to disable)\n`,
+        );
+      }
     }
     const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
+
+    // Secret redaction applies to BOTH sides so the diff stays consistent. With
+    // --unsafe-show-secrets the declarative SQL's real FDW/server credentials and
+    // subscription conninfo flow through the shadow extract unredacted and apply
+    // to the target verbatim (round-tripping a trusted `schema export
+    // --unsafe-show-secrets`); otherwise both sides redact and a credential-only
+    // change is invisible (review P2). The extractor prints the loud "Secret
+    // redaction is DISABLED" diagnostic when off.
+    const redactSecrets = !flags["unsafe-show-secrets"];
 
     // the shadow desired state must be projected with the SAME handlers as the
     // target, so pass the profile extractor through to loadSqlFiles.
     let loadResult;
     try {
       loadResult = await loadSqlFiles(loadInput, shadow.pool, {
-        extract: (p, o) => ctx.extract(p, o),
+        extract: (p, o) => ctx.extract(p, { ...o, redactSecrets }),
       });
     } catch (error) {
       if (error instanceof ShadowLoadError && orderedFiles) {
@@ -411,7 +478,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     );
 
     process.stderr.write("Extracting target...\n");
-    const targetResult = await ctx.extract(tgt.pool);
+    const targetResult = await ctx.extract(tgt.pool, { redactSecrets });
     process.stderr.write(
       `  Target: ${targetResult.factBase.facts().length} facts\n`,
     );

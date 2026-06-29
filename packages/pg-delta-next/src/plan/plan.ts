@@ -124,6 +124,16 @@ export interface PlanOptions {
    *  resolved profile's `planOptions`), so `apply`/`prove` can reconstruct the
    *  same managed view without the operator re-specifying `--profile`. */
   profile?: { id: string };
+  /** schemas/roles assumed present-but-unmanaged at apply time, supplementing
+   *  any derived from `policy`. The DB-to-DB path supplies a `policy` and the
+   *  sets are read from it; callers that already hold a RESOLVED managed view
+   *  (e.g. declarative export, which re-plans the view from a pristine baseline)
+   *  pass the assumed sets directly so the action-graph requirement guard does
+   *  not treat a kept `CREATE EXTENSION … SCHEMA <s>` / `GRANT … TO <role>` as
+   *  a stranded reference — without re-running policy filtering/serialize rules
+   *  over an already-resolved view. */
+  assumedSchemas?: string[];
+  assumedRoles?: string[];
 }
 
 export function plan(
@@ -169,17 +179,19 @@ export function plan(
   // Supabase's anon/authenticated). Threaded into the action-graph guard so a
   // kept `GRANT … TO <role>` whose role object is filtered out of the view is
   // not mistaken for a stranded requirement (§ managed-view-architecture).
-  const assumedRoleNames = new Set(
-    options?.policy ? flattenPolicy(options.policy).assumedRoles : [],
-  );
+  const assumedRoleNames = new Set([
+    ...(options?.policy ? flattenPolicy(options.policy).assumedRoles : []),
+    ...(options?.assumedRoles ?? []),
+  ]);
 
   // schemas the policy assumes exist at apply time but does not manage (e.g.
   // Supabase's `extensions`). Threaded into the action-graph guard so a kept
   // `CREATE EXTENSION … SCHEMA <schema>` whose schema object is filtered out of
   // the view is not mistaken for a stranded requirement (§ managed-view-architecture).
-  const assumedSchemaNames = new Set(
-    options?.policy ? flattenPolicy(options.policy).assumedSchemas : [],
-  );
+  const assumedSchemaNames = new Set([
+    ...(options?.policy ? flattenPolicy(options.policy).assumedSchemas : []),
+    ...(options?.assumedSchemas ?? []),
+  ]);
 
   // ── phase 2: replacement expansion + drop-root suppression ────────────
   // Classify set-deltas (alter vs replace), expand the forced dependent

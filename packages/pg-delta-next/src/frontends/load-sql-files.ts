@@ -211,6 +211,56 @@ export function findTransactionControl(sql: string): string[] {
   return found;
 }
 
+/** Statement-leading session-setting forms that change object resolution or
+ *  ownership for every statement that follows them on the same session:
+ *  `SET search_path` (where unqualified names resolve), `SET ROLE` /
+ *  `SET SESSION AUTHORIZATION` (who owns created objects), and the matching
+ *  RESETs. `SET LOCAL`/`SET SESSION` modifiers are tolerated. Unrelated GUCs
+ *  (e.g. `SET statement_timeout`) are NOT flagged — they don't affect the
+ *  extracted schema. */
+const SESSION_SETTING_RULES: ReadonlyArray<{ re: RegExp; label: string }> = [
+  {
+    re: /^set\s+(?:session\s+|local\s+)?search_path\b/i,
+    label: "SET search_path",
+  },
+  { re: /^set\s+(?:session\s+|local\s+)?role\b/i, label: "SET ROLE" },
+  {
+    re: /^set\s+(?:session\s+|local\s+)?session\s+authorization\b/i,
+    label: "SET SESSION AUTHORIZATION",
+  },
+  {
+    re: /^reset\s+(?:role|search_path|session\s+authorization|all)\b/i,
+    label: "RESET session setting",
+  },
+];
+
+/**
+ * Return the session-setting statement labels found at STATEMENT LEVEL in a SQL
+ * file (empty when clean). The statement-reordering assist (`sql-order.ts`)
+ * treats variable `SET`/`RESET` as no-dependency bootstrap statements, so it can
+ * move them relative to the DDL they were meant to scope — silently changing the
+ * shadow state (e.g. an unqualified `CREATE TABLE` resolving into the wrong
+ * schema). The CLI uses this to fall back to raw, file-granular loading (which
+ * preserves the authored order) when a directory contains such statements
+ * (review P1). Keywords inside comments / string / dollar-quoted literals are
+ * NOT flagged (reuses the same literal mask as `findTransactionControl`).
+ */
+export function findSessionSettingStatements(sql: string): string[] {
+  const skeleton = maskLiteralsAndComments(sql);
+  const found: string[] = [];
+  for (const raw of skeleton.split(";")) {
+    const stmt = raw.trim();
+    if (stmt === "") continue;
+    for (const { re, label } of SESSION_SETTING_RULES) {
+      if (re.test(stmt)) {
+        found.push(label);
+        break;
+      }
+    }
+  }
+  return found;
+}
+
 export interface SqlFile {
   name: string;
   sql: string;

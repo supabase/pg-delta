@@ -6,10 +6,43 @@ export function splitSqlStatements(sql: string): string[] {
   const statements: string[] = [];
   let buffer = "";
 
+  // Suppress statement splitting inside a SQL-standard `BEGIN ATOMIC ... END`
+  // routine body: pg_get_functiondef() emits those bodies with bare,
+  // unquoted statement-separating semicolons (not inside quotes or dollar
+  // tags), so a naive `;` split would shred one CREATE FUNCTION into invalid
+  // fragments. We track block nesting at the code level (literals/comments are
+  // already skipped by walkSql): `BEGIN ATOMIC` and `CASE` open a block, `END`
+  // closes one, and we only split on `;` at blockDepth 0. Reserved words used
+  // as identifiers are double-quoted by pg_get_functiondef, so they never reach
+  // this keyword scan.
+  let blockDepth = 0;
+  let word = "";
+  let prevKeyword = "";
+  const finalizeWord = (): void => {
+    if (word.length === 0) return;
+    const upper = word.toUpperCase();
+    if (upper === "ATOMIC" && prevKeyword === "BEGIN") {
+      blockDepth += 1;
+    } else if (upper === "CASE") {
+      blockDepth += 1;
+    } else if (upper === "END" && blockDepth > 0) {
+      blockDepth -= 1;
+    }
+    prevKeyword = upper;
+    word = "";
+  };
+
   walkSql(
     sql,
     (_index, char) => {
-      if (char === ";") {
+      if (isWordChar(char)) {
+        word += char;
+        buffer += char;
+        return true;
+      }
+      // a non-word top-level char terminates the word that just accumulated
+      finalizeWord();
+      if (char === ";" && blockDepth === 0) {
         const trimmed = trimOuterBlankLines(buffer);
         if (trimmed.length > 0) {
           statements.push(trimmed);
@@ -22,11 +55,14 @@ export function splitSqlStatements(sql: string): string[] {
     },
     {
       onSkipped: (chunk) => {
+        // a quoted/commented/dollar segment also ends the current word
+        finalizeWord();
         buffer += chunk;
       },
     },
   );
 
+  finalizeWord();
   const trailing = trimOuterBlankLines(buffer);
   if (trailing.length > 0) {
     statements.push(trailing);

@@ -52,6 +52,13 @@ export interface ExportOptions {
   format?: SqlFormatOptions;
   /** Non-fatal warnings (e.g. an invalid group-pattern regex). */
   onWarning?: (message: string) => void;
+  /** Schemas/roles the active profile assumes present-but-unmanaged at apply
+   *  time. Forwarded to the internal `plan()` so its action-graph guard does not
+   *  reject a managed-view action that consumes an assumed-but-filtered object
+   *  (e.g. `CREATE EXTENSION … SCHEMA extensions`, `GRANT … TO anon`). Empty for
+   *  the `raw` profile (no policy) — an identity projection (review P1). */
+  assumedSchemas?: string[];
+  assumedRoles?: string[];
 }
 
 /** Assemble a file's SQL from bare (semicolon-less) statements: optionally
@@ -326,7 +333,18 @@ export function exportSqlFiles(
     return false;
   });
   const baseline = buildFactBase(pristine, []);
-  const rendered = plan(baseline, fb);
+  // `fb` is the already-resolved managed view, so we do NOT re-run policy
+  // filtering / serialize rules here; we only forward the assumed schema/role
+  // sets so the requirement guard exempts actions consuming assumed-but-filtered
+  // objects (review P1).
+  const rendered = plan(baseline, fb, {
+    ...(options.assumedSchemas !== undefined
+      ? { assumedSchemas: options.assumedSchemas }
+      : {}),
+    ...(options.assumedRoles !== undefined
+      ? { assumedRoles: options.assumedRoles }
+      : {}),
+  });
 
   if (layout === "grouped") {
     return exportGrouped(rendered.actions, fb, options);

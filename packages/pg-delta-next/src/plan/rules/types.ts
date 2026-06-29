@@ -35,9 +35,16 @@ export const typeRules: Record<string, KindRules> = {
       // column … uses it"), so the constraint must exist at creation time. Their
       // standalone ADD is then skipped via alsoProduces. A constraint CHANGE on
       // an EXISTING domain still flows through the ALTER DOMAIN constraint path.
+      //
+      // EXCEPTION: a NOT VALID constraint (convalidated = false) cannot be
+      // expressed inline — `pg_get_constraintdef()` returns "… NOT VALID" and
+      // PostgreSQL only accepts NOT VALID on `ALTER DOMAIN … ADD CONSTRAINT`,
+      // never on CREATE DOMAIN. Leave it OUT of the inline set so its standalone
+      // constraint action (which appends NOT VALID correctly) runs instead.
       const alsoProduces: StableId[] = [];
       for (const child of view.childrenOf(fact.id)) {
         if (child.id.kind !== "constraint") continue;
+        if (!p(child, "validated")) continue;
         sql += ` CONSTRAINT ${qid((child.id as { name: string }).name)} ${str(p(child, "def"))}`;
         alsoProduces.push(child.id);
       }

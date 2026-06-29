@@ -79,7 +79,7 @@ Notes:
     raw files at file granularity. Reorder is on by default — it splits files
     into one-statement units and topologically pre-sorts them so authoring
     order within a file no longer matters.
-  --unsafe-show-secrets (plan, diff, drift, snapshot, schema export):
+  --unsafe-show-secrets (plan, diff, drift, snapshot, schema export, schema apply):
     emit REAL foreign-data option values and subscription conninfo instead of
     redacted placeholders. Off by default; raises a loud warning when set.
     Only for output destined for a trusted target. An unredacted plan's

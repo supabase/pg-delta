@@ -71,6 +71,11 @@ const SAFE_OPTION_KEYS = new Set<string>([
   "analyze_sampling",
   "parallel_commit",
   "parallel_abort",
+  // postgres_fdw user-mapping behavior flag (non-credential): documented as a
+  // normal option; `password_required=false` lets a non-superuser mapping
+  // connect without a password. Must stay visible so the diff and
+  // export/plan-from-empty preserve this security-relevant setting.
+  "password_required",
   "extensions",
   "updatable",
   "truncatable",
