@@ -41,6 +41,19 @@ describe("redactOptionStrings", () => {
     ]);
   });
 
+  test("keeps the non-secret postgres_fdw user-mapping option password_required", () => {
+    // password_required is a documented postgres_fdw user-mapping option, not a
+    // credential. Redacting it would make `password_required=false` invisible to
+    // diff (both sides redact to the same placeholder) and emit a placeholder on
+    // export/plan-from-empty. It must survive verbatim.
+    expect(
+      redactOptionStrings([
+        "password_required=false",
+        "password_required=true",
+      ]),
+    ).toEqual(["password_required=false", "password_required=true"]);
+  });
+
   test("allowlist match is case-insensitive; placeholder upper-cases the key", () => {
     expect(redactOptionStrings(["HOST=h", "Password=secret"])).toEqual([
       "HOST=h",

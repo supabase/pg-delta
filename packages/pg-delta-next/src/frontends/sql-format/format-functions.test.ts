@@ -124,4 +124,19 @@ describe("function formatting", () => {
         AS $function$SELECT x$function$"
     `);
   });
+
+  test("BEGIN ATOMIC body is not shredded into separate statements", () => {
+    // A SQL-standard function body has bare, unquoted statement-separating
+    // semicolons. Formatting must keep it as ONE statement (no extra outputs,
+    // no per-fragment trailing semicolons) or the export is invalid SQL.
+    const sql =
+      "CREATE FUNCTION public.two_steps() RETURNS integer LANGUAGE sql\n" +
+      "BEGIN ATOMIC\n SELECT 1;\n SELECT 2;\nEND";
+    const results = formatSqlStatements([sql]);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toContain("BEGIN ATOMIC");
+    expect(results[0]).toContain("SELECT 1;");
+    expect(results[0]).toContain("SELECT 2;");
+    expect(results[0]).toContain("END");
+  });
 });

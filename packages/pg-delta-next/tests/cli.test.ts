@@ -403,6 +403,92 @@ describe("CLI: schema profile-awareness", () => {
   }, 90_000);
 });
 
+// The reorder assist is on by default (target-arch §4.4.1) but must NOT silently
+// degrade the desired state. Two cases force a fall back to raw, file-granular
+// loading (review P1).
+describe("CLI: schema apply reorder safety", () => {
+  test("a pg-topo parse error falls back to raw loading and surfaces the bad file (no silent drop)", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_reorder_pe_shadow");
+    const target = await cluster.createDb("cli_reorder_pe_tgt");
+    try {
+      const dir = join(tmpdir(), `pg-delta-next-reorder-pe-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "01_good.sql"), `CREATE SCHEMA clitest;\n`);
+      // Unparseable: pg-topo returns a PARSE_ERROR and NO statement nodes for
+      // this file, so a reorder would silently OMIT it from the shadow.
+      writeFileSync(
+        join(dir, "02_bad.sql"),
+        `CREATE TABLE clitest.broken (id int;\n`,
+      );
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+      ]);
+
+      // RED before the fix: the bad file is dropped, the shadow builds from the
+      // good file only, and apply exits 0 — silently ignoring 02_bad.sql.
+      expect(res.stderr).toContain("reorder assist disabled");
+      expect(res.exitCode).not.toBe(0);
+    } finally {
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 90_000);
+
+  test("session-setting statements force raw loading, not reorder", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_reorder_ss_shadow");
+    const target = await cluster.createDb("cli_reorder_ss_tgt");
+    try {
+      const dir = join(tmpdir(), `pg-delta-next-reorder-ss-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "01_schema.sql"), `CREATE SCHEMA app;\n`);
+      writeFileSync(
+        join(dir, "02_set.sql"),
+        `SET search_path TO app, public;\nCREATE TABLE app.widget (id integer PRIMARY KEY);\n`,
+      );
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+      ]);
+
+      // RED before the fix: stderr shows "Reordered into N statement(s)" and no
+      // fallback warning — the SET barrier was reordered.
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 0,
+      });
+      expect(res.stderr).toContain("reorder assist disabled");
+      expect(res.stderr).toContain("session-setting");
+      expect(res.stderr).not.toContain("Reordered into");
+
+      const { rows } = await target.pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'app'`,
+      );
+      expect(rows[0]?.n).toBe(1);
+    } finally {
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 90_000);
+});
+
 describe("CLI: secret redaction surface", () => {
   // Custom FDW (NO HANDLER/VALIDATOR) accepts arbitrary option keys, so we can
   // plant a credential in a server option on stock alpine.
@@ -452,6 +538,55 @@ describe("CLI: secret redaction surface", () => {
       await source.drop();
     }
   }, 60_000);
+
+  test("schema apply --unsafe-show-secrets round-trips real credentials to the target", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_apply_secret_shadow");
+    const target = await cluster.createDb("cli_apply_secret_tgt");
+    try {
+      // a declarative dir carrying a REAL credential (e.g. produced by
+      // `schema export --unsafe-show-secrets`).
+      const dir = join(tmpdir(), `pg-delta-next-apply-secret-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "01_fdw.sql"),
+        `CREATE FOREIGN DATA WRAPPER cli_apply_fdw;\n` +
+          `CREATE SERVER cli_apply_srv FOREIGN DATA WRAPPER cli_apply_fdw\n` +
+          `  OPTIONS (host 'h.example.com', password 'apply-secret-xyz');\n`,
+      );
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+        "--unsafe-show-secrets",
+      ]);
+
+      // RED before the fix: the shadow re-extract redacts the credential, so the
+      // plan emits OPTIONS (... '__OPTION_PASSWORD__') and the target stores the
+      // placeholder instead of the real value.
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 0,
+      });
+      expect(res.stderr).toContain("Secret redaction is DISABLED");
+
+      const { rows } = await target.pool.query<{ srvoptions: string[] }>(
+        `SELECT srvoptions FROM pg_foreign_server WHERE srvname = 'cli_apply_srv'`,
+      );
+      const opts = (rows[0]?.srvoptions ?? []).join(",");
+      expect(opts).toContain("password=apply-secret-xyz");
+      expect(opts).not.toContain("__OPTION_PASSWORD__");
+    } finally {
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 90_000);
 });
 
 describe("CLI: schema lint", () => {

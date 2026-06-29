@@ -24,6 +24,28 @@ describe("splitSqlStatements", () => {
     const result = splitSqlStatements("SELECT 1 -- semi; here\nFROM foo");
     expect(result).toEqual(["SELECT 1 -- semi; here\nFROM foo"]);
   });
+
+  it("does not split inside a BEGIN ATOMIC routine body", () => {
+    // pg_get_functiondef emits SQL-standard bodies as `BEGIN ATOMIC ...; ...; END`
+    // whose statement-separating semicolons are NOT inside quotes or dollar tags.
+    // The body must stay one statement.
+    const sql =
+      "CREATE FUNCTION f() RETURNS int LANGUAGE sql\n" +
+      "BEGIN ATOMIC\n SELECT 1;\n SELECT 2;\nEND";
+    expect(splitSqlStatements(sql)).toEqual([sql]);
+  });
+
+  it("treats CASE ... END inside a BEGIN ATOMIC body as part of the body", () => {
+    const sql =
+      "CREATE FUNCTION f(x int) RETURNS int LANGUAGE sql\n" +
+      "BEGIN ATOMIC\n SELECT CASE WHEN x > 0 THEN 1 ELSE 0 END;\nEND";
+    expect(splitSqlStatements(sql)).toEqual([sql]);
+  });
+
+  it("still splits a standalone statement that ends with CASE ... END", () => {
+    const result = splitSqlStatements("SELECT CASE WHEN x THEN 1 END;SELECT 2");
+    expect(result).toEqual(["SELECT CASE WHEN x THEN 1 END", "SELECT 2"]);
+  });
 });
 
 describe("splitLeadingComments", () => {
