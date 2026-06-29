@@ -4,11 +4,16 @@ on:
   pull_request:
     paths:
       - "packages/pg-delta-next/**"
+      # pg-delta-next's reorder assist (schema apply / lint) and its type check
+      # depend on @supabase/pg-topo, so a change to pg-topo's exported types or
+      # the analyzeAndSort contract must re-run these jobs.
+      - "packages/pg-topo/**"
       - ".github/workflows/pg-delta-next.yml"
   push:
     branches: [main]
     paths:
       - "packages/pg-delta-next/**"
+      - "packages/pg-topo/**"
 
 # Least-privilege default for GITHUB_TOKEN across every job (CodeQL): this
 # workflow only reads the checked-out repo. Widen per-job if a step ever needs
