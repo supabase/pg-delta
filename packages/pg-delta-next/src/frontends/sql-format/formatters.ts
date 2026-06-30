@@ -58,7 +58,10 @@ const INDEX_CLAUSE_KEYWORDS = new Set(["WHERE", "WITH", "TABLESPACE"]);
 
 const LANGUAGE_CLAUSE_KEYWORDS = new Set(["HANDLER", "INLINE", "VALIDATOR"]);
 
-const MATVIEW_CLAUSE_KEYWORDS = new Set(["WITH", "AS"]);
+// pre-AS matview clauses (USING <access method>, TABLESPACE) must be preserved
+// as their own header clauses; otherwise sliceClauses drops the text before the
+// first recognized clause (the AS body), silently changing the access method.
+const MATVIEW_CLAUSE_KEYWORDS = new Set(["USING", "TABLESPACE", "WITH", "AS"]);
 
 const SUBSCRIPTION_CLAUSE_KEYWORDS = new Set([
   "CONNECTION",

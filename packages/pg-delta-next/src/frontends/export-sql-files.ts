@@ -285,6 +285,18 @@ function seg(name: string): string {
 function pathFor(id: StableId): string {
   const target = fileTarget(id);
   const kind = target.kind;
+  // A schema-scoped ALTER DEFAULT PRIVILEGES depends on its schema, so it must
+  // NOT share the atomic cluster/roles.sql file with CREATE ROLE: with reorder
+  // disabled (any ADP present) the raw loader would roll the role back when the
+  // ADP fails on the not-yet-created schema. File it under the schema instead,
+  // where the loader's defer-and-retry converges (review P2). A global ADP
+  // (schema null) has no such dependency and stays with the roles.
+  if (kind === "defaultPrivilege") {
+    const schema = (target as { schema: string | null }).schema;
+    if (schema !== null) {
+      return `schemas/${seg(schema)}/default_privileges.sql`;
+    }
+  }
   const clusterFile = CLUSTER_FILES[kind];
   if (clusterFile !== undefined) return clusterFile;
   if (kind === "extension") {
