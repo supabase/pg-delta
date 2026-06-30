@@ -397,6 +397,14 @@ export async function extractDependencyEdges(
     return id;
   };
   const seenEdges = new Set<string>();
+  // Encoded ids of the `default` FACTS that actually exist. An ordinary column
+  // default is its own fact (alsoProduced by the column's CREATE) and carries the
+  // `default -> referenced` dep, so the column does NOT also need a shadow edge.
+  // A GENERATED column has NO default fact — pg records its deps on the attrdef —
+  // so the shadow edge is the only carrier and must be kept (review P2).
+  const defaultFactIds = new Set(
+    ctx.facts.filter((f) => f.id.kind === "default").map((f) => encodeId(f.id)),
+  );
   for (const row of dependRows) {
     const from = resolveEndpoint(row["dependent"], "dependent");
     const to = resolveEndpoint(row["referenced"], "referenced");
@@ -405,13 +413,15 @@ export async function extractDependencyEdges(
     if (seenEdges.has(key)) continue;
     seenEdges.add(key);
     edges.push({ from, to, kind: "depends" });
-    // pg_attrdef dependencies resolve to `default` facts, but a default has no
-    // action producer of its own — it is folded into the column. Shadow every
-    // attrdef dep onto the column so ordering works for both ordinary defaults
-    // (column → sequence for nextval(...)) and generated columns (column →
-    // referenced base columns/functions, which PG records as NORMAL deps of the
-    // attrdef even though the generated column carries no default fact).
-    if (from.kind === "default") {
+    // pg_attrdef dependencies resolve to `default` ids. For a GENERATED column
+    // there is no `default` fact (PG records the deps on the attrdef), so shadow
+    // the dep onto the column — it is the only carrier and drives ordering.
+    // For an ORDINARY default the `default` FACT exists and carries the dep
+    // itself (and is alsoProduced by the column's CREATE), so a column shadow is
+    // redundant AND harmful: if a policy filters the default add, the column is
+    // emitted without it, but buildActionGraph (unprojected) would still see the
+    // column -> referenced edge and reject it as a missing requirement (P2).
+    if (from.kind === "default" && !defaultFactIds.has(encodeId(from))) {
       const columnFrom: StableId = {
         kind: "column",
         schema: (from as { schema: string }).schema,

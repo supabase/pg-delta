@@ -180,6 +180,22 @@ export const aclJson = (
            WHERE d.grantee = 0)
          AND NOT EXISTS (
            SELECT 1 FROM aclexplode(${aclColumn}) a WHERE a.grantee = 0)
+       UNION ALL
+       -- Revoked OWNER default (mirror of the PUBLIC case): PostgreSQL grants the
+       -- owner its full default on CREATE, so a full owner revoke
+       -- (REVOKE ALL ON ... FROM owner) leaves a non-NULL acl with NO owner row.
+       -- Emit an empty owner entry so the diff plans a REVOKE ALL FROM owner that
+       -- clears the create-time default; without it a freshly created object keeps
+       -- PostgreSQL built-in owner privileges and never converges.
+       SELECT (SELECT rolname FROM pg_roles WHERE oid = ${ownerColumn}),
+              ARRAY[]::text[], NULL::text[]
+       WHERE ${aclColumn} IS NOT NULL
+         AND EXISTS (
+           SELECT 1 FROM aclexplode(acldefault('${objtype}', ${ownerColumn})) d
+           WHERE d.grantee = ${ownerColumn})
+         AND NOT EXISTS (
+           SELECT 1 FROM aclexplode(${aclColumn}) a
+           WHERE a.grantee = ${ownerColumn})
      ) acl)`;
 
 export const parseAcl = (

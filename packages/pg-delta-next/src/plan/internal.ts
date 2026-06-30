@@ -488,35 +488,37 @@ function samePrivilegeSet(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /**
- * The privileges a co-created object actually grants `grantee` at CREATE time.
+ * Whether an `ALTER DEFAULT PRIVILEGES` customizes the create-time default ACL
+ * for this objtype, so a co-created object's ACL can no longer be assumed to be
+ * the plain built-in default.
  *
- * With no `ALTER DEFAULT PRIVILEGES`, PostgreSQL applies the built-in default
- * (`builtin`). When an ADP has customized the default for this objtype, the
- * effective default is EXACTLY what `pg_default_acl` records (it stores the full
- * merged default, built-in minus/plus the ADP edits) — so a grantee with no
- * `defaultPrivilege` fact gets NOTHING (e.g. an ADP that revoked the built-in
- * PUBLIC `EXECUTE` leaves a new function without it). The default-ACL elision
- * compares this against the DESIRED ACL: only a true no-op group is elidable.
+ * The default-ACL elision drops an object's REVOKE/GRANT group only when the
+ * group is a no-op against the create-time ACL. That holds for the built-in
+ * default, but NOT when an ADP is in play: an ADP can reduce the default (e.g.
+ * revoke the built-in PUBLIC `EXECUTE`, or revoke `UPDATE` from the owner), and
+ * — critically — a plan that creates both the ADP and the object does NOT
+ * guarantee the ADP runs first, so the object may be created with the built-in
+ * default while the desired ACL is the reduced one (or vice versa). In every
+ * such case the explicit REVOKE/GRANT group is load-bearing, so we keep it
+ * (review P2). The redundant leading REVOKE is still trimmed by
+ * elideCoCreateRevokeBeforeGrant.
  *
- * ADP is keyed by the CREATING role (`defaclrole`). The applier creates the
- * object, so when `capability` is known we filter to its role; without it
- * (corpus/raw) we consider any role's ADP (conservative — at worst we keep a
- * redundant REVOKE/GRANT).
+ * ADP is keyed by the CREATING role (`defaclrole`); when `capability` is known
+ * we filter to the applier's role, else (corpus/raw) consider any role's ADP
+ * (conservative — at worst we keep a redundant REVOKE/GRANT).
  */
-function effectiveDefaultPrivileges(
+function adpCustomizesObjtype(
   desired: FactBase,
   target: StableId,
-  grantee: string,
   capability: ApplierCapability | undefined,
-  builtin: readonly string[],
-): readonly string[] {
+): boolean {
   const objtype = ruleFlag(target.kind, "defaclObjtype");
-  if (objtype === undefined) return builtin; // kind has no default-ACL mechanism
+  if (objtype === undefined) return false; // kind has no default-ACL mechanism
   const targetSchema =
     target.kind === "schema"
       ? null
       : ((target as { schema?: string }).schema ?? null);
-  const adp = desired.facts().filter((fact) => {
+  return desired.facts().some((fact) => {
     if (fact.id.kind !== "defaultPrivilege") return false;
     const d = fact.id as Extract<StableId, { kind: "defaultPrivilege" }>;
     if (d.objtype !== objtype) return false;
@@ -524,13 +526,6 @@ function effectiveDefaultPrivileges(
     if (capability !== undefined && d.role !== capability.role) return false;
     return true;
   });
-  if (adp.length === 0) return builtin; // pg_default_acl untouched → built-in
-  const mine = adp.find(
-    (f) => (f.id as { grantee: string }).grantee === grantee,
-  );
-  return mine
-    ? ((mine.payload as { privileges?: string[] }).privileges ?? [])
-    : [];
 }
 
 /**
@@ -596,30 +591,24 @@ export function elideDefaultAclCreates(
     const privileges = payload.privileges ?? [];
 
     // The group is a no-op (elidable) IFF the co-created object already grants
-    // this grantee EXACTLY the desired privileges at CREATE time. That create-
-    // time set is the effective default — the built-in default UNLESS an ALTER
-    // DEFAULT PRIVILEGES changed it (e.g. revoked the built-in PUBLIC EXECUTE, in
-    // which case the GRANT is load-bearing and must NOT be elided) (review P2).
+    // this grantee EXACTLY the desired privileges at CREATE time, i.e. the
+    // desired ACL equals the BUILT-IN default. An ALTER DEFAULT PRIVILEGES
+    // customizing this objtype breaks that assumption (the effective default
+    // differs, and ADP-vs-CREATE order is not guaranteed in a from-empty plan),
+    // so the explicit REVOKE/GRANT is load-bearing — keep it (review P2).
+    if (adpCustomizesObjtype(desired, aclId.target, capability)) continue;
+
     if (aclId.grantee === "PUBLIC") {
       const def = PUBLIC_DEFAULT_PRIVILEGE[aclId.target.kind];
-      if (def === undefined) continue; // kind has no PUBLIC default → keep
-      const effective = effectiveDefaultPrivileges(
-        desired,
-        aclId.target,
-        "PUBLIC",
-        capability,
-        [def],
-      );
-      if (samePrivilegeSet(privileges, effective))
+      if (def !== undefined && privileges.length === 1 && privileges[0] === def)
         elidable.add(encodeId(aclId));
       continue;
     }
-    // owner grant: PostgreSQL grants the owner the full create-time default on a
-    // fresh create. The default set is version-dependent (PG17 added MAINTAIN),
-    // so the built-in fallback is `_ownerDefault` — the owner's create-time set
-    // captured from acldefault() at extract (non-semantic `_` metadata). A strict
-    // subset means the owner revoked a default; an ADP can also reduce it — both
-    // are handled by comparing the desired privileges to the EFFECTIVE default.
+    // owner grant: PostgreSQL grants the owner the full built-in default on a
+    // fresh create. The set is version-dependent (PG17 added MAINTAIN), so we
+    // compare against `_ownerDefault` — the owner's create-time set captured from
+    // acldefault() at extract (non-semantic `_` metadata). A strict subset means
+    // the owner revoked a default; eliding would leave the full default in place.
     const ownerEdge = desired
       .outgoingEdges(aclId.target)
       .find((e) => e.kind === "owner");
@@ -628,16 +617,7 @@ export function elideDefaultAclCreates(
       ownerEdge.to.kind === "role" &&
       ownerEdge.to.name === aclId.grantee &&
       payload._ownerDefault !== undefined &&
-      samePrivilegeSet(
-        privileges,
-        effectiveDefaultPrivileges(
-          desired,
-          aclId.target,
-          aclId.grantee,
-          capability,
-          payload._ownerDefault,
-        ),
-      )
+      samePrivilegeSet(privileges, payload._ownerDefault)
     )
       elidable.add(encodeId(aclId));
   }
