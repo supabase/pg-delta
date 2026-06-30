@@ -220,6 +220,15 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       for (const child of projectedDesired.childrenOf(id)) {
         const childKey = encodeId(child.id);
         if (added.has(childKey)) continue; // already created via add delta
+        // already materialized by an ancestor's create via `alsoProduces`
+        // (delta-set inlining — e.g. a validated CHECK inlined into CREATE
+        // DOMAIN, a partitioned table's columns): don't recreate it as a
+        // standalone action (which would duplicate it and fail apply), but still
+        // descend for any non-inlined descendants. Mirrors the added-create loop.
+        if (producerOf.has(childKey)) {
+          recreate(child.id);
+          continue;
+        }
         recreatedByReplace.add(childKey);
         emitCreate(child, projectedDesired);
         recreate(child.id);

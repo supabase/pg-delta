@@ -151,6 +151,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
               source,
             ),
             desired,
+            capability,
           ),
           desired,
           capability,

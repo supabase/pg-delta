@@ -266,6 +266,28 @@ export function findSessionSettingStatements(sql: string): string[] {
   return found;
 }
 
+/**
+ * Return the `ALTER DEFAULT PRIVILEGES` statements found at STATEMENT LEVEL
+ * (empty when clean). pg-topo classifies these in its `privileges` phase, which
+ * sorts AFTER object creation — but PostgreSQL applies a schema's default
+ * privileges to objects created AFTER the `ALTER DEFAULT PRIVILEGES` in authored
+ * order. Reordering can therefore move the statement past the `CREATE` it was
+ * meant to scope, so the shadow misses the implicit ACLs and the plan diffs the
+ * wrong grants. The CLI treats a directory containing one as a reorder barrier
+ * and falls back to raw, file-granular loading (review P2). Keywords inside
+ * comments / literals are ignored (same literal mask as the others).
+ */
+export function findDefaultPrivilegeStatements(sql: string): string[] {
+  const skeleton = maskLiteralsAndComments(sql);
+  const found: string[] = [];
+  for (const raw of skeleton.split(";")) {
+    if (/^\s*alter\s+default\s+privileges\b/i.test(raw)) {
+      found.push("ALTER DEFAULT PRIVILEGES");
+    }
+  }
+  return found;
+}
+
 export interface SqlFile {
   name: string;
   sql: string;

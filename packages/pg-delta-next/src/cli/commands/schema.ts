@@ -55,6 +55,7 @@ import {
 } from "../../frontends/export-sql-files.ts";
 import type { SqlFormatOptions } from "../../frontends/sql-format/index.ts";
 import {
+  findDefaultPrivilegeStatements,
   findSessionSettingStatements,
   loadSqlFiles,
   ShadowLoadError,
@@ -411,14 +412,25 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         //    AUTHORIZATION) are classed by pg-topo as no-dependency bootstrap and
         //    can be moved relative to the DDL they scope, changing the shadow
         //    state. Raw loading keeps them in their authored position (review P1).
+        // 3. ALTER DEFAULT PRIVILEGES is classed by pg-topo in its `privileges`
+        //    phase (after creates), but PostgreSQL applies a schema's default
+        //    privileges only to objects created AFTER it in authored order;
+        //    reordering it past a CREATE drops those implicit ACLs (review P2).
         const parseErrors = analyzed.diagnostics.filter(
           (d) => d.code === "PARSE_ERROR" || d.code === "DISCOVERY_ERROR",
         );
         const sessionSettingFiles = files.filter(
           (f) => findSessionSettingStatements(f.sql).length > 0,
         );
+        const defaultPrivFiles = files.filter(
+          (f) => findDefaultPrivilegeStatements(f.sql).length > 0,
+        );
 
-        if (parseErrors.length > 0 || sessionSettingFiles.length > 0) {
+        if (
+          parseErrors.length > 0 ||
+          sessionSettingFiles.length > 0 ||
+          defaultPrivFiles.length > 0
+        ) {
           const reasons: string[] = [];
           if (parseErrors.length > 0) {
             reasons.push(
@@ -430,6 +442,13 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
               `session-setting statements (e.g. SET search_path / SET ROLE) in ${sessionSettingFiles
                 .map((f) => f.name)
                 .join(", ")} must not be reordered`,
+            );
+          }
+          if (defaultPrivFiles.length > 0) {
+            reasons.push(
+              `ALTER DEFAULT PRIVILEGES in ${defaultPrivFiles
+                .map((f) => f.name)
+                .join(", ")} must not be reordered past the objects it scopes`,
             );
           }
           process.stderr.write(
