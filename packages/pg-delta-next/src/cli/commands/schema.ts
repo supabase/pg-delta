@@ -61,6 +61,7 @@ import {
 } from "../../frontends/load-sql-files.ts";
 import {
   analyzeForShadow,
+  ReorderUnavailableError,
   type OrderedSqlFile,
   type ShadowLoadCycle,
 } from "../../frontends/sql-order.ts";
@@ -383,54 +384,68 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     let cycles: ShadowLoadCycle[] = [];
     let loadInput: SqlFile[] = files;
     if (reorder) {
-      const analyzed = await analyzeForShadow(files);
-
-      // Two conditions make the reorder assist unsafe; in both we fall back to
-      // raw, file-granular loading (the --no-reorder behavior, which preserves
-      // the authored lexicographic order) rather than silently degrade:
-      //
-      // 1. A pg-topo PARSE_ERROR/DISCOVERY_ERROR returns NO statement nodes for
-      //    the offending file, so the reordered input would silently OMIT it and
-      //    plan destructive changes against a partial desired state. Raw loading
-      //    sends the bad file to Postgres, which fails loudly (review P1).
-      // 2. Session-setting statements (SET search_path / SET ROLE / SET SESSION
-      //    AUTHORIZATION) are classed by pg-topo as no-dependency bootstrap and
-      //    can be moved relative to the DDL they scope, changing the shadow
-      //    state. Raw loading keeps them in their authored position (review P1).
-      const parseErrors = analyzed.diagnostics.filter(
-        (d) => d.code === "PARSE_ERROR" || d.code === "DISCOVERY_ERROR",
-      );
-      const sessionSettingFiles = files.filter(
-        (f) => findSessionSettingStatements(f.sql).length > 0,
-      );
-
-      if (parseErrors.length > 0 || sessionSettingFiles.length > 0) {
-        const reasons: string[] = [];
-        if (parseErrors.length > 0) {
-          reasons.push(
-            `pg-topo could not parse ${parseErrors.length} input(s) — reordering would silently drop them`,
-          );
-        }
-        if (sessionSettingFiles.length > 0) {
-          reasons.push(
-            `session-setting statements (e.g. SET search_path / SET ROLE) in ${sessionSettingFiles
-              .map((f) => f.name)
-              .join(", ")} must not be reordered`,
-          );
-        }
+      // @supabase/pg-topo is an OPTIONAL peer; if it's absent analyzeForShadow
+      // throws ReorderUnavailableError. The assist is advisory, so fall back to
+      // raw, file-granular loading rather than fail the whole apply (review P2).
+      let analyzed: Awaited<ReturnType<typeof analyzeForShadow>> | null = null;
+      try {
+        analyzed = await analyzeForShadow(files);
+      } catch (err) {
+        if (!(err instanceof ReorderUnavailableError)) throw err;
         process.stderr.write(
-          `  WARNING: reorder assist disabled — ${reasons.join(
-            "; ",
-          )}. Loading files raw at file granularity; fix the file(s) or pass --no-reorder to silence this.\n`,
+          `  WARNING: reorder assist unavailable (optional peer @supabase/pg-topo not installed). Loading files raw at file granularity; install it or pass --no-reorder to silence this.\n`,
         );
-        // leave orderedFiles=null / loadInput=files → raw file-granular load
+      }
+      if (analyzed === null) {
+        // raw file-granular load (orderedFiles=null / loadInput=files)
       } else {
-        orderedFiles = analyzed.files;
-        cycles = analyzed.cycles;
-        loadInput = analyzed.files;
-        process.stderr.write(
-          `  Reordered into ${analyzed.files.length} statement(s) (use --no-reorder to disable)\n`,
+        // Two conditions make the reorder assist unsafe; in both we fall back to
+        // raw, file-granular loading (the --no-reorder behavior, which preserves
+        // the authored lexicographic order) rather than silently degrade:
+        //
+        // 1. A pg-topo PARSE_ERROR/DISCOVERY_ERROR returns NO statement nodes for
+        //    the offending file, so the reordered input would silently OMIT it and
+        //    plan destructive changes against a partial desired state. Raw loading
+        //    sends the bad file to Postgres, which fails loudly (review P1).
+        // 2. Session-setting statements (SET search_path / SET ROLE / SET SESSION
+        //    AUTHORIZATION) are classed by pg-topo as no-dependency bootstrap and
+        //    can be moved relative to the DDL they scope, changing the shadow
+        //    state. Raw loading keeps them in their authored position (review P1).
+        const parseErrors = analyzed.diagnostics.filter(
+          (d) => d.code === "PARSE_ERROR" || d.code === "DISCOVERY_ERROR",
         );
+        const sessionSettingFiles = files.filter(
+          (f) => findSessionSettingStatements(f.sql).length > 0,
+        );
+
+        if (parseErrors.length > 0 || sessionSettingFiles.length > 0) {
+          const reasons: string[] = [];
+          if (parseErrors.length > 0) {
+            reasons.push(
+              `pg-topo could not parse ${parseErrors.length} input(s) — reordering would silently drop them`,
+            );
+          }
+          if (sessionSettingFiles.length > 0) {
+            reasons.push(
+              `session-setting statements (e.g. SET search_path / SET ROLE) in ${sessionSettingFiles
+                .map((f) => f.name)
+                .join(", ")} must not be reordered`,
+            );
+          }
+          process.stderr.write(
+            `  WARNING: reorder assist disabled — ${reasons.join(
+              "; ",
+            )}. Loading files raw at file granularity; fix the file(s) or pass --no-reorder to silence this.\n`,
+          );
+          // leave orderedFiles=null / loadInput=files → raw file-granular load
+        } else {
+          orderedFiles = analyzed.files;
+          cycles = analyzed.cycles;
+          loadInput = analyzed.files;
+          process.stderr.write(
+            `  Reordered into ${analyzed.files.length} statement(s) (use --no-reorder to disable)\n`,
+          );
+        }
       }
     }
     const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
@@ -537,6 +552,11 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
 
     const report = await apply(thePlan, tgt.pool, {
       ...ctx.applyOptions, // baseline + handler-aware re-extract (from the profile)
+      // the fingerprint gate re-extracts the target and compares to the plan
+      // source; that source used `redactSecrets`, so the re-extract must too, or
+      // --unsafe-show-secrets would always trip the gate against a target that
+      // already holds unredacted credentials (review P2).
+      reextract: (p) => ctx.extract(p, { redactSecrets }),
       fingerprintGate: !force,
     });
 

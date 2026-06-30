@@ -247,6 +247,10 @@ export function parseDefinitionItem(
 
   for (const token of tokens) {
     if (token.depth !== 0) continue;
+    // a keyword that is the tail of a schema-qualified name (preceded by `.`) is
+    // part of the type, not a column-tail boundary — e.g. a column of type
+    // `public.generated` must not split on the GENERATED keyword (review P2).
+    if (rest[token.start - 1] === ".") continue;
     if (boundaryKeywords.has(token.upper)) {
       boundaryIndex = token.start;
       break;

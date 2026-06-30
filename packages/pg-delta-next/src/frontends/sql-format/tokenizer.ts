@@ -1,6 +1,34 @@
 import { isWordChar, walkSql } from "./sql-scanner.ts";
 import type { Token } from "./types.ts";
 
+/**
+ * Index just past a single SQL identifier (quoted or unquoted) at/after `from`,
+ * skipping leading whitespace. `scanTokens` drops double-quoted identifiers, so
+ * positional `tokens[N]` indexing lands PAST a quoted object name onto the next
+ * clause keyword; a formatter that needs the name's true end (to slice the
+ * header before the first clause) scans the raw statement with this instead.
+ */
+export function identifierEnd(statement: string, from: number): number {
+  let i = from;
+  while (i < statement.length && /\s/.test(statement[i]!)) i += 1;
+  if (statement[i] === '"') {
+    i += 1;
+    while (i < statement.length) {
+      if (statement[i] === '"') {
+        if (statement[i + 1] === '"') {
+          i += 2; // escaped "" inside a quoted identifier
+          continue;
+        }
+        return i + 1; // closing quote
+      }
+      i += 1;
+    }
+    return i; // unterminated — caller still gets a sane bound
+  }
+  while (i < statement.length && isWordChar(statement[i]!)) i += 1;
+  return i;
+}
+
 export function scanTokens(statement: string): Token[] {
   const tokens: Token[] = [];
   let skipUntil = -1;

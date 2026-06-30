@@ -9,6 +9,7 @@ import {
 import {
   findClausePositions,
   findTopLevelParen,
+  identifierEnd,
   scanTokens,
   skipQualifiedName,
   sliceClauses,
@@ -360,6 +361,10 @@ export function formatCreateFunction(
     const tok = postTokens[i];
     if (tok === undefined) continue;
     if (tok.depth !== 0) continue;
+    // a token that is the tail of a schema-qualified name (preceded by `.`) is
+    // an identifier, not a clause keyword — e.g. a RETURNS type `public.cost`
+    // must not be split on the COST function-clause keyword (review P2).
+    if (postArgs[tok.start - 1] === ".") continue;
 
     if (tok.upper === "NOT" && postTokens[i + 1]?.upper === "LEAKPROOF") {
       clauseStarts.push(tok.start);
@@ -502,10 +507,12 @@ export function formatCreateTrigger(
   }
   if (triggerIndex === -1) return null;
 
-  const nameToken = tokens[triggerIndex + 1];
-  if (!nameToken) return null;
-
-  const headerEnd = nameToken.end;
+  const triggerToken = tokens[triggerIndex];
+  if (triggerToken === undefined) return null;
+  // the (possibly quoted) trigger name follows TRIGGER; scan the raw statement
+  // for its end rather than tokens[triggerIndex + 1], which is the next clause
+  // keyword when the name is quoted (scanTokens drops quoted identifiers).
+  const headerEnd = identifierEnd(statement, triggerToken.end);
   const rest = statement.slice(headerEnd).trim();
   const header = statement.slice(0, headerEnd).trim();
 
@@ -690,11 +697,11 @@ export function formatCreateLanguage(
   }
   if (langIndex === -1) return null;
 
-  // Must have a name token after LANGUAGE
-  const nameToken = tokens[langIndex + 1];
-  if (!nameToken) return null;
-
-  const headerEnd = nameToken.end;
+  const langToken = tokens[langIndex];
+  if (langToken === undefined) return null;
+  // (possibly quoted) language name follows LANGUAGE — scan the raw statement
+  // for its end (tokens[langIndex + 1] is the next keyword when name is quoted).
+  const headerEnd = identifierEnd(statement, langToken.end);
   const rest = statement.slice(headerEnd).trim();
   const header = statement.slice(0, headerEnd).trim();
 
@@ -781,11 +788,12 @@ export function formatCreateSubscription(
     }
   }
 
-  // Name is the token after SUBSCRIPTION
-  const nameToken = tokens[2];
-  if (!nameToken) return null;
-
-  const headerEnd = nameToken.end;
+  // (possibly quoted) name follows SUBSCRIPTION (tokens[1]); scan the raw
+  // statement for its end, since tokens[2] is the first clause keyword
+  // (CONNECTION) when the name is quoted (scanTokens drops quoted identifiers).
+  const subToken = tokens[1];
+  if (subToken === undefined) return null;
+  const headerEnd = identifierEnd(statement, subToken.end);
   const rest = statement.slice(headerEnd).trim();
   const header = statement.slice(0, headerEnd).trim();
 
@@ -819,11 +827,11 @@ export function formatCreateFDW(
     return null;
   }
 
-  // Name is the token after WRAPPER
-  const nameToken = tokens[4];
-  if (!nameToken) return null;
-
-  const headerEnd = nameToken.end;
+  // (possibly quoted) name follows WRAPPER (tokens[3]); scan the raw statement
+  // for its end (tokens[4] is the next keyword when the name is quoted).
+  const wrapperToken = tokens[3];
+  if (wrapperToken === undefined) return null;
+  const headerEnd = identifierEnd(statement, wrapperToken.end);
   const rest = statement.slice(headerEnd).trim();
   const header = statement.slice(0, headerEnd).trim();
 
@@ -852,11 +860,12 @@ export function formatCreateServer(
     }
   }
 
-  // Name is the token after SERVER
-  const nameToken = tokens[2];
-  if (!nameToken) return null;
-
-  const headerEnd = nameToken.end;
+  // (possibly quoted) name follows SERVER (tokens[1]); scan the raw statement
+  // for its end, since tokens[2] is the first clause keyword (FOREIGN) when the
+  // name is quoted (scanTokens drops quoted identifiers).
+  const serverToken = tokens[1];
+  if (serverToken === undefined) return null;
+  const headerEnd = identifierEnd(statement, serverToken.end);
   const rest = statement.slice(headerEnd).trim();
   const header = statement.slice(0, headerEnd).trim();
 
