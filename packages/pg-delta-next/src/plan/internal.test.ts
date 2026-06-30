@@ -157,6 +157,50 @@ describe("elideDefaultAclCreates", () => {
     expect(kept.map((a) => a.sql)).toContain("GRANT ... TO test");
   });
 
+  test("keeps the owner ACL group when an ALTER DEFAULT PRIVILEGES customizes the objtype", () => {
+    // desired owner == the built-in default, BUT an ADP reduces the owner default
+    // for new tables. Since a from-empty plan does not guarantee the table is
+    // created AFTER the ADP, the create-time owner ACL is ambiguous, so the
+    // REVOKE/GRANT group is load-bearing and must NOT be elided (review P2).
+    const t = tableId("t");
+    const ownerDefault = [
+      "DELETE",
+      "INSERT",
+      "REFERENCES",
+      "SELECT",
+      "TRIGGER",
+      "TRUNCATE",
+      "UPDATE",
+    ];
+    const adp: StableId = {
+      kind: "defaultPrivilege",
+      role: "test",
+      schema: null,
+      objtype: "r",
+      grantee: "test",
+    };
+    const facts: Fact[] = [
+      { id: t, payload: {} },
+      roleFact("test"),
+      aclFact(t, "test", ownerDefault, [], ownerDefault),
+      {
+        id: adp,
+        payload: { privileges: ownerDefault.filter((p) => p !== "UPDATE") },
+      },
+    ];
+    const desired = buildFactBase(facts, [
+      { from: t, to: { kind: "role", name: "test" }, kind: "owner" },
+    ]);
+    const actions: Action[] = [
+      mkAction({ sql: "CREATE TABLE app.t ...", produces: [t] }),
+      ...aclActions(t, "test"),
+    ];
+    // capability's role is the ADP's defaclrole (the applier creates the object)
+    const kept = elideDefaultAclCreates(actions, desired, cap("test"));
+    expect(kept.map((a) => a.sql)).toContain("REVOKE ALL ... FROM test");
+    expect(kept.map((a) => a.sql)).toContain("GRANT ... TO test");
+  });
+
   test("keeps a third-party grant on a co-created object", () => {
     const mood = typeId("mood");
     const facts: Fact[] = [
