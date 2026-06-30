@@ -27,4 +27,11 @@ describe("materialized view formatting", () => {
     expect(result).toContain("SELECT 1 AS a");
     expect(result).toContain("WITH NO DATA");
   });
+
+  test("USING <access method> and TABLESPACE clauses (pre-AS) are preserved", () => {
+    const sql = `CREATE MATERIALIZED VIEW v USING heap TABLESPACE ts AS SELECT 1`;
+    const [result] = formatSqlStatements([sql]);
+    expect(result).toContain("USING heap");
+    expect(result).toContain("TABLESPACE ts");
+  });
 });
