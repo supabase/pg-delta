@@ -472,6 +472,14 @@ const PUBLIC_DEFAULT_PRIVILEGE: Partial<Record<StableId["kind"], string>> = {
   aggregate: "EXECUTE",
 };
 
+/** Order-insensitive equality of two privilege lists (both arrive sorted from
+ *  extraction, but compare as sets to stay robust to ordering). */
+function samePrivilegeSet(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every((priv) => set.has(priv));
+}
+
 /**
  * Compaction (§3.6), default-ACL elision: a freshly `CREATE`d object already
  * carries PostgreSQL's built-in default privileges, so the `acl` rule's
@@ -521,6 +529,7 @@ export function elideDefaultAclCreates(
     const payload = fact.payload as {
       privileges?: string[];
       grantable?: string[];
+      ownerDefault?: string[];
     };
     if ((payload.grantable ?? []).length > 0) continue; // grant option is never default
     const privileges = payload.privileges ?? [];
@@ -531,15 +540,23 @@ export function elideDefaultAclCreates(
         elidable.add(encodeId(aclId));
       continue;
     }
-    // owner grant: implicit ALL on a fresh create — elide regardless of the
-    // (version-dependent) exact privilege list.
+    // owner grant: PostgreSQL grants the owner the full create-time default on a
+    // fresh create, so the REVOKE/GRANT group is redundant IFF the desired owner
+    // privileges are EXACTLY that default. The default set is version-dependent
+    // (PG17 added MAINTAIN), so rather than hardcode it we compare against
+    // `ownerDefault` — the owner's create-time privilege set captured from
+    // acldefault() at extract time and carried on the owner acl fact. A strict
+    // subset means the owner intentionally revoked a default; eliding it would
+    // leave PostgreSQL's full default in place and lose the revoke (review P2).
     const ownerEdge = desired
       .outgoingEdges(aclId.target)
       .find((e) => e.kind === "owner");
     if (
       ownerEdge !== undefined &&
       ownerEdge.to.kind === "role" &&
-      ownerEdge.to.name === aclId.grantee
+      ownerEdge.to.name === aclId.grantee &&
+      payload.ownerDefault !== undefined &&
+      samePrivilegeSet(privileges, payload.ownerDefault)
     )
       elidable.add(encodeId(aclId));
   }
@@ -756,6 +773,20 @@ export function elideCoCreateRevokeBeforeGrant(
     if ((payload.grantable ?? []).length > 0) return; // explicit grant option
     const aclKey = encodeId(aclId);
     if (!aclIdsWithGrant.has(aclKey)) return; // no GRANT → REVOKE is the whole effect
+    // the OWNER starts with the full create-time default, so its leading
+    // REVOKE is load-bearing whenever the owner's grant is a strict subset —
+    // and that is the ONLY owner case reaching here, because a full-default
+    // owner group was already dropped wholesale by elideDefaultAclCreates.
+    // Stripping it would leave PostgreSQL's full default in place (review P2).
+    const ownerEdge = desired
+      .outgoingEdges(aclId.target)
+      .find((e) => e.kind === "owner");
+    if (
+      ownerEdge !== undefined &&
+      ownerEdge.to.kind === "role" &&
+      ownerEdge.to.name === aclId.grantee
+    )
+      return;
     if (defaultGrantsOutside(aclId.target, aclId.grantee, new Set(privileges)))
       return; // REVOKE is load-bearing
     dropRevoke.add(index);

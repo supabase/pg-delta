@@ -151,7 +151,19 @@ export const aclJson = (
     (SELECT json_agg(json_build_object(
         'grantee', acl.grantee_name,
         'privileges', acl.privileges,
-        'grantable', acl.grantable) ORDER BY acl.grantee_name)
+        'grantable', acl.grantable,
+        -- The owner's create-time default privilege set for this object kind
+        -- (carried ONLY on the owner's row). Lets the planner's default-ACL
+        -- elision tell "owner kept the full default" (elidable) apart from
+        -- "owner revoked one of their defaults" (must keep the REVOKE/GRANT),
+        -- without hardcoding the version-dependent set (PG17 added MAINTAIN).
+        'ownerDefault', CASE
+          WHEN acl.grantee_name = (
+            SELECT rolname FROM pg_roles WHERE oid = ${ownerColumn})
+          THEN (SELECT array_agg(d.privilege_type ORDER BY d.privilege_type)
+                FROM aclexplode(acldefault('${objtype}', ${ownerColumn})) d
+                WHERE d.grantee = ${ownerColumn})
+          ELSE NULL END) ORDER BY acl.grantee_name)
      FROM (
        SELECT COALESCE(g.rolname, 'PUBLIC') AS grantee_name,
               array_agg(e.privilege_type ORDER BY e.privilege_type) AS privileges,
@@ -172,17 +184,24 @@ export const aclJson = (
 
 export const parseAcl = (
   raw: unknown,
-): { grantee: string; privileges: string[]; grantable: string[] }[] => {
+): {
+  grantee: string;
+  privileges: string[];
+  grantable: string[];
+  ownerDefault?: string[];
+}[] => {
   if (raw == null) return [];
   const entries = raw as {
     grantee: string;
     privileges: string[];
     grantable: string[] | null;
+    ownerDefault: string[] | null;
   }[];
   return entries.map((e) => ({
     grantee: e.grantee,
     privileges: e.privileges,
     grantable: e.grantable ?? [],
+    ...(e.ownerDefault != null ? { ownerDefault: e.ownerDefault } : {}),
   }));
 };
 
@@ -213,6 +232,7 @@ export interface ExtractContext {
       privileges: string[];
       grantable: string[];
       grantee: string;
+      ownerDefault?: string[];
     }[],
   ) => void;
   pushMemberEdge: (id: StableId, row: Row) => void;
@@ -251,6 +271,7 @@ export function createExtractContext(
       privileges: string[];
       grantable: string[];
       grantee: string;
+      ownerDefault?: string[];
     }[],
   ): void => {
     facts.push(fact);
@@ -275,7 +296,16 @@ export function createExtractContext(
       facts.push({
         id: { kind: "acl", target: fact.id, grantee: acl.grantee },
         parent: fact.id,
-        payload: { privileges: acl.privileges, grantable: acl.grantable },
+        payload: {
+          privileges: acl.privileges,
+          grantable: acl.grantable,
+          // owner-only: the create-time default set, consumed by the planner's
+          // default-ACL elision (see elideDefaultAclCreates). Identical on both
+          // diff sides for a given PG version, so it adds no diff/drift signal.
+          ...(acl.ownerDefault !== undefined
+            ? { ownerDefault: acl.ownerDefault }
+            : {}),
+        },
       });
     }
   };
