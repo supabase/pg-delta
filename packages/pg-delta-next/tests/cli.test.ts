@@ -587,6 +587,53 @@ describe("CLI: secret redaction surface", () => {
       await Promise.all([shadow.drop(), target.drop()]);
     }
   }, 90_000);
+
+  test("schema apply --unsafe-show-secrets passes the fingerprint gate when the target already has secrets", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_fp_shadow");
+    const target = await cluster.createDb("cli_fp_tgt");
+    try {
+      // the TARGET already holds an unredacted credential, so the plan source
+      // fingerprint is computed over an unredacted fact base.
+      await target.pool.query(FDW_SQL);
+
+      // declarative dir matches the target's server but adds a new object, so
+      // there is a non-empty plan whose apply triggers the fingerprint gate.
+      const dir = join(tmpdir(), `pg-delta-next-fp-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "01_fdw.sql"),
+        `CREATE FOREIGN DATA WRAPPER cli_redact_fdw;\n` +
+          `CREATE SERVER cli_redact_srv FOREIGN DATA WRAPPER cli_redact_fdw\n` +
+          `  OPTIONS (host 'h.example.com', password 'cli-secret-xyz');\n`,
+      );
+      writeFileSync(join(dir, "02_schema.sql"), `CREATE SCHEMA fp_extra;\n`);
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+        "--unsafe-show-secrets",
+      ]);
+
+      // RED before the fix: apply's re-extract for the fingerprint still redacts,
+      // so it mismatches the unredacted plan source and the gate aborts (exit 1)
+      // unless --force is passed.
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 0,
+      });
+      expect(res.stderr).not.toContain("fingerprint");
+    } finally {
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 90_000);
 });
 
 describe("CLI: schema lint", () => {
