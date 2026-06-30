@@ -12,6 +12,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  findDefaultPrivilegeStatements,
   findSessionSettingStatements,
   findTransactionControl,
 } from "./load-sql-files.ts";
@@ -144,6 +145,43 @@ describe("findSessionSettingStatements — detects search_path / role barriers",
     ).toEqual([]);
     expect(
       findSessionSettingStatements(`-- SET ROLE app\nCREATE TABLE t (id int);`),
+    ).toEqual([]);
+  });
+});
+
+describe("findDefaultPrivilegeStatements — reorder barrier", () => {
+  test("ALTER DEFAULT PRIVILEGES is detected", () => {
+    expect(
+      findDefaultPrivilegeStatements(
+        `ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT SELECT ON TABLES TO anon;`,
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      findDefaultPrivilegeStatements(
+        `ALTER DEFAULT PRIVILEGES FOR ROLE alice GRANT EXECUTE ON FUNCTIONS TO PUBLIC;`,
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
+  test("mixed with other DDL in one file is detected", () => {
+    expect(
+      findDefaultPrivilegeStatements(
+        `CREATE SCHEMA app; ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT SELECT ON TABLES TO anon; CREATE TABLE app.t (id int);`,
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
+  test("no false positives on plain ALTER / GRANT or quoted keywords", () => {
+    expect(
+      findDefaultPrivilegeStatements(`ALTER TABLE t ADD COLUMN c int;`),
+    ).toEqual([]);
+    expect(
+      findDefaultPrivilegeStatements(`GRANT SELECT ON t TO anon;`),
+    ).toEqual([]);
+    expect(
+      findDefaultPrivilegeStatements(
+        `CREATE FUNCTION f() RETURNS text LANGUAGE sql AS 'SELECT ''ALTER DEFAULT PRIVILEGES''';`,
+      ),
     ).toEqual([]);
   });
 });
