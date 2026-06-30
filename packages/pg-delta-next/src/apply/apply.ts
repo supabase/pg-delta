@@ -148,6 +148,18 @@ export async function apply(
       thePlan.capability,
       options?.baseline,
     );
+    // KNOWN PITFALL (acknowledged, by design): the fingerprint folds the WHOLE
+    // resolved view, INCLUDING `referenceOnly` assumed-schema facts (e.g.
+    // `auth.users` kept so a managed dependent resolves its parent). Those facts
+    // never produce a diff delta, but they DO move the fingerprint. So if the
+    // platform mutates an unmanaged assumed-schema object between plan and apply,
+    // this gate trips and asks for a re-plan even though the managed delta is
+    // unchanged. That is intentional: plan and apply must run against the SAME
+    // baseline for the plan to be provably applicable; if the baseline shifted,
+    // regenerating the plan is the correct, safe response (use fingerprintGate:
+    // false / --force only when convergence was already proven). Excluding
+    // referenceOnly facts from the fingerprint was considered (PR #307) and
+    // declined to keep this guarantee. See the same note on FactBase.rootHash.
     if (view.rootHash !== thePlan.source.fingerprint) {
       throw new Error(
         `apply: fingerprint gate failed — the target's resolved state (${view.rootHash.slice(0, 12)}…) is not the plan's source (${thePlan.source.fingerprint.slice(0, 12)}…); re-plan against the current state`,

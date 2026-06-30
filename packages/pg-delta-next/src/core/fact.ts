@@ -226,7 +226,10 @@ export class FactBase {
     return rollup;
   }
 
-  /** The fingerprint of the whole state: (rootId=rollup) pairs, sorted. */
+  /** The fingerprint of the whole state: (rootId=rollup) pairs, sorted.
+   *  NOTE: this folds EVERY fact, including `referenceOnly` assumed-schema facts.
+   *  The apply fingerprint gate relies on that (a plan is only applicable against
+   *  the same baseline) — see the "KNOWN PITFALL" note in apply.ts. */
   get rootHash(): ContentHash {
     if (this.#rootHash === undefined) {
       const parts = this.roots().map(
