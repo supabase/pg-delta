@@ -64,9 +64,9 @@ export function buildActionGraph(
 
   // A reference target that is present-at-apply but kept out of the managed
   // view: built-in roles (pg_*/PUBLIC), policy-declared assumed roles, an
-  // assumed SCHEMA object, or any object WITHIN an assumed schema (e.g. Supabase
-  // keeps `auth`/`extensions` reference-only). Such a target satisfies a
-  // `consumes` or `depends` requirement without being produced by the plan.
+  // assumed SCHEMA object, or an object WITHIN an assumed schema (e.g. a
+  // Supabase extension member in `extensions`). Such a target satisfies a
+  // `consumes` / `depends` requirement without being produced by the plan.
   const isAmbient = (id: StableId): boolean => {
     if (id.kind === "role") {
       const name = (id as { name: string }).name;
@@ -80,7 +80,14 @@ export function buildActionGraph(
       return true;
     }
     const schema = (id as { schema?: string }).schema;
-    return schema !== undefined && assumedSchemaNames.has(schema);
+    if (schema === undefined || !assumedSchemaNames.has(schema)) return false;
+    // An object in an assumed schema is ambient only when it is genuinely
+    // external to the managed view (e.g. an extension member, hard-pruned from
+    // both sides). If the DESIRED view KEEPS it (reference-only) yet it is absent
+    // from the target (`!source.has`, checked by the caller), the desired side is
+    // referencing something the target lacks — fail at plan time instead of
+    // exempting it and letting apply fail against a missing relation (review P2).
+    return !desired.has(id);
   };
 
   // alter actions indexed by their primary fact (opts.consumes[0])

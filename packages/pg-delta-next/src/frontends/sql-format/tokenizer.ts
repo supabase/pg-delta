@@ -94,8 +94,14 @@ export function findTopLevelParen(
 /**
  * Collect the starting positions of top-level clause keywords in a token list.
  * Returns a sorted array of character offsets (Token.start values).
+ *
+ * `text` is the string the tokens were scanned from: a keyword token that is the
+ * tail of a schema-qualified name (preceded by `.`, e.g. the `execute` in
+ * `EXECUTE FUNCTION public.execute()` or the `handler` in `HANDLER
+ * public.handler`) is an identifier, not a clause start, and is skipped.
  */
 export function findClausePositions(
+  text: string,
   tokens: Token[],
   keywords: Set<string>,
 ): number[] {
@@ -103,6 +109,7 @@ export function findClausePositions(
   for (let i = 0; i < tokens.length; i += 1) {
     const tok = tokens[i]!;
     if (tok.depth !== 0) continue;
+    if (text[tok.start - 1] === ".") continue; // qualified-name tail, not a clause
     if (keywords.has(tok.upper)) {
       positions.push(tok.start);
     }

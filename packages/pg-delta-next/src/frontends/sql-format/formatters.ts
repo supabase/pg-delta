@@ -523,7 +523,7 @@ export function formatCreateTrigger(
     tokens[triggerIndex - 1]?.upper === "EVENT"
       ? EVENT_TRIGGER_CLAUSE_KEYWORDS
       : TRIGGER_CLAUSE_KEYWORDS;
-  const positions = findClausePositions(restTokens, clauseKeywords);
+  const positions = findClausePositions(rest, restTokens, clauseKeywords);
   if (positions.length === 0) return null;
 
   const clauses = sliceClauses(rest, positions);
@@ -578,7 +578,11 @@ export function formatCreateIndex(
   if (restText.length === 0) return null;
 
   const restTokens = scanTokens(restText);
-  const positions = findClausePositions(restTokens, INDEX_CLAUSE_KEYWORDS);
+  const positions = findClausePositions(
+    restText,
+    restTokens,
+    INDEX_CLAUSE_KEYWORDS,
+  );
   if (positions.length === 0) return null;
 
   // Text between the column/INCLUDE list and the first recognized clause is an
@@ -708,7 +712,11 @@ export function formatCreateLanguage(
   if (rest.length === 0) return null;
 
   const restTokens = scanTokens(rest);
-  const positions = findClausePositions(restTokens, LANGUAGE_CLAUSE_KEYWORDS);
+  const positions = findClausePositions(
+    rest,
+    restTokens,
+    LANGUAGE_CLAUSE_KEYWORDS,
+  );
   if (positions.length === 0) return null;
 
   const clauses = sliceClauses(rest, positions);
@@ -801,6 +809,7 @@ export function formatCreateSubscription(
 
   const restTokens = scanTokens(rest);
   const positions = findClausePositions(
+    rest,
     restTokens,
     SUBSCRIPTION_CLAUSE_KEYWORDS,
   );
@@ -838,7 +847,7 @@ export function formatCreateFDW(
   if (rest.length === 0) return null;
 
   const restTokens = scanTokens(rest);
-  const positions = findClausePositions(restTokens, FDW_CLAUSE_KEYWORDS);
+  const positions = findClausePositions(rest, restTokens, FDW_CLAUSE_KEYWORDS);
   if (positions.length === 0) return null;
 
   const clauses = sliceClauses(rest, positions);

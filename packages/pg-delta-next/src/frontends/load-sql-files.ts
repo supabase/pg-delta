@@ -223,6 +223,11 @@ const SESSION_SETTING_RULES: ReadonlyArray<{ re: RegExp; label: string }> = [
     re: /^set\s+(?:session\s+|local\s+)?search_path\b/i,
     label: "SET search_path",
   },
+  {
+    // `SET SCHEMA 'x'` is documented as an alias for `SET search_path TO x`.
+    re: /^set\s+(?:session\s+|local\s+)?schema\b/i,
+    label: "SET SCHEMA",
+  },
   { re: /^set\s+(?:session\s+|local\s+)?role\b/i, label: "SET ROLE" },
   {
     re: /^set\s+(?:session\s+|local\s+)?session\s+authorization\b/i,
