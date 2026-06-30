@@ -54,6 +54,15 @@ describe("redactOptionStrings", () => {
     ).toEqual(["password_required=false", "password_required=true"]);
   });
 
+  test("keeps the non-secret postgres_fdw connection option service", () => {
+    // `service` names a pg_service.conf connection-service entry — a reference,
+    // not a credential (the actual host/user/password live in that file). It is
+    // a documented libpq/postgres_fdw connection option; redacting it would make
+    // a service-name change invisible to diff (both sides redact to the same
+    // placeholder) and emit `service=__OPTION_SERVICE__` on export/plan-from-empty.
+    expect(redactOptionStrings(["service=prod"])).toEqual(["service=prod"]);
+  });
+
   test("allowlist match is case-insensitive; placeholder upper-cases the key", () => {
     expect(redactOptionStrings(["HOST=h", "Password=secret"])).toEqual([
       "HOST=h",

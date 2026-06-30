@@ -80,6 +80,15 @@ describe("plan artifact v1", () => {
     expect(parsed.profile).toBeUndefined();
   });
 
+  test("round-trips the stamped redaction mode so apply/prove re-extract identically", () => {
+    // a plan produced with --unsafe-show-secrets fingerprints over unredacted
+    // secrets; the artifact must carry redactSecrets:false so apply/prove
+    // re-extract the target the same way (otherwise the fingerprint gate fails).
+    const unsafe: Plan = { ...samplePlan, redactSecrets: false };
+    expect(parsePlan(serializePlan(unsafe)).redactSecrets).toBe(false);
+    expect(parsePlan(serializePlan(samplePlan)).redactSecrets).toBeUndefined();
+  });
+
   test("rejects unknown formatVersion", () => {
     const mangled = serializePlan(samplePlan).replace(
       '"formatVersion": 1',

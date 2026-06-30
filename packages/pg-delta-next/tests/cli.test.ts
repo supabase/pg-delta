@@ -634,6 +634,62 @@ describe("CLI: secret redaction surface", () => {
       await Promise.all([shadow.drop(), target.drop()]);
     }
   }, 90_000);
+
+  test("plan --unsafe-show-secrets then apply passes the fingerprint gate (artifact carries redaction mode)", async () => {
+    const cluster = await sharedCluster();
+    // `target` is the apply target (plan's --source); `desired` is the goal.
+    const target = await cluster.createDb("cli_plan_fp_tgt");
+    const desired = await cluster.createDb("cli_plan_fp_desired");
+    try {
+      // both hold the SAME unredacted credential, so the plan source fingerprint
+      // is over an unredacted fact base; `desired` adds a schema so the plan is
+      // non-empty and apply runs the fingerprint gate.
+      await target.pool.query(FDW_SQL);
+      await desired.pool.query(FDW_SQL);
+      await desired.pool.query(`CREATE SCHEMA fp_extra;`);
+
+      const planFile = join(tmpdir(), `pgdn-plan-fp-${Date.now()}.json`);
+      const planRes = await runCli([
+        "plan",
+        "--source",
+        target.uri,
+        "--desired",
+        desired.uri,
+        "--renames",
+        "off",
+        "--out",
+        planFile,
+        "--unsafe-show-secrets",
+      ]);
+      expect(planRes.exitCode).toBe(0);
+      // the plan ran with redaction disabled, so its source fingerprint is over
+      // the unredacted server option (the secret is folded into the hash, not
+      // serialized into the artifact's diff).
+      expect(planRes.stderr).toContain("Secret redaction is DISABLED");
+
+      const applyRes = await runCli([
+        "apply",
+        "--plan",
+        planFile,
+        "--target",
+        target.uri,
+      ]);
+
+      // RED before the fix: the artifact does not record redactSecrets and apply
+      // re-extracts the target with default redaction, so the placeholder-vs-real
+      // fingerprint mismatch aborts the gate (exit 1) without --force.
+      expect({
+        code: applyRes.exitCode,
+        stderr: applyRes.stderr,
+      }).toMatchObject({ code: 0 });
+      const { rows } = await target.pool.query<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'fp_extra') AS exists`,
+      );
+      expect(rows[0]?.exists).toBe(true);
+    } finally {
+      await Promise.all([target.drop(), desired.drop()]);
+    }
+  }, 120_000);
 });
 
 describe("CLI: schema lint", () => {
