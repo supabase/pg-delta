@@ -48,6 +48,11 @@ const SAFE_OPTION_KEYS = new Set<string>([
   "gssdelegation",
   "channel_binding",
   "target_session_attrs",
+  // names a pg_service.conf connection-service entry — a reference, not a
+  // credential (the real host/user/password live in that file). Must stay
+  // visible so a service-name change is a real diff and export/plan-from-empty
+  // preserves it instead of emitting `service=__OPTION_SERVICE__`.
+  "service",
   "application_name",
   "fallback_application_name",
   "connect_timeout",

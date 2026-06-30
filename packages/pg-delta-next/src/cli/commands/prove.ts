@@ -118,12 +118,15 @@ export async function cmdProve(args: string[]): Promise<void> {
       `Proving plan (${thePlan.actions.length} action(s))...\n`,
     );
     const ctx = await resolveCliProfile(clone.pool, profileId);
-    const verdict = await provePlan(
-      thePlan,
-      clone.pool,
-      desiredFb,
-      ctx.proveOptions,
-    );
+    // Re-extract the post-apply clone with the SAME redaction mode the plan used
+    // (stamped on the artifact), so the proof compares like-for-like against the
+    // desired snapshot — an unredacted (`--unsafe-show-secrets`) plan must not be
+    // proven against a default-redacted re-extract. Absent → the extract default.
+    const verdict = await provePlan(thePlan, clone.pool, desiredFb, {
+      ...ctx.proveOptions,
+      reextract: (p) =>
+        ctx.extract(p, { redactSecrets: thePlan.redactSecrets ?? true }),
+    });
 
     if (verdict.ok) {
       process.stderr.write(

@@ -60,6 +60,13 @@ export interface Plan {
   engineVersion: string;
   source: { fingerprint: string };
   target: { fingerprint: string };
+  /** whether the source/desired fact bases were extracted with secret redaction
+   *  on (the extract default). Stamped by the CLI so `apply`/`prove` re-extract
+   *  the target with the SAME redaction mode for the fingerprint gate: a plan
+   *  fingerprinted over unredacted secrets (`--unsafe-show-secrets`) would
+   *  otherwise mismatch a default-redacted re-extract and fail the gate. Absent
+   *  on direct library plans (corpus), which apply treats as the default (on). */
+  redactSecrets?: boolean;
   /** session settings the executor applies per transaction segment —
    *  explicit plan metadata, not loose SQL in the action list */
   preamble: { name: string; value: string }[];
@@ -134,6 +141,10 @@ export interface PlanOptions {
    *  over an already-resolved view. */
   assumedSchemas?: string[];
   assumedRoles?: string[];
+  /** the redaction mode used to extract the source/desired fact bases, stamped
+   *  onto the artifact so `apply`/`prove` reconstruct the fingerprint identically
+   *  (see `Plan.redactSecrets`). Omit on direct library plans. */
+  redactSecrets?: boolean;
 }
 
 export function plan(
@@ -266,6 +277,9 @@ export function plan(
     ...(options?.policy ? { policy: options.policy } : {}),
     ...(options?.capability ? { capability: options.capability } : {}),
     ...(options?.profile ? { profile: options.profile } : {}),
+    ...(options?.redactSecrets !== undefined
+      ? { redactSecrets: options.redactSecrets }
+      : {}),
     renameCandidates,
     actions: finalActions,
     safetyReport,

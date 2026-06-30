@@ -131,6 +131,10 @@ export async function cmdPlan(args: string[]): Promise<void> {
     const planOptions = {
       renames,
       compact,
+      // stamp the redaction mode on the artifact so apply/prove re-extract the
+      // target identically for the fingerprint gate (an unsafe plan fingerprinted
+      // over unredacted secrets must not be gated against a redacted re-extract).
+      redactSecrets,
       ...(acceptRenames.length > 0 ? { acceptRenames } : {}),
       ...ctx.planOptions, // policy, capability, baseline (from the profile)
     };
