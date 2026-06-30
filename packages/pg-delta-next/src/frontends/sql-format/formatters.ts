@@ -547,7 +547,11 @@ export function formatCreateIndex(
 
   let headerEnd = parens.close + 1;
 
-  const afterParens = statement.slice(headerEnd).trim();
+  const rawAfter = statement.slice(headerEnd);
+  // `afterParens` is trimmed for tokenizing; remember the leading whitespace so
+  // offsets computed against it map back to the original string.
+  const leadWs = rawAfter.length - rawAfter.trimStart().length;
+  const afterParens = rawAfter.trim();
   const afterTokens = scanTokens(afterParens);
   const afterToken0 = afterTokens[0];
   if (
@@ -557,8 +561,9 @@ export function formatCreateIndex(
   ) {
     const includeParens = findTopLevelParen(afterParens, afterToken0.end);
     if (includeParens) {
-      headerEnd =
-        headerEnd + afterParens.slice(0, includeParens.close + 1).length;
+      // include the trimmed leading whitespace, or headerEnd lands BEFORE the
+      // INCLUDE list's closing paren and cuts the `)` off (review P2).
+      headerEnd = headerEnd + leadWs + includeParens.close + 1;
     }
   }
 
@@ -569,9 +574,17 @@ export function formatCreateIndex(
   const positions = findClausePositions(restTokens, INDEX_CLAUSE_KEYWORDS);
   if (positions.length === 0) return null;
 
+  // Text between the column/INCLUDE list and the first recognized clause is an
+  // index modifier such as `NULLS NOT DISTINCT` — keep it on the header line.
+  // sliceClauses() drops everything before positions[0], so without this the
+  // modifier would be silently lost, changing the index semantics (review P2).
+  const firstClauseStart = positions[0] ?? restText.length;
+  const modifier = restText.slice(0, firstClauseStart).trim();
   const header = statement.slice(0, headerEnd).trim();
+  const headerWithModifier =
+    modifier.length > 0 ? `${header} ${modifier}` : header;
   const clauses = sliceClauses(restText, positions);
-  return joinHeaderAndClauses(header, clauses, options);
+  return joinHeaderAndClauses(headerWithModifier, clauses, options);
 }
 
 export function formatAlterTable(

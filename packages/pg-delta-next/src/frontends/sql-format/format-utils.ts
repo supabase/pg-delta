@@ -6,15 +6,17 @@ export function splitSqlStatements(sql: string): string[] {
   const statements: string[] = [];
   let buffer = "";
 
-  // Suppress statement splitting inside a SQL-standard `BEGIN ATOMIC ... END`
-  // routine body: pg_get_functiondef() emits those bodies with bare,
-  // unquoted statement-separating semicolons (not inside quotes or dollar
-  // tags), so a naive `;` split would shred one CREATE FUNCTION into invalid
-  // fragments. We track block nesting at the code level (literals/comments are
-  // already skipped by walkSql): `BEGIN ATOMIC` and `CASE` open a block, `END`
-  // closes one, and we only split on `;` at blockDepth 0. Reserved words used
-  // as identifiers are double-quoted by pg_get_functiondef, so they never reach
-  // this keyword scan.
+  // Suppress statement splitting where a `;` is NOT a statement separator:
+  //   1. inside parentheses — a multi-command rewrite-rule body
+  //      `DO ALSO ( INSERT …; UPDATE … )` from pg_get_ruledef() carries inner
+  //      `;` at paren depth > 0 (tracked via walkSql's depth);
+  //   2. inside a SQL-standard `BEGIN ATOMIC … END` routine body — those
+  //      semicolons are bare (not in quotes/dollar tags/parens), so we track
+  //      block nesting at the code level: `BEGIN ATOMIC` and `CASE` open a
+  //      block, `END` closes one.
+  // A `;` only separates statements at paren depth 0 AND block depth 0.
+  // Reserved words used as identifiers are double-quoted by the catalog
+  // pretty-printers, so they never reach this keyword scan.
   let blockDepth = 0;
   let word = "";
   let prevKeyword = "";
@@ -34,7 +36,7 @@ export function splitSqlStatements(sql: string): string[] {
 
   walkSql(
     sql,
-    (_index, char) => {
+    (_index, char, depth) => {
       if (isWordChar(char)) {
         word += char;
         buffer += char;
@@ -42,7 +44,7 @@ export function splitSqlStatements(sql: string): string[] {
       }
       // a non-word top-level char terminates the word that just accumulated
       finalizeWord();
-      if (char === ";" && blockDepth === 0) {
+      if (char === ";" && depth === 0 && blockDepth === 0) {
         const trimmed = trimOuterBlankLines(buffer);
         if (trimmed.length > 0) {
           statements.push(trimmed);
@@ -54,6 +56,7 @@ export function splitSqlStatements(sql: string): string[] {
       return true;
     },
     {
+      trackDepth: true,
       onSkipped: (chunk) => {
         // a quoted/commented/dollar segment also ends the current word
         finalizeWord();
