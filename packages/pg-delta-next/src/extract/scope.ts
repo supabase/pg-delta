@@ -299,11 +299,14 @@ export function createExtractContext(
         payload: {
           privileges: acl.privileges,
           grantable: acl.grantable,
-          // owner-only: the create-time default set, consumed by the planner's
-          // default-ACL elision (see elideDefaultAclCreates). Identical on both
-          // diff sides for a given PG version, so it adds no diff/drift signal.
+          // owner-only NON-SEMANTIC metadata (`_` prefix → excluded from the
+          // hash/diff, see hash.ts): the owner's create-time default privilege
+          // set, consumed by the planner's default-ACL elision
+          // (elideDefaultAclCreates). It is version-dependent (PG17 added
+          // MAINTAIN), so it must NOT join the equality surface or it would cause
+          // spurious cross-version / snapshot diff deltas and fingerprint drift.
           ...(acl.ownerDefault !== undefined
-            ? { ownerDefault: acl.ownerDefault }
+            ? { _ownerDefault: acl.ownerDefault }
             : {}),
         },
       });

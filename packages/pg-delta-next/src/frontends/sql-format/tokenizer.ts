@@ -29,6 +29,21 @@ export function identifierEnd(statement: string, from: number): number {
   return i;
 }
 
+/**
+ * Index just past a possibly schema-qualified identifier (`a`, `a.b`, `"s"."v"`)
+ * at/after `from`. Built on {@link identifierEnd}; follows a `.` chain. Used by
+ * formatters whose object name is qualified and may be quoted (e.g. a
+ * materialized view), which positional token indexing mishandles because
+ * `scanTokens` drops quoted identifiers.
+ */
+export function qualifiedNameEnd(statement: string, from: number): number {
+  let i = identifierEnd(statement, from);
+  while (statement[i] === ".") {
+    i = identifierEnd(statement, i + 1);
+  }
+  return i;
+}
+
 export function scanTokens(statement: string): Token[] {
   const tokens: Token[] = [];
   let skipUntil = -1;

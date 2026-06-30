@@ -536,7 +536,11 @@ export function elideDefaultAclCreates(
     const payload = fact.payload as {
       privileges?: string[];
       grantable?: string[];
-      ownerDefault?: string[];
+      // non-semantic metadata (`_` prefix): the owner's create-time default
+      // privilege set, captured at extract. Excluded from the hash/diff (hash.ts)
+      // so it never causes cross-version/snapshot drift; read here only to decide
+      // elision.
+      _ownerDefault?: string[];
     };
     if ((payload.grantable ?? []).length > 0) continue; // grant option is never default
     const privileges = payload.privileges ?? [];
@@ -562,8 +566,8 @@ export function elideDefaultAclCreates(
       ownerEdge !== undefined &&
       ownerEdge.to.kind === "role" &&
       ownerEdge.to.name === aclId.grantee &&
-      payload.ownerDefault !== undefined &&
-      samePrivilegeSet(privileges, payload.ownerDefault)
+      payload._ownerDefault !== undefined &&
+      samePrivilegeSet(privileges, payload._ownerDefault)
     )
       elidable.add(encodeId(aclId));
   }

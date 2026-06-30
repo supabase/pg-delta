@@ -10,6 +10,7 @@ import {
   findClausePositions,
   findTopLevelParen,
   identifierEnd,
+  qualifiedNameEnd,
   scanTokens,
   skipQualifiedName,
   sliceClauses,
@@ -744,27 +745,36 @@ export function formatCreateMaterializedView(
   }
   if (viewIndex === -1) return null;
 
-  // Find schema-qualified name after VIEW
-  let cursor = viewIndex + 1;
-  if (cursor >= tokens.length) return null;
-  cursor = skipQualifiedName(statement, tokens, cursor);
-
-  const prevToken = tokens[cursor - 1];
-  if (prevToken === undefined) return null;
-  const nameEnd = prevToken.end;
+  // Name (possibly quoted/qualified, e.g. "s"."v") follows VIEW. scanTokens
+  // drops quoted identifiers, so locate the name's end on the raw statement
+  // rather than via token indexing (which would land on the WITH/AS clause and
+  // drop the storage options + name).
+  const viewToken = tokens[viewIndex];
+  if (viewToken === undefined) return null;
+  const nameEnd = qualifiedNameEnd(statement, viewToken.end);
   const rest = statement.slice(nameEnd).trim();
   const header = statement.slice(0, nameEnd).trim();
 
   if (rest.length === 0) return null;
 
-  // Materialized view has special placeholder handling for protected view bodies
+  // The matview body after AS is split on clause keywords only when it has been
+  // PROTECTED (preserveViewBodies, the default) — it then appears as a single
+  // placeholder token. Without protection the raw SELECT contains its own
+  // `AS` (column aliases) and `WITH` (CTEs / `WITH NO DATA`) which are not
+  // matview clauses; splitting on them shreds the query, so fall back to generic
+  // formatting (review P2).
   const restTokens = scanTokens(rest);
-  const clauseStarts: number[] = [];
+  const hasProtectedBody = restTokens.some((t) =>
+    t.value.startsWith("__PGDELTA_PLACEHOLDER_"),
+  );
+  if (!hasProtectedBody) return null;
 
+  const clauseStarts: number[] = [];
   for (let i = 0; i < restTokens.length; i += 1) {
     const rtok = restTokens[i];
     if (rtok === undefined) continue;
     if (rtok.depth !== 0) continue;
+    if (rest[rtok.start - 1] === ".") continue; // qualified-name tail
     if (MATVIEW_CLAUSE_KEYWORDS.has(rtok.upper)) {
       clauseStarts.push(rtok.start);
     }

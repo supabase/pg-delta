@@ -8,6 +8,11 @@
  *
  * Rules:
  * - object keys sorted by code point; `undefined` values dropped (absent)
+ * - object keys starting with `_` are NON-SEMANTIC METADATA and are dropped:
+ *   extraction-only / environment- or version-dependent values (e.g. an ACL's
+ *   create-time owner default privilege set) ride along on the payload for the
+ *   planner but must NOT join the equality surface, or they would cause spurious
+ *   diff deltas and fingerprint drift across PG versions and snapshots
  * - arrays preserve order (set-valued attributes must be sorted upstream,
  *   at payload construction)
  * - scalars are type-distinguished: `"1"` ≠ `1` ≠ `1n`
@@ -59,7 +64,7 @@ export function canonicalize(value: PayloadValue): string {
           .join(",")}]`;
       }
       const keys = Object.keys(value)
-        .filter((k) => value[k] !== undefined)
+        .filter((k) => value[k] !== undefined && !k.startsWith("_"))
         .sort();
       return `{${keys
         .map((k) => `${JSON.stringify(k)}:${canonicalize(value[k])}`)
