@@ -93,6 +93,15 @@ describe("findSessionSettingStatements — detects search_path / role barriers",
     ).toContain("SET search_path");
   });
 
+  test("SET SCHEMA (a search_path alias) is detected", () => {
+    expect(
+      findSessionSettingStatements(`SET SCHEMA 'app';`).length,
+    ).toBeGreaterThan(0);
+    expect(
+      findSessionSettingStatements(`SET LOCAL SCHEMA 'app';`).length,
+    ).toBeGreaterThan(0);
+  });
+
   test("SET ROLE / SET SESSION AUTHORIZATION are detected", () => {
     expect(findSessionSettingStatements(`SET ROLE app_owner;`)).toContain(
       "SET ROLE",

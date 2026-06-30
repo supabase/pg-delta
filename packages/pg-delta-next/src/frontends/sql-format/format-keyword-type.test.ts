@@ -27,4 +27,20 @@ describe("keyword-like qualified type names survive formatting", () => {
     expect(result).toContain("public.generated");
     expect(result).not.toMatch(/public\.\s+GENERATED/);
   });
+
+  test("trigger EXECUTE FUNCTION public.execute() is not split on the qualified tail", () => {
+    const sql =
+      `CREATE TRIGGER tr AFTER INSERT ON public.t ` +
+      `FOR EACH ROW EXECUTE FUNCTION public.execute()`;
+    const [result] = formatSqlStatements([sql]);
+    expect(result).toContain("public.execute()");
+    expect(result).not.toMatch(/public\.\s*$/m);
+  });
+
+  test("FDW HANDLER public.handler keeps the qualified handler name", () => {
+    const sql = `CREATE FOREIGN DATA WRAPPER w HANDLER public.handler`;
+    const [result] = formatSqlStatements([sql]);
+    expect(result).toContain("public.handler");
+    expect(result).not.toMatch(/HANDLER\s+public\.\s*$/m);
+  });
 });
