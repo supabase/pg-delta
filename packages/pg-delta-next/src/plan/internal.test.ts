@@ -82,7 +82,7 @@ function aclFact(
     payload: {
       privileges,
       grantable,
-      ...(ownerDefault !== undefined ? { ownerDefault } : {}),
+      ...(ownerDefault !== undefined ? { _ownerDefault: ownerDefault } : {}),
     },
   };
 }
