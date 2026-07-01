@@ -56,6 +56,10 @@ import {
 import type { SqlFormatOptions } from "../../frontends/sql-format/index.ts";
 import { pruneStaleSqlFiles } from "../../frontends/prune-sql-files.ts";
 import {
+  readExportManifestRedactSecrets,
+  writeExportManifest,
+} from "../../frontends/export-manifest.ts";
+import {
   findDefaultPrivilegeStatements,
   findSessionSettingStatements,
   loadSqlFiles,
@@ -227,8 +231,9 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     // handler-aware managed view as the profile-aware DB-to-DB path (review P1).
     const ctx = await resolveCliProfile(src.pool, flags["profile"]);
     process.stderr.write("Extracting...\n");
+    const redactSecrets = !flags["unsafe-show-secrets"];
     const { factBase, diagnostics } = await ctx.extract(src.pool, {
-      redactSecrets: !flags["unsafe-show-secrets"],
+      redactSecrets,
     });
     printDiagnostics(diagnostics);
     exitIfBlocking(diagnostics, {
@@ -291,6 +296,10 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       mkdirSync(dirname(full), { recursive: true });
       writeFileSync(full, file.sql, "utf8");
     }
+    // Record the redaction mode so `schema apply --dir` re-extracts the shadow
+    // with the SAME mode (an --unsafe-show-secrets export must round-trip real
+    // credentials, not have them redacted back to placeholders — review P2).
+    writeExportManifest(outRoot, redactSecrets);
     process.stderr.write(
       `Exported ${files.length} file(s) to ${outDir} (layout: ${layout})\n`,
     );
@@ -468,17 +477,6 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
               "; ",
             )}. Loading files raw at file granularity; fix the file(s) or pass --no-reorder to silence this.\n`,
           );
-          if (defaultPrivFiles.length > 0) {
-            // The raw file-granular loader defers a failing ALTER DEFAULT
-            // PRIVILEGES (e.g. its schema does not exist yet) and retries it in a
-            // later round — AFTER objects in that schema are created. So an object
-            // that relies on ADP-implicit default grants may not receive them on
-            // reload. pg-delta's own `schema export` sidesteps this by writing
-            // every object's ACL explicitly; hand-authored files should too.
-            process.stderr.write(
-              `  NOTE: raw loading may apply ALTER DEFAULT PRIVILEGES AFTER objects created in the same load, so objects relying on ADP-implicit default grants may not receive them. Grant those privileges explicitly (as \`schema export\` does).\n`,
-            );
-          }
           // leave orderedFiles=null / loadInput=files → raw file-granular load
         } else {
           orderedFiles = analyzed.files;
@@ -490,6 +488,24 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         }
       }
     }
+    // Any raw file-granular load — `--no-reorder`, a missing pg-topo peer, OR
+    // reorder disabled by diagnostics — can defer a failing ALTER DEFAULT
+    // PRIVILEGES past the objects it scopes (the retry loop applies it in a later
+    // round, after those objects are created), so objects relying on ADP-implicit
+    // default grants may not receive them. Surface the caveat on EVERY raw path,
+    // not only the diagnostics one (review P2). pg-delta's own `schema export`
+    // sidesteps this by writing each object's ACL explicitly.
+    if (orderedFiles === null) {
+      const adpFiles = files.filter(
+        (f) => findDefaultPrivilegeStatements(f.sql).length > 0,
+      );
+      if (adpFiles.length > 0) {
+        process.stderr.write(
+          `  NOTE: raw loading may apply ALTER DEFAULT PRIVILEGES AFTER objects created in the same load, so objects relying on ADP-implicit default grants may not receive them. Grant those privileges explicitly (as \`schema export\` does).\n`,
+        );
+      }
+    }
+
     const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
 
     // Secret redaction applies to BOTH sides so the diff stays consistent. With
@@ -499,7 +515,14 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     // --unsafe-show-secrets`); otherwise both sides redact and a credential-only
     // change is invisible (review P2). The extractor prints the loud "Secret
     // redaction is DISABLED" diagnostic when off.
-    const redactSecrets = !flags["unsafe-show-secrets"];
+    //
+    // Prefer the redaction mode `schema export` recorded in the directory's
+    // manifest, so a `--unsafe-show-secrets` export re-loads its real credentials
+    // without the operator re-passing the flag (and a redacted export is not
+    // silently applied unredacted). The flag remains the fallback for directories
+    // without a manifest (older exports / hand-authored dirs).
+    const redactSecrets =
+      readExportManifestRedactSecrets(dir) ?? !flags["unsafe-show-secrets"];
 
     // the shadow desired state must be projected with the SAME handlers as the
     // target, so pass the profile extractor through to loadSqlFiles.

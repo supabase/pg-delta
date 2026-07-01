@@ -7,7 +7,21 @@ type ProtectState = {
   noWrapPlaceholders: Set<string>;
   counter: number;
   skipCasing: boolean;
+  /** placeholder prefix guaranteed NOT to occur in the input, so
+   *  `restorePlaceholders`' global replace only touches inserted tokens. */
+  sentinel: string;
 };
+
+/** A placeholder prefix that does not appear anywhere in `statement`. Restore
+ *  replaces placeholder tokens globally, so if the ORIGINAL SQL contained the
+ *  fixed prefix verbatim (e.g. an identifier `"__PGDELTA_PLACEHOLDER_0__"`),
+ *  that occurrence would be clobbered too. Extending the prefix until it is
+ *  absent from the input makes the token collision-proof (review P2). */
+function collisionFreeSentinel(statement: string): string {
+  let sentinel = "__PGDELTA_PLACEHOLDER_";
+  while (statement.includes(sentinel)) sentinel += "X_";
+  return sentinel;
+}
 
 export function protectSegments(
   statement: string,
@@ -21,6 +35,7 @@ export function protectSegments(
     noWrapPlaceholders,
     counter: 0,
     skipCasing: false,
+    sentinel: collisionFreeSentinel(statement),
   };
 
   if (options.preserveRoutineBodies) {
@@ -92,7 +107,7 @@ function protectTailAfterAs(
 
     if (!asToken) continue;
 
-    const placeholder = makePlaceholder(state.counter);
+    const placeholder = makePlaceholder(state.sentinel, state.counter);
     state.counter += 1;
     state.placeholders.set(placeholder, text.slice(asToken.start));
     state.noWrapPlaceholders.add(placeholder);
@@ -172,7 +187,7 @@ function protectCommentLiteral(
     return { text };
   }
 
-  const placeholder = makePlaceholder(state.counter);
+  const placeholder = makePlaceholder(state.sentinel, state.counter);
   state.counter += 1;
   state.placeholders.set(placeholder, text.slice(literalStart, literalEnd));
   const updated = `${text.slice(0, literalStart)}${placeholder}${text.slice(literalEnd)}`;
@@ -290,7 +305,7 @@ function protectDollarQuotes(
         const start = i;
         const end = text.indexOf(tag, i + tag.length);
         if (end !== -1) {
-          const placeholder = makePlaceholder(state.counter);
+          const placeholder = makePlaceholder(state.sentinel, state.counter);
           state.counter += 1;
           state.placeholders.set(
             placeholder,
@@ -333,6 +348,6 @@ function isKeywordBoundary(statement: string, token: Token): boolean {
   return isBoundary(before) && isBoundary(after);
 }
 
-function makePlaceholder(index: number): string {
-  return `__PGDELTA_PLACEHOLDER_${index}__`;
+function makePlaceholder(sentinel: string, index: number): string {
+  return `${sentinel}${index}__`;
 }

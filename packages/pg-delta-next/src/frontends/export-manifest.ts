@@ -35,7 +35,9 @@ export function readExportManifestRedactSecrets(
     const doc = JSON.parse(
       readFileSync(join(dir, EXPORT_MANIFEST_FILE), "utf8"),
     ) as { redactSecrets?: unknown };
-    return typeof doc.redactSecrets === "boolean" ? doc.redactSecrets : undefined;
+    return typeof doc.redactSecrets === "boolean"
+      ? doc.redactSecrets
+      : undefined;
   } catch {
     return undefined;
   }
