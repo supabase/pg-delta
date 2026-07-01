@@ -468,6 +468,17 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
               "; ",
             )}. Loading files raw at file granularity; fix the file(s) or pass --no-reorder to silence this.\n`,
           );
+          if (defaultPrivFiles.length > 0) {
+            // The raw file-granular loader defers a failing ALTER DEFAULT
+            // PRIVILEGES (e.g. its schema does not exist yet) and retries it in a
+            // later round — AFTER objects in that schema are created. So an object
+            // that relies on ADP-implicit default grants may not receive them on
+            // reload. pg-delta's own `schema export` sidesteps this by writing
+            // every object's ACL explicitly; hand-authored files should too.
+            process.stderr.write(
+              `  NOTE: raw loading may apply ALTER DEFAULT PRIVILEGES AFTER objects created in the same load, so objects relying on ADP-implicit default grants may not receive them. Grant those privileges explicitly (as \`schema export\` does).\n`,
+            );
+          }
           // leave orderedFiles=null / loadInput=files → raw file-granular load
         } else {
           orderedFiles = analyzed.files;
