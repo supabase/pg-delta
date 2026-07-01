@@ -14,7 +14,7 @@
  *   converges with zero deferred rounds (the stage-9 zero-round gate).
  */
 import { buildFactBase, type FactBase } from "../core/fact.ts";
-import type { StableId } from "../core/stable-id.ts";
+import { encodeId, type StableId } from "../core/stable-id.ts";
 import { plan, type Action } from "../plan/plan.ts";
 import type { SqlFile } from "./load-sql-files.ts";
 import {
@@ -328,21 +328,26 @@ export function exportSqlFiles(
   options: ExportOptions = {},
 ): SqlFile[] {
   const layout = options.layout ?? "by-object";
-  // render against the PRISTINE baseline, not absolute emptiness: every
-  // real database already has schema "public" (and its satellites), so a
-  // CREATE SCHEMA public in the export could never replay
+  // Render against a PRISTINE baseline, not absolute emptiness, so the export
+  // reflects what a real target already has:
+  //   - schema "public" always exists, so seed its EXISTENCE (a CREATE SCHEMA
+  //     public could never replay). Its acl/comment are deliberately NOT seeded:
+  //     they diff like every other schema's, so a customized public (REVOKE
+  //     CREATE FROM PUBLIC, a changed COMMENT) is exported rather than masked by
+  //     a same-valued baseline (review: public-schema ACL/comment preservation).
+  //   - reference-only facts are assumed-present platform objects (e.g.
+  //     auth.users under --profile supabase). diff/plan don't consult
+  //     `referenceOnly` — the DB-to-DB path relies on both sides carrying them —
+  //     but the from-pristine export has no such symmetry, so seed them here.
+  //     Then a managed child kept in the view (a user trigger on auth.users)
+  //     resolves its requirement against the baseline instead of throwing
+  //     "missing requirement", and the assumed parent is not itself recreated
+  //     (review #3501088189).
   const pristine = fb.facts().filter((fact) => {
     const id = fact.id;
     if (id.kind === "schema" && (id as { name: string }).name === "public")
       return true;
-    if (id.kind === "comment" || id.kind === "acl") {
-      const target = (id as { target: StableId }).target;
-      return (
-        target.kind === "schema" &&
-        (target as { name: string }).name === "public"
-      );
-    }
-    return false;
+    return fb.referenceOnly.has(encodeId(id));
   });
   const baseline = buildFactBase(pristine, []);
   // `fb` is the already-resolved managed view, so we do NOT re-run policy
