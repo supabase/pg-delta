@@ -54,6 +54,7 @@ import {
   type ExportGroupingPattern,
 } from "../../frontends/export-sql-files.ts";
 import type { SqlFormatOptions } from "../../frontends/sql-format/index.ts";
+import { pruneStaleSqlFiles } from "../../frontends/prune-sql-files.ts";
 import {
   findDefaultPrivilegeStatements,
   findSessionSettingStatements,
@@ -268,6 +269,16 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     });
 
     const outRoot = resolve(outDir);
+    const keep = new Set(files.map((file) => resolve(outDir, file.name)));
+    // Remove stale `.sql` files from a previous export first (a dropped object's
+    // file would otherwise linger and be reloaded by `schema apply --dir`, review
+    // P2). Only prunes managed `.sql` files not in the new set; non-SQL untouched.
+    const removed = pruneStaleSqlFiles(outRoot, keep);
+    if (removed.length > 0) {
+      process.stderr.write(
+        `Removed ${removed.length} stale .sql file(s) from ${outDir}\n`,
+      );
+    }
     for (const file of files) {
       const full = resolve(outDir, file.name);
       // defense-in-depth (review P2): even with per-segment encoding in
@@ -303,13 +314,14 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       "strict-coverage": { type: "boolean" },
       "no-reorder": { type: "boolean" },
       "unsafe-show-secrets": { type: "boolean" },
+      "isolated-shadow": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pg-delta-next schema apply --dir <dir> --shadow <pg-url> --target <pg-url> ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
-          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder] [--unsafe-show-secrets]\n`,
+          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow]\n`,
       );
       process.exit(2);
     }
@@ -484,6 +496,13 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     try {
       loadResult = await loadSqlFiles(loadInput, shadow.pool, {
         extract: (p, o) => ctx.extract(p, { ...o, redactSecrets }),
+        // A declarative dir that carries cluster-level role state (CREATE ROLE,
+        // membership grants — e.g. `cluster/roles.sql`) trips the default
+        // `databaseScratch` leak guard. `--isolated-shadow` asserts the shadow is
+        // a dedicated cluster, so role state can load without a false leak error.
+        ...(flags["isolated-shadow"]
+          ? { mode: "isolatedCluster" as const }
+          : {}),
       });
     } catch (error) {
       if (error instanceof ShadowLoadError && orderedFiles) {

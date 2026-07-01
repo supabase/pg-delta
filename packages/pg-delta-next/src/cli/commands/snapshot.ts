@@ -44,7 +44,8 @@ export async function cmdSnapshot(args: string[]): Promise<void> {
       strictCoverage: flags["strict-coverage"],
       action: "snapshot",
     });
-    saveSnapshot(factBase, pgVersion, outPath);
+    // record the redaction mode so `drift` re-extracts the live env identically.
+    saveSnapshot(factBase, pgVersion, outPath, redactSecrets);
     process.stderr.write(
       `Snapshot saved to ${outPath} (${factBase.facts().length} facts, pg ${pgVersion})\n`,
     );

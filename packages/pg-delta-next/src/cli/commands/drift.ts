@@ -34,17 +34,25 @@ export async function cmdDrift(args: string[]): Promise<void> {
   const { flags } = parsed;
   const envUrl = flags["env"];
   const snapshotPath = flags["snapshot"];
-  // Match the snapshot's redaction setting so a snapshot saved with
-  // --unsafe-show-secrets is compared against an equally-unredacted live extract.
-  const redactSecrets = !flags["unsafe-show-secrets"];
 
   const env = makePool(envUrl);
   try {
-    const { factBase: snapshotFb, pgVersion: snapshotPgVersion } =
-      loadSnapshot(snapshotPath);
+    const {
+      factBase: snapshotFb,
+      pgVersion: snapshotPgVersion,
+      redactSecrets: snapshotRedactSecrets,
+    } = loadSnapshot(snapshotPath);
     process.stderr.write(
       `Snapshot: ${snapshotFb.facts().length} facts (pg ${snapshotPgVersion})\n`,
     );
+
+    // Match the snapshot's redaction mode so a snapshot saved with
+    // --unsafe-show-secrets is compared against an equally-unredacted live
+    // extract (otherwise unchanged FDW/subscription secrets read as
+    // placeholder-vs-real drift). Prefer the mode stamped on the snapshot;
+    // fall back to the flag for snapshots written before it was recorded.
+    const redactSecrets =
+      snapshotRedactSecrets ?? !flags["unsafe-show-secrets"];
 
     process.stderr.write("Extracting live environment...\n");
     const {

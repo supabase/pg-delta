@@ -19,8 +19,12 @@ export function saveSnapshot(
   fb: FactBase,
   pgVersion: string,
   path: string,
+  redactSecrets?: boolean,
 ): void {
-  const json = serializeSnapshot(fb, { pgVersion });
+  const json = serializeSnapshot(fb, {
+    pgVersion,
+    ...(redactSecrets !== undefined ? { redactSecrets } : {}),
+  });
   writeFileSync(path, json, "utf8");
 }
 
@@ -32,6 +36,7 @@ export function saveSnapshot(
 export function loadSnapshot(path: string): {
   factBase: FactBase;
   pgVersion: string;
+  redactSecrets?: boolean;
 } {
   const json = readFileSync(path, "utf8");
   return deserializeSnapshot(json);
