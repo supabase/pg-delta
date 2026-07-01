@@ -103,13 +103,14 @@ export async function cmdProve(args: string[]): Promise<void> {
   // and fail the proof spuriously — and only AFTER the clone is destroyed.
   // Reject a mismatch up front so the operator re-generates a consistent pair
   // instead of getting a false failure (review P2).
+  // Both default to redacted (true) when unstamped: a snapshot written before the
+  // redactSecrets field existed is a default-redacted extract, so it must still be
+  // caught as a mismatch against an --unsafe-show-secrets plan (review P2).
   const planRedactSecrets = thePlan.redactSecrets ?? true;
-  if (
-    snapshotRedactSecrets !== undefined &&
-    snapshotRedactSecrets !== planRedactSecrets
-  ) {
+  const snapRedactSecrets = snapshotRedactSecrets ?? true;
+  if (snapRedactSecrets !== planRedactSecrets) {
     process.stderr.write(
-      `prove: the desired snapshot's redaction mode (redactSecrets=${snapshotRedactSecrets}) does not match the plan's (redactSecrets=${planRedactSecrets}). ` +
+      `prove: the desired snapshot's redaction mode (redactSecrets=${snapRedactSecrets}) does not match the plan's (redactSecrets=${planRedactSecrets}). ` +
         `Re-generate both with the same --unsafe-show-secrets setting; a mismatch would compare placeholder-vs-real secrets and fail the proof spuriously.\n`,
     );
     process.exit(2);
