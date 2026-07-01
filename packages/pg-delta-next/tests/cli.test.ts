@@ -489,6 +489,90 @@ describe("CLI: schema export", () => {
 // instead of always using the raw view — otherwise SQL-file workflows diverge
 // from the profile-aware DB-to-DB path. These prove the `--profile` /
 // `--restrict-to-applier` flags exist and thread through extract/plan/apply.
+describe("CLI: schema apply guards", () => {
+  test("refuses an empty --dir instead of planning to drop everything", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_empty_shadow");
+    const target = await cluster.createDb("cli_empty_tgt");
+    try {
+      await target.pool.query(SCHEMA_SQL); // target HAS managed objects
+      const emptyDir = join(tmpdir(), `pg-delta-next-emptydir-${Date.now()}`);
+      mkdirSync(emptyDir, { recursive: true });
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        emptyDir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+      ]);
+      // RED before the fix: apply loaded an empty shadow and planned to DROP the
+      // target's schema/tables. Now it aborts with exit 2.
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 2,
+      });
+      expect(res.stderr).toMatch(/no \.sql files found/i);
+      // the target's objects are untouched
+      const { rows } = await target.pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'clitest'`,
+      );
+      expect(rows[0]?.n).toBe(1);
+    } finally {
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 60_000);
+
+  test("refuses to apply a profiled export under a contradicting --profile", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_profile_guard_shadow");
+    const target = await cluster.createDb("cli_profile_guard_tgt");
+    try {
+      // a directory whose manifest was written by `schema export --profile supabase`
+      const dir = join(tmpdir(), `pg-delta-next-profile-guard-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "01_schema.sql"), `CREATE SCHEMA app;\n`);
+      writeFileSync(
+        join(dir, ".pgdelta-export.json"),
+        JSON.stringify({
+          formatVersion: 1,
+          redactSecrets: true,
+          profile: "supabase",
+        }),
+        "utf8",
+      );
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--profile",
+        "raw",
+        "--renames",
+        "off",
+      ]);
+      // RED before the fix: the manifest profile was ignored, so a raw apply of a
+      // supabase export proceeded (and could drop platform state). Now the
+      // mismatch is rejected up front (exit 2), before opening a connection.
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 2,
+      });
+      expect(res.stderr).toMatch(/profile/i);
+    } finally {
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 60_000);
+});
+
 describe("CLI: schema profile-awareness", () => {
   test("schema export --profile raw is accepted (raw == identity)", async () => {
     const cluster = await sharedCluster();
@@ -1046,6 +1130,8 @@ describe("CLI: secret redaction surface", () => {
       ).toBe(0);
       expect(existsSync(join(redactedDir, ".pgdelta-export.json"))).toBe(true);
       expect(manifestOf(redactedDir).redactSecrets).toBe(true);
+      // the projection profile is recorded too (default is raw)
+      expect(manifestOf(redactedDir).profile).toBe("raw");
 
       const unsafeDir = join(tmpdir(), `pgdn-exp-unsafe-${Date.now()}`);
       expect(

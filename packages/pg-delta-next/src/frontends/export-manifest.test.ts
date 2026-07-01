@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   EXPORT_MANIFEST_FILE,
-  readExportManifestRedactSecrets,
+  readExportManifest,
   writeExportManifest,
 } from "./export-manifest.ts";
 
@@ -21,25 +21,28 @@ afterEach(() => {
 });
 
 describe("export manifest", () => {
-  test("round-trips the redaction mode", () => {
-    writeExportManifest(dir, false);
-    expect(readExportManifestRedactSecrets(dir)).toBe(false);
-    writeExportManifest(dir, true);
-    expect(readExportManifestRedactSecrets(dir)).toBe(true);
+  test("round-trips the redaction mode and profile", () => {
+    writeExportManifest(dir, { redactSecrets: false, profile: "supabase" });
+    expect(readExportManifest(dir)).toEqual({
+      redactSecrets: false,
+      profile: "supabase",
+    });
+    writeExportManifest(dir, { redactSecrets: true });
+    expect(readExportManifest(dir)).toEqual({ redactSecrets: true });
   });
 
   test("returns undefined when no manifest exists (older / hand-authored dir)", () => {
-    expect(readExportManifestRedactSecrets(dir)).toBeUndefined();
+    expect(readExportManifest(dir)).toBeUndefined();
   });
 
-  test("returns undefined for a malformed or fieldless manifest", () => {
+  test("drops malformed / wrong-typed fields", () => {
     writeFileSync(join(dir, EXPORT_MANIFEST_FILE), "{ not json", "utf8");
-    expect(readExportManifestRedactSecrets(dir)).toBeUndefined();
+    expect(readExportManifest(dir)).toBeUndefined();
     writeFileSync(
       join(dir, EXPORT_MANIFEST_FILE),
-      `{"formatVersion":1}`,
+      `{"formatVersion":1,"redactSecrets":"yes","profile":3}`,
       "utf8",
     );
-    expect(readExportManifestRedactSecrets(dir)).toBeUndefined();
+    expect(readExportManifest(dir)).toEqual({});
   });
 });
