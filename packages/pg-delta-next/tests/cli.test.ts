@@ -43,6 +43,71 @@ const SCHEMA_SQL = `
   CREATE INDEX items_name_idx ON clitest.items (name);
 `;
 
+describe("CLI: --help", () => {
+  test("does not recommend apply --force for unsafe plans", async () => {
+    const res = await runCli(["--help"]);
+    expect(res.exitCode).toBe(0);
+    // RED before the fix: help said an unredacted plan "requires apply --force".
+    // apply/prove now re-extract with the plan's stamped redaction mode.
+    expect(res.stdout).not.toMatch(/requires\s+"?apply --force/i);
+    expect(res.stdout).toContain("re-extract");
+  }, 30_000);
+});
+
+describe("CLI: prove redaction guard", () => {
+  test("rejects a snapshot whose redaction mode differs from the plan (before touching the clone)", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_prove_guard");
+    try {
+      await source.pool.query(SCHEMA_SQL);
+
+      // a DEFAULT-redacted plan (no --unsafe-show-secrets) → redactSecrets:true
+      const planFile = join(tmpdir(), `pgdn-prove-plan-${Date.now()}.json`);
+      const planned = await runCli([
+        "plan",
+        "--source",
+        source.uri,
+        "--desired",
+        source.uri,
+        "--out",
+        planFile,
+      ]);
+      expect(planned.exitCode).toBe(0);
+
+      // an UNSAFE snapshot (redactSecrets:false) — mismatched mode
+      const snapFile = join(tmpdir(), `pgdn-prove-snap-${Date.now()}.json`);
+      const snapped = await runCli([
+        "snapshot",
+        "--source",
+        source.uri,
+        "--out",
+        snapFile,
+        "--unsafe-show-secrets",
+      ]);
+      expect(snapped.exitCode).toBe(0);
+
+      // clone URL is never dialed — the guard exits before opening it.
+      const res = await runCli([
+        "prove",
+        "--plan",
+        planFile,
+        "--clone",
+        "postgres://unused.invalid:5432/nope",
+        "--desired-snapshot",
+        snapFile,
+      ]);
+      // RED before the fix: prove would proceed, mutate the clone, and only then
+      // fail the proof spuriously on placeholder-vs-real secrets.
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 2,
+      });
+      expect(res.stderr).toMatch(/redaction mode/i);
+    } finally {
+      await source.drop();
+    }
+  }, 60_000);
+});
+
 describe("CLI: snapshot", () => {
   test("snapshot writes a loadable file whose rootHash round-trips", async () => {
     const cluster = await sharedCluster();
