@@ -595,6 +595,48 @@ describe("CLI: schema apply reorder safety", () => {
     }
   }, 90_000);
 
+  test("ALTER DEFAULT PRIVILEGES files warn that raw load may apply ADP after same-load objects", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_reorder_adp_shadow");
+    const target = await cluster.createDb("cli_reorder_adp_tgt");
+    try {
+      const dir = join(tmpdir(), `pg-delta-next-reorder-adp-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "01_schema.sql"), `CREATE SCHEMA app;\n`);
+      writeFileSync(
+        join(dir, "02_adp.sql"),
+        `ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT SELECT ON TABLES TO PUBLIC;\n`,
+      );
+      writeFileSync(
+        join(dir, "03_table.sql"),
+        `CREATE TABLE app.widget (id integer PRIMARY KEY);\n`,
+      );
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+      ]);
+
+      expect(res.exitCode).toBe(0);
+      // ADP present → reorder disabled, raw load, and the caveat is surfaced (no
+      // silent limitation): objects relying on ADP-implicit grants may miss them.
+      expect(res.stderr).toContain("reorder assist disabled");
+      expect(res.stderr).toMatch(
+        /raw loading may apply ALTER DEFAULT PRIVILEGES AFTER objects/i,
+      );
+    } finally {
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 90_000);
+
   test("session-setting statements force raw loading, not reorder", async () => {
     const cluster = await sharedCluster();
     const shadow = await cluster.createDb("cli_reorder_ss_shadow");
