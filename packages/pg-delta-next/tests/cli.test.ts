@@ -106,6 +106,63 @@ describe("CLI: prove redaction guard", () => {
       await source.drop();
     }
   }, 60_000);
+
+  test("treats an unstamped (pre-metadata) snapshot as redacted and rejects an unsafe plan", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_prove_unstamped");
+    try {
+      await source.pool.query(SCHEMA_SQL);
+
+      // an UNSAFE plan (redactSecrets:false)
+      const planFile = join(tmpdir(), `pgdn-prove-unsafe-${Date.now()}.json`);
+      expect(
+        (
+          await runCli([
+            "plan",
+            "--source",
+            source.uri,
+            "--desired",
+            source.uri,
+            "--out",
+            planFile,
+            "--unsafe-show-secrets",
+          ])
+        ).exitCode,
+      ).toBe(0);
+
+      // a snapshot with the redactSecrets field STRIPPED (simulating one written
+      // before the metadata existed) — deserializes with redactSecrets undefined.
+      const snapFile = join(
+        tmpdir(),
+        `pgdn-prove-unstamped-${Date.now()}.json`,
+      );
+      expect(
+        (await runCli(["snapshot", "--source", source.uri, "--out", snapFile]))
+          .exitCode,
+      ).toBe(0);
+      const doc = JSON.parse(readFileSync(snapFile, "utf8"));
+      delete doc.redactSecrets; // digest excludes it, so the file stays valid
+      writeFileSync(snapFile, JSON.stringify(doc), "utf8");
+
+      const res = await runCli([
+        "prove",
+        "--plan",
+        planFile,
+        "--clone",
+        "postgres://unused.invalid:5432/nope",
+        "--desired-snapshot",
+        snapFile,
+      ]);
+      // RED before the fix: undefined snapshot mode skipped the guard, so prove
+      // proceeded and would fail spuriously after mutating the clone.
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 2,
+      });
+      expect(res.stderr).toMatch(/redaction mode/i);
+    } finally {
+      await source.drop();
+    }
+  }, 60_000);
 });
 
 describe("CLI: snapshot", () => {
