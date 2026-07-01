@@ -694,6 +694,49 @@ describe("CLI: schema apply reorder safety", () => {
     }
   }, 90_000);
 
+  test("--no-reorder still warns about ADP raw-load ordering (every raw path)", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_noreorder_adp_shadow");
+    const target = await cluster.createDb("cli_noreorder_adp_tgt");
+    try {
+      const dir = join(tmpdir(), `pg-delta-next-noreorder-adp-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "01_schema.sql"), `CREATE SCHEMA app;\n`);
+      writeFileSync(
+        join(dir, "02_adp.sql"),
+        `ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT SELECT ON TABLES TO PUBLIC;\n`,
+      );
+      writeFileSync(
+        join(dir, "03_table.sql"),
+        `CREATE TABLE app.widget (id integer PRIMARY KEY);\n`,
+      );
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+        "--no-reorder",
+      ]);
+
+      expect(res.exitCode).toBe(0);
+      // --no-reorder skips the diagnostics branch entirely (no "reorder assist
+      // disabled"), but the ADP caveat must STILL surface on this raw path.
+      expect(res.stderr).not.toContain("reorder assist disabled");
+      expect(res.stderr).toMatch(
+        /raw loading may apply ALTER DEFAULT PRIVILEGES AFTER objects/i,
+      );
+    } finally {
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 90_000);
+
   test("session-setting statements force raw loading, not reorder", async () => {
     const cluster = await sharedCluster();
     const shadow = await cluster.createDb("cli_reorder_ss_shadow");
@@ -978,6 +1021,103 @@ describe("CLI: secret redaction surface", () => {
       await source.drop();
     }
   }, 90_000);
+
+  test("schema export records its redaction mode in a manifest", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_export_manifest_src");
+    try {
+      await source.pool.query(FDW_SQL);
+      const { existsSync } = await import("node:fs");
+      const manifestOf = (dir: string) =>
+        JSON.parse(readFileSync(join(dir, ".pgdelta-export.json"), "utf8"));
+
+      const redactedDir = join(tmpdir(), `pgdn-exp-red-${Date.now()}`);
+      expect(
+        (
+          await runCli([
+            "schema",
+            "export",
+            "--source",
+            source.uri,
+            "--out-dir",
+            redactedDir,
+          ])
+        ).exitCode,
+      ).toBe(0);
+      expect(existsSync(join(redactedDir, ".pgdelta-export.json"))).toBe(true);
+      expect(manifestOf(redactedDir).redactSecrets).toBe(true);
+
+      const unsafeDir = join(tmpdir(), `pgdn-exp-unsafe-${Date.now()}`);
+      expect(
+        (
+          await runCli([
+            "schema",
+            "export",
+            "--source",
+            source.uri,
+            "--out-dir",
+            unsafeDir,
+            "--unsafe-show-secrets",
+          ])
+        ).exitCode,
+      ).toBe(0);
+      expect(manifestOf(unsafeDir).redactSecrets).toBe(false);
+    } finally {
+      await source.drop();
+    }
+  }, 90_000);
+
+  test("schema apply honors the export manifest's unsafe mode without --unsafe-show-secrets", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_manifest_apply_shadow");
+    const target = await cluster.createDb("cli_manifest_apply_tgt");
+    try {
+      // a declarative dir carrying a REAL credential plus a manifest recording
+      // the unsafe mode (as `schema export --unsafe-show-secrets` would write).
+      const dir = join(tmpdir(), `pg-delta-next-manifest-apply-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "01_fdw.sql"),
+        `CREATE FOREIGN DATA WRAPPER cli_manifest_fdw;\n` +
+          `CREATE SERVER cli_manifest_srv FOREIGN DATA WRAPPER cli_manifest_fdw\n` +
+          `  OPTIONS (host 'h.example.com', password 'manifest-secret-xyz');\n`,
+      );
+      writeFileSync(
+        join(dir, ".pgdelta-export.json"),
+        JSON.stringify({ formatVersion: 1, redactSecrets: false }),
+        "utf8",
+      );
+
+      // NOTE: no --unsafe-show-secrets flag — the manifest must drive the mode.
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+      ]);
+      // RED before the fix: apply re-extracted redacted, so the target stored
+      // '__OPTION_PASSWORD__' instead of the exported credential.
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 0,
+      });
+      expect(res.stderr).toContain("Secret redaction is DISABLED");
+
+      const { rows } = await target.pool.query<{ srvoptions: string[] }>(
+        `SELECT srvoptions FROM pg_foreign_server WHERE srvname = 'cli_manifest_srv'`,
+      );
+      const opts = (rows[0]?.srvoptions ?? []).join(",");
+      expect(opts).toContain("password=manifest-secret-xyz");
+      expect(opts).not.toContain("__OPTION_PASSWORD__");
+    } finally {
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 120_000);
 });
 
 describe("CLI: schema lint", () => {
