@@ -47,7 +47,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join, dirname, resolve, sep } from "node:path";
+import { join, dirname, relative, resolve, sep } from "node:path";
 import {
   exportSqlFiles,
   type ExportGrouping,
@@ -56,7 +56,7 @@ import {
 import type { SqlFormatOptions } from "../../frontends/sql-format/index.ts";
 import { pruneStaleSqlFiles } from "../../frontends/prune-sql-files.ts";
 import {
-  readExportManifestRedactSecrets,
+  readExportManifest,
   writeExportManifest,
 } from "../../frontends/export-manifest.ts";
 import {
@@ -83,12 +83,21 @@ import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
 import { parseFlags, UsageError } from "../flags.ts";
-import { PROFILE_IDS, resolveCliProfile } from "../profile.ts";
+import {
+  effectiveProfileId,
+  PROFILE_IDS,
+  resolveCliProfile,
+} from "../profile.ts";
 import type { RenameMode } from "../../plan/renames.ts";
 import type { SqlFile } from "../../frontends/load-sql-files.ts";
 
-/** Recursively collect *.sql files in lexicographic order. */
-function collectSqlFiles(dir: string): SqlFile[] {
+/** Recursively collect *.sql files in lexicographic order. Exported for tests. */
+export function collectSqlFiles(dir: string): SqlFile[] {
+  // Derive names from the NORMALIZED root, not by slicing the raw `--dir` string:
+  // a trailing slash or non-normalized segment would make `dir.length + 1` drop
+  // the first character of every relative path (`01_schema.sql` → `1_schema.sql`),
+  // corrupting the lexicographic order the raw loader relies on (review P2).
+  const root = resolve(dir);
   const result: SqlFile[] = [];
   const recurse = (current: string): void => {
     const entries = readdirSync(current).sort();
@@ -99,13 +108,13 @@ function collectSqlFiles(dir: string): SqlFile[] {
         recurse(full);
       } else if (entry.endsWith(".sql")) {
         result.push({
-          name: full.slice(dir.length + 1), // relative path from dir
+          name: relative(root, full), // relative path from the normalized dir
           sql: readFileSync(full, "utf8"),
         });
       }
     }
   };
-  recurse(dir);
+  recurse(root);
   return result;
 }
 
@@ -296,10 +305,16 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       mkdirSync(dirname(full), { recursive: true });
       writeFileSync(full, file.sql, "utf8");
     }
-    // Record the redaction mode so `schema apply --dir` re-extracts the shadow
-    // with the SAME mode (an --unsafe-show-secrets export must round-trip real
-    // credentials, not have them redacted back to placeholders — review P2).
-    writeExportManifest(outRoot, redactSecrets);
+    // Record the redaction mode AND the projection profile so `schema apply
+    // --dir` re-extracts the shadow with the SAME mode and defaults to the SAME
+    // profile — otherwise an --unsafe-show-secrets export would be redacted back
+    // to placeholders, or a --profile supabase export applied as raw would read
+    // the target's platform state as drift and drop it (review P1/P2).
+    const exportProfileId = ctx.planOptions.profile?.id;
+    writeExportManifest(outRoot, {
+      redactSecrets,
+      ...(exportProfileId !== undefined ? { profile: exportProfileId } : {}),
+    });
     process.stderr.write(
       `Exported ${files.length} file(s) to ${outDir} (layout: ${layout})\n`,
     );
@@ -379,6 +394,37 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     }
   }
 
+  // Refuse an empty directory up front: `collectSqlFiles` returning [] would
+  // build an EMPTY shadow, so the plan (live target → empty desired) would drop
+  // every managed object on the target. A wrong/empty --dir must be a loud error,
+  // not a silent destructive plan (review P1).
+  const files = collectSqlFiles(dir);
+  if (files.length === 0) {
+    process.stderr.write(
+      `schema apply: no .sql files found under ${dir}. Refusing to apply an empty desired state (it would drop every managed object on the target). Check the --dir path.\n`,
+    );
+    process.exit(2);
+  }
+
+  // The profile MUST match the one the directory was exported with: `schema
+  // export --profile supabase` projects out platform schemas/roles, so applying
+  // that directory under the default (raw) profile would extract the target's
+  // platform state as drift and plan destructive drops. Default to the profile
+  // stamped in the export manifest and reject a contradicting --profile before
+  // opening any connection, exactly as `apply`/`prove` reconcile plan artifacts
+  // (review P1).
+  const manifestProfile = readExportManifest(dir)?.profile;
+  let profileId: string | undefined;
+  try {
+    profileId = effectiveProfileId(flags["profile"], manifestProfile);
+  } catch (err) {
+    if (err instanceof UsageError) {
+      process.stderr.write(`${err.message}\n`);
+      process.exit(2);
+    }
+    throw err;
+  }
+
   const shadow = makePool(shadowUrl);
   const tgt = makePool(targetUrl);
   try {
@@ -386,12 +432,11 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     // composes handler-aware extraction, policy, baseline, and — with
     // --restrict-to-applier — the applier capability, exactly as the DB-to-DB
     // `plan` command does, so SQL-file apply == DB-to-DB plan (review P1).
-    const ctx = await resolveCliProfile(tgt.pool, flags["profile"], {
+    const ctx = await resolveCliProfile(tgt.pool, profileId, {
       restrictToApplier: flags["restrict-to-applier"],
     });
 
     process.stderr.write("Loading SQL files into shadow...\n");
-    const files = collectSqlFiles(dir);
     process.stderr.write(`  ${files.length} file(s) found\n`);
 
     // Reorder is on by default: split files into one-statement units and
@@ -522,7 +567,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     // silently applied unredacted). The flag remains the fallback for directories
     // without a manifest (older exports / hand-authored dirs).
     const redactSecrets =
-      readExportManifestRedactSecrets(dir) ?? !flags["unsafe-show-secrets"];
+      readExportManifest(dir)?.redactSecrets ?? !flags["unsafe-show-secrets"];
 
     // the shadow desired state must be projected with the SAME handlers as the
     // target, so pass the profile extractor through to loadSqlFiles.
