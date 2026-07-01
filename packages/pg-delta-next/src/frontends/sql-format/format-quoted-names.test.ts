@@ -31,6 +31,18 @@ describe("formatting preserves clauses after a quoted object name", () => {
     expect(result).toContain("OPTIONS");
   });
 
+  test("foreign server keeps an unquoted keyword-like FDW name (e.g. options)", () => {
+    // the FDW name `options` is an unquoted non-reserved keyword; it must not be
+    // mistaken for an OPTIONS clause start (which would drop the wrapper name).
+    const sql = `CREATE SERVER srv FOREIGN DATA WRAPPER options OPTIONS (host 'h')`;
+    const [result] = formatSqlStatements([sql]);
+    expect(result).toContain("FOREIGN DATA WRAPPER options");
+    expect(result).not.toContain('"AS');
+    // still exactly one OPTIONS clause (the real one), name not swallowed
+    expect(result).toContain("OPTIONS");
+    expect(result).toContain("host 'h'");
+  });
+
   test("subscription keeps CONNECTION conninfo", () => {
     const sql =
       `CREATE SUBSCRIPTION "sub" CONNECTION 'host=h dbname=d' ` +

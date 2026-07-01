@@ -516,8 +516,49 @@ describe("CLI: schema apply guards", () => {
       expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
         code: 2,
       });
-      expect(res.stderr).toMatch(/no \.sql files found/i);
+      expect(res.stderr).toMatch(/no executable SQL/i);
       // the target's objects are untouched
+      const { rows } = await target.pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'clitest'`,
+      );
+      expect(rows[0]?.n).toBe(1);
+    } finally {
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 60_000);
+
+  test("refuses a directory whose only .sql is comment-only", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_commentonly_shadow");
+    const target = await cluster.createDb("cli_commentonly_tgt");
+    try {
+      await target.pool.query(SCHEMA_SQL); // target HAS managed objects
+      const dir = join(tmpdir(), `pg-delta-next-commentonly-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      // a placeholder file with no executable SQL (line + block comments only)
+      writeFileSync(
+        join(dir, "01_note.sql"),
+        `-- just a placeholder\n/* nothing to apply here */\n`,
+      );
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+      ]);
+      // RED before the fix: the filename count was > 0, so apply loaded an empty
+      // shadow and planned to drop the target's objects. Now it aborts (exit 2).
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 2,
+      });
+      expect(res.stderr).toMatch(/no executable SQL/i);
       const { rows } = await target.pool.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'clitest'`,
       );
