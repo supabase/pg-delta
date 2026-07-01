@@ -82,9 +82,10 @@ Notes:
   --unsafe-show-secrets (plan, diff, drift, snapshot, schema export, schema apply):
     emit REAL foreign-data option values and subscription conninfo instead of
     redacted placeholders. Off by default; raises a loud warning when set.
-    Only for output destined for a trusted target. An unredacted plan's
-    fingerprint differs from a default (redacted) re-extract, so applying one
-    requires "apply --force".
+    Only for output destined for a trusted target. An unredacted plan stamps its
+    redaction mode on the artifact; "apply" and "prove" re-extract the target with
+    that same mode, so the fingerprint gate passes without "--force". Snapshots
+    likewise record their mode so "drift" re-extracts identically.
 
 Old → New mapping:
   plan              -> plan
