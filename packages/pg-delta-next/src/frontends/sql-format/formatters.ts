@@ -913,6 +913,21 @@ export function formatCreateServer(
       restTokens[i + 2]?.upper === "WRAPPER"
     ) {
       clauseStarts.push(rtok.start);
+      // Skip the FDW NAME that follows WRAPPER: an unquoted, non-reserved name
+      // (e.g. `FOREIGN DATA WRAPPER options`) is itself tokenized and would be
+      // misread as a TYPE/VERSION/OPTIONS clause start, dropping the name and
+      // producing invalid SQL. identifierEnd handles quoted and unquoted names;
+      // advance past every token that falls within DATA/WRAPPER/<name> (review P2).
+      const wrapper = restTokens[i + 2];
+      if (wrapper !== undefined) {
+        const nameEnd = identifierEnd(rest, wrapper.end);
+        while (
+          i + 1 < restTokens.length &&
+          (restTokens[i + 1] as Token).start < nameEnd
+        ) {
+          i += 1;
+        }
+      }
     }
   }
 

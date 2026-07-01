@@ -54,6 +54,7 @@ import {
   type ExportGroupingPattern,
 } from "../../frontends/export-sql-files.ts";
 import type { SqlFormatOptions } from "../../frontends/sql-format/index.ts";
+import { scanTokens } from "../../frontends/sql-format/tokenizer.ts";
 import { pruneStaleSqlFiles } from "../../frontends/prune-sql-files.ts";
 import {
   readExportManifest,
@@ -116,6 +117,41 @@ export function collectSqlFiles(dir: string): SqlFile[] {
   };
   recurse(root);
   return result;
+}
+
+/**
+ * Write the exported SQL files and the `.pgdelta-export.json` manifest under
+ * `outRoot`, returning the stale files pruned. Exported for tests.
+ *
+ * Creates `outRoot` up front: a database with no managed objects legitimately
+ * yields zero files, and the per-file loop (which only mkdirs each file's parent)
+ * would then never create the root, so the manifest write would ENOENT (review
+ * P2). Stale `.sql` files from a previous export are pruned first so a dropped
+ * object's file can't linger and be reloaded (only `.sql` not in the new set;
+ * non-SQL untouched).
+ */
+export function writeExportFiles(
+  outRoot: string,
+  files: SqlFile[],
+  manifest: { redactSecrets: boolean; profile?: string },
+): string[] {
+  mkdirSync(outRoot, { recursive: true });
+  const keep = new Set(files.map((file) => join(outRoot, file.name)));
+  const removed = pruneStaleSqlFiles(outRoot, keep);
+  for (const file of files) {
+    const full = join(outRoot, file.name);
+    // defense-in-depth (review P2): even with per-segment encoding in
+    // exportSqlFiles, never let a database identifier escape the output dir.
+    if (full !== outRoot && !full.startsWith(outRoot + sep)) {
+      throw new Error(
+        `export: refusing to write outside ${outRoot}: ${file.name}`,
+      );
+    }
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, file.sql, "utf8");
+  }
+  writeExportManifest(outRoot, manifest);
+  return removed;
 }
 
 export async function cmdSchemaExport(args: string[]): Promise<void> {
@@ -283,38 +319,21 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     });
 
     const outRoot = resolve(outDir);
-    const keep = new Set(files.map((file) => resolve(outDir, file.name)));
-    // Remove stale `.sql` files from a previous export first (a dropped object's
-    // file would otherwise linger and be reloaded by `schema apply --dir`, review
-    // P2). Only prunes managed `.sql` files not in the new set; non-SQL untouched.
-    const removed = pruneStaleSqlFiles(outRoot, keep);
-    if (removed.length > 0) {
-      process.stderr.write(
-        `Removed ${removed.length} stale .sql file(s) from ${outDir}\n`,
-      );
-    }
-    for (const file of files) {
-      const full = resolve(outDir, file.name);
-      // defense-in-depth (review P2): even with per-segment encoding in
-      // exportSqlFiles, never let a database identifier escape the output dir.
-      if (full !== outRoot && !full.startsWith(outRoot + sep)) {
-        throw new Error(
-          `export: refusing to write outside ${outDir}: ${file.name}`,
-        );
-      }
-      mkdirSync(dirname(full), { recursive: true });
-      writeFileSync(full, file.sql, "utf8");
-    }
     // Record the redaction mode AND the projection profile so `schema apply
     // --dir` re-extracts the shadow with the SAME mode and defaults to the SAME
     // profile — otherwise an --unsafe-show-secrets export would be redacted back
     // to placeholders, or a --profile supabase export applied as raw would read
     // the target's platform state as drift and drop it (review P1/P2).
     const exportProfileId = ctx.planOptions.profile?.id;
-    writeExportManifest(outRoot, {
+    const removed = writeExportFiles(outRoot, files, {
       redactSecrets,
       ...(exportProfileId !== undefined ? { profile: exportProfileId } : {}),
     });
+    if (removed.length > 0) {
+      process.stderr.write(
+        `Removed ${removed.length} stale .sql file(s) from ${outDir}\n`,
+      );
+    }
     process.stderr.write(
       `Exported ${files.length} file(s) to ${outDir} (layout: ${layout})\n`,
     );
@@ -394,14 +413,18 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     }
   }
 
-  // Refuse an empty directory up front: `collectSqlFiles` returning [] would
-  // build an EMPTY shadow, so the plan (live target → empty desired) would drop
-  // every managed object on the target. A wrong/empty --dir must be a loud error,
+  // Refuse a directory with no EXECUTABLE SQL up front: a missing/wrong --dir, or
+  // one holding only placeholder/comment-only `.sql` files, would build an EMPTY
+  // shadow, so the plan (live target → empty desired) would drop every managed
+  // object on the target. Counting filenames is not enough — a comment-only file
+  // still yields no desired objects — so require at least one real SQL token
+  // (scanTokens skips comments/strings). A wrong/empty --dir must be a loud error,
   // not a silent destructive plan (review P1).
   const files = collectSqlFiles(dir);
-  if (files.length === 0) {
+  const hasExecutableSql = files.some((f) => scanTokens(f.sql).length > 0);
+  if (!hasExecutableSql) {
     process.stderr.write(
-      `schema apply: no .sql files found under ${dir}. Refusing to apply an empty desired state (it would drop every managed object on the target). Check the --dir path.\n`,
+      `schema apply: no executable SQL found under ${dir} (${files.length} file(s), all missing/empty/comment-only). Refusing to apply an empty desired state (it would drop every managed object on the target). Check the --dir path.\n`,
     );
     process.exit(2);
   }
