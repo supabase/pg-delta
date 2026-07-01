@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { loadSnapshot } from "../src/frontends/snapshot-file.ts";
-import { sharedCluster } from "./containers.ts";
+import { isolatedClusterPair, sharedCluster } from "./containers.ts";
 
 const PKG_DIR = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const CLI = join(PKG_DIR, "src/cli/main.ts");
@@ -320,6 +320,47 @@ describe("CLI: schema export", () => {
       await source.drop();
     }
   }, 60_000);
+
+  test("re-export removes the stale file of a dropped object", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_reexport_src");
+    try {
+      await source.pool.query(SCHEMA_SQL);
+      await source.pool.query(
+        `CREATE TABLE clitest.gone (id integer PRIMARY KEY);`,
+      );
+
+      const outDir = join(tmpdir(), `pg-delta-next-reexport-${Date.now()}`);
+      mkdirSync(outDir, { recursive: true });
+      const args = [
+        "schema",
+        "export",
+        "--source",
+        source.uri,
+        "--out-dir",
+        outDir,
+      ];
+
+      expect((await runCli(args)).exitCode).toBe(0);
+      const { existsSync } = await import("node:fs");
+      const goneFile = join(outDir, "schemas/clitest/tables/gone.sql");
+      expect(existsSync(goneFile)).toBe(true);
+
+      // drop the object and re-export into the SAME dir.
+      await source.pool.query(`DROP TABLE clitest.gone;`);
+      const re = await runCli(args);
+      expect(re.exitCode).toBe(0);
+
+      // RED before the fix: the loop only overwrote new paths, so gone.sql
+      // lingered and `schema apply --dir` would reload the dropped table.
+      expect(existsSync(goneFile)).toBe(false);
+      expect(existsSync(join(outDir, "schemas/clitest/tables/items.sql"))).toBe(
+        true,
+      );
+    } finally {
+      await source.drop();
+    }
+  }, 90_000);
 });
 
 // REVIEW_HANDOFF.md P1: schema export/apply must be profile-aware like `plan`,
@@ -401,6 +442,51 @@ describe("CLI: schema profile-awareness", () => {
       await Promise.all([shadow.drop(), target.drop()]);
     }
   }, 90_000);
+});
+
+// A declarative dir with cluster-level role state trips the default
+// databaseScratch leak guard; --isolated-shadow (dedicated shadow cluster) lets
+// it load (review P2).
+describe("CLI: schema apply --isolated-shadow", () => {
+  test("role-containing export reloads with --isolated-shadow on a dedicated cluster", async () => {
+    const [shadowCluster, targetCluster] = await isolatedClusterPair();
+    const shadow = await shadowCluster.createDb("cli_iso_shadow");
+    const target = await targetCluster.createDb("cli_iso_tgt");
+    try {
+      const dir = join(tmpdir(), `pg-delta-next-iso-${Date.now()}`);
+      mkdirSync(join(dir, "cluster"), { recursive: true });
+      writeFileSync(
+        join(dir, "cluster/roles.sql"),
+        `CREATE ROLE cli_iso_role_xyz NOLOGIN;\n`,
+      );
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+        "--isolated-shadow",
+      ]);
+
+      // RED before the fix: `--isolated-shadow` is unknown, so schema apply exits
+      // 2; without it the databaseScratch leak guard rejects the CREATE ROLE.
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 0,
+      });
+      const { rows } = await target.pool.query<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'cli_iso_role_xyz') AS exists`,
+      );
+      expect(rows[0]?.exists).toBe(true);
+    } finally {
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 120_000);
 });
 
 // The reorder assist is on by default (target-arch §4.4.1) but must NOT silently
@@ -690,6 +776,44 @@ describe("CLI: secret redaction surface", () => {
       await Promise.all([target.drop(), desired.drop()]);
     }
   }, 120_000);
+
+  test("snapshot --unsafe-show-secrets then drift reports no drift for an unchanged secret (mode derived from the snapshot)", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_drift_secret");
+    try {
+      await source.pool.query(FDW_SQL);
+
+      const snapFile = join(tmpdir(), `pgdn-drift-secret-${Date.now()}.json`);
+      const snap = await runCli([
+        "snapshot",
+        "--source",
+        source.uri,
+        "--out",
+        snapFile,
+        "--unsafe-show-secrets",
+      ]);
+      expect(snap.exitCode).toBe(0);
+
+      // drift WITHOUT re-passing --unsafe-show-secrets: the mode must be derived
+      // from the snapshot, so the unredacted server option is compared against an
+      // equally-unredacted live extract.
+      const drift = await runCli([
+        "drift",
+        "--env",
+        source.uri,
+        "--snapshot",
+        snapFile,
+      ]);
+      // RED before the fix: drift defaults to a redacted live extract, so the
+      // real-vs-placeholder server option shows as spurious drift (exit 1).
+      expect({ code: drift.exitCode, stdout: drift.stdout }).toMatchObject({
+        code: 0,
+      });
+      expect(drift.stdout).toContain("No drift");
+    } finally {
+      await source.drop();
+    }
+  }, 90_000);
 });
 
 describe("CLI: schema lint", () => {
