@@ -5,10 +5,8 @@ import type { PayloadValue } from "../../core/hash.ts";
 import { lit, qid, splitOption } from "../render.ts";
 import type { ActionSpec, KindRules } from "../rules.ts";
 import {
-  DEFACL_OBJTYPE,
-  defaultPrivConsumes,
-  defaultPrivilegeActions,
-  defaultPrivPrefix,
+  defaultPrivilegeCreateActions,
+  defaultPrivilegeDropActions,
   p,
   renameRule,
   ROLE_FLAGS,
@@ -128,20 +126,8 @@ export const roleRules: Record<string, KindRules> = {
 
   defaultPrivilege: {
     weight: 22,
-    create: (fact) => defaultPrivilegeActions(fact, "GRANT"),
-    drop: (fact) => {
-      const id = fact.id as {
-        role: string;
-        schema: string | null;
-        objtype: string;
-        grantee: string;
-      };
-      const grantee = id.grantee === "PUBLIC" ? "PUBLIC" : qid(id.grantee);
-      return {
-        sql: `${defaultPrivPrefix(id)} REVOKE ALL ON ${DEFACL_OBJTYPE[id.objtype] ?? "TABLES"} FROM ${grantee}`,
-        consumes: defaultPrivConsumes(id),
-      };
-    },
+    create: (fact) => defaultPrivilegeCreateActions(fact),
+    drop: (fact) => defaultPrivilegeDropActions(fact),
     attributes: { privileges: "replace", grantable: "replace" },
   },
 };

@@ -444,10 +444,20 @@ export function defaultPrivConsumes(id: {
   return consumes;
 }
 
-export function defaultPrivilegeActions(
-  fact: Fact,
-  verb: "GRANT",
-): ActionSpec[] {
+/**
+ * A `defaultPrivilege` fact with EMPTY `privileges` is a synthesized marker for
+ * a REVOKED built-in default (e.g. `ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON
+ * FUNCTIONS FROM PUBLIC`): the grantee's built-in default was taken away. Its
+ * `_revokedDefault` carries the privileges that were removed so the DROP can
+ * restore them. A non-empty fact is an ordinary positive grant.
+ */
+function isRevokedDefaultMarker(fact: Fact): boolean {
+  return ((p(fact, "privileges") as string[]) ?? []).length === 0;
+}
+
+/** CREATE a default-privilege fact: GRANT the privileges, or — for a revoked
+ *  default marker — REVOKE the built-in default the marker records is gone. */
+export function defaultPrivilegeCreateActions(fact: Fact): ActionSpec[] {
   const id = fact.id as {
     role: string;
     schema: string | null;
@@ -456,25 +466,58 @@ export function defaultPrivilegeActions(
   };
   const grantee = id.grantee === "PUBLIC" ? "PUBLIC" : qid(id.grantee);
   const objtype = DEFACL_OBJTYPE[id.objtype] ?? "TABLES";
+  const consumes = defaultPrivConsumes(id);
+  if (isRevokedDefaultMarker(fact)) {
+    return [
+      {
+        sql: `${defaultPrivPrefix(id)} REVOKE ALL ON ${objtype} FROM ${grantee}`,
+        consumes,
+      },
+    ];
+  }
   const privileges = (p(fact, "privileges") as string[]) ?? [];
   const grantable = new Set((p(fact, "grantable") as string[]) ?? []);
   const plain = privileges.filter((priv) => !grantable.has(priv));
   const withOption = privileges.filter((priv) => grantable.has(priv));
-  const consumes = defaultPrivConsumes(id);
   const specs: ActionSpec[] = [];
   if (plain.length > 0) {
     specs.push({
-      sql: `${defaultPrivPrefix(id)} ${verb} ${plain.join(", ")} ON ${objtype} TO ${grantee}`,
+      sql: `${defaultPrivPrefix(id)} GRANT ${plain.join(", ")} ON ${objtype} TO ${grantee}`,
       consumes,
     });
   }
   if (withOption.length > 0) {
     specs.push({
-      sql: `${defaultPrivPrefix(id)} ${verb} ${withOption.join(", ")} ON ${objtype} TO ${grantee} WITH GRANT OPTION`,
+      sql: `${defaultPrivPrefix(id)} GRANT ${withOption.join(", ")} ON ${objtype} TO ${grantee} WITH GRANT OPTION`,
       consumes,
     });
   }
   return specs;
+}
+
+/** DROP a default-privilege fact: REVOKE the positive grant, or — for a revoked
+ *  default marker — GRANT the built-in default back (restoring it). */
+export function defaultPrivilegeDropActions(fact: Fact): ActionSpec {
+  const id = fact.id as {
+    role: string;
+    schema: string | null;
+    objtype: string;
+    grantee: string;
+  };
+  const grantee = id.grantee === "PUBLIC" ? "PUBLIC" : qid(id.grantee);
+  const objtype = DEFACL_OBJTYPE[id.objtype] ?? "TABLES";
+  const consumes = defaultPrivConsumes(id);
+  if (isRevokedDefaultMarker(fact)) {
+    const restored = (p(fact, "_revokedDefault") as string[]) ?? [];
+    return {
+      sql: `${defaultPrivPrefix(id)} GRANT ${restored.join(", ")} ON ${objtype} TO ${grantee}`,
+      consumes,
+    };
+  }
+  return {
+    sql: `${defaultPrivPrefix(id)} REVOKE ALL ON ${objtype} FROM ${grantee}`,
+    consumes,
+  };
 }
 
 /** The `rel [(cols)] [WHERE (…)]` member for a publicationRel fact, without the
