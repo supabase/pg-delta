@@ -1,0 +1,1 @@
+-- state A: built-in defaults — PUBLIC keeps its default USAGE on new types.
