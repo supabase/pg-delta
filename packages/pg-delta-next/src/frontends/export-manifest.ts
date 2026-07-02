@@ -26,11 +26,19 @@ export interface ExportManifest {
   redactSecrets?: boolean;
   /** the integration profile id the export was projected with (e.g. "supabase") */
   profile?: string;
+  /** the management scope the export was projected with. `database` omits
+   *  cluster-global roles/memberships; `cluster` includes them. `schema apply`
+   *  defaults to this and rejects a contradicting `--scope`. */
+  scope?: "database" | "cluster";
 }
 
 export function writeExportManifest(
   dir: string,
-  manifest: { redactSecrets: boolean; profile?: string },
+  manifest: {
+    redactSecrets: boolean;
+    profile?: string;
+    scope?: "database" | "cluster";
+  },
 ): void {
   writeFileSync(
     join(dir, EXPORT_MANIFEST_FILE),
@@ -59,6 +67,9 @@ export function readExportManifest(dir: string): ExportManifest | undefined {
   }
   if (typeof doc["profile"] === "string") {
     manifest.profile = doc["profile"];
+  }
+  if (doc["scope"] === "database" || doc["scope"] === "cluster") {
+    manifest.scope = doc["scope"];
   }
   return manifest;
 }

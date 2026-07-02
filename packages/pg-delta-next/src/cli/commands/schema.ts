@@ -61,10 +61,12 @@ import {
   writeExportManifest,
 } from "../../frontends/export-manifest.ts";
 import {
+  findClusterDdlStatements,
   findDefaultPrivilegeStatements,
   findSessionSettingStatements,
   loadSqlFiles,
   ShadowLoadError,
+  stripClusterDdl,
 } from "../../frontends/load-sql-files.ts";
 import {
   analyzeForShadow,
@@ -137,7 +139,11 @@ export function collectSqlFiles(dir: string): SqlFile[] {
 export function writeExportFiles(
   outRoot: string,
   files: SqlFile[],
-  manifest: { redactSecrets: boolean; profile?: string },
+  manifest: {
+    redactSecrets: boolean;
+    profile?: string;
+    scope?: "database" | "cluster";
+  },
 ): string[] {
   mkdirSync(outRoot, { recursive: true });
   const keep = new Set(files.map((file) => join(outRoot, file.name)));
@@ -173,12 +179,13 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       "flat-schemas": { type: "value" },
       "no-group-partitions": { type: "boolean" },
       "format-options": { type: "value" },
+      scope: { type: "value" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pg-delta-next schema export --source <pg-url> --out-dir <dir> ` +
-          `[--layout by-object|ordered|grouped] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets]\n` +
+          `[--layout by-object|ordered|grouped] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets] [--scope database|cluster]\n` +
           `  [--format-options '{"keywordCase":"upper","maxWidth":180}']  (pretty-print SQL; any layout)\n` +
           `  Grouped-layout options (only with --layout grouped):\n` +
           `    [--grouping-mode single-file|subdirectory] [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]\n`,
@@ -191,6 +198,19 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
   const { flags } = parsed;
   const sourceUrl = flags["source"];
   const outDir = flags["out-dir"];
+  // Management scope of the export (default database-local). `database` omits
+  // cluster-global roles/memberships so the directory reloads on any cluster;
+  // `cluster` includes them. Stamped in the manifest so `schema apply` matches.
+  let exportScope: ManagementScope = "database";
+  const exportScopeFlag = flags["scope"];
+  if (exportScopeFlag === "database" || exportScopeFlag === "cluster") {
+    exportScope = exportScopeFlag;
+  } else if (exportScopeFlag !== undefined) {
+    process.stderr.write(
+      `--scope must be database or cluster (got: ${exportScopeFlag})\n`,
+    );
+    process.exit(2);
+  }
   let layout: "by-object" | "ordered" | "grouped" = "by-object";
   if (flags["layout"] !== undefined) {
     const v = flags["layout"];
@@ -309,16 +329,30 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     const assumed = ctx.planOptions.policy
       ? flattenPolicy(ctx.planOptions.policy)
       : undefined;
-    const files = exportSqlFiles(view, {
+    // Database scope: drop cluster-global role/membership facts (and their owner
+    // edges) from the exported view, so no `cluster/roles.sql` is written and the
+    // directory reloads on any cluster. The projected-out roles become ambient,
+    // so a `GRANT … TO <role>` the export still emits must be assumed present, or
+    // the from-pristine export plan would fail its requirement guard.
+    const scopedView = projectManagementScope(view, exportScope);
+    const scopeAssumedRoles =
+      exportScope === "database"
+        ? view
+            .facts()
+            .filter((f) => f.id.kind === "role")
+            .map((f) => (f.id as { name: string }).name)
+        : [];
+    const assumedSchemas = assumed?.assumedSchemas ?? [];
+    const assumedRoles = [
+      ...(assumed?.assumedRoles ?? []),
+      ...scopeAssumedRoles,
+    ];
+    const files = exportSqlFiles(scopedView, {
       layout,
       ...(grouping !== undefined ? { grouping } : {}),
       ...(format !== undefined ? { format } : {}),
-      ...(assumed !== undefined
-        ? {
-            assumedSchemas: assumed.assumedSchemas,
-            assumedRoles: assumed.assumedRoles,
-          }
-        : {}),
+      ...(assumedSchemas.length > 0 ? { assumedSchemas } : {}),
+      ...(assumedRoles.length > 0 ? { assumedRoles } : {}),
       onWarning: (message) => process.stderr.write(`  WARNING: ${message}\n`),
     });
 
@@ -331,6 +365,7 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     const exportProfileId = ctx.planOptions.profile?.id;
     const removed = writeExportFiles(outRoot, files, {
       redactSecrets,
+      scope: exportScope,
       ...(exportProfileId !== undefined ? { profile: exportProfileId } : {}),
     });
     if (removed.length > 0) {
@@ -363,13 +398,14 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       "unsafe-show-secrets": { type: "boolean" },
       "isolated-shadow": { type: "boolean" },
       scope: { type: "value" },
+      "skip-cluster-ddl": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pg-delta-next schema apply --dir <dir> --shadow <pg-url> --target <pg-url> ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
-          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster]\n`,
+          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl]\n`,
       );
       process.exit(2);
     }
@@ -383,20 +419,43 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   const force = flags["force"];
   const acceptRenameRaw = flags["accept-rename"];
 
+  // The export directory's manifest (redaction mode, profile, scope), consulted
+  // once and reused. Absent for hand-authored dirs / older exports.
+  const manifest = readExportManifest(dir);
+
   // Management scope (declarative default: database-local). `cluster` scope
   // manages roles/memberships/ownership and therefore REQUIRES an isolated
   // shadow — loading cluster-global role DDL onto a shared shadow cluster would
   // mutate roles other databases use. `database` scope treats roles as ambient
-  // (assumed to exist at apply time) and never diffs them (§scope).
-  let scope: ManagementScope = "database";
+  // (assumed to exist at apply time) and never diffs them (§scope). Prefer the
+  // flag, else the manifest's scope, else database; reject a flag that
+  // contradicts the manifest (mirrors the profile reconciliation).
   const scopeFlag = flags["scope"];
-  if (scopeFlag === "database" || scopeFlag === "cluster") {
-    scope = scopeFlag;
-  } else if (scopeFlag !== undefined) {
+  if (
+    scopeFlag !== undefined &&
+    scopeFlag !== "database" &&
+    scopeFlag !== "cluster"
+  ) {
     process.stderr.write(
       `--scope must be database or cluster (got: ${scopeFlag})\n`,
     );
     process.exit(2);
+  }
+  if (
+    (scopeFlag === "database" || scopeFlag === "cluster") &&
+    manifest?.scope !== undefined &&
+    scopeFlag !== manifest.scope
+  ) {
+    process.stderr.write(
+      `--scope ${scopeFlag} contradicts the export manifest scope (${manifest.scope}); re-export or drop --scope.\n`,
+    );
+    process.exit(2);
+  }
+  let scope: ManagementScope = "database";
+  if (scopeFlag === "database" || scopeFlag === "cluster") {
+    scope = scopeFlag;
+  } else if (manifest?.scope !== undefined) {
+    scope = manifest.scope;
   }
   if (scope === "cluster" && !flags["isolated-shadow"]) {
     process.stderr.write(
@@ -447,13 +506,47 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   // still yields no desired objects — so require at least one real SQL token
   // (scanTokens skips comments/strings). A wrong/empty --dir must be a loud error,
   // not a silent destructive plan (review P1).
-  const files = collectSqlFiles(dir);
+  let files = collectSqlFiles(dir);
   const hasExecutableSql = files.some((f) => scanTokens(f.sql).length > 0);
   if (!hasExecutableSql) {
     process.stderr.write(
       `schema apply: no executable SQL found under ${dir} (${files.length} file(s), all missing/empty/comment-only). Refusing to apply an empty desired state (it would drop every managed object on the target). Check the --dir path.\n`,
     );
     process.exit(2);
+  }
+
+  // Database scope does not manage cluster-global roles/memberships. If the files
+  // carry role DDL, refuse up front (before the shadow load's leak guard would
+  // trip with a less-scoped message) — or, with --skip-cluster-ddl, drop those
+  // statements and load the rest, logging each skip (no silent miss).
+  if (scope === "database") {
+    const offenders = files
+      .map((f) => ({ name: f.name, labels: findClusterDdlStatements(f.sql) }))
+      .filter((x) => x.labels.length > 0);
+    if (offenders.length > 0) {
+      if (flags["skip-cluster-ddl"]) {
+        files = files.map((f) => {
+          const { kept, skipped } = stripClusterDdl(f.sql);
+          for (const s of skipped) {
+            process.stderr.write(
+              `  SKIP cluster DDL (--skip-cluster-ddl) in ${f.name}: ${s.split("\n")[0]}\n`,
+            );
+          }
+          return { ...f, sql: kept };
+        });
+      } else {
+        process.stderr.write(
+          `schema apply: --scope database does not manage cluster-global roles, but found cluster DDL:\n`,
+        );
+        for (const { name, labels } of offenders) {
+          process.stderr.write(`  ${name}: ${labels.join(", ")}\n`);
+        }
+        process.stderr.write(
+          `Use --scope cluster (with --isolated-shadow) to manage roles, or --skip-cluster-ddl to skip these statements.\n`,
+        );
+        process.exit(2);
+      }
+    }
   }
 
   // The profile MUST match the one the directory was exported with: `schema
@@ -463,7 +556,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   // stamped in the export manifest and reject a contradicting --profile before
   // opening any connection, exactly as `apply`/`prove` reconcile plan artifacts
   // (review P1).
-  const manifestProfile = readExportManifest(dir)?.profile;
+  const manifestProfile = manifest?.profile;
   let profileId: string | undefined;
   try {
     profileId = effectiveProfileId(flags["profile"], manifestProfile);
@@ -617,7 +710,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     // silently applied unredacted). The flag remains the fallback for directories
     // without a manifest (older exports / hand-authored dirs).
     const redactSecrets =
-      readExportManifest(dir)?.redactSecrets ?? !flags["unsafe-show-secrets"];
+      manifest?.redactSecrets ?? !flags["unsafe-show-secrets"];
 
     // the shadow desired state must be projected with the SAME handlers as the
     // target, so pass the profile extractor through to loadSqlFiles.

@@ -36,6 +36,7 @@ import {
   type ExtractResult,
 } from "../extract/extract.ts";
 import { notExtensionMember, USER_SCHEMA_FILTER } from "../extract/scope.ts";
+import { splitSqlStatements } from "./sql-format/format-utils.ts";
 
 /** SQLSTATE 25001 ("active_sql_transaction") — raised when a statement that
  *  cannot run inside a transaction block (CREATE INDEX CONCURRENTLY, VACUUM, …)
@@ -286,6 +287,64 @@ export function findDefaultPrivilegeStatements(sql: string): string[] {
     }
   }
   return found;
+}
+
+/** Cluster-global (not database-local) DDL: role lifecycle, role membership, and
+ *  role metadata. `schema apply --scope database` refuses these (or skips them
+ *  with `--skip-cluster-ddl`) because roles are shared across the cluster and are
+ *  not the declarative source's to manage in that scope. Membership grants are
+ *  distinguished from privilege grants by the absence of an `ON` target. */
+const CLUSTER_DDL_RULES: { re: RegExp; label: string }[] = [
+  { re: /^\s*create\s+(role|user|group)\b/i, label: "CREATE ROLE" },
+  { re: /^\s*alter\s+(role|user|group)\b/i, label: "ALTER ROLE" },
+  { re: /^\s*drop\s+(role|user|group)\b/i, label: "DROP ROLE" },
+  { re: /^\s*comment\s+on\s+role\b/i, label: "COMMENT ON ROLE" },
+  {
+    re: /^\s*security\s+label\b[\s\S]*\bon\s+role\b/i,
+    label: "SECURITY LABEL ON ROLE",
+  },
+  { re: /^\s*grant\b(?![\s\S]*\bon\b)/i, label: "GRANT (role membership)" },
+  { re: /^\s*revoke\b(?![\s\S]*\bon\b)/i, label: "REVOKE (role membership)" },
+];
+
+/** Labels of cluster-global DDL statements found at statement level (empty when
+ *  clean). Keywords inside comments / literals are ignored (same literal mask as
+ *  the other scanners). */
+export function findClusterDdlStatements(sql: string): string[] {
+  const skeleton = maskLiteralsAndComments(sql);
+  const found: string[] = [];
+  for (const raw of skeleton.split(";")) {
+    const stmt = raw.trim();
+    if (stmt === "") continue;
+    for (const { re, label } of CLUSTER_DDL_RULES) {
+      if (re.test(stmt)) {
+        found.push(label);
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+/** Partition `sql` into the statements that are NOT cluster-global DDL (`kept`,
+ *  rejoined and ready to load) and the cluster-DDL statements removed
+ *  (`skipped`, original text, for the skip ledger). Uses the block-aware
+ *  `splitSqlStatements` so function bodies etc. are not mis-split. */
+export function stripClusterDdl(sql: string): {
+  kept: string;
+  skipped: string[];
+} {
+  const keptParts: string[] = [];
+  const skipped: string[] = [];
+  for (const stmt of splitSqlStatements(sql)) {
+    const masked = maskLiteralsAndComments(stmt).trim();
+    if (masked !== "" && CLUSTER_DDL_RULES.some(({ re }) => re.test(masked))) {
+      skipped.push(stmt.trim());
+    } else {
+      keptParts.push(masked === "" ? stmt : `${stmt};`);
+    }
+  }
+  return { kept: keptParts.join("\n"), skipped };
 }
 
 export interface SqlFile {
