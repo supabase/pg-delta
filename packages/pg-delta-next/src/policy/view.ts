@@ -63,6 +63,42 @@ export function excludeFactsAndDescendants(
   return buildFactBase(keptFacts, keptEdges, fb.source);
 }
 
+/** Management scope of a declarative apply (target-architecture §scope). */
+export type ManagementScope = "database" | "cluster";
+
+/**
+ * Project a fact base to the given management scope.
+ *
+ * `"cluster"` returns `fb` unchanged (roles/memberships are managed state).
+ *
+ * `"database"` (the declarative default) removes `role` and `membership` facts —
+ * and, via edge pruning, the `owner` edges that point at them. Roles are
+ * cluster-global and shared across databases, so on a shared/co-located shadow
+ * the extract carries roles the declarative files never declared; diffing them
+ * would plan a spurious `CREATE ROLE` (shadow-only role) or a destructive
+ * `DROP ROLE` (target-only role). In database scope the caller instead passes
+ * the target's actual role names as `assumedRoles`, so a `GRANT … TO <role>`
+ * resolves against a role that exists at apply time (and one that does NOT fails
+ * loudly at plan time). Object ownership is therefore not managed in this scope;
+ * use `"cluster"` (with an isolated shadow) to manage roles and ownership.
+ *
+ * Symmetric by construction (same projection on both diff sides + the proof/
+ * fingerprint re-extract), so `plan == prove == run` holds.
+ */
+export function projectManagementScope(
+  fb: FactBase,
+  scope: ManagementScope,
+): FactBase {
+  if (scope === "cluster") return fb;
+  const roots = new Set<string>();
+  for (const fact of fb.facts()) {
+    if (fact.id.kind === "role" || fact.id.kind === "membership") {
+      roots.add(encodeId(fact.id));
+    }
+  }
+  return excludeFactsAndDescendants(fb, roots);
+}
+
 /**
  * Project OUT every fact carrying an outgoing edge of `edgeKind`, plus its
  * descendant subtree. Roots are selected by provenance; the removal + edge

@@ -79,6 +79,10 @@ import {
 } from "../reorder-display.ts";
 import { plan } from "../../plan/plan.ts";
 import { flattenPolicy, resolveView } from "../../policy/policy.ts";
+import {
+  type ManagementScope,
+  projectManagementScope,
+} from "../../policy/view.ts";
 import { apply } from "../../apply/apply.ts";
 import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
@@ -358,13 +362,14 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       "no-reorder": { type: "boolean" },
       "unsafe-show-secrets": { type: "boolean" },
       "isolated-shadow": { type: "boolean" },
+      scope: { type: "value" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pg-delta-next schema apply --dir <dir> --shadow <pg-url> --target <pg-url> ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
-          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow]\n`,
+          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster]\n`,
       );
       process.exit(2);
     }
@@ -377,6 +382,28 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   const targetUrl = flags["target"];
   const force = flags["force"];
   const acceptRenameRaw = flags["accept-rename"];
+
+  // Management scope (declarative default: database-local). `cluster` scope
+  // manages roles/memberships/ownership and therefore REQUIRES an isolated
+  // shadow — loading cluster-global role DDL onto a shared shadow cluster would
+  // mutate roles other databases use. `database` scope treats roles as ambient
+  // (assumed to exist at apply time) and never diffs them (§scope).
+  let scope: ManagementScope = "database";
+  const scopeFlag = flags["scope"];
+  if (scopeFlag === "database" || scopeFlag === "cluster") {
+    scope = scopeFlag;
+  } else if (scopeFlag !== undefined) {
+    process.stderr.write(
+      `--scope must be database or cluster (got: ${scopeFlag})\n`,
+    );
+    process.exit(2);
+  }
+  if (scope === "cluster" && !flags["isolated-shadow"]) {
+    process.stderr.write(
+      `--scope cluster manages cluster-global roles and must run against a dedicated shadow cluster; pass --isolated-shadow.\n`,
+    );
+    process.exit(2);
+  }
 
   // --renames default for CLI is "prompt"
   let renames: RenameMode = "prompt";
@@ -647,16 +674,38 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       action: "apply",
     });
 
+    // Database scope: roles are ambient (assumed present at apply time), not
+    // managed. Capture the target's role names BEFORE projecting so a
+    // `GRANT … TO <role>` resolves against a role that exists on the target (and
+    // one that does NOT fails loudly at plan time via the requirement guard),
+    // then project role/membership facts (and their owner edges) out of BOTH diff
+    // sides. Without this, a shared/co-located shadow's cluster-global roles diff
+    // as a spurious `CREATE ROLE` (shadow-only) or a destructive `DROP ROLE`
+    // (target-only). Cluster scope is identity (roles are managed state).
+    const assumedTargetRoles =
+      scope === "database"
+        ? targetResult.factBase
+            .facts()
+            .filter((f) => f.id.kind === "role")
+            .map((f) => (f.id as { name: string }).name)
+        : [];
+    const sourceFb = projectManagementScope(targetResult.factBase, scope);
+    const desiredFb = projectManagementScope(loadResult.factBase, scope);
+
     const planOptions = {
       renames,
       ...(acceptRenames.length > 0 ? { acceptRenames } : {}),
       ...ctx.planOptions, // policy, capability, baseline (from the profile)
+      ...(assumedTargetRoles.length > 0
+        ? {
+            assumedRoles: [
+              ...(ctx.planOptions.assumedRoles ?? []),
+              ...assumedTargetRoles,
+            ],
+          }
+        : {}),
     };
-    const thePlan = plan(
-      targetResult.factBase,
-      loadResult.factBase,
-      planOptions,
-    );
+    const thePlan = plan(sourceFb, desiredFb, planOptions);
     process.stderr.write(`Planning: ${thePlan.actions.length} action(s)\n`);
 
     // print rename candidates in prompt mode
@@ -693,10 +742,15 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     const report = await apply(thePlan, tgt.pool, {
       ...ctx.applyOptions, // baseline + handler-aware re-extract (from the profile)
       // the fingerprint gate re-extracts the target and compares to the plan
-      // source; that source used `redactSecrets`, so the re-extract must too, or
-      // --unsafe-show-secrets would always trip the gate against a target that
-      // already holds unredacted credentials (review P2).
-      reextract: (p) => ctx.extract(p, { redactSecrets }),
+      // source; that source used `redactSecrets` AND the scope projection, so the
+      // re-extract must apply both — otherwise --unsafe-show-secrets trips the
+      // gate against unredacted credentials, or database scope trips it against
+      // the target's ambient roles (review P2 / §scope).
+      reextract: (p) =>
+        ctx.extract(p, { redactSecrets }).then((r) => ({
+          ...r,
+          factBase: projectManagementScope(r.factBase, scope),
+        })),
       fingerprintGate: !force,
     });
 
