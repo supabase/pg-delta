@@ -259,7 +259,17 @@ export async function extractIndexes(ctx: ExtractContext): Promise<void> {
     JOIN pg_class c ON c.oid = i.indrelid
     JOIN pg_namespace n ON n.oid = ic.relnamespace
     WHERE c.relkind IN ('r', 'p', 'm') AND ${USER_SCHEMA_FILTER}
-      AND NOT EXISTS (SELECT 1 FROM pg_constraint pc WHERE pc.conindid = i.indexrelid)
+      -- Exclude indexes OWNED by a constraint (PRIMARY KEY / UNIQUE / EXCLUSION),
+      -- which are serialized via the constraint, not as standalone CREATE INDEX.
+      -- Gate on contype: a FOREIGN KEY constraint also sets conindid — to the
+      -- index on the REFERENCED table it depends on — so an unqualified check
+      -- wrongly drops a standalone unique index the moment any FK references it
+      -- (regression: realtime.tenants' unique index on external_id, referenced by
+      -- an FK from _realtime.extensions, vanished from extraction).
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_constraint pc
+        WHERE pc.conindid = i.indexrelid AND pc.contype IN ('p', 'u', 'x')
+      )
       AND NOT EXISTS (SELECT 1 FROM pg_inherits ih WHERE ih.inhrelid = i.indexrelid)
       AND ${notExtensionMember("pg_class", "c.oid")}
     ORDER BY n.nspname, ic.relname`)) {
