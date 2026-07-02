@@ -714,6 +714,51 @@ describe("CLI: schema apply --scope database (ambient roles)", () => {
     expect(res.stderr).toMatch(/contradicts the export manifest scope/i);
   }, 30_000);
 
+  test("co-located quick mode (no --shadow) provisions and drops a shadow on the target cluster", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("cli_colocated_tgt");
+    try {
+      const dir = join(tmpdir(), `pg-delta-next-colocated-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "01_schema.sql"),
+        `CREATE SCHEMA app;\nCREATE TABLE app.t (id integer PRIMARY KEY);\n`,
+      );
+
+      // NO --shadow: a co-located shadow database is created on the target cluster.
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+      ]);
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 0,
+      });
+      const m = /Created shadow database (pgdelta_shadow_\S+)/.exec(res.stderr);
+      expect(m).not.toBeNull();
+      const shadowName = m![1] as string;
+
+      // the schema applied to the target ...
+      const { rows: tbl } = await target.pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'app'`,
+      );
+      expect(tbl[0]?.n).toBe(1);
+      // ... and the throwaway shadow database was dropped.
+      const { rows: db } = await target.pool.query(
+        `SELECT 1 FROM pg_database WHERE datname = $1`,
+        [shadowName],
+      );
+      expect(db).toHaveLength(0);
+    } finally {
+      await target.drop();
+    }
+  }, 90_000);
+
   test("--scope cluster requires --isolated-shadow", async () => {
     const res = await runCli([
       "schema",
