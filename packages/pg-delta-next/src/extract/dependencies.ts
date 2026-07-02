@@ -127,9 +127,19 @@ export async function extractDependencyEdges(
       WHERE con.contypid <> 0
     ),
     typ AS (
+      -- Resolve array types (typcategory 'A') to their ELEMENT type: a column or
+      -- argument of an array type records its pg_depend edge against the implicit
+      -- array type (e.g. _user_defined_filter), but the managed fact is the
+      -- element type. Mapping the array oid to the element's stable id keeps the
+      -- depends-on-element ordering correct for array-of-composite/domain/enum
+      -- columns and arguments (regression: realtime.subscription has a
+      -- user_defined_filter array column; without this the table/function was
+      -- ordered before the type). An array of a base type (e.g. int4) resolves to
+      -- a pg_catalog element that the typtype filter drops below -- harmless, as
+      -- builtins are unmanaged.
       SELECT tt.oid,
         CASE
-          WHEN tt.typrelid <> 0::oid AND rc.oid IS NOT NULL THEN
+          WHEN base.typrelid <> 0::oid AND rc.oid IS NOT NULL THEN
             json_build_object(
               'kind', CASE rc.relkind
                         WHEN 'v' THEN 'view'
@@ -140,16 +150,20 @@ export async function extractDependencyEdges(
               'schema', rn.nspname,
               'name', rc.relname)
           ELSE json_build_object(
-            'kind', CASE tt.typtype WHEN 'd' THEN 'domain' ELSE 'type' END,
+            'kind', CASE base.typtype WHEN 'd' THEN 'domain' ELSE 'type' END,
             'schema', tn.nspname,
-            'name', tt.typname)
+            'name', base.typname)
         END AS id
       FROM pg_type tt
-      JOIN pg_namespace tn ON tn.oid = tt.typnamespace
-      LEFT JOIN pg_class rc ON rc.oid = tt.typrelid
+      JOIN pg_type base
+        ON base.oid = CASE
+             WHEN tt.typtype = 'b' AND tt.typcategory = 'A' AND tt.typelem <> 0
+             THEN tt.typelem ELSE tt.oid END
+      JOIN pg_namespace tn ON tn.oid = base.typnamespace
+      LEFT JOIN pg_class rc ON rc.oid = base.typrelid
                            AND rc.relkind IN ('r', 'p', 'f', 'v', 'm')
       LEFT JOIN pg_namespace rn ON rn.oid = rc.relnamespace
-      WHERE tt.typtype IN ('d', 'e', 'c', 'r')
+      WHERE base.typtype IN ('d', 'e', 'c', 'r')
     ),
     -- a composite type's pg_class (relkind c) endpoint resolves to the composite
     -- TYPE fact. pg_depend records a composite attribute's type dependency as
