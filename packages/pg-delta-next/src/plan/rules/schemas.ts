@@ -41,13 +41,17 @@ export const schemaRules: Record<string, KindRules> = {
 
   extension: {
     weight: 2,
-    // The SCHEMA clause is derived from the extension's `relocatable` fact
-    // (pg_extension.extrelocatable), not a serialize param: a relocatable
-    // extension honours `SCHEMA <s>` and must be ordered after that schema; a
-    // non-relocatable extension creates its own schema, so it emits a bare
-    // CREATE EXTENSION and requires no schema. See docs/architecture/managed-view-architecture.md.
+    // Whether to emit `SCHEMA <s>` is NOT simply `relocatable`: an extension
+    // honours (and needs) the clause whenever it is installed INTO a schema that
+    // exists independently — every relocatable extension, AND a non-relocatable
+    // one whose schema it did not create itself (e.g. pg_net into Supabase's
+    // "extensions"). Only an extension that creates its OWN schema (that schema
+    // is its member, `_schemaIsMember`) must omit the clause, since the named
+    // schema would not pre-exist. Gate on `_schemaIsMember === false` (known
+    // independent) and keep `relocatable` as the backward-compatible fallback for
+    // facts without the metadata. See docs/architecture/managed-view-architecture.md.
     create: (fact) => [
-      p(fact, "relocatable") === true
+      p(fact, "relocatable") === true || p(fact, "_schemaIsMember") === false
         ? {
             sql: `CREATE EXTENSION ${qid((fact.id as { name: string }).name)} SCHEMA ${qid(str(p(fact, "schema")))}`,
             consumes: [{ kind: "schema", name: str(p(fact, "schema")) }],
