@@ -287,7 +287,21 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // add AND its grantee role, and the hygiene REVOKE must not surface a
   // filtered-away role (which would then fail the planner's own
   // missing-requirement check). Mirrors the create/alter seam.
-  for (const fact of added.values()) {
+  //
+  // Hygiene covers every fact this plan CREATES on the target: added facts AND
+  // replaced facts (drop + recreate) with their replace-recreated descendants —
+  // a recreate fires active default ACLs exactly like a fresh create. The ADP
+  // itself may be UNCHANGED (present on both sides, no delta) yet still inject
+  // a grant the desired object never had, because on the source the object
+  // predated the ADP (regression: the Supabase baseline's replaced
+  // extensions.grant_pg_net_access() acquired a stale `postgres` grant from the
+  // image's pre-existing default privileges).
+  const hygieneTargets: Fact[] = [...added.values()];
+  for (const key of [...replaceIds, ...recreatedByReplace]) {
+    const fact = projectedDesired.getByEncoded(key);
+    if (fact) hygieneTargets.push(fact);
+  }
+  for (const fact of hygieneTargets) {
     // which pg_default_acl objtype this kind maps to is declared per-kind in the
     // rule table (`defaclObjtype`); absent → no default ACLs
     const objtype = ruleFlag(fact.id.kind, "defaclObjtype");
@@ -489,6 +503,9 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         renamedOwnerId.set(encodeId(dstId), ownerEdge.to);
       }
     }
+    // objKeys whose owner a link delta already (re-)established below, so the
+    // replaced-fact pass does not emit a second ALTER … OWNER TO for them.
+    const ownerEmitted = new Set<string>();
     for (const delta of deltas) {
       if (delta.verb !== "link" || delta.edge.kind !== "owner") continue;
       const objId = delta.edge.from;
@@ -542,6 +559,43 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
           ...(oldRoleId !== undefined ? { releases: [oldRoleId] } : {}),
         },
         { consumes: [objId] },
+      );
+      ownerEmitted.add(objKey);
+    }
+
+    // Replaced facts (drop + recreate) revert to the applying role's ownership;
+    // their owner edge is UNCHANGED source->target so it produced no owner link
+    // delta above. Re-establish it from the PROJECTED target for every replaced
+    // fact (and any descendant a replace recreated) a link delta did not already
+    // own — mirroring how the replace loop recreates child ACL facts. Without
+    // this, a function/type/table whose body/definition changed is silently
+    // re-owned to whoever runs the migration (regression: Supabase auth.uid() et
+    // al., owned by supabase_auth_admin, reverted to the applier after replace).
+    for (const key of [...replaceIds, ...recreatedByReplace]) {
+      if (ownerEmitted.has(key)) continue;
+      const fact = projectedDesired.getByEncoded(key);
+      if (!fact) continue;
+      const ownerAlterPrefix = ruleFlag(fact.id.kind, "ownerAlterPrefix");
+      if (!ownerAlterPrefix) continue;
+      const ownerEdge = projectedDesired
+        .outgoingEdges(fact.id)
+        .find((e) => e.kind === "owner");
+      if (ownerEdge?.to.kind !== "role") continue;
+      const roleName = (ownerEdge.to as { kind: "role"; name: string }).name;
+      if (capability !== undefined && !canSetOwner(capability, roleName)) {
+        throw new Error(
+          `capability: cannot set owner of ${key} to role "${roleName}" — ` +
+            `applier "${capability.role}" is not a superuser or a member of that role; ` +
+            `grant membership or apply as a member/superuser`,
+        );
+      }
+      pushAction(
+        "alter",
+        {
+          sql: `${ownerAlterPrefix(fact)} OWNER TO ${qid(roleName)}`,
+          consumes: [ownerEdge.to],
+        },
+        { consumes: [fact.id] },
       );
     }
   }
