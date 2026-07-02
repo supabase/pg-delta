@@ -411,6 +411,59 @@ describe("CLI: strict coverage (unmodeled-kind surfacing)", () => {
   }, 90_000);
 });
 
+describe("CLI: schema export --scope", () => {
+  test("database scope omits cluster/roles.sql; cluster scope includes it", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_export_scope_src");
+    try {
+      await source.pool.query(SCHEMA_SQL);
+      const { existsSync } = await import("node:fs");
+      const scopeOf = (dir: string) =>
+        JSON.parse(readFileSync(join(dir, ".pgdelta-export.json"), "utf8"))
+          .scope;
+
+      // default (database): the connection role's CREATE ROLE is projected out,
+      // so no cluster/roles.sql — the dir reloads on any cluster.
+      const dbDir = join(tmpdir(), `pgdn-exp-scope-db-${Date.now()}`);
+      expect(
+        (
+          await runCli([
+            "schema",
+            "export",
+            "--source",
+            source.uri,
+            "--out-dir",
+            dbDir,
+          ])
+        ).exitCode,
+      ).toBe(0);
+      expect(existsSync(join(dbDir, "cluster/roles.sql"))).toBe(false);
+      expect(scopeOf(dbDir)).toBe("database");
+
+      // cluster scope keeps roles.
+      const clDir = join(tmpdir(), `pgdn-exp-scope-cl-${Date.now()}`);
+      expect(
+        (
+          await runCli([
+            "schema",
+            "export",
+            "--source",
+            source.uri,
+            "--out-dir",
+            clDir,
+            "--scope",
+            "cluster",
+          ])
+        ).exitCode,
+      ).toBe(0);
+      expect(existsSync(join(clDir, "cluster/roles.sql"))).toBe(true);
+      expect(scopeOf(clDir)).toBe("cluster");
+    } finally {
+      await source.drop();
+    }
+  }, 90_000);
+});
+
 describe("CLI: schema export", () => {
   test("schema export writes files to disk including schemas/<s>/tables/<t>.sql", async () => {
     const cluster = await sharedCluster();
@@ -553,6 +606,113 @@ describe("CLI: schema apply --scope database (ambient roles)", () => {
       await Promise.all([shadow.drop(), target.drop()]);
     }
   }, 120_000);
+
+  test("rejects cluster DDL in files under database scope (with escapes)", async () => {
+    const dir = join(tmpdir(), `pg-delta-next-clusterddl-${Date.now()}`);
+    mkdirSync(join(dir, "cluster"), { recursive: true });
+    writeFileSync(join(dir, "01_schema.sql"), `CREATE SCHEMA app;\n`);
+    writeFileSync(
+      join(dir, "cluster", "roles.sql"),
+      `CREATE ROLE app_owner NOLOGIN;\nGRANT app_owner TO current_user;\n`,
+    );
+    // rejected before any connection (default scope is database)
+    const res = await runCli([
+      "schema",
+      "apply",
+      "--dir",
+      dir,
+      "--shadow",
+      "postgres://unused.invalid:5432/s",
+      "--target",
+      "postgres://unused.invalid:5432/t",
+    ]);
+    expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+      code: 2,
+    });
+    expect(res.stderr).toMatch(/does not manage cluster-global roles/i);
+    expect(res.stderr).toContain("CREATE ROLE");
+    expect(res.stderr).toMatch(/--skip-cluster-ddl/);
+  }, 30_000);
+
+  test("--skip-cluster-ddl drops role DDL and applies the rest", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_skipddl_shadow");
+    const target = await cluster.createDb("cli_skipddl_tgt");
+    const skipRole = `skip_role_${Date.now()}`;
+    try {
+      const dir = join(tmpdir(), `pg-delta-next-skipddl-${Date.now()}`);
+      mkdirSync(join(dir, "cluster"), { recursive: true });
+      writeFileSync(
+        join(dir, "01_schema.sql"),
+        `CREATE SCHEMA app;\nCREATE TABLE app.t (id integer PRIMARY KEY);\n`,
+      );
+      writeFileSync(
+        join(dir, "cluster", "roles.sql"),
+        `CREATE ROLE ${skipRole} NOLOGIN;\n`,
+      );
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+        "--skip-cluster-ddl",
+      ]);
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 0,
+      });
+      expect(res.stderr).toMatch(/SKIP cluster DDL/i);
+      // schema applied; the skipped role was NOT created
+      const tbl = await target.pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'app'`,
+      );
+      expect(tbl.rows[0]?.n).toBe(1);
+      const role = await target.pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_roles WHERE rolname = $1`,
+        [skipRole],
+      );
+      expect(role.rows[0]?.n).toBe(0);
+    } finally {
+      await shadow.pool
+        .query(`DROP ROLE IF EXISTS ${skipRole}`)
+        .catch(() => {});
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 90_000);
+
+  test("rejects --scope contradicting the export manifest scope", async () => {
+    const dir = join(tmpdir(), `pg-delta-next-scope-conflict-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "01_schema.sql"), `CREATE SCHEMA app;\n`);
+    writeFileSync(
+      join(dir, ".pgdelta-export.json"),
+      JSON.stringify({ formatVersion: 1, scope: "cluster" }),
+      "utf8",
+    );
+    // reconciled before any connection is opened
+    const res = await runCli([
+      "schema",
+      "apply",
+      "--dir",
+      dir,
+      "--shadow",
+      "postgres://unused.invalid:5432/s",
+      "--target",
+      "postgres://unused.invalid:5432/t",
+      "--scope",
+      "database",
+    ]);
+    expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+      code: 2,
+    });
+    expect(res.stderr).toMatch(/contradicts the export manifest scope/i);
+  }, 30_000);
 
   test("--scope cluster requires --isolated-shadow", async () => {
     const res = await runCli([

@@ -21,14 +21,22 @@ afterEach(() => {
 });
 
 describe("export manifest", () => {
-  test("round-trips the redaction mode and profile", () => {
-    writeExportManifest(dir, { redactSecrets: false, profile: "supabase" });
+  test("round-trips the redaction mode, profile, and scope", () => {
+    writeExportManifest(dir, {
+      redactSecrets: false,
+      profile: "supabase",
+      scope: "cluster",
+    });
     expect(readExportManifest(dir)).toEqual({
       redactSecrets: false,
       profile: "supabase",
+      scope: "cluster",
     });
-    writeExportManifest(dir, { redactSecrets: true });
-    expect(readExportManifest(dir)).toEqual({ redactSecrets: true });
+    writeExportManifest(dir, { redactSecrets: true, scope: "database" });
+    expect(readExportManifest(dir)).toEqual({
+      redactSecrets: true,
+      scope: "database",
+    });
   });
 
   test("returns undefined when no manifest exists (older / hand-authored dir)", () => {

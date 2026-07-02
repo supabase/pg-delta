@@ -12,10 +12,59 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  findClusterDdlStatements,
   findDefaultPrivilegeStatements,
   findSessionSettingStatements,
   findTransactionControl,
+  stripClusterDdl,
 } from "./load-sql-files.ts";
+
+describe("cluster-DDL scanner (database scope guard)", () => {
+  test("detects role lifecycle, membership, and role metadata", () => {
+    expect(findClusterDdlStatements(`CREATE ROLE app NOLOGIN;`)).toEqual([
+      "CREATE ROLE",
+    ]);
+    expect(
+      findClusterDdlStatements(`ALTER ROLE app SET search_path=x;`),
+    ).toEqual(["ALTER ROLE"]);
+    expect(findClusterDdlStatements(`DROP USER app;`)).toEqual(["DROP ROLE"]);
+    expect(findClusterDdlStatements(`GRANT app TO reader;`)).toEqual([
+      "GRANT (role membership)",
+    ]);
+    expect(findClusterDdlStatements(`COMMENT ON ROLE app IS 'x';`)).toEqual([
+      "COMMENT ON ROLE",
+    ]);
+  });
+
+  test("does NOT flag database-local privilege grants (they have ON)", () => {
+    expect(findClusterDdlStatements(`GRANT SELECT ON t TO reader;`)).toEqual(
+      [],
+    );
+    expect(
+      findClusterDdlStatements(`REVOKE ALL ON SCHEMA app FROM PUBLIC;`),
+    ).toEqual([]);
+    expect(findClusterDdlStatements(`CREATE TABLE t (id int);`)).toEqual([]);
+  });
+
+  test("ignores keywords inside comments/strings", () => {
+    expect(
+      findClusterDdlStatements(`-- CREATE ROLE app\nCREATE TABLE t (id int);`),
+    ).toEqual([]);
+  });
+
+  test("stripClusterDdl removes role DDL, keeps the rest (block-aware)", () => {
+    const sql = `CREATE ROLE app NOLOGIN;
+CREATE SCHEMA s;
+CREATE FUNCTION s.f() RETURNS int LANGUAGE sql AS $$ SELECT 1; $$;
+GRANT app TO reader;`;
+    const { kept, skipped } = stripClusterDdl(sql);
+    expect(skipped).toEqual(["CREATE ROLE app NOLOGIN", "GRANT app TO reader"]);
+    expect(kept).toContain("CREATE SCHEMA s");
+    expect(kept).toContain("SELECT 1"); // function body not mis-split
+    expect(kept).not.toContain("CREATE ROLE");
+    expect(kept).not.toMatch(/GRANT app TO/);
+  });
+});
 
 describe("findTransactionControl — rejects top-level transaction control", () => {
   test("a bare COMMIT between statements is detected", () => {
