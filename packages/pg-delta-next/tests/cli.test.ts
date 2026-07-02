@@ -489,6 +489,92 @@ describe("CLI: schema export", () => {
 // instead of always using the raw view — otherwise SQL-file workflows diverge
 // from the profile-aware DB-to-DB path. These prove the `--profile` /
 // `--restrict-to-applier` flags exist and thread through extract/plan/apply.
+describe("CLI: schema apply --scope database (ambient roles)", () => {
+  test("does not create shadow-only nor drop target-only cluster roles", async () => {
+    // shadow and target on SEPARATE clusters (the real deployment: local shadow,
+    // remote target), each with a distinct ambient role the declarative files
+    // never mention.
+    const [shadowCluster, targetCluster] = await isolatedClusterPair();
+    const shadow = await shadowCluster.createDb("cli_scope_shadow");
+    const target = await targetCluster.createDb("cli_scope_tgt");
+    const shadowRole = `only_on_shadow_${Date.now()}`;
+    const targetRole = `only_on_target_${Date.now()}`;
+    try {
+      await shadow.pool.query(`CREATE ROLE ${shadowRole} NOLOGIN`);
+      await target.pool.query(`CREATE ROLE ${targetRole} NOLOGIN`);
+
+      const dir = join(tmpdir(), `pg-delta-next-scope-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "01_schema.sql"),
+        `CREATE SCHEMA app;\nCREATE TABLE app.t (id integer PRIMARY KEY);\n`,
+      );
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+      ]);
+
+      // RED before the fix: database scope did not project roles, so the plan
+      // CREATEd the shadow-only role on the target AND DROPped the target-only
+      // role (destructive). Now roles are ambient — neither happens.
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 0,
+      });
+      const has = async (role: string) =>
+        (
+          await target.pool.query<{ n: number }>(
+            `SELECT count(*)::int AS n FROM pg_roles WHERE rolname = $1`,
+            [role],
+          )
+        ).rows[0]?.n === 1;
+      expect(await has(targetRole)).toBe(true); // NOT dropped
+      expect(await has(shadowRole)).toBe(false); // NOT created
+      // the actual schema objects DID apply
+      const { rows } = await target.pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'app'`,
+      );
+      expect(rows[0]?.n).toBe(1);
+    } finally {
+      await shadow.pool
+        .query(`DROP ROLE IF EXISTS ${shadowRole}`)
+        .catch(() => {});
+      await target.pool
+        .query(`DROP ROLE IF EXISTS ${targetRole}`)
+        .catch(() => {});
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 120_000);
+
+  test("--scope cluster requires --isolated-shadow", async () => {
+    const res = await runCli([
+      "schema",
+      "apply",
+      "--dir",
+      tmpdir(),
+      "--shadow",
+      "postgres://unused.invalid:5432/s",
+      "--target",
+      "postgres://unused.invalid:5432/t",
+      "--scope",
+      "cluster",
+    ]);
+    // validated before any connection is opened
+    expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+      code: 2,
+    });
+    expect(res.stderr).toMatch(/isolated-shadow/i);
+  }, 30_000);
+});
+
 describe("CLI: schema apply guards", () => {
   test("refuses an empty --dir instead of planning to drop everything", async () => {
     const cluster = await sharedCluster();
@@ -694,8 +780,8 @@ describe("CLI: schema profile-awareness", () => {
 // A declarative dir with cluster-level role state trips the default
 // databaseScratch leak guard; --isolated-shadow (dedicated shadow cluster) lets
 // it load (review P2).
-describe("CLI: schema apply --isolated-shadow", () => {
-  test("role-containing export reloads with --isolated-shadow on a dedicated cluster", async () => {
+describe("CLI: schema apply --scope cluster --isolated-shadow", () => {
+  test("role-containing export reloads and creates the role under cluster scope", async () => {
     const [shadowCluster, targetCluster] = await isolatedClusterPair();
     const shadow = await shadowCluster.createDb("cli_iso_shadow");
     const target = await targetCluster.createDb("cli_iso_tgt");
@@ -707,6 +793,9 @@ describe("CLI: schema apply --isolated-shadow", () => {
         `CREATE ROLE cli_iso_role_xyz NOLOGIN;\n`,
       );
 
+      // cluster scope MANAGES roles; --isolated-shadow gives the dedicated shadow
+      // cluster that lets the CREATE ROLE load past the leak guard. (Under the
+      // default database scope the role is ambient and would NOT be created.)
       const res = await runCli([
         "schema",
         "apply",
@@ -718,11 +807,11 @@ describe("CLI: schema apply --isolated-shadow", () => {
         target.uri,
         "--renames",
         "off",
+        "--scope",
+        "cluster",
         "--isolated-shadow",
       ]);
 
-      // RED before the fix: `--isolated-shadow` is unknown, so schema apply exits
-      // 2; without it the databaseScratch leak guard rejects the CREATE ROLE.
       expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
         code: 0,
       });
