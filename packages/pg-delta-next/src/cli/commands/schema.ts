@@ -89,6 +89,11 @@ import { apply } from "../../apply/apply.ts";
 import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
+import {
+  type CoLocatedShadow,
+  isShadowProvisionError,
+  provisionCoLocatedShadow,
+} from "../shadow.ts";
 import { parseFlags, UsageError } from "../flags.ts";
 import {
   effectiveProfileId,
@@ -386,7 +391,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   try {
     parsed = parseFlags(args, {
       dir: { type: "value", required: true },
-      shadow: { type: "value", required: true },
+      shadow: { type: "value" },
       target: { type: "value", required: true },
       renames: { type: "value" },
       force: { type: "boolean" },
@@ -399,13 +404,15 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       "isolated-shadow": { type: "boolean" },
       scope: { type: "value" },
       "skip-cluster-ddl": { type: "boolean" },
+      "keep-shadow": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
-        `${err.message}\nUsage: pg-delta-next schema apply --dir <dir> --shadow <pg-url> --target <pg-url> ` +
+        `${err.message}\nUsage: pg-delta-next schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
-          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl]\n`,
+          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow]\n` +
+          `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.\n`,
       );
       process.exit(2);
     }
@@ -414,7 +421,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
 
   const { flags } = parsed;
   const dir = flags["dir"];
-  const shadowUrl = flags["shadow"];
+  const shadowFlag = flags["shadow"];
   const targetUrl = flags["target"];
   const force = flags["force"];
   const acceptRenameRaw = flags["accept-rename"];
@@ -566,6 +573,39 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       process.exit(2);
     }
     throw err;
+  }
+
+  // Resolve the shadow: an explicit --shadow, else a co-located throwaway
+  // database created on the TARGET's own cluster (quick mode). Co-located is
+  // database scope only — it shares the target's cluster, so it must never carry
+  // cluster-global role DDL. The created database is dropped in the finally.
+  let coLocated: CoLocatedShadow | undefined;
+  let shadowUrl: string;
+  if (shadowFlag !== undefined) {
+    shadowUrl = shadowFlag;
+  } else {
+    if (scope === "cluster") {
+      process.stderr.write(
+        `schema apply --scope cluster needs an explicit --shadow to a dedicated cluster; a co-located shadow (no --shadow) is database scope only.\n`,
+      );
+      process.exit(2);
+    }
+    process.stderr.write(
+      `No --shadow given; creating a co-located shadow database on the target's cluster...\n`,
+    );
+    try {
+      coLocated = await provisionCoLocatedShadow(targetUrl, {
+        keep: flags["keep-shadow"],
+      });
+    } catch (e) {
+      if (isShadowProvisionError(e)) {
+        process.stderr.write(`schema apply: ${e.message}\n`);
+        process.exit(2);
+      }
+      throw e;
+    }
+    shadowUrl = coLocated.url;
+    process.stderr.write(`  Created shadow database ${coLocated.name}\n`);
   }
 
   const shadow = makePool(shadowUrl);
@@ -863,6 +903,14 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     }
   } finally {
     await Promise.all([shadow.end(), tgt.end()]);
+    // drop the co-located throwaway database (after our pools close so nothing
+    // holds a connection to it); --keep-shadow makes cleanup a no-op.
+    if (coLocated !== undefined) {
+      if (flags["keep-shadow"]) {
+        process.stderr.write(`  Kept shadow database ${coLocated.name}\n`);
+      }
+      await coLocated.cleanup();
+    }
   }
 }
 
