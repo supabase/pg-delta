@@ -17,10 +17,7 @@ afterAll(async () => {
   await Promise.all(dbs.map((d) => d.drop().catch(() => {})));
 });
 
-async function planAndProve(
-  fromSql: string,
-  toSql: string,
-): Promise<string[]> {
+async function planAndProve(fromSql: string, toSql: string): Promise<string[]> {
   const cluster = await sharedCluster();
   const src = await cluster.createDb("ralter_src");
   const dst = await cluster.createDb("ralter_dst");
@@ -47,10 +44,10 @@ describe("routine body change → single CREATE OR REPLACE", () => {
       `CREATE SCHEMA s; CREATE FUNCTION s.f() RETURNS int LANGUAGE sql AS 'SELECT 1';`,
       `CREATE SCHEMA s; CREATE FUNCTION s.f() RETURNS int LANGUAGE sql AS 'SELECT 2';`,
     );
-    expect(sql.filter((s) => /^DROP FUNCTION/.test(s))).toEqual([]);
-    expect(sql.filter((s) => /CREATE OR REPLACE FUNCTION/.test(s))).toHaveLength(
-      1,
-    );
+    expect(sql.filter((s) => s.startsWith("DROP FUNCTION"))).toEqual([]);
+    expect(
+      sql.filter((s) => /CREATE OR REPLACE FUNCTION/.test(s)),
+    ).toHaveLength(1);
     expect(sql.filter((s) => /OWNER TO/.test(s))).toEqual([]);
   }, 120_000);
 
@@ -61,7 +58,7 @@ describe("routine body change → single CREATE OR REPLACE", () => {
     );
     // pg-delta renders its own DROP with quoted identifiers; the recreate uses
     // the stored def (pg_get_functiondef output, unquoted where legal).
-    expect(sql.some((s) => /^DROP FUNCTION "s"\."f"\(\)/.test(s))).toBe(true);
+    expect(sql.some((s) => s.startsWith('DROP FUNCTION "s"."f"()'))).toBe(true);
     expect(sql.some((s) => /CREATE OR REPLACE FUNCTION s\.f\(\)/.test(s))).toBe(
       true,
     );

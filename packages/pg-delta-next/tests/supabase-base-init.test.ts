@@ -21,9 +21,18 @@ describe(`supabase base-init fixture (pg${SUPABASE_BARE_MAJOR})`, () => {
   test("reflects the engine convergence fixes the full-stack baseline surfaced", async () => {
     const sql = await getSupabaseBaseInitSql();
 
-    // Event triggers backing the extensions.* access functions are rebuilt when
-    // those functions are replaced (eventTrigger rebuildable).
-    expect(sql).toContain("CREATE EVENT TRIGGER");
+    // A function body change now alters IN PLACE (CREATE OR REPLACE — the def→
+    // CREATE-OR-REPLACE refactor), so an extension-access function like
+    // grant_pg_net_access() is no longer demolished, and its backing event
+    // trigger is no longer dropped + rebuilt. The demolition scaffolding
+    // (DROP FUNCTION + DROP/CREATE EVENT TRIGGER + owner re-establish) is gone.
+    expect(sql).toContain(
+      "CREATE OR REPLACE FUNCTION extensions.grant_pg_net_access",
+    );
+    expect(sql).not.toContain(
+      'DROP FUNCTION "extensions"."grant_pg_net_access"',
+    );
+    expect(sql).not.toContain("CREATE EVENT TRIGGER");
 
     // A standalone unique index referenced by a foreign key is no longer dropped
     // from extraction (relations.ts conindid contype gate).

@@ -22,21 +22,11 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" REVOKE ALL ON TA
 
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "service_role";
 
-DROP EVENT TRIGGER "issue_pg_net_access";
-
 DROP INDEX "auth"."refresh_tokens_token_idx";
 
 DROP INDEX "auth"."users_instance_id_email_idx";
 
 ALTER TABLE "auth"."users" DROP CONSTRAINT "users_email_key";
-
-DROP FUNCTION "auth"."email"();
-
-DROP FUNCTION "auth"."role"();
-
-DROP FUNCTION "auth"."uid"();
-
-DROP FUNCTION "extensions"."grant_pg_net_access"();
 
 ALTER TABLE "auth"."users" DROP COLUMN "confirmed_at";
 
@@ -436,10 +426,6 @@ AS $function$
   )::text
 $function$;
 
-REVOKE ALL ON FUNCTION "auth"."email"() FROM "postgres";
-
-ALTER FUNCTION "auth"."email"() OWNER TO "supabase_auth_admin";
-
 CREATE OR REPLACE FUNCTION auth.jwt()
  RETURNS jsonb
  LANGUAGE sql
@@ -466,10 +452,6 @@ AS $function$
   )::text
 $function$;
 
-REVOKE ALL ON FUNCTION "auth"."role"() FROM "postgres";
-
-ALTER FUNCTION "auth"."role"() OWNER TO "supabase_auth_admin";
-
 CREATE OR REPLACE FUNCTION auth.uid()
  RETURNS uuid
  LANGUAGE sql
@@ -481,10 +463,6 @@ AS $function$
     (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')
   )::uuid
 $function$;
-
-REVOKE ALL ON FUNCTION "auth"."uid"() FROM "postgres";
-
-ALTER FUNCTION "auth"."uid"() OWNER TO "supabase_auth_admin";
 
 CREATE OR REPLACE FUNCTION extensions.grant_pg_net_access()
  RETURNS event_trigger
@@ -515,10 +493,6 @@ BEGIN
   END IF;
 END;
 $function$;
-
-REVOKE ALL ON FUNCTION "extensions"."grant_pg_net_access"() FROM "postgres";
-
-ALTER FUNCTION "extensions"."grant_pg_net_access"() OWNER TO "supabase_admin";
 
 CREATE OR REPLACE FUNCTION realtime.apply_rls(wal jsonb, max_record_bytes integer DEFAULT (1024 * 1024))
  RETURNS SETOF realtime.wal_rls
@@ -2632,10 +2606,6 @@ CREATE TRIGGER protect_objects_delete BEFORE DELETE ON storage.objects FOR EACH 
 
 CREATE TRIGGER update_objects_updated_at BEFORE UPDATE ON storage.objects FOR EACH ROW EXECUTE FUNCTION storage.update_updated_at_column();
 
-CREATE EVENT TRIGGER "issue_pg_net_access" ON ddl_command_end WHEN TAG IN ('CREATE EXTENSION') EXECUTE FUNCTION "extensions"."grant_pg_net_access"();
-
-ALTER EVENT TRIGGER "issue_pg_net_access" OWNER TO "supabase_admin";
-
 COMMENT ON COLUMN "auth"."identities"."email" IS 'Auth: Email is a generated column that references the optional email property in the identity_data';
 
 COMMENT ON COLUMN "auth"."mfa_factors"."last_webauthn_challenge_data" IS 'Stores the latest WebAuthn challenge data including attestation/assertion for customer verification';
@@ -2661,8 +2631,6 @@ COMMENT ON FUNCTION "auth"."email"() IS 'Deprecated. Use auth.jwt() -> ''email''
 COMMENT ON FUNCTION "auth"."role"() IS 'Deprecated. Use auth.jwt() -> ''role'' instead.';
 
 COMMENT ON FUNCTION "auth"."uid"() IS 'Deprecated. Use auth.jwt() -> ''sub'' instead.';
-
-COMMENT ON FUNCTION "extensions"."grant_pg_net_access"() IS 'Grants access to pg_net';
 
 COMMENT ON INDEX "auth"."identities_email_idx" IS 'Auth: Ensures indexed queries on the email column';
 
@@ -2692,14 +2660,6 @@ COMMENT ON TABLE "auth"."sso_providers" IS 'Auth: Manages SSO identity provider 
 
 COMMENT ON TABLE "supabase_functions"."hooks" IS 'Supabase Functions Hooks: Audit trail for triggered hooks.';
 
-GRANT EXECUTE ON FUNCTION "auth"."email"() TO PUBLIC;
-
-GRANT EXECUTE ON FUNCTION "auth"."email"() TO "dashboard_user";
-
-REVOKE ALL ON FUNCTION "auth"."email"() FROM "supabase_auth_admin";
-
-GRANT EXECUTE ON FUNCTION "auth"."email"() TO "supabase_auth_admin";
-
 GRANT EXECUTE ON FUNCTION "auth"."jwt"() TO PUBLIC;
 
 GRANT EXECUTE ON FUNCTION "auth"."jwt"() TO "dashboard_user";
@@ -2709,30 +2669,6 @@ GRANT EXECUTE ON FUNCTION "auth"."jwt"() TO "postgres";
 REVOKE ALL ON FUNCTION "auth"."jwt"() FROM "supabase_auth_admin";
 
 GRANT EXECUTE ON FUNCTION "auth"."jwt"() TO "supabase_auth_admin";
-
-GRANT EXECUTE ON FUNCTION "auth"."role"() TO PUBLIC;
-
-GRANT EXECUTE ON FUNCTION "auth"."role"() TO "dashboard_user";
-
-REVOKE ALL ON FUNCTION "auth"."role"() FROM "supabase_auth_admin";
-
-GRANT EXECUTE ON FUNCTION "auth"."role"() TO "supabase_auth_admin";
-
-GRANT EXECUTE ON FUNCTION "auth"."uid"() TO PUBLIC;
-
-GRANT EXECUTE ON FUNCTION "auth"."uid"() TO "dashboard_user";
-
-REVOKE ALL ON FUNCTION "auth"."uid"() FROM "supabase_auth_admin";
-
-GRANT EXECUTE ON FUNCTION "auth"."uid"() TO "supabase_auth_admin";
-
-GRANT EXECUTE ON FUNCTION "extensions"."grant_pg_net_access"() TO PUBLIC;
-
-GRANT EXECUTE ON FUNCTION "extensions"."grant_pg_net_access"() TO "dashboard_user";
-
-REVOKE ALL ON FUNCTION "extensions"."grant_pg_net_access"() FROM "supabase_admin";
-
-GRANT EXECUTE ON FUNCTION "extensions"."grant_pg_net_access"() TO "supabase_admin" WITH GRANT OPTION;
 
 GRANT EXECUTE ON FUNCTION "realtime"."apply_rls"(jsonb, integer) TO PUBLIC;
 

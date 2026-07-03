@@ -32,6 +32,20 @@ export function p(fact: Fact, key: string): PayloadValue {
   return fact.payload[key];
 }
 
+/** The `depends` edge targets of `id` in `view` — the objects the fact's
+ *  definition references. A routine's def-alter (CREATE OR REPLACE) consumes
+ *  these so it is ordered AFTER their creates: a BEGIN ATOMIC body is parsed and
+ *  dependency-checked at replace time. plpgsql / quoted-string bodies are not
+ *  (check_function_bodies=off in the preamble) and record no such edges, so this
+ *  is exactly the set that needs ordering. Consuming an id nothing in-plan
+ *  produces is harmless — no ordering edge is added. */
+export function dependencyConsumes(view: FactView, id: StableId): StableId[] {
+  return view
+    .outgoingEdges(id)
+    .filter((e) => e.kind === "depends")
+    .map((e) => e.to);
+}
+
 /** ` WITH (k=v, …)` clause from a fact's `reloptions` payload (the canonical
  *  sorted `key=value` array captured from pg_class.reloptions), or "" when the
  *  relation carries no storage/view options. */

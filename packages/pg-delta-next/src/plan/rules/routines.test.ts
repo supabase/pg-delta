@@ -12,7 +12,6 @@
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../../core/fact.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
-import type { FactView } from "../rules.ts";
 import { routineRules } from "./routines.ts";
 import { triggerRules } from "./triggers.ts";
 
@@ -28,7 +27,8 @@ describe("routine `def` is an in-place CREATE OR REPLACE, not a replace", () => 
 
   test("the def-alter renders the stored def verbatim", () => {
     const defRule = routineRules.function!.attributes["def"];
-    if (typeof defRule !== "object") throw new Error("def must be an alter rule");
+    if (typeof defRule !== "object")
+      throw new Error("def must be an alter rule");
     const def = `CREATE OR REPLACE FUNCTION "s"."f"() RETURNS integer LANGUAGE sql AS $$SELECT 2$$`;
     const fact: Fact = {
       id: fnId,
@@ -43,7 +43,8 @@ describe("routine `def` is an in-place CREATE OR REPLACE, not a replace", () => 
 
   test("the def-alter consumes the function's desired `depends` targets (BEGIN ATOMIC ordering)", () => {
     const defRule = routineRules.function!.attributes["def"];
-    if (typeof defRule !== "object") throw new Error("def must be an alter rule");
+    if (typeof defRule !== "object")
+      throw new Error("def must be an alter rule");
     const tableId: StableId = { kind: "table", schema: "s", name: "t" };
     const table: Fact = {
       id: tableId,
@@ -64,8 +65,11 @@ describe("routine `def` is an in-place CREATE OR REPLACE, not a replace", () => 
     expect((spec.consumes ?? []).map(encodeId)).toContain(encodeId(tableId));
   });
 
-  test("return type, language, and window-kind force a replace (drop + recreate)", () => {
-    for (const attr of ["returnType", "language", "isWindow"]) {
+  test("return type, arg signature, language, and window-kind force a replace (drop + recreate)", () => {
+    // CREATE OR REPLACE refuses each of these (return-type change; parameter
+    // rename / default removal), or a language/window-kind change is demolished
+    // for drop-and-recreate safety — so a same-id change to any must demolish.
+    for (const attr of ["returnType", "argSignature", "language", "isWindow"]) {
       expect(routineRules.function!.attributes[attr]).toBe("replace");
       expect(routineRules.procedure!.attributes[attr]).toBe("replace");
     }

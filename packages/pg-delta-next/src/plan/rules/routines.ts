@@ -2,7 +2,7 @@
 import type { Fact } from "../../core/fact.ts";
 import { lit, qid, rel, routineSig } from "../render.ts";
 import type { KindRules } from "../rules.ts";
-import { aggSig, p, str } from "./helpers.ts";
+import { aggSig, dependencyConsumes, p, str } from "./helpers.ts";
 
 // aggfinalmodify / aggmfinalmodify → CREATE AGGREGATE keyword. 'r'
 // (READ_ONLY) is the default, so it's rendered as undefined (omitted).
@@ -49,9 +49,30 @@ const routineRule: KindRules = {
     return `ALTER ${routineKeyword(fact)} ${routineSig(id)}`;
   },
   attributes: {
-    // return-type/strictness changes refuse CREATE OR REPLACE; replace +
-    // forced dependent rebuild is always safe
-    def: "replace",
+    // `def` is pg_get_functiondef output — itself a `CREATE OR REPLACE`. A
+    // body / volatility / security / strictness / cost / SET-clause / arg-name
+    // or arg-default change re-runs it IN PLACE (PostgreSQL / pg_dump semantics:
+    // owner, grants, and dependents survive). The alter consumes the routine's
+    // `depends` targets so a BEGIN ATOMIC body that references a newly-created
+    // object is ordered after that object's create.
+    def: {
+      alter: (fact, _from, _to, view) => ({
+        sql: str(p(fact, "def")),
+        consumes: dependencyConsumes(view, fact.id),
+      }),
+    },
+    // CREATE OR REPLACE refuses a return-type change ("cannot change return type
+    // of existing function"), cannot flip window-ness, and cannot rename a
+    // parameter or remove a parameter default ("cannot change name of input
+    // parameter" / "cannot remove parameter defaults"); a language change is
+    // demolished for the same drop-and-recreate safety. Each forces a replace
+    // (with the forced dependent rebuild). Arg TYPES are identity → a different
+    // stable id → natural drop+create, so `argSignature` differs within a stable
+    // id only by name/mode/default.
+    returnType: "replace",
+    argSignature: "replace",
+    language: "replace",
+    isWindow: "replace",
   },
 };
 

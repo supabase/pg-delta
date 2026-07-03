@@ -4,7 +4,7 @@
  * (guardrail 3). Each rule maps facts/attribute-changes to SQL plus the
  * dependency metadata the graph needs.
  */
-import type { Fact } from "../core/fact.ts";
+import type { DependencyEdge, Fact } from "../core/fact.ts";
 import type { PayloadValue } from "../core/hash.ts";
 import type { StableId } from "../core/stable-id.ts";
 import type { LockClass } from "./locks.ts";
@@ -93,6 +93,10 @@ export interface FactView {
   childrenOf(id: StableId): Fact[];
   facts(): Fact[];
   get(id: StableId): Fact | undefined;
+  /** Outgoing dependency edges of `id` (with kind), so a rule can order its
+   *  action after the objects the fact references — e.g. a routine's def-alter
+   *  consuming its `depends` targets for BEGIN ATOMIC body validation. */
+  outgoingEdges(id: StableId): readonly DependencyEdge[];
   readonly edges: readonly { from: StableId; to: StableId }[];
 }
 
