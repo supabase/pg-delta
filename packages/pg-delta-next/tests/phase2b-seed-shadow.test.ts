@@ -35,10 +35,10 @@ afterAll(async () => {
   await Promise.all(dbs.map((d) => d.drop().catch(() => {})));
 });
 
-describe.skipIf(!runSupabaseBareTests)("phase 2b: co-located shadow seed", () => {
-  test(
-    "seeds assumed schemas so a user trigger on auth.users applies in quick mode",
-    async () => {
+describe.skipIf(!runSupabaseBareTests)(
+  "phase 2b: co-located shadow seed",
+  () => {
+    test("seeds assumed schemas so a user trigger on auth.users applies in quick mode", async () => {
       const cluster = await supabaseCluster();
       const target = await cluster.createDb("phase2b_seed_tgt");
       dbs.push(target);
@@ -90,28 +90,38 @@ describe.skipIf(!runSupabaseBareTests)("phase 2b: co-located shadow seed", () =>
             AND t.tgname = 'on_auth_user_created'`,
       );
       expect(rows[0]?.n).toBe(1);
-    },
-    240_000,
-  );
-});
+    }, 240_000);
 
-describe("phase 2b: seed is inert without assumed schemas", () => {
-  test(
-    "raw profile (no assumedSchemas) applies in quick mode with no seeding",
-    async () => {
-      const cluster = await sharedCluster();
-      const target = await cluster.createDb("phase2b_raw_tgt");
+    // Q6c (design review): a system extension (pg_graphql ∈
+    // SUPABASE_SYSTEM_EXTENSIONS) is hard-pruned from the view — the extension
+    // id has no schema, so it is never reference-only and the seed emits no
+    // CREATE EXTENSION. Its members (in the `graphql` schema) stay reference-
+    // only-skipped; only the empty assumed `graphql` schema is seeded. This pins
+    // that an extension-bearing target does not break the seed's batch replay.
+    test("applies against a target that also has a system extension installed", async () => {
+      const cluster = await supabaseCluster();
+      const target = await cluster.createDb("phase2b_seed_ext_tgt");
       dbs.push(target);
-
-      const dir = join(tmpdir(), `pg-delta-next-phase2b-raw-${Date.now()}`);
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(
-        join(dir, "01_schema.sql"),
-        `CREATE SCHEMA app;\nCREATE TABLE app.t (id integer PRIMARY KEY);\n`,
+      await target.pool.query(
+        `CREATE SCHEMA auth;\n` +
+          `CREATE TABLE auth.users (id uuid PRIMARY KEY, email text);\n` +
+          `CREATE EXTENSION IF NOT EXISTS pg_graphql;\n`,
       );
 
-      // NO --shadow, NO --profile → raw profile has no assumedSchemas, so the
-      // seed step short-circuits and the co-located load runs exactly as before.
+      const dir = join(tmpdir(), `pg-delta-next-phase2b-ext-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "01_fn.sql"),
+        `CREATE FUNCTION public.handle_new_user() RETURNS trigger\n` +
+          `  LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;\n`,
+      );
+      writeFileSync(
+        join(dir, "02_trigger.sql"),
+        `CREATE TRIGGER on_auth_user_created\n` +
+          `  AFTER INSERT ON auth.users\n` +
+          `  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();\n`,
+      );
+
       await cmdSchemaApply([
         "--dir",
         dir,
@@ -119,13 +129,51 @@ describe("phase 2b: seed is inert without assumed schemas", () => {
         target.uri,
         "--renames",
         "off",
+        "--profile",
+        "supabase",
       ]);
 
       const { rows } = await target.pool.query<{ n: number }>(
-        `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'app'`,
+        `SELECT count(*)::int AS n
+           FROM pg_trigger t
+           JOIN pg_class c ON c.oid = t.tgrelid
+           JOIN pg_namespace ns ON ns.oid = c.relnamespace
+          WHERE ns.nspname = 'auth'
+            AND c.relname = 'users'
+            AND t.tgname = 'on_auth_user_created'`,
       );
       expect(rows[0]?.n).toBe(1);
-    },
-    90_000,
-  );
+    }, 240_000);
+  },
+);
+
+describe("phase 2b: seed is inert without assumed schemas", () => {
+  test("raw profile (no assumedSchemas) applies in quick mode with no seeding", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("phase2b_raw_tgt");
+    dbs.push(target);
+
+    const dir = join(tmpdir(), `pg-delta-next-phase2b-raw-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "01_schema.sql"),
+      `CREATE SCHEMA app;\nCREATE TABLE app.t (id integer PRIMARY KEY);\n`,
+    );
+
+    // NO --shadow, NO --profile → raw profile has no assumedSchemas, so the
+    // seed step short-circuits and the co-located load runs exactly as before.
+    await cmdSchemaApply([
+      "--dir",
+      dir,
+      "--target",
+      target.uri,
+      "--renames",
+      "off",
+    ]);
+
+    const { rows } = await target.pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'app'`,
+    );
+    expect(rows[0]?.n).toBe(1);
+  }, 90_000);
 });
