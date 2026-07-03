@@ -86,7 +86,6 @@ describe("plan() — default extension-member projection (4b Stage 0)", () => {
           payload: {
             schema: "myext_s",
             relocatable: false,
-            _schemaIsMember: true,
           },
         },
         f(memberSchema2),
@@ -134,7 +133,6 @@ describe("plan() — default extension-member projection (4b Stage 0)", () => {
           payload: {
             schema: "public",
             relocatable: true,
-            _schemaIsMember: false,
           },
         },
         f(memberTable, schemaPublic),
@@ -165,7 +163,7 @@ describe("plan() — default extension-member projection (4b Stage 0)", () => {
         {
           id: ext7,
           parent: schemaPublic,
-          payload: { schema: "es7", relocatable: false, _schemaIsMember: true },
+          payload: { schema: "es7", relocatable: false },
         },
         f(memberSchema7),
         { id: comment7, parent: memberSchema7, payload: { text: "hi" } },

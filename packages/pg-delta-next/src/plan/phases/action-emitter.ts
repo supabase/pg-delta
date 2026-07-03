@@ -149,7 +149,12 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   };
 
   const emitCreate = (fact: Fact, base: FactBase): void => {
-    const specs = rulesFor(fact.id.kind).create(fact, base, paramsFor(fact));
+    const specs = rulesFor(fact.id.kind).create(
+      fact,
+      base,
+      paramsFor(fact),
+      source,
+    );
     specs.forEach((spec, i) => {
       pushAction("create", spec, {
         produces: i === 0 ? [fact.id] : [],
@@ -440,6 +445,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         toFact,
         projectedDesired,
         paramsFor(toFact),
+        source,
       );
       createSpecs.forEach((spec, i) => {
         pushAction("create", spec, {

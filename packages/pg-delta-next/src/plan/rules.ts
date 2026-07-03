@@ -98,10 +98,24 @@ export interface FactView {
    *  consuming its `depends` targets for BEGIN ATOMIC body validation. */
   outgoingEdges(id: StableId): readonly DependencyEdge[];
   readonly edges: readonly { from: StableId; to: StableId }[];
+  /** Whether `id` is present for REFERENCE ONLY (kept in the view so dependents
+   *  resolve, but never itself created/dropped/altered — e.g. an assumed-schema
+   *  platform object). Lets a rule tell "present on the target" from "produced
+   *  by this plan". */
+  isReferenceOnly(id: StableId): boolean;
 }
 
 export interface KindRules {
-  create(fact: Fact, view: FactView, params?: PlanParams): ActionSpec[];
+  /** `sourceView` is the resolved SOURCE (target) view, so a rule can decide by
+   *  plan-time presence — e.g. CREATE EXTENSION omits `SCHEMA s` when schema `s`
+   *  is neither on the target nor produced by this plan (the extension creates
+   *  it). Optional so existing single-arg rules stay type-compatible. */
+  create(
+    fact: Fact,
+    view: FactView,
+    params?: PlanParams,
+    sourceView?: FactView,
+  ): ActionSpec[];
   drop(fact: Fact): ActionSpec;
   /** rename support (stage 9): render the in-place rename from the old
    *  fact to the new id. Kinds without this member never become rename

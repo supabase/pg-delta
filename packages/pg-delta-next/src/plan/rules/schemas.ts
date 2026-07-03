@@ -1,4 +1,5 @@
 /** Rule definitions for schemas and extensions. */
+import type { StableId } from "../../core/stable-id.ts";
 import { qid } from "../render.ts";
 import type { KindRules } from "../rules.ts";
 import { p, renameRule, str } from "./helpers.ts";
@@ -41,25 +42,35 @@ export const schemaRules: Record<string, KindRules> = {
 
   extension: {
     weight: 2,
-    // Whether to emit `SCHEMA <s>` is NOT simply `relocatable`: an extension
-    // honours (and needs) the clause whenever it is installed INTO a schema that
-    // exists independently — every relocatable extension, AND a non-relocatable
-    // one whose schema it did not create itself (e.g. pg_net into Supabase's
-    // "extensions"). Only an extension that creates its OWN schema (that schema
-    // is its member, `_schemaIsMember`) must omit the clause, since the named
-    // schema would not pre-exist. Gate on `_schemaIsMember === false` (known
-    // independent) and keep `relocatable` as the backward-compatible fallback for
-    // facts without the metadata. See docs/architecture/managed-view-architecture.md.
-    create: (fact) => [
-      p(fact, "relocatable") === true || p(fact, "_schemaIsMember") === false
-        ? {
-            sql: `CREATE EXTENSION ${qid((fact.id as { name: string }).name)} SCHEMA ${qid(str(p(fact, "schema")))}`,
-            consumes: [{ kind: "schema", name: str(p(fact, "schema")) }],
-          }
-        : {
-            sql: `CREATE EXTENSION ${qid((fact.id as { name: string }).name)}`,
-          },
-    ],
+    // Whether to emit `SCHEMA <s>` is a PLAN-TIME property, not an extract-time
+    // one: the clause is valid iff schema `s` EXISTS when CREATE EXTENSION runs.
+    // Emit it when `s` is present on the target (source view — including the
+    // reference-only platform schemas the policy keeps, e.g. Supabase's
+    // "extensions"), OR when `s` is created by this plan (a managed, non-
+    // reference-only desired schema; the `consumes` edge orders CREATE SCHEMA
+    // first). Otherwise the extension creates its OWN schema from its control
+    // file (pgmq), so the clause would fail against a not-yet-existing schema —
+    // emit the bare form; built-in schemas (pg_cron's pg_catalog) are never
+    // extracted and fall here too. `relocatable` / `_schemaIsMember` cannot
+    // express this — the `deptype='e'` schema→extension edge never exists, so
+    // `_schemaIsMember` was always false and the rule always emitted the clause
+    // (da8ce04 regression). See docs/architecture/managed-view-architecture.md.
+    create: (fact, view, _params, sourceView) => {
+      const schemaName = str(p(fact, "schema"));
+      const schemaId: StableId = { kind: "schema", name: schemaName };
+      const schemaPresent =
+        sourceView?.get(schemaId) !== undefined ||
+        (view.get(schemaId) !== undefined && !view.isReferenceOnly(schemaId));
+      const name = qid((fact.id as { name: string }).name);
+      return [
+        schemaPresent
+          ? {
+              sql: `CREATE EXTENSION ${name} SCHEMA ${qid(schemaName)}`,
+              consumes: [schemaId],
+            }
+          : { sql: `CREATE EXTENSION ${name}` },
+      ];
+    },
     drop: (fact) => ({
       sql: `DROP EXTENSION ${qid((fact.id as { name: string }).name)}`,
     }),

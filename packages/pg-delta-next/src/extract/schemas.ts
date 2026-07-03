@@ -37,22 +37,13 @@ export async function extractSchemasAndExtensions(
   }
 
   // ── extensions (version deliberately excluded from the payload) ─────
+  // Whether CREATE EXTENSION emits `SCHEMA <s>` is decided at PLAN time from the
+  // schema's presence (extension create rule), not from an extract-time signal:
+  // Postgres records no schema→extension ownership edge (deptype 'e' never
+  // exists), so there is nothing to extract here for that decision.
   for (const row of await q(`
     SELECT e.extname AS name, n.nspname AS schema,
            e.extrelocatable AS relocatable,
-           -- Does the extension OWN its schema (its install script created it,
-           -- deptype 'e'), or was it installed INTO an independently-existing
-           -- schema? A non-relocatable extension can still be installed into a
-           -- pre-existing schema via CREATE EXTENSION … SCHEMA (e.g. pg_net into
-           -- Supabase's "extensions"); only an extension that creates its own
-           -- schema must omit the SCHEMA clause. Carried as non-semantic metadata
-           -- so the CREATE rule can choose, without adding a diffed field.
-           EXISTS (
-             SELECT 1 FROM pg_depend d
-             WHERE d.classid = 'pg_namespace'::regclass AND d.objid = e.extnamespace
-               AND d.refclassid = 'pg_extension'::regclass AND d.refobjid = e.oid
-               AND d.deptype = 'e'
-           ) AS schema_is_member,
            obj_description(e.oid, 'pg_extension') AS comment
     FROM pg_extension e
     JOIN pg_namespace n ON n.oid = e.extnamespace
@@ -64,7 +55,6 @@ export async function extractSchemasAndExtensions(
         payload: {
           schema: String(row["schema"]),
           relocatable: Boolean(row["relocatable"]),
-          _schemaIsMember: Boolean(row["schema_is_member"]),
         },
       },
       row,

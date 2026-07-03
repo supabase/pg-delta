@@ -151,5 +151,54 @@ describe.skipIf(!runSupabaseBareTests)(
         await Promise.all(dbs.map((db) => db.drop()));
       }
     }, 240_000);
+
+    // A NON-relocatable extension installed into a PRE-EXISTING schema
+    // (pg_net into `extensions`, the Supabase baseline shape) must keep its
+    // `SCHEMA extensions` clause: the schema is present on the target, so the
+    // presence-based create rule emits + orders the clause, and apply converges.
+    // (pgmq above pins the mirror case — a self-created schema goes bare.)
+    test("non-relocatable extension into a pre-existing schema keeps its SCHEMA clause and converges", async () => {
+      const cluster = await supabaseCluster();
+      const main = await cluster.createDb("supa_pgnet_main");
+      const branch = await cluster.createDb("supa_pgnet_branch");
+      try {
+        // `extensions` exists on both (Supabase platform schema); only branch
+        // installs pg_net into it.
+        await main.pool.query(`CREATE SCHEMA IF NOT EXISTS extensions`);
+        await branch.pool.query(
+          `CREATE SCHEMA IF NOT EXISTS extensions;\n` +
+            `CREATE EXTENSION pg_net SCHEMA extensions;`,
+        );
+
+        const ctx = await resolveCliProfile(main.pool, "supabase");
+        const extractFn = ctx.extract ?? extract;
+        const [s, d] = await Promise.all([
+          extractFn(main.pool),
+          extractFn(branch.pool),
+        ]);
+
+        const thePlan = plan(s.factBase, d.factBase, {
+          compact: true,
+          ...ctx.planOptions,
+        });
+        expect(
+          thePlan.actions.some((a) =>
+            a.sql.includes(`CREATE EXTENSION "pg_net" SCHEMA "extensions"`),
+          ),
+        ).toBe(true);
+
+        const report = await apply(thePlan, main.pool, {
+          fingerprintGate: false,
+          ...ctx.applyOptions,
+        });
+        expect(report.status).toBe("applied");
+
+        const after = await extractFn(main.pool);
+        const drift = plan(after.factBase, d.factBase, ctx.planOptions);
+        expect(drift.actions).toEqual([]);
+      } finally {
+        await Promise.all([main.drop(), branch.drop()]);
+      }
+    }, 240_000);
   },
 );

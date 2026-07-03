@@ -143,6 +143,13 @@ export class FactBase {
     return this.#byId.has(encodeId(id));
   }
 
+  /** Whether `id` is present for REFERENCE ONLY (see `referenceOnly`). Satisfies
+   *  the `FactView` member so a rule can distinguish "on the target" from
+   *  "produced by this plan". */
+  isReferenceOnly(id: StableId): boolean {
+    return this.referenceOnly.has(encodeId(id));
+  }
+
   hashOf(id: StableId): ContentHash {
     const entry = this.#byId.get(encodeId(id));
     if (!entry) throw new Error(`FactBase: unknown fact ${encodeId(id)}`);
