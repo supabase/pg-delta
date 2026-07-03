@@ -9,8 +9,10 @@
  * + the proof re-extract), never the delta level — a delta-only filter would
  * make the proof drift.
  *
- * `excludeManaged` (managedBy) and `excludeExtensionMembers` (memberOfExtension)
- * are thin wrappers over `excludeByProvenance`; scope and applier-capability
+ * `excludeByProvenance(fb, "managedBy")` HARD-projects operationally-managed
+ * objects out. Extension members (`memberOfExtension`) are NOT hard-pruned — they
+ * are kept REFERENCE-ONLY via `extensionMemberClosure` / `extensionMemberReferenceOnly`
+ * so their satellite customizations still diff. Scope and applier-capability
  * projections (later moves) reuse `excludeFactsAndDescendants` with roots chosen
  * a different way.
  */
@@ -21,7 +23,7 @@ import {
   type Fact,
   type FactBase,
 } from "../core/fact.ts";
-import { encodeId, type StableId } from "../core/stable-id.ts";
+import { encodeId, isSatelliteId, type StableId } from "../core/stable-id.ts";
 
 /**
  * Return a new FactBase with `rootIds` and their entire descendant subtrees
@@ -100,39 +102,57 @@ export function projectManagementScope(
 }
 
 /**
- * Encoded ids to mark REFERENCE-ONLY for extension members: every fact with an
- * outgoing `memberOfExtension` edge (the member root) plus its NON-satellite
- * descendants (a member table's columns/constraints/indexes are extension-
- * managed too). Satellites — acl / comment / securityLabel, whose id carries a
- * `target` — are deliberately EXCLUDED from the set so they stay diffable: a
- * user GRANT / COMMENT / SECURITY LABEL layered on an extension object is user
- * state, and the diff descends into a reference-only fact's children (diff.ts),
- * so those satellites are compared while the member object itself never becomes
- * a create/drop/alter action (CREATE EXTENSION manages it).
+ * Extension-member closure: every fact an extension OWNS → the owning
+ * extension id(s). A member root is any fact with an outgoing `memberOfExtension`
+ * edge (pushMemberEdge tags functions/tables/types/schemas/…). Ownership then
+ * flows DOWN to a root's NON-satellite descendants (a member table's columns/
+ * constraints are extension-managed too), EXCEPT it does NOT cross a `schema`
+ * root's children: an extension owns the schema it creates, but a USER object
+ * added inside that schema carries no member edge of its own and must diff
+ * normally. Satellites (acl/comment/securityLabel — `isSatelliteId`) are never
+ * in the closure: a user GRANT/COMMENT/SECURITY LABEL on an extension object is
+ * user state that the diff DOES manage.
+ *
+ * Memoized by construction (BFS visits each id once), unlike a per-fact
+ * ancestor walk. Used both to mark members reference-only in the view and to
+ * exempt them from the planner's requirement guard (they are present-at-apply
+ * via CREATE EXTENSION), keeping ONE definition of "member" on both sides.
  */
+export function extensionMemberClosure(fb: FactBase): Map<string, StableId[]> {
+  const closure = new Map<string, StableId[]>();
+  const queue: StableId[] = [];
+  for (const fact of fb.facts()) {
+    const exts = fb
+      .outgoingEdges(fact.id)
+      .filter((e) => e.kind === "memberOfExtension")
+      .map((e) => e.to);
+    if (exts.length > 0) {
+      closure.set(encodeId(fact.id), exts);
+      queue.push(fact.id);
+    }
+  }
+  while (queue.length > 0) {
+    const id = queue.pop() as StableId;
+    if (id.kind === "schema") continue; // schema boundary (see doc above)
+    const exts = closure.get(encodeId(id)) as StableId[];
+    for (const child of fb.childrenOf(id)) {
+      if (isSatelliteId(child.id)) continue;
+      const key = encodeId(child.id);
+      if (closure.has(key)) continue;
+      closure.set(key, exts);
+      queue.push(child.id);
+    }
+  }
+  return closure;
+}
+
+/** Encoded ids to mark REFERENCE-ONLY for extension members — the member
+ *  objects (and their non-satellite descendants) from `extensionMemberClosure`.
+ *  The diff descends into a reference-only fact's children (diff.ts), so a
+ *  member's satellite customizations are still compared while the member object
+ *  itself never becomes a create/drop/alter action. */
 export function extensionMemberReferenceOnly(fb: FactBase): Set<string> {
-  const memberRoots = new Set<string>();
-  for (const fact of fb.facts()) {
-    if (fb.outgoingEdges(fact.id).some((e) => e.kind === "memberOfExtension")) {
-      memberRoots.add(encodeId(fact.id));
-    }
-  }
-  const refOnly = new Set<string>();
-  if (memberRoots.size === 0) return refOnly;
-  const isSatellite = (id: StableId): boolean => "target" in id;
-  const underMember = (fact: Fact): boolean => {
-    let current: StableId | undefined = fact.id;
-    while (current !== undefined) {
-      if (memberRoots.has(encodeId(current))) return true;
-      current = fb.get(current)?.parent;
-    }
-    return false;
-  };
-  for (const fact of fb.facts()) {
-    if (isSatellite(fact.id)) continue;
-    if (underMember(fact)) refOnly.add(encodeId(fact.id));
-  }
-  return refOnly;
+  return new Set(extensionMemberClosure(fb).keys());
 }
 
 /**

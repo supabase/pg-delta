@@ -784,14 +784,15 @@ function factScopeExcluded(
 }
 
 /**
- * Resolve the managed VIEW that the engine diffs: extension members and
- * operationally-managed objects are always projected out (provenance —
- * `memberOfExtension` then `managedBy`), then the policy's scope (non-`verb`)
- * rules remove the facts they exclude — at the FACT level, on both sides and the
- * proof re-extract, so `plan == prove == run` holds by construction. `verb` rules
- * are left to the delta-level filter (filterDeltas). With no policy and no
- * provenance edges this is the identity projection, so the corpus path is
- * unchanged. This is the SINGLE projection point for the managed view.
+ * Resolve the managed VIEW that the engine diffs: extension members are kept
+ * REFERENCE-ONLY (present so their satellite customizations diff, but the member
+ * object is never a create/drop/alter action — CREATE EXTENSION manages it);
+ * operationally-managed (`managedBy`) objects are hard-projected out; then the
+ * policy's scope (non-`verb`) rules remove the facts they exclude — at the FACT
+ * level, on both sides and the proof re-extract, so `plan == prove == run` holds
+ * by construction. `verb` rules are left to the delta-level filter (filterDeltas).
+ * With no policy and no provenance edges this is the identity projection, so the
+ * corpus path is unchanged. This is the SINGLE projection point for the managed view.
  */
 export function resolveView(
   fb: FactBase,
@@ -799,18 +800,19 @@ export function resolveView(
   capability?: ApplierCapability,
   baseline?: FactBase,
 ): FactBase {
+  // Extension members become REFERENCE-ONLY, not pruned: the member OBJECT (and
+  // its non-satellite descendants) is kept but never diffed, while its satellite
+  // customizations (acl/comment/securityLabel) stay diffable. Computed on the RAW
+  // input, BEFORE baseline subtraction — subtractBaseline prunes a member's
+  // `memberOfExtension` edge when it removes the (baseline-identical) extension
+  // endpoint, which would otherwise leave a surviving customized member looking
+  // like a plain diffable object. Intersected with survivors below.
+  const memberRefOnly = extensionMemberReferenceOnly(fb);
   // baseline subtraction (§3.9): facts present-and-identical in the platform
   // baseline drop out before anything else, so platform-managed objects are
   // invisible without a filter rule per object. Same fact-level projection as
   // extension-member / managed-object exclusion → the proof stays honest.
   let base = baseline ? subtractBaseline(fb, baseline) : fb;
-  // Extension members become REFERENCE-ONLY, not pruned: the member OBJECT (and
-  // its structural descendants) is kept but never diffed — CREATE EXTENSION
-  // manages it — while its satellite customizations (acl/comment/securityLabel)
-  // stay diffable so a user GRANT/COMMENT/SECURITY LABEL on an extension object
-  // is captured (extensionMemberReferenceOnly). Computed BEFORE managed/
-  // capability/policy pruning may drop some, then intersected with survivors.
-  const memberRefOnly = extensionMemberReferenceOnly(base);
   // managed-object projection (P0): objects a stateful extension created
   // operationally (pg_partman children, pgmq queue tables) carry a `managedBy`
   // edge from a handler's snapshot-bound capture. They are HARD-projected out so
@@ -854,6 +856,7 @@ export function resolveView(
   // only facts that actually survived pruning. This is the SINGLE projection
   // point for the managed view; `referenceOnly` is per-side deterministic (no
   // cross-side dependency → fingerprint/proof stay consistent).
+  if (memberRefOnly.size === 0 && policyRefOnly.size === 0) return pruned;
   const surviving = new Set(pruned.facts().map((f) => encodeId(f.id)));
   const referenceOnly = new Set<string>();
   for (const key of memberRefOnly)

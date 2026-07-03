@@ -1,5 +1,6 @@
 /** Rule definitions for metadata satellites: comments, security labels, and
  *  ACL grants. */
+import type { Fact } from "../../core/fact.ts";
 import type { StableId } from "../../core/stable-id.ts";
 import { commentTarget, grantTarget, lit, qid } from "../render.ts";
 import type { KindRules } from "../rules.ts";
@@ -75,11 +76,37 @@ export const metadataRules: Record<string, KindRules> = {
     drop: (fact) => {
       const id = fact.id as { kind: "acl"; target: StableId; grantee: string };
       const grantee = id.grantee === "PUBLIC" ? "PUBLIC" : qid(id.grantee);
+      const consumes: StableId[] =
+        id.grantee === "PUBLIC" ? [] : [{ kind: "role", name: id.grantee }];
+      const init = p(fact, "_initPrivs") as
+        | { privileges: string[]; grantable: string[] }
+        | undefined;
+      // Ordinary ACL (or an extension member with NO install grant for this
+      // grantee) → a bare REVOKE ALL, byte-identical to grantActions' leading
+      // REVOKE so the replace-path drop elision still fires.
+      if (init === undefined) {
+        return {
+          sql: `REVOKE ALL ON ${grantTarget(id.target)} FROM ${grantee}`,
+          consumes,
+        };
+      }
+      // Extension-member customization removed → revert to the AS-INSTALLED grant
+      // (`_initPrivs` from pg_init_privs) rather than stripping the extension's
+      // own grant. Emitted as ONE atomic multi-statement action, NOT two graph
+      // nodes: the reset REVOKE and the restore GRANT(s) target the same
+      // object+grantee and must never be reordered — two nodes carry no ordering
+      // edge, so the trailing REVOKE could re-drop the restored grant. Safe
+      // because ACL DDL is transactional (the string runs in one implicit
+      // transaction); do NOT copy this shape for a nonTransactional action.
+      const restore: Fact = {
+        id: fact.id,
+        payload: { privileges: init.privileges, grantable: init.grantable },
+      };
       return {
-        sql: `REVOKE ALL ON ${grantTarget(id.target)} FROM ${grantee}`,
-        ...(id.grantee === "PUBLIC"
-          ? {}
-          : { consumes: [{ kind: "role", name: id.grantee } as StableId] }),
+        sql: grantActions(restore, "grant")
+          .map((s) => s.sql)
+          .join(";\n"),
+        consumes,
       };
     },
     attributes: {

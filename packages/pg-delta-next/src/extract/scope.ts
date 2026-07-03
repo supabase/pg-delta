@@ -200,19 +200,24 @@ export const aclJson = (
 
 /**
  * ACL delta for an EXTENSION MEMBER, pg_dump's `pg_init_privs` model: emit only
- * the grantees whose CURRENT privilege set differs from the object's
+ * the grantees whose CURRENT privilege/grant-option set differs from the object's
  * as-installed set (`pg_init_privs.initprivs`, or `acldefault` when the extension
  * recorded no init row — a default-acl member). CREATE EXTENSION re-establishes
  * the init state, so a member that was never customized yields NO acl facts (no
- * churn on plain extensions); a customization layered afterward (Supabase grants
- * net.http_get to anon/authenticated/…) surfaces as the added/changed grantees.
+ * churn on plain extensions); a customization layered afterward surfaces as its
+ * delta grantees. Three shapes, via a FULL OUTER JOIN of current vs init:
+ *   - added / upgraded grantee (in cur, differs from ini) → current privileges,
+ *     `_initPrivs` = the install entry (null if the grantee had none at install);
+ *   - fully-REVOKED init grantee (in ini, absent from cur, e.g. Supabase's
+ *     `REVOKE EXECUTE … FROM PUBLIC` hardening) → an empty-privileges marker so
+ *     the create renders a lone `REVOKE ALL` (grantActions);
+ *   - grant-option-only change (same privileges, different grantable) → included.
  *
- * Same JSON shape as `aclJson` so `parseAcl` reads both. It intentionally omits
- * the owner-default (`_ownerDefault`) bookkeeping — a member delta carries only
- * non-default entries, so there is nothing for default-ACL elision to reconcile.
- * Fully-revoked init grants (a grantee present at install but removed) are not
- * yet emitted; no member in the corpus/baseline exercises that, and the proof
- * would surface it as drift if one appeared.
+ * Same JSON shape as `aclJson` (+ non-semantic `_initPrivs`) so `parseAcl` reads
+ * both. It omits `_ownerDefault` — a member delta carries only non-default
+ * entries, so there is nothing for default-ACL elision to reconcile. `_initPrivs`
+ * lets the DROP path RESTORE the install state instead of a blind `REVOKE ALL`
+ * (see the `acl` rule in plan/rules/metadata.ts).
  */
 export const memberAclDeltaJson = (
   aclColumn: string,
@@ -222,7 +227,8 @@ export const memberAclDeltaJson = (
   oidExpr: string,
 ) => `
     (SELECT json_agg(json_build_object(
-        'grantee', d.grantee, 'privileges', d.privileges, 'grantable', d.grantable
+        'grantee', d.grantee, 'privileges', d.privileges,
+        'grantable', d.grantable, '_initPrivs', d.init_privs
       ) ORDER BY d.grantee)
      FROM (
        WITH cur AS (
@@ -236,7 +242,9 @@ export const memberAclDeltaJson = (
        ),
        ini AS (
          SELECT COALESCE(g.rolname, 'PUBLIC') AS grantee,
-                array_agg(e.privilege_type ORDER BY e.privilege_type) AS privileges
+                array_agg(e.privilege_type ORDER BY e.privilege_type) AS privileges,
+                COALESCE(array_agg(e.privilege_type ORDER BY e.privilege_type)
+                  FILTER (WHERE e.is_grantable), ARRAY[]::text[]) AS grantable
          FROM aclexplode(COALESCE(
                 (SELECT ip.initprivs FROM pg_init_privs ip
                  WHERE ip.objoid = ${oidExpr}
@@ -246,9 +254,17 @@ export const memberAclDeltaJson = (
          LEFT JOIN pg_roles g ON g.oid = e.grantee
          GROUP BY 1
        )
-       SELECT cur.grantee, cur.privileges, cur.grantable
-       FROM cur LEFT JOIN ini USING (grantee)
+       SELECT
+         COALESCE(cur.grantee, ini.grantee) AS grantee,
+         COALESCE(cur.privileges, ARRAY[]::text[]) AS privileges,
+         COALESCE(cur.grantable, ARRAY[]::text[]) AS grantable,
+         CASE WHEN ini.grantee IS NOT NULL
+              THEN json_build_object(
+                     'privileges', ini.privileges, 'grantable', ini.grantable)
+              END AS init_privs
+       FROM cur FULL OUTER JOIN ini USING (grantee)
        WHERE cur.privileges IS DISTINCT FROM ini.privileges
+          OR cur.grantable IS DISTINCT FROM ini.grantable
      ) d)`;
 
 /**
@@ -272,6 +288,13 @@ export const aclJsonMemberAware = (
     ELSE ${aclJson(aclColumn, objtype, ownerColumn)}
     END`;
 
+/** The as-installed ACL entry for an extension member (from pg_init_privs /
+ *  acldefault), carried non-semantically so the DROP path can restore it. */
+export interface InitPrivs {
+  privileges: string[];
+  grantable: string[];
+}
+
 export const parseAcl = (
   raw: unknown,
 ): {
@@ -279,6 +302,7 @@ export const parseAcl = (
   privileges: string[];
   grantable: string[];
   ownerDefault?: string[];
+  initPrivs?: InitPrivs;
 }[] => {
   if (raw == null) return [];
   const entries = raw as {
@@ -286,12 +310,21 @@ export const parseAcl = (
     privileges: string[];
     grantable: string[] | null;
     ownerDefault: string[] | null;
+    _initPrivs: { privileges: string[]; grantable: string[] | null } | null;
   }[];
   return entries.map((e) => ({
     grantee: e.grantee,
     privileges: e.privileges,
     grantable: e.grantable ?? [],
     ...(e.ownerDefault != null ? { ownerDefault: e.ownerDefault } : {}),
+    ...(e._initPrivs != null
+      ? {
+          initPrivs: {
+            privileges: e._initPrivs.privileges,
+            grantable: e._initPrivs.grantable ?? [],
+          },
+        }
+      : {}),
   }));
 };
 
@@ -323,6 +356,7 @@ export interface ExtractContext {
       grantable: string[];
       grantee: string;
       ownerDefault?: string[];
+      initPrivs?: InitPrivs;
     }[],
   ) => void;
   pushMemberEdge: (id: StableId, row: Row) => void;
@@ -362,6 +396,7 @@ export function createExtractContext(
       grantable: string[];
       grantee: string;
       ownerDefault?: string[];
+      initPrivs?: InitPrivs;
     }[],
   ): void => {
     facts.push(fact);
@@ -397,6 +432,17 @@ export function createExtractContext(
           // spurious cross-version / snapshot diff deltas and fingerprint drift.
           ...(acl.ownerDefault !== undefined
             ? { _ownerDefault: acl.ownerDefault }
+            : {}),
+          // as-installed ACL for an extension member (non-semantic `_` prefix):
+          // lets the DROP path restore install state instead of REVOKE ALL.
+          // Built as a fresh literal so it satisfies the Payload index signature.
+          ...(acl.initPrivs !== undefined
+            ? {
+                _initPrivs: {
+                  privileges: acl.initPrivs.privileges,
+                  grantable: acl.initPrivs.grantable,
+                },
+              }
             : {}),
         },
       });

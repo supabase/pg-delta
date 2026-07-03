@@ -13,7 +13,7 @@ import { buildFactBase, type Fact } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import type { Policy } from "./policy.ts";
 import { resolveView } from "./policy.ts";
-import { excludeExtensionMembers } from "./extension-members.ts";
+import { excludeByProvenance } from "./view.ts";
 
 const f = (id: StableId, payload: Fact["payload"] = {}): Fact => ({
   id,
@@ -99,7 +99,7 @@ describe("resolveView — fact-level scope projection", () => {
       [{ from: member, to: ext("pgmq"), kind: "memberOfExtension" }],
     );
     const viaResolve = resolveView(fb, undefined);
-    const viaExclude = excludeExtensionMembers(fb);
+    const viaExclude = excludeByProvenance(fb, "memberOfExtension");
     // The raw primitive hard-prunes the member; resolveView keeps it
     // REFERENCE-ONLY so its satellite customizations (acl/comment/securityLabel)
     // stay diffable while the member object itself is never diffed.

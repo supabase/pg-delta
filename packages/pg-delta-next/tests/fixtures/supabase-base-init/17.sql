@@ -2674,6 +2674,8 @@ REVOKE ALL ON FUNCTION "auth"."jwt"() FROM "supabase_auth_admin";
 
 GRANT EXECUTE ON FUNCTION "auth"."jwt"() TO "supabase_auth_admin";
 
+REVOKE ALL ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) FROM PUBLIC;
+
 REVOKE ALL ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) FROM "anon";
 
 GRANT EXECUTE ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) TO "anon";
@@ -2693,6 +2695,8 @@ GRANT EXECUTE ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) TO "serv
 REVOKE ALL ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) FROM "supabase_functions_admin";
 
 GRANT EXECUTE ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) TO "supabase_functions_admin";
+
+REVOKE ALL ON FUNCTION "net"."http_post"(text, jsonb, jsonb, jsonb, integer) FROM PUBLIC;
 
 REVOKE ALL ON FUNCTION "net"."http_post"(text, jsonb, jsonb, jsonb, integer) FROM "anon";
 

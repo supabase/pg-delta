@@ -62,5 +62,14 @@ describe(`supabase base-init fixture (pg${SUPABASE_BARE_MAJOR})`, () => {
     // and the member function is NEVER created/dropped by the plan (extension-managed)
     expect(sql).not.toContain('CREATE FUNCTION "net"."http_get"');
     expect(sql).not.toContain('DROP FUNCTION "net"."http_get"');
+
+    // The full stack also REVOKES the install-time PUBLIC EXECUTE on the pg_net
+    // functions. The init-privs delta captures that fully-revoked-grantee via an
+    // empty-privileges marker (a lone REVOKE ALL … FROM PUBLIC); before the
+    // FULL-OUTER-JOIN fix it was silently dropped (the LEFT JOIN saw no PUBLIC
+    // row on either side), leaving PUBLIC EXECUTE on a rebuilt DB.
+    expect(sql).toContain(
+      'REVOKE ALL ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) FROM PUBLIC',
+    );
   });
 });

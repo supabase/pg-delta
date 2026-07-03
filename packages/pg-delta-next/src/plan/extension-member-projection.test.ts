@@ -90,7 +90,7 @@ describe("plan() — default extension-member projection (4b Stage 0)", () => {
           },
         },
         f(memberSchema2),
-        f(userTable, memberSchema2),
+        { id: userTable, parent: memberSchema2, payload: { persistence: "p" } },
         { id: comment, parent: userTable, payload: { text: "user note" } },
       ],
       [{ from: memberSchema2, to: ext, kind: "memberOfExtension" }],

@@ -9,11 +9,11 @@
  * Why not re-point references to the member fact? A user object that depends on
  * an extension member (a table column of an extension type, a default calling
  * an extension function) records a pg_depend edge to the MEMBER. The resolver
- * collapses that to a depends edge on the EXTENSION. Because the member is
- * projected out by default (excludeExtensionMembers), an edge pointing at the
- * member would be PRUNED with it — and the user object would lose its "create
- * the extension first" ordering constraint, a silent regression. The collapsed
- * edge points at the extension (which survives projection), so ordering holds.
+ * collapses that to a depends edge on the EXTENSION. The member is now kept
+ * REFERENCE-ONLY (not hard-pruned), but it is never a create action of its own,
+ * so a depends edge on the member would give the user object no "create the
+ * extension first" constraint. The collapsed edge points at the extension
+ * (which CREATE EXTENSION produces), so the ordering holds.
  *
  * This test pins that: a user table using an extension type is ordered AFTER the
  * extension and proves clean. (Member-as-fact observation + projection is

@@ -50,11 +50,12 @@ const routineRule: KindRules = {
   },
   attributes: {
     // `def` is pg_get_functiondef output — itself a `CREATE OR REPLACE`. A
-    // body / volatility / security / strictness / cost / SET-clause / arg-name
-    // or arg-default change re-runs it IN PLACE (PostgreSQL / pg_dump semantics:
-    // owner, grants, and dependents survive). The alter consumes the routine's
-    // `depends` targets so a BEGIN ATOMIC body that references a newly-created
-    // object is ordered after that object's create.
+    // body / volatility / security / strictness / cost / SET-clause change
+    // re-runs it IN PLACE (PostgreSQL / pg_dump semantics: owner, grants, and
+    // dependents survive). (Arg-name / arg-default changes do NOT alter in place —
+    // they also flip `argSignature`, which is "replace" below and wins.) The
+    // alter consumes the routine's `depends` targets so a BEGIN ATOMIC body that
+    // references a newly-created object is ordered after that object's create.
     def: {
       alter: (fact, _from, _to, view) => ({
         sql: str(p(fact, "def")),

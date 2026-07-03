@@ -16,6 +16,7 @@
 import type { FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { type ApplierCapability, canSetOwner } from "../policy/capability.ts";
+import { extensionMemberClosure } from "../policy/view.ts";
 import type { Action, SafetyReport } from "./plan.ts";
 import { ruleFlag } from "./rule-flags.ts";
 import { rulesFor } from "./rules.ts";
@@ -90,17 +91,25 @@ export function buildActionGraph(
     return !desired.has(id);
   };
 
-  // An extension MEMBER (memberOfExtension edge) is present-at-apply via its
-  // extension: CREATE EXTENSION materializes it (its net schema, member
-  // functions/tables), and a pre-existing extension already has it. It is
-  // reference-only — never produced/dropped by a standalone action — so it
-  // satisfies a consume/depends requirement the way an assumed role/schema does.
-  // (Distinct from the assumed-schema `isAmbient` case, which must NOT exempt a
-  // kept-but-absent object — that is a real missing reference; an extension
-  // member is genuinely created by CREATE EXTENSION, so it is exempt.)
-  const isExtensionMember = (id: StableId): boolean =>
-    desired.outgoingEdges(id).some((e) => e.kind === "memberOfExtension") ||
-    source.outgoingEdges(id).some((e) => e.kind === "memberOfExtension");
+  // Extension-member closures (member object OR non-satellite descendant →
+  // owning extension ids), computed ONCE per side. A member is reference-only
+  // (never produced/dropped by a standalone action) but is present-at-apply VIA
+  // its extension, so it can satisfy a consume/depends requirement — but ONLY
+  // when an owning extension is actually produced by this plan or already on the
+  // target. A member whose CREATE EXTENSION a policy filtered away is NOT
+  // present, so the guard must still fire (surfacing the missing reference at
+  // plan time, not apply time). Distinct from the assumed-schema `isAmbient`
+  // case, which never exempts a kept-but-absent object.
+  const desiredMemberClosure = extensionMemberClosure(desired);
+  const sourceMemberClosure = extensionMemberClosure(source);
+  const memberExtensionPresent = (memberKey: string): boolean => {
+    const exts =
+      desiredMemberClosure.get(memberKey) ?? sourceMemberClosure.get(memberKey);
+    return (
+      exts !== undefined &&
+      exts.some((ext) => producerOf.has(encodeId(ext)) || source.has(ext))
+    );
+  };
 
   // alter actions indexed by their primary fact (opts.consumes[0])
   const alterersOf = new Map<string, number[]>();
@@ -143,15 +152,13 @@ export function buildActionGraph(
       // extension: AFTER `CREATE EXTENSION` (the member appears with it) and
       // BEFORE `DROP EXTENSION` (the member vanishes with it — REVOKE it while it
       // still exists).
-      for (const edge of desired.outgoingEdges(id)) {
-        if (edge.kind !== "memberOfExtension") continue;
-        const extProducer = producerOf.get(encodeId(edge.to));
+      for (const ext of desiredMemberClosure.get(key) ?? []) {
+        const extProducer = producerOf.get(encodeId(ext));
         if (extProducer !== undefined && extProducer !== index)
           edges.push([extProducer, index]);
       }
-      for (const edge of source.outgoingEdges(id)) {
-        if (edge.kind !== "memberOfExtension") continue;
-        const extDestroyer = destroyerOf.get(encodeId(edge.to));
+      for (const ext of sourceMemberClosure.get(key) ?? []) {
+        const extDestroyer = destroyerOf.get(encodeId(ext));
         if (extDestroyer !== undefined && extDestroyer !== index)
           edges.push([index, extDestroyer]);
       }
@@ -159,13 +166,13 @@ export function buildActionGraph(
       // produced by this plan; "it's in the desired state" is not enough —
       // a policy filter can hide the delta that would have created it. Ambient
       // targets (built-in/assumed roles, assumed schemas, objects within them)
-      // and extension members (present-at-apply via CREATE EXTENSION) satisfy
-      // the requirement.
+      // and extension members whose extension is actually present/produced
+      // satisfy the requirement.
       if (
         producer === undefined &&
         !source.has(id) &&
         !isAmbient(id) &&
-        !isExtensionMember(id)
+        !memberExtensionPresent(key)
       ) {
         throw new Error(
           `missing requirement: action "${action.sql}" consumes ${key}, which neither exists on the target nor is produced by this plan${desired.has(id) ? " — a filter may be hiding its creation" : ""}`,
@@ -209,7 +216,7 @@ export function buildActionGraph(
             edge.kind === "depends" &&
             !source.has(edge.to) &&
             !isAmbient(edge.to) &&
-            !isExtensionMember(edge.to)
+            !memberExtensionPresent(targetKey)
           ) {
             throw new Error(
               `missing requirement: action "${action.sql}" produces ${encodeId(id)}, ` +
