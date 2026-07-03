@@ -17,6 +17,9 @@ cluster-DDL guard enforce this); `--scope cluster` still requires an explicit
 `--shadow` to a dedicated cluster. If the connecting role lacks `CREATEDB`, apply
 fails with a clear message pointing to `--shadow`.
 
-Note: a fresh co-located shadow does not yet contain platform-managed schemas
-(e.g. Supabase `auth`/`storage`); declarative files that reference them still need
-an explicitly-provisioned shadow until the assumed-schema seeding step lands.
+Under a profile that assumes platform schemas (e.g. `--profile supabase`), a
+fresh co-located shadow is seeded with the target's assumed-schema objects
+(`auth`, `storage`, system extensions) before the declarative files load, so a
+user trigger/view on a platform table (`auth.users`) resolves without an
+explicitly-provisioned shadow. See the extension-member/assumed-schema seed
+changeset for details.

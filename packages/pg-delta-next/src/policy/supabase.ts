@@ -190,6 +190,14 @@ export const supabasePolicy: Policy = {
   // baseline snapshot lands, re-add `baseline: "supabase-baseline"` here and
   // resolveBaseline will subtract it. Generate with:
   //   bun run scripts/generate-supabase-baseline.ts <db-url> <pg-major>
+  //
+  // ⚠️ Phase 2b (#41) depends on this being UNSET: the co-located-shadow seed
+  // (frontends/seed-assumed-schemas.ts) materializes assumed-schema objects from
+  // the target's `resolveView` reference-only set, and subtractBaseline removes
+  // baseline-identical facts BEFORE that marking — so a declared baseline empties
+  // the seed and quick-mode `schema apply` regresses. When landing the baseline,
+  // revisit the seed derivation; the "non-empty seed" pin in
+  // seed-assumed-schemas.test.ts fails loudly if this is missed.
 
   serialize: [
     // Old-13 (REMOVED): the skipAuthorization serialize rule is no longer needed.

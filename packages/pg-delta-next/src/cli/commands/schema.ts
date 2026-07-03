@@ -56,6 +56,7 @@ import {
 import type { SqlFormatOptions } from "../../frontends/sql-format/index.ts";
 import { scanTokens } from "../../frontends/sql-format/tokenizer.ts";
 import { pruneStaleSqlFiles } from "../../frontends/prune-sql-files.ts";
+import { deriveAssumedSchemaSeed } from "../../frontends/seed-assumed-schemas.ts";
 import {
   readExportManifest,
   writeExportManifest,
@@ -619,6 +620,102 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       restrictToApplier: flags["restrict-to-applier"],
     });
 
+    // Secret redaction applies to BOTH sides so the diff stays consistent. With
+    // --unsafe-show-secrets the declarative SQL's real FDW/server credentials and
+    // subscription conninfo flow through the shadow extract unredacted and apply
+    // to the target verbatim (round-tripping a trusted `schema export
+    // --unsafe-show-secrets`); otherwise both sides redact and a credential-only
+    // change is invisible (review P2). The extractor prints the loud "Secret
+    // redaction is DISABLED" diagnostic when off.
+    //
+    // Prefer the redaction mode `schema export` recorded in the directory's
+    // manifest, so a `--unsafe-show-secrets` export re-loads its real credentials
+    // without the operator re-passing the flag (and a redacted export is not
+    // silently applied unredacted). The flag remains the fallback for directories
+    // without a manifest (older exports / hand-authored dirs).
+    const redactSecrets =
+      manifest?.redactSecrets ?? !flags["unsafe-show-secrets"];
+
+    // Extract the target FIRST (Phase 2b): the co-located seed is derived from
+    // it, and the SAME result is reused as the diff source below — no second
+    // extract.
+    process.stderr.write("Extracting target...\n");
+    const tExtract0 = Date.now();
+    const targetResult = await ctx.extract(tgt.pool, { redactSecrets });
+    const extractMs = Date.now() - tExtract0;
+    process.stderr.write(
+      `  Target: ${targetResult.factBase.facts().length} facts\n`,
+    );
+
+    // Database scope: roles are ambient (assumed present at apply time), not
+    // managed. Capture the target's role names BEFORE projecting so a
+    // `GRANT … TO <role>` resolves against a role that exists on the target (and
+    // one that does NOT fails loudly at plan time via the requirement guard),
+    // then project role/membership facts (and their owner edges) out of BOTH
+    // diff sides. Without this, a shared/co-located shadow's cluster-global roles
+    // diff as a spurious `CREATE ROLE` (shadow-only) or a destructive `DROP ROLE`
+    // (target-only). Cluster scope is identity (roles are managed state).
+    const assumedTargetRoles =
+      scope === "database"
+        ? targetResult.factBase
+            .facts()
+            .filter((f) => f.id.kind === "role")
+            .map((f) => (f.id as { name: string }).name)
+        : [];
+
+    // Phase 2b (#41): when using a co-located shadow under a profile that assumes
+    // platform schemas (e.g. --profile supabase), seed those schemas' objects
+    // (auth.users, system extensions) into the FRESH shadow BEFORE loading user
+    // files, so a user trigger/view on a platform table resolves during the load.
+    // The seed re-extracts reference-only, so it cancels symmetrically in the
+    // plan. An explicit --shadow keeps bring-your-own-bootstrap; the `raw`
+    // profile has no assumedSchemas so `deriveAssumedSchemaSeed` returns nothing.
+    let seededSchemas: string[] = [];
+    let seedMs = 0;
+    if (coLocated !== undefined) {
+      const flatProfile = ctx.planOptions.policy
+        ? flattenPolicy(ctx.planOptions.policy)
+        : undefined;
+      const profileAssumedSchemas = flatProfile?.assumedSchemas ?? [];
+      if (profileAssumedSchemas.length > 0) {
+        const seed = deriveAssumedSchemaSeed(targetResult.factBase, {
+          ...(ctx.planOptions.policy ? { policy: ctx.planOptions.policy } : {}),
+          ...(ctx.planOptions.capability
+            ? { capability: ctx.planOptions.capability }
+            : {}),
+          ...(ctx.planOptions.baseline
+            ? { baseline: ctx.planOptions.baseline }
+            : {}),
+          assumedSchemas: profileAssumedSchemas,
+          // policy assumed roles PLUS the target's own role names (same cluster,
+          // so every owner/grant reference in the seed is present at replay).
+          assumedRoles: [
+            ...(flatProfile?.assumedRoles ?? []),
+            ...assumedTargetRoles,
+          ],
+        });
+        if (seed.sql !== "") {
+          process.stderr.write(
+            `Seeding shadow with ${seed.facts} assumed-schema object(s) [${seed.schemas.join(", ")}]...\n`,
+          );
+          const tSeed0 = Date.now();
+          try {
+            await shadow.pool.query(seed.sql);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            throw new Error(
+              `Failed to seed the co-located shadow with the target's assumed-schema objects: ${msg}\n` +
+                `  A platform object likely depends on an extension member or type the seed does not reproduce. ` +
+                `Pass an explicit --shadow to a database you bootstrap yourself.`,
+            );
+          }
+          seedMs = Date.now() - tSeed0;
+          seededSchemas = seed.schemas;
+          process.stderr.write(`  Seeded in ${seedMs}ms\n`);
+        }
+      }
+    }
+
     process.stderr.write("Loading SQL files into shadow...\n");
     process.stderr.write(`  ${files.length} file(s) found\n`);
 
@@ -736,28 +833,16 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
 
     const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
 
-    // Secret redaction applies to BOTH sides so the diff stays consistent. With
-    // --unsafe-show-secrets the declarative SQL's real FDW/server credentials and
-    // subscription conninfo flow through the shadow extract unredacted and apply
-    // to the target verbatim (round-tripping a trusted `schema export
-    // --unsafe-show-secrets`); otherwise both sides redact and a credential-only
-    // change is invisible (review P2). The extractor prints the loud "Secret
-    // redaction is DISABLED" diagnostic when off.
-    //
-    // Prefer the redaction mode `schema export` recorded in the directory's
-    // manifest, so a `--unsafe-show-secrets` export re-loads its real credentials
-    // without the operator re-passing the flag (and a redacted export is not
-    // silently applied unredacted). The flag remains the fallback for directories
-    // without a manifest (older exports / hand-authored dirs).
-    const redactSecrets =
-      manifest?.redactSecrets ?? !flags["unsafe-show-secrets"];
-
     // the shadow desired state must be projected with the SAME handlers as the
     // target, so pass the profile extractor through to loadSqlFiles.
     let loadResult;
+    const tLoad0 = Date.now();
     try {
       loadResult = await loadSqlFiles(loadInput, shadow.pool, {
         extract: (p, o) => ctx.extract(p, { ...o, redactSecrets }),
+        // Phase 2b: exempt the pre-seeded assumed schemas from the shadow-
+        // emptiness guard (they were deliberately populated above).
+        ...(seededSchemas.length > 0 ? { seededSchemas } : {}),
         // A declarative dir that carries cluster-level role state (CREATE ROLE,
         // membership grants — e.g. `cluster/roles.sql`) trips the default
         // `databaseScratch` leak guard. `--isolated-shadow` asserts the shadow is
@@ -788,18 +873,14 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       }
       throw error;
     }
+    const loadMs = Date.now() - tLoad0;
     process.stderr.write(
       `  Shadow loaded: ${loadResult.factBase.facts().length} facts (${loadResult.rounds} round(s))\n`,
     );
 
-    process.stderr.write("Extracting target...\n");
-    const targetResult = await ctx.extract(tgt.pool, { redactSecrets });
-    process.stderr.write(
-      `  Target: ${targetResult.factBase.facts().length} facts\n`,
-    );
-
     // surface loader + target extraction diagnostics; --strict-coverage refuses
-    // to apply while user objects the engine cannot manage exist (finding 2)
+    // to apply while user objects the engine cannot manage exist (finding 2).
+    // targetResult was extracted before the seed (above) and is reused here.
     printDiagnostics(loadResult.diagnostics, { label: "shadow" });
     printDiagnostics(targetResult.diagnostics, { label: "target" });
     exitIfBlocking([...loadResult.diagnostics, ...targetResult.diagnostics], {
@@ -807,21 +888,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       action: "apply",
     });
 
-    // Database scope: roles are ambient (assumed present at apply time), not
-    // managed. Capture the target's role names BEFORE projecting so a
-    // `GRANT … TO <role>` resolves against a role that exists on the target (and
-    // one that does NOT fails loudly at plan time via the requirement guard),
-    // then project role/membership facts (and their owner edges) out of BOTH diff
-    // sides. Without this, a shared/co-located shadow's cluster-global roles diff
-    // as a spurious `CREATE ROLE` (shadow-only) or a destructive `DROP ROLE`
-    // (target-only). Cluster scope is identity (roles are managed state).
-    const assumedTargetRoles =
-      scope === "database"
-        ? targetResult.factBase
-            .facts()
-            .filter((f) => f.id.kind === "role")
-            .map((f) => (f.id as { name: string }).name)
-        : [];
+    // targetResult + assumedTargetRoles were computed before the seed (above).
     const sourceFb = projectManagementScope(targetResult.factBase, scope);
     const desiredFb = projectManagementScope(loadResult.factBase, scope);
 
@@ -838,8 +905,15 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
           }
         : {}),
     };
+    const tPlan0 = Date.now();
     const thePlan = plan(sourceFb, desiredFb, planOptions);
+    const planMs = Date.now() - tPlan0;
     process.stderr.write(`Planning: ${thePlan.actions.length} action(s)\n`);
+    // Phase 2b: per-phase timing informs whether a dir-hash cache (Phase 3) is
+    // ever worth it. seed is 0 unless a co-located shadow was seeded.
+    process.stderr.write(
+      `  timings: seed ${seedMs}ms · load ${loadMs}ms · extract ${extractMs}ms · plan ${planMs}ms\n`,
+    );
 
     // print rename candidates in prompt mode
     if (renames === "prompt" && thePlan.renameCandidates.length > 0) {

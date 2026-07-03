@@ -391,6 +391,12 @@ export async function loadSqlFiles(
      *  desired state is projected with the SAME handlers as the target (review
      *  P1 — SQL-file workflows must match the profile-aware DB-to-DB path). */
     extract?: (pool: Pool, options?: ExtractOptions) => Promise<ExtractResult>;
+    /** Assumed schemas the caller PRE-SEEDED into the shadow (Phase 2b): the
+     *  emptiness guard below excludes them from its count so a deliberately
+     *  seeded shadow (auth.users under --profile supabase) is not rejected as
+     *  "not empty". Only these schemas are exempt — an unexpected object
+     *  anywhere else still fails the guard. */
+    seededSchemas?: string[];
   } = {},
 ): Promise<LoadResult> {
   // Rounds scale with dependency DEPTH, not file count: each round resolves
@@ -406,12 +412,20 @@ export async function loadSqlFiles(
   const mode = options.mode ?? "databaseScratch";
   const extractShadow = options.extract ?? extract;
 
-  // the shadow must be empty — verify by observation
-  const preexisting = await shadow.query(`
+  // the shadow must be empty — verify by observation. Schemas the caller
+  // pre-seeded (Phase 2b assumed schemas) are exempt: they were deliberately
+  // populated before this load, and `<> ALL(ARRAY[]::text[])` is TRUE for every
+  // row when nothing was seeded, so the default (unseeded) path is unchanged.
+  const seededSchemas = options.seededSchemas ?? [];
+  const preexisting = await shadow.query(
+    `
     SELECT count(*)::int AS n FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
-      AND n.nspname NOT LIKE 'pg\\_%'`);
+      AND n.nspname NOT LIKE 'pg\\_%'
+      AND n.nspname <> ALL($1::text[])`,
+    [seededSchemas],
+  );
   if ((preexisting.rows[0] as { n: number }).n > 0) {
     throw new ShadowLoadError("shadow database is not empty", []);
   }
