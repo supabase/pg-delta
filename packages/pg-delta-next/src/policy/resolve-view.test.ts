@@ -113,6 +113,45 @@ describe("resolveView — fact-level scope projection", () => {
     );
   });
 
+  test("member stays reference-only when baseline subtraction prunes its extension edge", () => {
+    const netSchema = schema("net");
+    const pgNet = ext("pg_net");
+    const memberFn: StableId = {
+      kind: "function",
+      schema: "net",
+      name: "http_get",
+      args: [],
+    };
+    const aclFact: Fact = {
+      id: { kind: "acl", target: memberFn, grantee: "r" },
+      parent: memberFn,
+      payload: { privileges: ["EXECUTE"], grantable: [] },
+    };
+    const edge = {
+      from: memberFn,
+      to: pgNet,
+      kind: "memberOfExtension" as const,
+    };
+    // fb has the extension, its member function, and a user GRANT on the member.
+    const fb = buildFactBase(
+      [f(netSchema), f(pgNet, netSchema), f(memberFn, netSchema), aclFact],
+      [edge],
+    );
+    // Baseline is identical EXCEPT the user grant → subtractBaseline drops the
+    // extension + function, but force-keeps the function (its acl survives) and
+    // PRUNES the now-dangling member edge.
+    const baseline = buildFactBase(
+      [f(netSchema), f(pgNet, netSchema), f(memberFn, netSchema)],
+      [edge],
+    );
+    const view = resolveView(fb, undefined, undefined, baseline);
+    // RED today: the member closure is computed AFTER subtraction, when the edge
+    // is already gone, so the surviving function is NOT reference-only and would
+    // be planned as a spurious CREATE FUNCTION.
+    expect(view.get(memberFn)).toBeDefined();
+    expect(view.referenceOnly.has(encodeId(memberFn))).toBe(true);
+  });
+
   test("managedBy facts are projected out (no policy) — single projection point", () => {
     // P0: resolveView must be the single projection point for BOTH provenance
     // kinds. Operationally-managed objects (pg_partman children) carry a

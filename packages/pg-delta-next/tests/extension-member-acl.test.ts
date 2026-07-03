@@ -88,4 +88,56 @@ describe("extension-member ACL customizations are diffed", () => {
     expect(verdict.driftDeltas).toEqual([]);
     expect(verdict.ok).toBe(true);
   }, 120_000);
+
+  // A REVOKE of an extension member's INSTALL-TIME grant (here PUBLIC EXECUTE,
+  // which acldefault gives every function) is a customization BELOW the
+  // as-installed state — the init-privs delta must emit it, and the reverse
+  // (dropping the customization) must RESTORE the install grant, not blindly
+  // REVOKE ALL. Both directions are invisible to the corpus proof loop because
+  // extraction is symmetrically blind, so they are asserted on plan shape.
+  test("a REVOKE ... FROM PUBLIC on a member function is planned + restored on drop", async () => {
+    const cluster = await sharedCluster();
+    const plain = await cluster.createDb("extrev_plain");
+    const revoked = await cluster.createDb("extrev_revoked");
+    dbs.push(plain, revoked);
+    await plain.pool.query(`CREATE EXTENSION hstore SCHEMA public;`);
+    await revoked.pool.query(
+      `CREATE EXTENSION hstore SCHEMA public;
+       REVOKE EXECUTE ON FUNCTION hstore(text, text) FROM PUBLIC;`,
+    );
+    const [plainState, revokedState] = await Promise.all([
+      extract(plain.pool),
+      extract(revoked.pool),
+    ]);
+
+    // forward (plain -> revoked): the REVOKE must appear (RED today: both sides
+    // extract no PUBLIC acl fact, so the diff is empty).
+    const forward = plan(plainState.factBase, revokedState.factBase);
+    const fwdSql = forward.actions.map((a) => a.sql);
+    expect(fwdSql.some((s) => /REVOKE .*hstore.* FROM PUBLIC/.test(s))).toBe(
+      true,
+    );
+    const fclone = await plain.clone();
+    dbs.push(fclone);
+    const fwdVerdict = await provePlan(
+      forward,
+      fclone.pool,
+      revokedState.factBase,
+    );
+    expect(fwdVerdict.ok).toBe(true);
+
+    // reverse (revoked -> plain): dropping the customization RESTORES the
+    // install grant (GRANT ... TO PUBLIC), not a bare REVOKE ALL.
+    const reverse = plan(revokedState.factBase, plainState.factBase);
+    const revSql = reverse.actions.map((a) => a.sql);
+    expect(revSql.some((s) => /GRANT .*hstore.* TO PUBLIC/.test(s))).toBe(true);
+    const rclone = await revoked.clone();
+    dbs.push(rclone);
+    const revVerdict = await provePlan(
+      reverse,
+      rclone.pool,
+      plainState.factBase,
+    );
+    expect(revVerdict.ok).toBe(true);
+  }, 120_000);
 });
