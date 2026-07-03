@@ -21,7 +21,7 @@ import {
   type Fact,
   type FactBase,
 } from "../core/fact.ts";
-import { encodeId } from "../core/stable-id.ts";
+import { encodeId, type StableId } from "../core/stable-id.ts";
 
 /**
  * Return a new FactBase with `rootIds` and their entire descendant subtrees
@@ -97,6 +97,42 @@ export function projectManagementScope(
     }
   }
   return excludeFactsAndDescendants(fb, roots);
+}
+
+/**
+ * Encoded ids to mark REFERENCE-ONLY for extension members: every fact with an
+ * outgoing `memberOfExtension` edge (the member root) plus its NON-satellite
+ * descendants (a member table's columns/constraints/indexes are extension-
+ * managed too). Satellites — acl / comment / securityLabel, whose id carries a
+ * `target` — are deliberately EXCLUDED from the set so they stay diffable: a
+ * user GRANT / COMMENT / SECURITY LABEL layered on an extension object is user
+ * state, and the diff descends into a reference-only fact's children (diff.ts),
+ * so those satellites are compared while the member object itself never becomes
+ * a create/drop/alter action (CREATE EXTENSION manages it).
+ */
+export function extensionMemberReferenceOnly(fb: FactBase): Set<string> {
+  const memberRoots = new Set<string>();
+  for (const fact of fb.facts()) {
+    if (fb.outgoingEdges(fact.id).some((e) => e.kind === "memberOfExtension")) {
+      memberRoots.add(encodeId(fact.id));
+    }
+  }
+  const refOnly = new Set<string>();
+  if (memberRoots.size === 0) return refOnly;
+  const isSatellite = (id: StableId): boolean => "target" in id;
+  const underMember = (fact: Fact): boolean => {
+    let current: StableId | undefined = fact.id;
+    while (current !== undefined) {
+      if (memberRoots.has(encodeId(current))) return true;
+      current = fb.get(current)?.parent;
+    }
+    return false;
+  };
+  for (const fact of fb.facts()) {
+    if (isSatellite(fact.id)) continue;
+    if (underMember(fact)) refOnly.add(encodeId(fact.id));
+  }
+  return refOnly;
 }
 
 /**

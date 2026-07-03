@@ -90,6 +90,18 @@ export function buildActionGraph(
     return !desired.has(id);
   };
 
+  // An extension MEMBER (memberOfExtension edge) is present-at-apply via its
+  // extension: CREATE EXTENSION materializes it (its net schema, member
+  // functions/tables), and a pre-existing extension already has it. It is
+  // reference-only — never produced/dropped by a standalone action — so it
+  // satisfies a consume/depends requirement the way an assumed role/schema does.
+  // (Distinct from the assumed-schema `isAmbient` case, which must NOT exempt a
+  // kept-but-absent object — that is a real missing reference; an extension
+  // member is genuinely created by CREATE EXTENSION, so it is exempt.)
+  const isExtensionMember = (id: StableId): boolean =>
+    desired.outgoingEdges(id).some((e) => e.kind === "memberOfExtension") ||
+    source.outgoingEdges(id).some((e) => e.kind === "memberOfExtension");
+
   // alter actions indexed by their primary fact (opts.consumes[0])
   const alterersOf = new Map<string, number[]>();
   actions.forEach((action, index) => {
@@ -124,13 +136,37 @@ export function buildActionGraph(
       ) {
         edges.push([index, destroyer]);
       }
+      // A consumed EXTENSION MEMBER is reference-only (its object is never a
+      // create/drop action — CREATE/DROP EXTENSION materializes/removes it). A
+      // customization on it (a GRANT/COMMENT/SECURITY LABEL, whose satellite fact
+      // consumes the member as its parent) is sequenced relative to the
+      // extension: AFTER `CREATE EXTENSION` (the member appears with it) and
+      // BEFORE `DROP EXTENSION` (the member vanishes with it — REVOKE it while it
+      // still exists).
+      for (const edge of desired.outgoingEdges(id)) {
+        if (edge.kind !== "memberOfExtension") continue;
+        const extProducer = producerOf.get(encodeId(edge.to));
+        if (extProducer !== undefined && extProducer !== index)
+          edges.push([extProducer, index]);
+      }
+      for (const edge of source.outgoingEdges(id)) {
+        if (edge.kind !== "memberOfExtension") continue;
+        const extDestroyer = destroyerOf.get(encodeId(edge.to));
+        if (extDestroyer !== undefined && extDestroyer !== index)
+          edges.push([index, extDestroyer]);
+      }
       // the id must exist on the target before apply (source) or be
       // produced by this plan; "it's in the desired state" is not enough —
       // a policy filter can hide the delta that would have created it. Ambient
       // targets (built-in/assumed roles, assumed schemas, objects within them)
-      // are present at apply time though kept out of the view, so they satisfy
+      // and extension members (present-at-apply via CREATE EXTENSION) satisfy
       // the requirement.
-      if (producer === undefined && !source.has(id) && !isAmbient(id)) {
+      if (
+        producer === undefined &&
+        !source.has(id) &&
+        !isAmbient(id) &&
+        !isExtensionMember(id)
+      ) {
         throw new Error(
           `missing requirement: action "${action.sql}" consumes ${key}, which neither exists on the target nor is produced by this plan${desired.has(id) ? " — a filter may be hiding its creation" : ""}`,
         );
@@ -172,7 +208,8 @@ export function buildActionGraph(
           if (
             edge.kind === "depends" &&
             !source.has(edge.to) &&
-            !isAmbient(edge.to)
+            !isAmbient(edge.to) &&
+            !isExtensionMember(edge.to)
           ) {
             throw new Error(
               `missing requirement: action "${action.sql}" produces ${encodeId(id)}, ` +

@@ -59,7 +59,11 @@ import type { FactKind, StableId } from "../core/stable-id.ts";
 import { encodeId } from "../core/stable-id.ts";
 import { KNOWN_PARAMS, type PlanParams } from "../plan/rules.ts";
 import { subtractBaseline } from "./baseline.ts";
-import { excludeByProvenance, excludeFactsAndDescendants } from "./view.ts";
+import {
+  excludeByProvenance,
+  excludeFactsAndDescendants,
+  extensionMemberReferenceOnly,
+} from "./view.ts";
 import {
   capabilityExcludedRoots,
   type ApplierCapability,
@@ -800,14 +804,19 @@ export function resolveView(
   // invisible without a filter rule per object. Same fact-level projection as
   // extension-member / managed-object exclusion → the proof stays honest.
   let base = baseline ? subtractBaseline(fb, baseline) : fb;
-  base = excludeByProvenance(base, "memberOfExtension");
+  // Extension members become REFERENCE-ONLY, not pruned: the member OBJECT (and
+  // its structural descendants) is kept but never diffed — CREATE EXTENSION
+  // manages it — while its satellite customizations (acl/comment/securityLabel)
+  // stay diffable so a user GRANT/COMMENT/SECURITY LABEL on an extension object
+  // is captured (extensionMemberReferenceOnly). Computed BEFORE managed/
+  // capability/policy pruning may drop some, then intersected with survivors.
+  const memberRefOnly = extensionMemberReferenceOnly(base);
   // managed-object projection (P0): objects a stateful extension created
   // operationally (pg_partman children, pgmq queue tables) carry a `managedBy`
-  // edge from a handler's snapshot-bound capture. They are projected out exactly
-  // like extension members so the default plan/prove/apply path never diffs them
-  // as drift (CLI-1555). Unconditional: with bare extraction there are no
-  // `managedBy` edges, so this is a no-op (corpus path unchanged). resolveView is
-  // thus the SINGLE projection point — callers no longer compose `excludeManaged`.
+  // edge from a handler's snapshot-bound capture. They are HARD-projected out so
+  // the default plan/prove/apply path never diffs them as drift (CLI-1555).
+  // Unconditional: with bare extraction there are no `managedBy` edges, so this
+  // is a no-op (corpus path unchanged).
   base = excludeByProvenance(base, "managedBy");
   // capability restriction (move 6): project out facts whose action the applier
   // cannot execute. Additive; default unrestricted. FDW ACLs are superuser-only
@@ -818,52 +827,45 @@ export function resolveView(
     const capRoots = capabilityExcludedRoots(base, capability);
     if (capRoots.size > 0) base = excludeFactsAndDescendants(base, capRoots);
   }
-  if (!policy) return base;
-  const flat = flattenPolicy(policy);
-  const rules = flat.filter;
-  if (rules.length === 0) return base;
 
-  // An excluded fact whose schema is an assumedSchema (e.g. Supabase's `auth`)
-  // is kept REFERENCE-ONLY rather than pruned: it stays in the view so a managed
-  // dependent (a user trigger on `auth.users`) can resolve its parent, but diff
-  // never emits a delta for it (see diff.ts). Everything else excluded is hard-
-  // pruned as before. `assumedSchemas` is the policy's declaration that those
-  // schemas are present-but-unmanaged at apply time — the same set the
-  // requirement guard treats as ambient — so this is per-side deterministic
-  // (no cross-side dependency → fingerprint/proof stay consistent).
-  const assumed = new Set(flat.assumedSchemas);
+  // policy scope (non-`verb`) rules: hard-prune the facts they exclude, EXCEPT
+  // an excluded fact whose schema is an assumedSchema (e.g. Supabase's `auth`),
+  // which is kept REFERENCE-ONLY so a managed dependent (a user trigger on
+  // `auth.users`) resolves its parent. `verb` rules are left to the delta filter.
+  const flat = policy ? flattenPolicy(policy) : undefined;
+  const rules = flat?.filter ?? [];
+  const assumed = new Set(flat?.assumedSchemas ?? []);
   const assumedSchemaOf = (id: StableId): string | undefined =>
     id.kind === "schema" ? getName(id) : getSchema(id);
-
   const hardRoots = new Set<string>();
-  const referenceOnly = new Set<string>();
+  const policyRefOnly = new Set<string>();
   for (const fact of base.facts()) {
     if (!factScopeExcluded(fact, rules, base)) continue;
     const schema = assumedSchemaOf(fact.id);
     if (schema !== undefined && assumed.has(schema)) {
-      referenceOnly.add(encodeId(fact.id));
+      policyRefOnly.add(encodeId(fact.id));
     } else {
       hardRoots.add(encodeId(fact.id));
     }
   }
-  if (referenceOnly.size === 0) {
-    return excludeFactsAndDescendants(base, hardRoots);
-  }
-
   const pruned = excludeFactsAndDescendants(base, hardRoots);
-  // a reference-only fact may itself sit under a hard-pruned ancestor; keep only
-  // the ones that actually survived pruning.
-  const survivingRefOnly = new Set(
-    pruned
-      .facts()
-      .map((f) => encodeId(f.id))
-      .filter((key) => referenceOnly.has(key)),
-  );
+
+  // Merge the reference-only sets (extension members + assumed-schema), keeping
+  // only facts that actually survived pruning. This is the SINGLE projection
+  // point for the managed view; `referenceOnly` is per-side deterministic (no
+  // cross-side dependency → fingerprint/proof stay consistent).
+  const surviving = new Set(pruned.facts().map((f) => encodeId(f.id)));
+  const referenceOnly = new Set<string>();
+  for (const key of memberRefOnly)
+    if (surviving.has(key)) referenceOnly.add(key);
+  for (const key of policyRefOnly)
+    if (surviving.has(key)) referenceOnly.add(key);
+  if (referenceOnly.size === 0) return pruned;
   return buildFactBase(
     pruned.facts(),
     [...pruned.edges],
     pruned.source,
-    survivingRefOnly,
+    referenceOnly,
   );
 }
 

@@ -40,9 +40,9 @@ describe("extension-member ACL customizations are diffed", () => {
     const sql = thePlan.actions.map((a) => a.sql);
 
     // The member function is never itself created/dropped (extension-managed).
-    expect(sql.some((x) => /CREATE (OR REPLACE )?FUNCTION.*hstore/.test(x))).toBe(
-      false,
-    );
+    expect(
+      sql.some((x) => /CREATE (OR REPLACE )?FUNCTION.*hstore/.test(x)),
+    ).toBe(false);
     expect(sql.some((x) => /DROP FUNCTION.*hstore/.test(x))).toBe(false);
     // But the GRANT it carries IS planned.
     expect(
@@ -50,6 +50,37 @@ describe("extension-member ACL customizations are diffed", () => {
     ).toBe(true);
 
     // …and the plan converges against a real clone of the source.
+    const clone = await src.clone();
+    dbs.push(clone);
+    const verdict = await provePlan(thePlan, clone.pool, d.factBase);
+    expect(verdict.applyError).toBeUndefined();
+    expect(verdict.driftDeltas).toEqual([]);
+    expect(verdict.ok).toBe(true);
+  }, 120_000);
+
+  test("a COMMENT on an extension-member function is planned + converges", async () => {
+    const cluster = await sharedCluster();
+    const src = await cluster.createDb("extcmt_src");
+    const dst = await cluster.createDb("extcmt_dst");
+    dbs.push(src, dst);
+    await src.pool.query(`CREATE EXTENSION hstore SCHEMA public;`);
+    await dst.pool.query(
+      `CREATE EXTENSION hstore SCHEMA public;
+       COMMENT ON FUNCTION hstore(text, text) IS 'user note on an extension member';`,
+    );
+    const [s, d] = await Promise.all([extract(src.pool), extract(dst.pool)]);
+    const thePlan = plan(s.factBase, d.factBase);
+    const sql = thePlan.actions.map((a) => a.sql);
+
+    expect(
+      sql.some((x) => /CREATE (OR REPLACE )?FUNCTION.*hstore/.test(x)),
+    ).toBe(false);
+    expect(
+      sql.some(
+        (x) => x.includes("COMMENT ON FUNCTION") && x.includes("hstore"),
+      ),
+    ).toBe(true);
+
     const clone = await src.clone();
     dbs.push(clone);
     const verdict = await provePlan(thePlan, clone.pool, d.factBase);

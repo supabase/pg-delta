@@ -10,7 +10,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
-import type { StableId } from "../core/stable-id.ts";
+import { encodeId, type StableId } from "../core/stable-id.ts";
 import type { Policy } from "./policy.ts";
 import { resolveView } from "./policy.ts";
 import { excludeExtensionMembers } from "./extension-members.ts";
@@ -92,7 +92,7 @@ describe("resolveView — fact-level scope projection", () => {
     expect(resolveView(fb, policy).get(table("public", "t"))).toBeDefined();
   });
 
-  test("no policy → identical to excludeExtensionMembers (corpus path unchanged)", () => {
+  test("no policy → extension members kept REFERENCE-ONLY (not hard-pruned)", () => {
     const member = table("public", "q_jobs");
     const fb = buildFactBase(
       [f(schema("public")), f(ext("pgmq")), f(member)],
@@ -100,9 +100,17 @@ describe("resolveView — fact-level scope projection", () => {
     );
     const viaResolve = resolveView(fb, undefined);
     const viaExclude = excludeExtensionMembers(fb);
-    expect(viaResolve.get(member)).toBeUndefined();
-    expect(viaResolve.facts().length).toBe(viaExclude.facts().length);
+    // The raw primitive hard-prunes the member; resolveView keeps it
+    // REFERENCE-ONLY so its satellite customizations (acl/comment/securityLabel)
+    // stay diffable while the member object itself is never diffed.
+    expect(viaExclude.get(member)).toBeUndefined();
+    expect(viaResolve.get(member)).toBeDefined();
+    expect(viaResolve.referenceOnly.has(encodeId(member))).toBe(true);
+    // a non-member (the schema) is neither pruned nor reference-only
     expect(viaResolve.get(schema("public"))).toBeDefined();
+    expect(viaResolve.referenceOnly.has(encodeId(schema("public")))).toBe(
+      false,
+    );
   });
 
   test("managedBy facts are projected out (no policy) — single projection point", () => {

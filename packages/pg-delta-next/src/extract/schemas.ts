@@ -1,7 +1,7 @@
 /** Schemas and extensions. */
 import type { StableId } from "../core/stable-id.ts";
 import {
-  aclJson,
+  aclJsonMemberAware,
   type ExtractContext,
   memberExtensionExpr,
   parseAcl,
@@ -17,7 +17,7 @@ export async function extractSchemasAndExtensions(
   for (const row of await q(`
     SELECT n.nspname AS name, r.rolname AS owner,
            obj_description(n.oid, 'pg_namespace') AS comment,
-           ${aclJson("n.nspacl", "n", "n.nspowner")} AS acl,
+           ${aclJsonMemberAware("n.nspacl", "n", "n.nspowner", "pg_namespace", "n.oid")} AS acl,
            ${memberExtensionExpr("pg_namespace", "n.oid")} AS ext_member_of
     FROM pg_namespace n
     JOIN pg_roles r ON r.oid = n.nspowner

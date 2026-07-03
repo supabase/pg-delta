@@ -3,7 +3,7 @@
  *  rewrite rules. */
 import type { StableId } from "../core/stable-id.ts";
 import {
-  aclJson,
+  aclJsonMemberAware,
   type ExtractContext,
   memberExtensionExpr,
   notExtensionMember,
@@ -42,7 +42,7 @@ export async function extractTables(ctx: ExtractContext): Promise<void> {
             WHERE inh.inhrelid = c.oid
             LIMIT 1) AS parent_table,
            obj_description(c.oid, 'pg_class') AS comment,
-           ${aclJson("c.relacl", "r", "c.relowner")} AS acl,
+           ${aclJsonMemberAware("c.relacl", "r", "c.relowner", "pg_class", "c.oid")} AS acl,
            ${memberExtensionExpr("pg_class", "c.oid")} AS ext_member_of
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -314,7 +314,7 @@ export async function extractSequences(ctx: ExtractContext): Promise<void> {
               AND od.refobjsubid > 0
             LIMIT 1) AS owned_by,
            obj_description(c.oid, 'pg_class') AS comment,
-           ${aclJson("c.relacl", "s", "c.relowner")} AS acl,
+           ${aclJsonMemberAware("c.relacl", "s", "c.relowner", "pg_class", "c.oid")} AS acl,
            ${memberExtensionExpr("pg_class", "c.oid")} AS ext_member_of
     FROM pg_sequence s
     JOIN pg_class c ON c.oid = s.seqrelid
@@ -370,7 +370,7 @@ export async function extractViews(ctx: ExtractContext): Promise<void> {
            pg_get_viewdef(c.oid) AS def,
            c.reloptions AS reloptions,
            obj_description(c.oid, 'pg_class') AS comment,
-           ${aclJson("c.relacl", "r", "c.relowner")} AS acl,
+           ${aclJsonMemberAware("c.relacl", "r", "c.relowner", "pg_class", "c.oid")} AS acl,
            ${memberExtensionExpr("pg_class", "c.oid")} AS ext_member_of
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace

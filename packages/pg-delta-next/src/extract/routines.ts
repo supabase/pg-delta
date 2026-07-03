@@ -1,7 +1,7 @@
 /** Routines: functions / procedures and aggregates. */
 import type { StableId } from "../core/stable-id.ts";
 import {
-  aclJson,
+  aclJsonMemberAware,
   type ExtractContext,
   memberExtensionExpr,
   parseAcl,
@@ -23,7 +23,7 @@ export async function extractRoutines(ctx: ExtractContext): Promise<void> {
            pg_get_function_arguments(p.oid) AS arg_signature,
            l.lanname AS language,
            obj_description(p.oid, 'pg_proc') AS comment,
-           ${aclJson("p.proacl", "f", "p.proowner")} AS acl,
+           ${aclJsonMemberAware("p.proacl", "f", "p.proowner", "pg_proc", "p.oid")} AS acl,
            ${memberExtensionExpr("pg_proc", "p.oid")} AS ext_member_of
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -115,7 +115,7 @@ export async function extractAggregates(ctx: ExtractContext): Promise<void> {
              WHERE o.oid = a.aggsortop) END AS sortop,
            p.proparallel AS parallel,
            obj_description(p.oid, 'pg_proc') AS comment,
-           ${aclJson("p.proacl", "f", "p.proowner")} AS acl,
+           ${aclJsonMemberAware("p.proacl", "f", "p.proowner", "pg_proc", "p.oid")} AS acl,
            ${memberExtensionExpr("pg_proc", "p.oid")} AS ext_member_of
     FROM pg_proc p
     JOIN pg_aggregate a ON a.aggfnoid = p.oid

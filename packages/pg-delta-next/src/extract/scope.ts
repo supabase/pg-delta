@@ -198,6 +198,80 @@ export const aclJson = (
            WHERE a.grantee = ${ownerColumn})
      ) acl)`;
 
+/**
+ * ACL delta for an EXTENSION MEMBER, pg_dump's `pg_init_privs` model: emit only
+ * the grantees whose CURRENT privilege set differs from the object's
+ * as-installed set (`pg_init_privs.initprivs`, or `acldefault` when the extension
+ * recorded no init row — a default-acl member). CREATE EXTENSION re-establishes
+ * the init state, so a member that was never customized yields NO acl facts (no
+ * churn on plain extensions); a customization layered afterward (Supabase grants
+ * net.http_get to anon/authenticated/…) surfaces as the added/changed grantees.
+ *
+ * Same JSON shape as `aclJson` so `parseAcl` reads both. It intentionally omits
+ * the owner-default (`_ownerDefault`) bookkeeping — a member delta carries only
+ * non-default entries, so there is nothing for default-ACL elision to reconcile.
+ * Fully-revoked init grants (a grantee present at install but removed) are not
+ * yet emitted; no member in the corpus/baseline exercises that, and the proof
+ * would surface it as drift if one appeared.
+ */
+export const memberAclDeltaJson = (
+  aclColumn: string,
+  objtype: string,
+  ownerColumn: string,
+  classoid: string,
+  oidExpr: string,
+) => `
+    (SELECT json_agg(json_build_object(
+        'grantee', d.grantee, 'privileges', d.privileges, 'grantable', d.grantable
+      ) ORDER BY d.grantee)
+     FROM (
+       WITH cur AS (
+         SELECT COALESCE(g.rolname, 'PUBLIC') AS grantee,
+                array_agg(e.privilege_type ORDER BY e.privilege_type) AS privileges,
+                COALESCE(array_agg(e.privilege_type ORDER BY e.privilege_type)
+                  FILTER (WHERE e.is_grantable), ARRAY[]::text[]) AS grantable
+         FROM aclexplode(COALESCE(${aclColumn}, acldefault('${objtype}', ${ownerColumn}))) e
+         LEFT JOIN pg_roles g ON g.oid = e.grantee
+         GROUP BY 1
+       ),
+       ini AS (
+         SELECT COALESCE(g.rolname, 'PUBLIC') AS grantee,
+                array_agg(e.privilege_type ORDER BY e.privilege_type) AS privileges
+         FROM aclexplode(COALESCE(
+                (SELECT ip.initprivs FROM pg_init_privs ip
+                 WHERE ip.objoid = ${oidExpr}
+                   AND ip.classoid = '${classoid}'::regclass
+                   AND ip.objsubid = 0),
+                acldefault('${objtype}', ${ownerColumn}))) e
+         LEFT JOIN pg_roles g ON g.oid = e.grantee
+         GROUP BY 1
+       )
+       SELECT cur.grantee, cur.privileges, cur.grantable
+       FROM cur LEFT JOIN ini USING (grantee)
+       WHERE cur.privileges IS DISTINCT FROM ini.privileges
+     ) d)`;
+
+/**
+ * Member-aware ACL: an extension member (pg_depend deptype 'e') uses the
+ * init-privs delta (`memberAclDeltaJson`); everything else uses the full
+ * `aclJson`. The member OBJECT is projected reference-only in the view (never a
+ * create/drop/alter), so only these satellite customizations flow to the diff.
+ */
+export const aclJsonMemberAware = (
+  aclColumn: string,
+  objtype: string,
+  ownerColumn: string,
+  classoid: string,
+  oidExpr: string,
+) => `
+    CASE WHEN EXISTS (
+      SELECT 1 FROM pg_depend md
+      WHERE md.classid = '${classoid}'::regclass AND md.objid = ${oidExpr}
+        AND md.refclassid = 'pg_extension'::regclass AND md.deptype = 'e')
+    THEN ${memberAclDeltaJson(aclColumn, objtype, ownerColumn, classoid, oidExpr)}
+    ELSE ${aclJson(aclColumn, objtype, ownerColumn)}
+    END`;
+
 export const parseAcl = (
   raw: unknown,
 ): {

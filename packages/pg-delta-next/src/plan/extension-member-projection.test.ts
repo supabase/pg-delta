@@ -41,10 +41,13 @@ describe("plan() — default extension-member projection (4b Stage 0)", () => {
 
     const thePlan = plan(source, desired, opts);
 
+    // The member is REFERENCE-ONLY (kept in the view so its satellites can be
+    // diffed, but the member object itself is never a create/drop/alter action
+    // and never a delta). It is present-at-apply via CREATE EXTENSION, so the
+    // honest target retains it — the fingerprint therefore folds it in (reference-
+    // only facts are part of rootHash), exactly like an assumed-schema object.
     expect(thePlan.actions).toHaveLength(0);
     expect(thePlan.deltas).toHaveLength(0);
-    // the honest target excludes the member, so it equals the (member-free) source
-    expect(thePlan.target.fingerprint).toBe(thePlan.source.fingerprint);
   });
 
   test("a NON-member schema added in desired is still planned (no false suppression)", () => {

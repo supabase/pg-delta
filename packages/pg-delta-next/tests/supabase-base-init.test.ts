@@ -47,5 +47,20 @@ describe(`supabase base-init fixture (pg${SUPABASE_BARE_MAJOR})`, () => {
     expect(typeAt).toBeGreaterThanOrEqual(0);
     expect(filtersAt).toBeGreaterThanOrEqual(0);
     expect(typeAt).toBeLessThan(filtersAt);
+
+    // Supabase-applied GRANTs on pg_net's member functions are captured as
+    // extension-member ACL customizations (init-privs delta) and emitted AFTER
+    // CREATE EXTENSION — the member object itself is never re-created. Before the
+    // extension-member-ACL fix these grants were silently dropped from the view.
+    const extAt = sql.indexOf('CREATE EXTENSION "pg_net"');
+    const grantAt = sql.indexOf(
+      'GRANT EXECUTE ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) TO "anon"',
+    );
+    expect(extAt).toBeGreaterThanOrEqual(0);
+    expect(grantAt).toBeGreaterThanOrEqual(0);
+    expect(extAt).toBeLessThan(grantAt);
+    // and the member function is NEVER created/dropped by the plan (extension-managed)
+    expect(sql).not.toContain('CREATE FUNCTION "net"."http_get"');
+    expect(sql).not.toContain('DROP FUNCTION "net"."http_get"');
   });
 });

@@ -174,10 +174,6 @@ ALTER TABLE "auth"."webauthn_credentials" OWNER TO "supabase_auth_admin";
 
 CREATE TABLE "realtime"."messages" ("binary_payload" bytea, "event" text, "extension" text NOT NULL, "id" uuid NOT NULL, "inserted_at" timestamp without time zone NOT NULL, "payload" jsonb, "private" boolean, "topic" text NOT NULL, "updated_at" timestamp without time zone NOT NULL) PARTITION BY RANGE (inserted_at);
 
-CREATE TABLE "realtime"."messages_2026_07_01" PARTITION OF "realtime"."messages" FOR VALUES FROM ('2026-07-01 00:00:00') TO ('2026-07-02 00:00:00');
-
-ALTER TABLE "realtime"."messages_2026_07_01" OWNER TO "supabase_realtime_admin";
-
 CREATE TABLE "realtime"."messages_2026_07_02" PARTITION OF "realtime"."messages" FOR VALUES FROM ('2026-07-02 00:00:00') TO ('2026-07-03 00:00:00');
 
 ALTER TABLE "realtime"."messages_2026_07_02" OWNER TO "supabase_realtime_admin";
@@ -193,6 +189,10 @@ ALTER TABLE "realtime"."messages_2026_07_04" OWNER TO "supabase_realtime_admin";
 CREATE TABLE "realtime"."messages_2026_07_05" PARTITION OF "realtime"."messages" FOR VALUES FROM ('2026-07-05 00:00:00') TO ('2026-07-06 00:00:00');
 
 ALTER TABLE "realtime"."messages_2026_07_05" OWNER TO "supabase_realtime_admin";
+
+CREATE TABLE "realtime"."messages_2026_07_06" PARTITION OF "realtime"."messages" FOR VALUES FROM ('2026-07-06 00:00:00') TO ('2026-07-07 00:00:00');
+
+ALTER TABLE "realtime"."messages_2026_07_06" OWNER TO "supabase_realtime_admin";
 
 ALTER TABLE "realtime"."messages" ENABLE ROW LEVEL SECURITY;
 
@@ -2632,6 +2632,10 @@ COMMENT ON FUNCTION "auth"."role"() IS 'Deprecated. Use auth.jwt() -> ''role'' i
 
 COMMENT ON FUNCTION "auth"."uid"() IS 'Deprecated. Use auth.jwt() -> ''sub'' instead.';
 
+COMMENT ON FUNCTION "net"."check_worker_is_up"() IS 'raises an exception if the pg_net background worker is not up, otherwise it doesn''t return anything';
+
+COMMENT ON FUNCTION "net"."wait_until_running"() IS 'waits until the worker is running';
+
 COMMENT ON INDEX "auth"."identities_email_idx" IS 'Auth: Ensures indexed queries on the email column';
 
 COMMENT ON INDEX "auth"."users_email_partial_key" IS 'Auth: A partial unique index that applies only when is_sso_user is false';
@@ -2669,6 +2673,46 @@ GRANT EXECUTE ON FUNCTION "auth"."jwt"() TO "postgres";
 REVOKE ALL ON FUNCTION "auth"."jwt"() FROM "supabase_auth_admin";
 
 GRANT EXECUTE ON FUNCTION "auth"."jwt"() TO "supabase_auth_admin";
+
+REVOKE ALL ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) FROM "anon";
+
+GRANT EXECUTE ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) TO "anon";
+
+REVOKE ALL ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) FROM "authenticated";
+
+GRANT EXECUTE ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) TO "authenticated";
+
+REVOKE ALL ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) FROM "postgres";
+
+GRANT EXECUTE ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) TO "postgres";
+
+REVOKE ALL ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) FROM "service_role";
+
+GRANT EXECUTE ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) TO "service_role";
+
+REVOKE ALL ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) FROM "supabase_functions_admin";
+
+GRANT EXECUTE ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) TO "supabase_functions_admin";
+
+REVOKE ALL ON FUNCTION "net"."http_post"(text, jsonb, jsonb, jsonb, integer) FROM "anon";
+
+GRANT EXECUTE ON FUNCTION "net"."http_post"(text, jsonb, jsonb, jsonb, integer) TO "anon";
+
+REVOKE ALL ON FUNCTION "net"."http_post"(text, jsonb, jsonb, jsonb, integer) FROM "authenticated";
+
+GRANT EXECUTE ON FUNCTION "net"."http_post"(text, jsonb, jsonb, jsonb, integer) TO "authenticated";
+
+REVOKE ALL ON FUNCTION "net"."http_post"(text, jsonb, jsonb, jsonb, integer) FROM "postgres";
+
+GRANT EXECUTE ON FUNCTION "net"."http_post"(text, jsonb, jsonb, jsonb, integer) TO "postgres";
+
+REVOKE ALL ON FUNCTION "net"."http_post"(text, jsonb, jsonb, jsonb, integer) FROM "service_role";
+
+GRANT EXECUTE ON FUNCTION "net"."http_post"(text, jsonb, jsonb, jsonb, integer) TO "service_role";
+
+REVOKE ALL ON FUNCTION "net"."http_post"(text, jsonb, jsonb, jsonb, integer) FROM "supabase_functions_admin";
+
+GRANT EXECUTE ON FUNCTION "net"."http_post"(text, jsonb, jsonb, jsonb, integer) TO "supabase_functions_admin";
 
 GRANT EXECUTE ON FUNCTION "realtime"."apply_rls"(jsonb, integer) TO PUBLIC;
 
@@ -2990,6 +3034,26 @@ REVOKE ALL ON FUNCTION "supabase_functions"."http_request"() FROM "supabase_func
 
 GRANT EXECUTE ON FUNCTION "supabase_functions"."http_request"() TO "supabase_functions_admin";
 
+REVOKE ALL ON SCHEMA "net" FROM "anon";
+
+GRANT USAGE ON SCHEMA "net" TO "anon";
+
+REVOKE ALL ON SCHEMA "net" FROM "authenticated";
+
+GRANT USAGE ON SCHEMA "net" TO "authenticated";
+
+REVOKE ALL ON SCHEMA "net" FROM "postgres";
+
+GRANT USAGE ON SCHEMA "net" TO "postgres";
+
+REVOKE ALL ON SCHEMA "net" FROM "service_role";
+
+GRANT USAGE ON SCHEMA "net" TO "service_role";
+
+REVOKE ALL ON SCHEMA "net" FROM "supabase_functions_admin";
+
+GRANT USAGE ON SCHEMA "net" TO "supabase_functions_admin";
+
 REVOKE ALL ON SCHEMA "realtime" FROM "anon";
 
 GRANT USAGE ON SCHEMA "realtime" TO "anon";
@@ -3258,14 +3322,6 @@ REVOKE ALL ON TABLE "realtime"."messages" FROM "supabase_realtime_admin";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages" TO "supabase_realtime_admin";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_01" TO "dashboard_user";
-
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_01" TO "postgres";
-
-REVOKE ALL ON TABLE "realtime"."messages_2026_07_01" FROM "supabase_realtime_admin";
-
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_01" TO "supabase_realtime_admin";
-
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_02" TO "dashboard_user";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_02" TO "postgres";
@@ -3297,6 +3353,14 @@ GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON
 REVOKE ALL ON TABLE "realtime"."messages_2026_07_05" FROM "supabase_realtime_admin";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_05" TO "supabase_realtime_admin";
+
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_06" TO "dashboard_user";
+
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_06" TO "postgres";
+
+REVOKE ALL ON TABLE "realtime"."messages_2026_07_06" FROM "supabase_realtime_admin";
+
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_06" TO "supabase_realtime_admin";
 
 GRANT SELECT ON TABLE "realtime"."schema_migrations" TO "anon";
 
