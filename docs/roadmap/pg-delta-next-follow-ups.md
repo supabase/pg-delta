@@ -74,26 +74,38 @@ rather than by token index).
 
 ## P2 — contract & coverage gaps
 
-### pg-delta CI does not re-run on pg-topo changes
+### pg-delta CI does not re-run on pg-topo changes — ✅ resolved in this PR
 
-`.github/workflows/tests.yml` gates the pg-delta unit/integration/check-types
+`.github/workflows/tests.yml` gated the pg-delta unit/integration/check-types
 jobs on `packages/pg-delta/**` (or root) only. A pg-topo-only change — like this
-PR's `ordered` contract change — never re-runs pg-delta's suites, even though
+PR's `ordered` contract change — never re-ran pg-delta's suites, even though
 pg-delta imports `@supabase/pg-topo` at runtime. (The merge queue forces all
-outputs true, so the gap is real at PR-review time but masked at merge time.)
-`pg-delta-next.yml` already adds `packages/pg-topo/**` as a trigger for exactly
-this reason. **Fix:** add `packages/pg-topo/**` to pg-delta's paths-filter.
+outputs true, so the gap was real at PR-review time but masked at merge time.)
 
-### Changesets version a private package
+**Fixed:** the `pg-delta` check-types step, `pg-delta-unit`,
+`pg-delta-test-image-hash`, and `pg-delta-integration` jobs now also fire on
+`needs.detect-changes.outputs.pg-topo == 'true'`. The `detect-changes` action
+already emitted a `pg-topo` output, so no filter change was needed. `knip
+(pg-delta)` was intentionally left on the pg-delta-only gate — it inspects
+pg-delta's own unused code, which a pg-topo change cannot affect.
+
+### Changesets version a private package — ✅ resolved in this PR
 
 55 changesets target `@supabase/pg-delta-next`, which is `"private": true` /
-`0.0.0`, and `.changeset/config.json` has `ignore: []` with no `privatePackages`
-override. Changesets defaults to versioning private packages, so the release
-workflow's `bun run version` will consume all 55 into a `chore: release` PR that
-bumps the unpublishable package and writes a large CHANGELOG. `changeset publish`
-skips private packages, so nothing errors — this is churn, not breakage.
-**Decision needed:** either add `@supabase/pg-delta-next` to
-`.changeset/config.json` `ignore`, or curate these changesets deliberately.
+`0.0.0`. The repo is in changeset pre-release (alpha) mode and
+`.changeset/pre.json`'s `initialVersions` doesn't list pg-delta-next, so
+`changeset status` planned a **minor** bump for it — the release workflow would
+have consumed all 55 into a `chore: release` PR that bumps the unpublishable
+package and writes a large CHANGELOG (`changeset publish` skips private packages,
+so this was churn, not breakage).
+
+**Fixed:** added `@supabase/pg-delta-next` to `.changeset/config.json` `ignore`.
+This is safe and non-destructive — all 55 changesets are standalone (they
+reference no other package) and no published package depends on pg-delta-next, so
+`ignore` neither errors nor cascades. The changesets are preserved (ignored
+changesets aren't consumed) and `changeset status` now plans only
+`@supabase/pg-topo` (patch). When pg-delta-next is eventually published, remove
+it from `ignore` to release the accumulated history.
 
 ### `elideCascadeSubsumedPolicyDrops` ignores policy→role references
 
