@@ -36,7 +36,7 @@ isolated cluster — so Postgres itself rejects unlisted cluster-global writes,
 instead of the loader re-parsing SQL text to guess which statements are
 dangerous. A denylist will always trail new syntax.
 
-### pg-topo total-order change flips pg-delta declarative-apply on cycles
+### pg-topo total-order change flips pg-delta declarative-apply on cycles — ✅ resolved in this PR
 
 `packages/pg-topo/src/analyze-and-sort.ts` now returns `ordered` as a **total
 order** that appends dependency-cycle members, where it previously returned only
@@ -44,13 +44,21 @@ the acyclic-drainable prefix (cycle members surfaced separately via
 `cycleGroups`). `@supabase/pg-topo` is a published package and
 `packages/pg-delta/src/core/declarative-apply` consumes `ordered` directly: on a
 genuine cycle its status now flips from silent-success-with-fewer-statements to
-`stuck` after `maxRounds`.
+`stuck` — the correct outcome, since an unbreakable cycle cannot be applied and
+should fail loudly rather than silently drop statements.
 
-The changeset (`.changeset/pg-topo-total-ordered.md`) bumps this as a **patch**;
-because it is a consumer-observable behavior change it is arguably minor (or
-major). **Follow-up:** reconsider the semver bump, and add a cycle test to
-`packages/pg-delta/tests/` — there is currently none exercising
-declarative-apply against a cyclic input.
+**Resolved:**
+
+- Semver: the changeset (`.changeset/pg-topo-total-ordered.md`) is bumped from
+  patch to **minor** and its wording now spells out the consumer-observable
+  behavior change (declarative apply reports `stuck` on a true cycle instead of
+  a partial success).
+- Coverage: `packages/pg-delta/tests/integration/declarative-apply.test.ts` now
+  has a cycle case (mutual-FK tables) asserting every input statement reaches
+  the applier (`totalStatements === 3`), a `CYCLE_DETECTED` diagnostic, and a
+  `stuck` result. Verified RED against the pre-total-order behavior
+  (`totalStatements` was `1` — the two cyclic tables were dropped from
+  `ordered`).
 
 ### Formatter strands the action keyword on every `ALTER TABLE` under `--format` — ✅ resolved in this PR
 
