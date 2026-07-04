@@ -25,7 +25,6 @@
     "test": "bun test src/",
     "test:integration": "bun test tests/",
     "test:all": "bun test src/ tests/",
-    "audit:porting": "bun scripts/audit-porting-ledger.ts",
     "docker:clean": "bun scripts/clean-testcontainers.ts",
     "sync-base-images": "bun scripts/sync-supabase-base-images.ts"
   },
