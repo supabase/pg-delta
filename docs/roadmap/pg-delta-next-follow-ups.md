@@ -11,30 +11,43 @@ Severity legend: **P1** correctness/safety, **P2** contract/coverage gap,
 
 ## P1 — correctness & safety
 
-### Co-located shadow can execute cluster-global DDL against the live cluster
+### Co-located shadow can execute cluster-global DDL against the live cluster — ✅ core hole fixed in this PR
 
-`packages/pg-delta-next/src/frontends/load-sql-files.ts` guards a co-located
-shadow load with `CLUSTER_DDL_RULES`, a regex **denylist** that only strips
-role DDL (`CREATE/ALTER/DROP ROLE`, `COMMENT`/`SECURITY LABEL ON ROLE`,
-role-membership `GRANT`/`REVOKE`). It does **not** cover `ALTER SYSTEM`,
-`CREATE/ALTER/DROP DATABASE`, or `CREATE/DROP TABLESPACE`.
+`packages/pg-delta-next/src/frontends/load-sql-files.ts` applies each file inside
+`BEGIN`/`COMMIT`, which already blocks every cluster-global non-transactional
+statement (`ALTER SYSTEM`, `CREATE/DROP DATABASE`, `CREATE/DROP TABLESPACE`,
+`VACUUM`, …) with `SQLSTATE 25001`. The actual escape was the 25001 **raw
+fallback**: `applyFile` re-ran the offending single statement via
+`client.query(sql)` *outside* the transaction, so on a co-located shadow (which
+shares the target's live cluster) those statements executed against the customer's
+cluster and persisted after the shadow was dropped.
 
-Files are applied inside `BEGIN`/`COMMIT`, but there is a non-transactional
-fallback: on `SQLSTATE 25001` a single-statement file is re-run **raw** via
-`client.query(sql)`. All three omitted statement classes raise `25001` in a
-transaction block, so the fallback executes them verbatim on the shadow
-connection — which lives on the target's own cluster — and their effects are
-cluster-global and persist after the shadow database is dropped. The applier
-connects as a role with `CREATEDB`/superuser, and the post-load leak checks
-inspect only roles/memberships and user-table DML, never `pg_database`,
-`pg_tablespace`, or settings.
+**Fixed:** the raw fallback is now gated by `RAW_FALLBACK_ALLOWLIST` — one entry,
+`CREATE INDEX CONCURRENTLY`, the only non-transactional statement a declarative
+schema legitimately contains. Every other 25001-raiser is refused with a
+`ShadowLoadError` (`unsupported_non_transactional`) instead of running
+unsandboxed; this also closes `CREATE SUBSCRIPTION (connect = true)` opening a
+live replication connection from the shadow. Deterministic loader refusals now
+rethrow immediately rather than being retried until the round budget exhausts.
+Regression coverage in `tests/load-sql-files-atomicity.test.ts` (a `VACUUM` file
+is refused; a `CREATE DATABASE` file is refused and never creates the sibling
+database; `CREATE INDEX CONCURRENTLY` still loads).
 
-`shadow.ts` promises the load "touches only the throwaway database"; for these
-statements that is not true. **Deeper fix:** run the shadow load under a
-restricted, non-superuser applier (no `CREATEDB`/`CREATEROLE`) — or a genuinely
-isolated cluster — so Postgres itself rejects unlisted cluster-global writes,
-instead of the loader re-parsing SQL text to guess which statements are
-dangerous. A denylist will always trail new syntax.
+**Deliberately not done (low likelihood — see review discussion):** the engine
+never emits these statements and Supabase declarative schemas realistically never
+contain them (on managed Supabase the applier isn't even superuser, so they fail
+permission-denied rather than leak). So the two heavier layers from the design
+were skipped:
+
+- Extending `CLUSTER_DDL_RULES` / flipping it to an allowlist for an *up-front*
+  refusal (before the shadow is provisioned) and to also catch the *transactional*
+  cluster-global forms (`ALTER DATABASE … SET`, `GRANT … ON DATABASE`).
+- Post-load `pg_database` / `pg_tablespace` snapshot checks (mirroring the
+  existing role-leak snapshot) to catch dynamic-SQL-smuggled transactional forms.
+
+The genuinely airtight fix remains the isolated ephemeral cluster in
+[ephemeral-shadow-design.md](ephemeral-shadow-design.md); the fallback allowlist
+is correct and useful regardless of whether that lands.
 
 ### pg-topo total-order change flips pg-delta declarative-apply on cycles — ✅ resolved in this PR
 

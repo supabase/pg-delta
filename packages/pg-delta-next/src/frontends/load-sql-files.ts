@@ -51,6 +51,21 @@ function isNonTransactional(error: unknown): boolean {
 }
 
 /**
+ * The only statement the raw 25001 fallback (below) is allowed to run. The raw
+ * retry executes OUTSIDE the per-file transaction that otherwise confines the
+ * load to the throwaway shadow database, so on a co-located shadow an unlisted
+ * statement would escape the sandbox and hit the target's live cluster. CREATE
+ * INDEX CONCURRENTLY is the one non-transactional statement a declarative schema
+ * legitimately contains; every other 25001-raiser (VACUUM, REINDEX, CREATE
+ * DATABASE / TABLESPACE, ALTER SYSTEM, CREATE SUBSCRIPTION opening a live
+ * replication connection, …) is refused. Match by effect (Postgres already
+ * signalled 25001) then by masked skeleton, never by parsing.
+ */
+const RAW_FALLBACK_ALLOWLIST: RegExp[] = [
+  /^\s*create\s+(unique\s+)?index\s+concurrently\b/i,
+];
+
+/**
  * Apply one file's SQL inside an EXPLICIT transaction (hardening Item 6 /
  * review #5), so a mid-file failure leaves NO partial state and the file can be
  * cleanly retried in a later round — instead of relying on PostgreSQL's
@@ -74,7 +89,8 @@ async function applyFile(client: PoolClient, sql: string): Promise<void> {
       // retry of a multi-statement file applies the rest non-atomically and can
       // leave the shadow partially loaded on a later failure (review P2). Reuse
       // the literal/comment/dollar-quote mask so `;` inside bodies isn't counted.
-      const statementCount = maskLiteralsAndComments(sql)
+      const masked = maskLiteralsAndComments(sql);
+      const statementCount = masked
         .split(";")
         .filter((s) => s.trim() !== "").length;
       if (statementCount > 1) {
@@ -85,6 +101,23 @@ async function applyFile(client: PoolClient, sql: string): Promise<void> {
               code: "mixed_nontransactional_file",
               severity: "error",
               message: `file mixes a non-transactional statement with ${statementCount - 1} other statement(s)`,
+            },
+          ],
+        );
+      }
+      // The raw retry runs OUTSIDE the per-file transaction, bypassing the
+      // sandbox that confines the load to the throwaway shadow. Only CREATE
+      // INDEX CONCURRENTLY may take that path; anything else (VACUUM, CREATE
+      // DATABASE / TABLESPACE, ALTER SYSTEM, …) could mutate the target's live
+      // cluster, so refuse it instead of executing it unsandboxed.
+      if (!RAW_FALLBACK_ALLOWLIST.some((re) => re.test(masked.trim()))) {
+        throw new ShadowLoadError(
+          "a non-transactional statement other than CREATE INDEX CONCURRENTLY cannot be loaded: the raw retry runs outside the shadow's transactional sandbox and could touch the target's live cluster",
+          [
+            {
+              code: "unsupported_non_transactional",
+              severity: "error",
+              message: `refused non-transactional statement: ${sql.trim().slice(0, 80)}`,
             },
           ],
         );
@@ -503,6 +536,12 @@ export async function loadSqlFiles(
         try {
           await applyFile(client, file.sql);
         } catch (error) {
+          // A ShadowLoadError from applyFile is a deterministic policy refusal
+          // (mixed non-transactional file, or a non-allowlisted non-transactional
+          // statement) — retrying in a later round can never make it succeed, so
+          // surface it immediately with its own message instead of deferring it
+          // until the round budget or a "stuck" round wraps it.
+          if (error instanceof ShadowLoadError) throw error;
           failures.push({
             file,
             message: error instanceof Error ? error.message : String(error),
