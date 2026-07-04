@@ -145,6 +145,46 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "cyclic input surfaces the cycle instead of silently dropping statements",
+      withDb(pgVersion, async (db) => {
+        // Two tables with mutual inline foreign keys form a dependency cycle
+        // pg-topo cannot linearize. @supabase/pg-topo's total-order contract
+        // guarantees the cycle members still reach the applier (every input
+        // statement appears in `ordered` exactly once) rather than being
+        // dropped, so the unbreakable cycle fails loudly as "stuck" instead of
+        // reporting a partial success. Regression guard for the total-order
+        // change: before it, the two tables were absent from `ordered`, so this
+        // reported status "success" with only the schema applied.
+        const sql = [
+          "CREATE SCHEMA cyc",
+          "CREATE TABLE cyc.a (id integer PRIMARY KEY, b_id integer REFERENCES cyc.b (id))",
+          "CREATE TABLE cyc.b (id integer PRIMARY KEY, a_id integer REFERENCES cyc.a (id))",
+        ].join(";\n");
+
+        const result = await applyDeclarativeSchema({
+          content: [{ filePath: "schema.sql", sql }],
+          pool: db.main,
+          maxRounds: 10,
+          validateFunctionBodies: false,
+          disableCheckFunctionBodies: true,
+        });
+
+        // total-order: all three input statements reach the applier.
+        expect(result.totalStatements).toBe(3);
+        // pg-topo still reports the cycle as a diagnostic.
+        expect(
+          result.diagnostics.some((d) => d.code === "CYCLE_DETECTED"),
+        ).toBe(true);
+        // The cycle fails loudly rather than reporting a partial success.
+        expect(result.apply.status).toBe("stuck");
+        // Only CREATE SCHEMA applies; both cyclic tables are attempted and
+        // reported stuck (not silently skipped).
+        expect(result.apply.totalApplied).toBe(1);
+        expect(result.apply.stuckStatements).toHaveLength(2);
+      }),
+    );
+
+    test(
       "views and functions",
       withDb(pgVersion, async (db) => {
         await testDeclarativeApply({
