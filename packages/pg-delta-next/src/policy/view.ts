@@ -62,7 +62,14 @@ export function excludeFactsAndDescendants(
   const keptEdges: DependencyEdge[] = fb.edges.filter(
     (e) => survives.has(encodeId(e.from)) && survives.has(encodeId(e.to)),
   );
-  return buildFactBase(keptFacts, keptEdges, fb.source);
+  // Carry the reference-only set forward for surviving facts. Otherwise a scope
+  // or provenance projection (which rebuilds the FactBase) silently drops the
+  // reference-only marks resolveView() set, so extension members and
+  // assumed-schema platform objects become managed again and get planned/dropped.
+  const referenceOnly = new Set(
+    [...fb.referenceOnly].filter((key) => survives.has(key)),
+  );
+  return buildFactBase(keptFacts, keptEdges, fb.source, referenceOnly);
 }
 
 /** Management scope of a declarative apply (target-architecture §scope). */
