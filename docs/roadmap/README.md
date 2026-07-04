@@ -17,6 +17,8 @@ and cutover.
   format decision).
 - **[ephemeral-shadow-design.md](ephemeral-shadow-design.md)** — full design for
   auto-provisioning an ephemeral shadow database (deferred).
+- **[pg-delta-next-follow-ups.md](pg-delta-next-follow-ups.md)** — known pitfalls
+  and follow-ups captured from the PR #315 review, ranked P1–P3.
 
 ## How the engine got here
 
