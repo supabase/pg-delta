@@ -64,4 +64,26 @@ describe("formatting preserves clauses after a quoted object name", () => {
     const [result] = formatSqlStatements([sql]);
     expect(result).toContain(`HANDLER "public"."plx_handler"`);
   });
+
+  test("ALTER TABLE keeps its ADD COLUMN action", () => {
+    const sql = `ALTER TABLE "public"."users" ADD COLUMN "a" integer`;
+    const [result] = formatSqlStatements([sql]);
+    expect(result).toContain(`ALTER TABLE "public"."users"`);
+    // the action keyword must not be stranded on the header line
+    expect(result).toContain("ADD COLUMN");
+  });
+
+  test("ALTER TABLE keeps a keyword-only action (ENABLE ROW LEVEL SECURITY)", () => {
+    const sql = `ALTER TABLE "public"."users" ENABLE ROW LEVEL SECURITY`;
+    const [result] = formatSqlStatements([sql]);
+    expect(result).toContain(`ALTER TABLE "public"."users"`);
+    expect(result).toContain("ENABLE ROW LEVEL SECURITY");
+  });
+
+  test("ALTER MATERIALIZED VIEW keeps its OWNER TO action", () => {
+    const sql = `ALTER MATERIALIZED VIEW "public"."mv" OWNER TO "postgres"`;
+    const [result] = formatSqlStatements([sql]);
+    expect(result).toContain(`ALTER MATERIALIZED VIEW "public"."mv"`);
+    expect(result).toContain("OWNER TO");
+  });
 });
