@@ -52,25 +52,35 @@ major). **Follow-up:** reconsider the semver bump, and add a cycle test to
 `packages/pg-delta/tests/` — there is currently none exercising
 declarative-apply against a cyclic input.
 
-### Formatter strands the action keyword on every `ALTER TABLE` under `--format`
+### Formatter strands the action keyword on every `ALTER TABLE` under `--format` — ✅ resolved in this PR
 
 In `packages/pg-delta-next/src/frontends/sql-format/`, `scanTokens` drops
-double-quoted identifiers, so `formatAlterTable`'s positional cursor lands on
-the action keyword and `skipQualifiedName` (`tokenizer.ts`) consumes it. Because
+double-quoted identifiers, so `formatAlterTable`'s positional cursor landed on
+the action keyword and `skipQualifiedName` (`tokenizer.ts`) consumed it. Because
 the renderer's `qid()` **always** double-quotes, every engine-rendered
-`ALTER TABLE "s"."t" <ACTION> …` hits this when formatting is enabled:
+`ALTER TABLE "s"."t" <ACTION> …` hit this when formatting was enabled:
 
 ```
 ALTER TABLE "public"."users" ADD
     COLUMN a int
 ```
 
-instead of stranding nothing. This affects **all** `ALTER TABLE` forms
-(`ADD COLUMN`, `ENABLE ROW LEVEL SECURITY`, `REPLICA IDENTITY`, …). Formatting
-is opt-in and cosmetic, so it does not corrupt applied SQL, but the exported
-`--format` output is wrong. **Fix:** make the tokenizer emit a token for quoted
-identifiers (or have the formatter consume the quoted-name span structurally
-rather than by token index).
+This affected **all** `ALTER TABLE` forms (`ADD COLUMN`, `ENABLE ROW LEVEL
+SECURITY`, `REPLICA IDENTITY`, …) and the sibling `formatAlterGeneric`
+(`ALTER MATERIALIZED VIEW`/`DOMAIN`/`FOREIGN TABLE`/…).
+
+**Fixed:** both `formatAlterTable` and `formatAlterGeneric` now find the name's
+true end from the raw statement via `qualifiedNameEnd` (the helper the
+CREATE-family formatters already use), instead of positional token indexing.
+Regression coverage lives in `format-quoted-names.test.ts`.
+
+**Remaining follow-up (same root cause, different symptom):**
+`keyword-case.ts` (`isCaseableInContext` / the ALTER handler around line 846)
+still uses `skipQualifiedName` to find the action-token region, so for a
+quoted-name `ALTER TABLE` the per-action keyword-casing loop starts one token
+late and can skip casing the first action keyword. Lower severity (casing, not
+stranding) — fix it the same way (anchor on `qualifiedNameEnd`) when the
+keyword-case pass is next touched.
 
 ## P2 — contract & coverage gaps
 

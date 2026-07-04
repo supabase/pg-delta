@@ -12,7 +12,6 @@ import {
   identifierEnd,
   qualifiedNameEnd,
   scanTokens,
-  skipQualifiedName,
   sliceClauses,
   splitByCommas,
 } from "./tokenizer.ts";
@@ -630,12 +629,13 @@ export function formatAlterTable(
 
   if (cursor >= tokens.length) return null;
 
-  cursor = skipQualifiedName(statement, tokens, cursor);
-  if (cursor >= tokens.length) return null;
-
-  const cursorToken = tokens[cursor];
-  if (cursorToken === undefined) return null;
-  const headerEnd = cursorToken.start;
+  // `tokens[cursor - 1]` is the last prefix keyword (ALTER/TABLE, or IF EXISTS /
+  // ONLY). The object name starts after it and may be double-quoted, which
+  // `scanTokens` drops — so find its true end from the raw statement rather than
+  // by positional token indexing (which would land on the action keyword).
+  const lastPrefix = tokens[cursor - 1];
+  if (lastPrefix === undefined) return null;
+  const headerEnd = qualifiedNameEnd(statement, lastPrefix.end);
   const header = statement.slice(0, headerEnd).trim();
   const action = statement.slice(headerEnd).trim();
 
@@ -985,13 +985,13 @@ export function formatAlterGeneric(
 
   if (cursor >= tokens.length) return null;
 
-  // Skip the name (may be schema-qualified)
-  cursor = skipQualifiedName(statement, tokens, cursor);
-  if (cursor >= tokens.length) return null;
-
-  const alterCursorToken = tokens[cursor];
-  if (alterCursorToken === undefined) return null;
-  const headerEnd = alterCursorToken.start;
+  // The name (may be schema-qualified and double-quoted) starts after the last
+  // prefix keyword `tokens[cursor - 1]`. Find its true end from the raw
+  // statement: `scanTokens` drops quoted identifiers, so positional token
+  // indexing would land on the action keyword and strand it on the header line.
+  const lastPrefix = tokens[cursor - 1];
+  if (lastPrefix === undefined) return null;
+  const headerEnd = qualifiedNameEnd(statement, lastPrefix.end);
   const header = statement.slice(0, headerEnd).trim();
   const action = statement.slice(headerEnd).trim();
 
