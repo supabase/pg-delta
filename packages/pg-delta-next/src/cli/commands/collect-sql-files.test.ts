@@ -110,9 +110,7 @@ describe("prepareApplyFiles", () => {
       const r = prepareApplyFiles(d, "database", true);
       expect(r.ok).toBe(false);
       if (!r.ok) {
-        expect(r.message).toContain(
-          "no executable database-scope SQL remains",
-        );
+        expect(r.message).toContain("no executable database-scope SQL remains");
       }
     } finally {
       rmSync(d, { recursive: true, force: true });
