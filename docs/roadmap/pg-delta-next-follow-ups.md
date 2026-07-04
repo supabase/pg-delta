@@ -237,3 +237,46 @@ tokenization.
   against real Postgres and diffs the resulting facts against ground truth — a
   stronger check than comparing two engines. Only the cross-engine
   *diagnostic-quality* comparison is gone.
+
+## PR #315 review triage (Codex)
+
+**Fixed in this PR (P1):**
+
+- `export-manifest.ts` — fail closed on a malformed manifest.
+- `view.ts` — preserve reference-only marks across fact projection.
+- `schema.ts` — re-check executable SQL after `--skip-cluster-ddl` stripping.
+- `schema.ts` scope-projection vs owner-policy ordering — in progress.
+- `load-sql-files.ts` non-role cluster DDL — already closed by the 25001
+  fallback allowlist (see the shadow item above).
+- `.changeset/pg-topo-total-ordered.md` — already bumped to minor.
+
+**False positive:** `dbdev-roundtrip.test.ts` "missing dbdev fixture helper" —
+`scripts/lib/bootstrap-dbdev-fixture.ts` is committed and tracked.
+
+**Deferred P2 (tracked follow-ups; not blocking this PR):**
+
+- `extract/routines.ts` — window functions (`prokind = 'w'`) are extracted as
+  facts but the dependency resolver still uses `('f','p','a')`, so a dependent
+  ordered before a user window function can fail shadow load. Add `w` to the
+  resolver's proc CTE.
+- `frontends/seed-assumed-schemas.ts` — quick-mode supabase seeding filters out
+  platform extension members (e.g. `pg_graphql`), so a user object referencing
+  one fails to load in the co-located shadow. Seed the owning platform extension
+  or keep those members.
+- `frontends/sql-order.ts` `orderForShadow` — drops parse diagnostics, so a
+  library caller can silently pass a partial desired state (same root as the
+  pg-topo PARSE_ERROR item above). Return the analysis or throw on blocking
+  diagnostics.
+- `cli/commands/schema.ts` — co-located shadow lifecycle: `process.exit` skips
+  the `finally` that drops `pgdelta_shadow_*` (Bun); `--isolated-shadow` on the
+  co-located path skips the role-leak snapshot; dynamic (DO-block) cluster DDL
+  isn't contained. (Related to the deferred shadow-hardening layers above.)
+- Redaction/legacy-snapshot handling: `apply.ts`, `drift.ts`, `schema.ts` —
+  treat legacy (unstamped) snapshots/exports as unredacted; `routines.ts` reject
+  snapshots missing routine metadata.
+- `plan/rules/helpers.ts` / `frontends/export-sql-files.ts` — preserve built-in
+  defaults when dropping ADPs; avoid seeding non-ambient reference-only facts.
+- Test hygiene: `redaction-output.test.ts` and `policy.test.ts` create databases
+  / roles on the shared cluster without dropping them (leak); the
+  `privilege-operations--create-grant-drop-unrelated` corpus case needs
+  `isolatedCluster: true` so the CREATE ROLE + GRANT ordering is actually tested.
