@@ -164,4 +164,58 @@ describe("loadSqlFiles — per-file transactional apply", () => {
       await shadow.drop();
     }
   }, 60_000);
+
+  test("a non-transactional statement outside the allowlist is refused, not silently run", async () => {
+    const shadow = await createTestDb("shadow_fallback_deny");
+    try {
+      // VACUUM raises SQLSTATE 25001 inside a transaction just like CREATE INDEX
+      // CONCURRENTLY, but it is not a declarative-schema statement. The raw
+      // fallback runs OUTSIDE the per-file transaction, so it must be restricted
+      // to CREATE INDEX CONCURRENTLY; any other 25001-raiser must be refused
+      // rather than executed unsandboxed against the live cluster.
+      let error: unknown;
+      try {
+        await loadSqlFiles(
+          [{ name: "0_vacuum.sql", sql: `VACUUM;` }],
+          shadow.pool,
+        );
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(ShadowLoadError);
+    } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+
+  test("the 25001 raw fallback does not leak a cluster-global object", async () => {
+    const shadow = await createTestDb("shadow_fallback_leak");
+    // CREATE DATABASE is cluster-global and non-transactional. On a co-located
+    // shadow it would persist on the target's live cluster. It must be refused,
+    // and the sibling database must never be created.
+    const leak = `pgdelta_fallback_leak_${Date.now().toString(36)}`;
+    try {
+      let error: unknown;
+      try {
+        await loadSqlFiles(
+          [{ name: "0_db.sql", sql: `CREATE DATABASE ${leak}` }],
+          shadow.pool,
+        );
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(ShadowLoadError);
+      const { rows } = await shadow.pool.query(
+        `SELECT count(*)::int AS n FROM pg_database WHERE datname = $1`,
+        [leak],
+      );
+      expect((rows[0] as { n: number }).n).toBe(0);
+    } finally {
+      // best-effort: if a pre-fix run leaked the database, drop it.
+      await shadow.pool
+        .query(`DROP DATABASE IF EXISTS "${leak}" WITH (FORCE)`)
+        .catch(() => {});
+      await shadow.drop();
+    }
+  }, 60_000);
 });
