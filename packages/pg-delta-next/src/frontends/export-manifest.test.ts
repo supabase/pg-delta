@@ -43,9 +43,17 @@ describe("export manifest", () => {
     expect(readExportManifest(dir)).toBeUndefined();
   });
 
-  test("drops malformed / wrong-typed fields", () => {
+  test("throws on a present-but-unparseable manifest (fail closed)", () => {
+    // A corrupt manifest must abort before planning, not silently fall back to
+    // raw defaults — that would drop the recorded profile/scope/redaction mode
+    // and plan a destructive apply against the target's real platform state.
     writeFileSync(join(dir, EXPORT_MANIFEST_FILE), "{ not json", "utf8");
-    expect(readExportManifest(dir)).toBeUndefined();
+    expect(() => readExportManifest(dir)).toThrow();
+  });
+
+  test("drops wrong-typed fields from a valid manifest", () => {
+    // Valid JSON with unknown / wrong-typed fields is not "malformed": parse it
+    // and drop the bad fields (a forward-compatible manifest still applies).
     writeFileSync(
       join(dir, EXPORT_MANIFEST_FILE),
       `{"formatVersion":1,"redactSecrets":"yes","profile":3}`,

@@ -53,13 +53,27 @@ export function writeExportManifest(
  * or wrong-typed fields are dropped.
  */
 export function readExportManifest(dir: string): ExportManifest | undefined {
+  const path = join(dir, EXPORT_MANIFEST_FILE);
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (err) {
+    // Only a genuinely absent manifest is a soft fall-back (older export or a
+    // hand-authored directory). A present-but-unreadable file must fail closed:
+    // silently ignoring it would drop the recorded profile/scope/redaction mode
+    // and plan a destructive apply against the target's real platform state.
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw new Error(
+      `cannot read export manifest ${path}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   let doc: Record<string, unknown>;
   try {
-    doc = JSON.parse(
-      readFileSync(join(dir, EXPORT_MANIFEST_FILE), "utf8"),
-    ) as Record<string, unknown>;
-  } catch {
-    return undefined;
+    doc = JSON.parse(raw) as Record<string, unknown>;
+  } catch (err) {
+    throw new Error(
+      `malformed export manifest ${path}: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
   const manifest: ExportManifest = {};
   if (typeof doc["redactSecrets"] === "boolean") {
