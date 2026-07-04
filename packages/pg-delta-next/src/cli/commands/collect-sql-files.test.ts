@@ -13,9 +13,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { readExportManifest } from "../../frontends/export-manifest.ts";
-import { collectSqlFiles, writeExportFiles } from "./schema.ts";
+import {
+  collectSqlFiles,
+  prepareApplyFiles,
+  writeExportFiles,
+} from "./schema.ts";
 
 let root: string;
 beforeEach(() => {
@@ -81,5 +85,87 @@ describe("writeExportFiles", () => {
     expect(existsSync(join(target, "schemas", "app", "t.sql"))).toBe(true);
     expect(existsSync(join(target, "schemas", "app", "gone.sql"))).toBe(false);
     expect(readExportManifest(target)?.redactSecrets).toBe(false);
+  });
+});
+
+describe("prepareApplyFiles", () => {
+  function dirWith(files: Record<string, string>): string {
+    const d = mkdtempSync(join(tmpdir(), "pgdn-prepare-"));
+    for (const [name, sql] of Object.entries(files)) {
+      const p = join(d, name);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, sql);
+    }
+    return d;
+  }
+
+  test("refuses an all-cluster-DDL dir after --skip-cluster-ddl (would drop everything)", () => {
+    // The up-front executable-SQL guard passes on the ORIGINAL role DDL, but
+    // --skip-cluster-ddl strips it to nothing → empty shadow → destructive
+    // drop-all of every managed object. It must be refused after stripping.
+    const d = dirWith({
+      "roles.sql": "CREATE ROLE app;\nALTER ROLE app WITH LOGIN;\n",
+    });
+    try {
+      const r = prepareApplyFiles(d, "database", true);
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.message).toContain(
+          "no executable database-scope SQL remains",
+        );
+      }
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps the non-cluster SQL when --skip-cluster-ddl leaves real statements", () => {
+    const d = dirWith({
+      "1.sql": "CREATE ROLE app;\nCREATE TABLE public.t (id int);\n",
+    });
+    try {
+      const r = prepareApplyFiles(d, "database", true);
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.skipped.length).toBeGreaterThan(0);
+        expect(r.files.map((f) => f.sql).join("")).toContain("CREATE TABLE");
+      }
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses cluster DDL in database scope without --skip-cluster-ddl", () => {
+    const d = dirWith({
+      "roles.sql": "CREATE ROLE app;\n",
+      "t.sql": "CREATE TABLE public.t (id int);\n",
+    });
+    try {
+      const r = prepareApplyFiles(d, "database", false);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.message).toContain("cluster DDL");
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses an empty / comment-only dir", () => {
+    const d = dirWith({ "c.sql": "-- just a comment\n" });
+    try {
+      const r = prepareApplyFiles(d, "database", false);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.message).toContain("no executable SQL found");
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  test("accepts a normal database-scope dir", () => {
+    const d = dirWith({ "t.sql": "CREATE TABLE public.t (id int);\n" });
+    try {
+      expect(prepareApplyFiles(d, "database", false).ok).toBe(true);
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
   });
 });

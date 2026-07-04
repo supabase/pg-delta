@@ -387,6 +387,78 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
   }
 }
 
+/** Discriminated result of {@link prepareApplyFiles}. */
+export type PreparedApplyFiles =
+  | { ok: true; files: SqlFile[]; skipped: { file: string; stmt: string }[] }
+  | { ok: false; message: string };
+
+/**
+ * Collect and validate the declarative SQL files for `schema apply`, applying the
+ * database-scope cluster-DDL policy. Returns the loadable files (plus a skip
+ * ledger) or a refusal message. Extracted from `cmdSchemaApply` so the guards
+ * are unit-testable. Refuses when:
+ *  - no file carries executable SQL (a wrong/empty `--dir` → empty shadow →
+ *    destructive drop-all);
+ *  - database scope and cluster DDL is present without `--skip-cluster-ddl`;
+ *  - database scope + `--skip-cluster-ddl` strips EVERY executable statement — an
+ *    all-cluster-DDL dir would otherwise build an empty shadow and drop-all
+ *    (Codex P1: the up-front guard passes on the original files, so the emptiness
+ *    must be re-checked after stripping).
+ */
+export function prepareApplyFiles(
+  dir: string,
+  scope: "database" | "cluster",
+  skipClusterDdl: boolean,
+): PreparedApplyFiles {
+  let files = collectSqlFiles(dir);
+  const hasExecutableSql = (fs: SqlFile[]): boolean =>
+    fs.some((f) => scanTokens(f.sql).length > 0);
+
+  if (!hasExecutableSql(files)) {
+    return {
+      ok: false,
+      message: `no executable SQL found under ${dir} (${files.length} file(s), all missing/empty/comment-only). Refusing to apply an empty desired state (it would drop every managed object on the target). Check the --dir path.`,
+    };
+  }
+
+  const skipped: { file: string; stmt: string }[] = [];
+  if (scope === "database") {
+    const offenders = files
+      .map((f) => ({ name: f.name, labels: findClusterDdlStatements(f.sql) }))
+      .filter((x) => x.labels.length > 0);
+    if (offenders.length > 0) {
+      if (!skipClusterDdl) {
+        const detail = offenders
+          .map(({ name, labels }) => `  ${name}: ${labels.join(", ")}`)
+          .join("\n");
+        return {
+          ok: false,
+          message:
+            `--scope database does not manage cluster-global roles, but found cluster DDL:\n${detail}\n` +
+            `Use --scope cluster (with --isolated-shadow) to manage roles, or --skip-cluster-ddl to skip these statements.`,
+        };
+      }
+      files = files.map((f) => {
+        const { kept, skipped: sk } = stripClusterDdl(f.sql);
+        for (const s of sk) {
+          skipped.push({ file: f.name, stmt: s.split("\n")[0] ?? "" });
+        }
+        return { ...f, sql: kept };
+      });
+      // Re-check after stripping: an all-cluster-DDL dir is now empty, which would
+      // build an empty shadow and plan a destructive drop-all of every managed
+      // object. The up-front guard above ran on the ORIGINAL files, so it passed.
+      if (!hasExecutableSql(files)) {
+        return {
+          ok: false,
+          message: `after --skip-cluster-ddl, no executable database-scope SQL remains under ${dir}. Refusing to apply an empty desired state (it would drop every managed object on the target).`,
+        };
+      }
+    }
+  }
+  return { ok: true, files, skipped };
+}
+
 export async function cmdSchemaApply(args: string[]): Promise<void> {
   let parsed;
   try {
@@ -507,55 +579,27 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     }
   }
 
-  // Refuse a directory with no EXECUTABLE SQL up front: a missing/wrong --dir, or
-  // one holding only placeholder/comment-only `.sql` files, would build an EMPTY
-  // shadow, so the plan (live target → empty desired) would drop every managed
-  // object on the target. Counting filenames is not enough — a comment-only file
-  // still yields no desired objects — so require at least one real SQL token
-  // (scanTokens skips comments/strings). A wrong/empty --dir must be a loud error,
-  // not a silent destructive plan (review P1).
-  let files = collectSqlFiles(dir);
-  const hasExecutableSql = files.some((f) => scanTokens(f.sql).length > 0);
-  if (!hasExecutableSql) {
-    process.stderr.write(
-      `schema apply: no executable SQL found under ${dir} (${files.length} file(s), all missing/empty/comment-only). Refusing to apply an empty desired state (it would drop every managed object on the target). Check the --dir path.\n`,
-    );
+  // Collect + validate the declarative SQL files: refuse an empty/comment-only
+  // dir (would build an empty shadow and drop every managed object), and enforce
+  // the database-scope cluster-DDL policy (refuse, or --skip-cluster-ddl and log
+  // each skip). Extracted to prepareApplyFiles so the guards — including the
+  // re-check that a --skip-cluster-ddl strip did not empty the input — are unit
+  // tested.
+  const prepared = prepareApplyFiles(
+    dir,
+    scope,
+    flags["skip-cluster-ddl"] === true,
+  );
+  if (!prepared.ok) {
+    process.stderr.write(`schema apply: ${prepared.message}\n`);
     process.exit(2);
   }
-
-  // Database scope does not manage cluster-global roles/memberships. If the files
-  // carry role DDL, refuse up front (before the shadow load's leak guard would
-  // trip with a less-scoped message) — or, with --skip-cluster-ddl, drop those
-  // statements and load the rest, logging each skip (no silent miss).
-  if (scope === "database") {
-    const offenders = files
-      .map((f) => ({ name: f.name, labels: findClusterDdlStatements(f.sql) }))
-      .filter((x) => x.labels.length > 0);
-    if (offenders.length > 0) {
-      if (flags["skip-cluster-ddl"]) {
-        files = files.map((f) => {
-          const { kept, skipped } = stripClusterDdl(f.sql);
-          for (const s of skipped) {
-            process.stderr.write(
-              `  SKIP cluster DDL (--skip-cluster-ddl) in ${f.name}: ${s.split("\n")[0]}\n`,
-            );
-          }
-          return { ...f, sql: kept };
-        });
-      } else {
-        process.stderr.write(
-          `schema apply: --scope database does not manage cluster-global roles, but found cluster DDL:\n`,
-        );
-        for (const { name, labels } of offenders) {
-          process.stderr.write(`  ${name}: ${labels.join(", ")}\n`);
-        }
-        process.stderr.write(
-          `Use --scope cluster (with --isolated-shadow) to manage roles, or --skip-cluster-ddl to skip these statements.\n`,
-        );
-        process.exit(2);
-      }
-    }
+  for (const s of prepared.skipped) {
+    process.stderr.write(
+      `  SKIP cluster DDL (--skip-cluster-ddl) in ${s.file}: ${s.stmt}\n`,
+    );
   }
+  let files = prepared.files;
 
   // The profile MUST match the one the directory was exported with: `schema
   // export --profile supabase` projects out platform schemas/roles, so applying
