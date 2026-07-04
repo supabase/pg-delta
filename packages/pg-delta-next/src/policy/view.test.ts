@@ -2,8 +2,8 @@
  * The single fact-level projection primitive (docs/architecture/managed-view-architecture.md
  * move 4): `excludeByProvenance(fb, edgeKind)` removes every fact carrying an
  * outgoing edge of that kind plus its descendant subtree, and prunes edges with
- * a removed endpoint. `excludeManaged` / `excludeExtensionMembers` are thin
- * wrappers over it; future scope/capability projections reuse the same core.
+ * a removed endpoint. `resolveView` uses it directly for `managedBy`; future
+ * scope/capability projections reuse the same core.
  */
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";

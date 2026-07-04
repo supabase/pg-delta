@@ -19,11 +19,12 @@ export async function cmdDrift(args: string[]): Promise<void> {
       env: { type: "value", required: true },
       snapshot: { type: "value", required: true },
       "strict-coverage": { type: "boolean" },
+      "unsafe-show-secrets": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
-        `${err.message}\nUsage: pg-delta-next drift --env <pg-url> --snapshot <file> [--strict-coverage]\n`,
+        `${err.message}\nUsage: pg-delta-next drift --env <pg-url> --snapshot <file> [--strict-coverage] [--unsafe-show-secrets]\n`,
       );
       process.exit(2);
     }
@@ -36,18 +37,29 @@ export async function cmdDrift(args: string[]): Promise<void> {
 
   const env = makePool(envUrl);
   try {
-    const { factBase: snapshotFb, pgVersion: snapshotPgVersion } =
-      loadSnapshot(snapshotPath);
+    const {
+      factBase: snapshotFb,
+      pgVersion: snapshotPgVersion,
+      redactSecrets: snapshotRedactSecrets,
+    } = loadSnapshot(snapshotPath);
     process.stderr.write(
       `Snapshot: ${snapshotFb.facts().length} facts (pg ${snapshotPgVersion})\n`,
     );
+
+    // Match the snapshot's redaction mode so a snapshot saved with
+    // --unsafe-show-secrets is compared against an equally-unredacted live
+    // extract (otherwise unchanged FDW/subscription secrets read as
+    // placeholder-vs-real drift). Prefer the mode stamped on the snapshot;
+    // fall back to the flag for snapshots written before it was recorded.
+    const redactSecrets =
+      snapshotRedactSecrets ?? !flags["unsafe-show-secrets"];
 
     process.stderr.write("Extracting live environment...\n");
     const {
       factBase: liveFb,
       pgVersion: livePgVersion,
       diagnostics,
-    } = await extract(env.pool);
+    } = await extract(env.pool, { redactSecrets });
     printDiagnostics(diagnostics);
     exitIfBlocking(diagnostics, {
       strictCoverage: flags["strict-coverage"],

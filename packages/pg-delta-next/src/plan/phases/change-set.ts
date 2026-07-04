@@ -90,10 +90,10 @@ export function buildChangeSet(
   }
   // the managed VIEW the engine diffs (docs/architecture/managed-view-architecture.md):
   // the platform baseline is subtracted, then the policy's scope (non-`verb`)
-  // rules + extension-member provenance are projected out at the FACT level on
-  // BOTH sides, so the proof stays honest by construction. `verb` rules remain
-  // for the delta-level filter below. With no policy/baseline this is exactly
-  // `excludeExtensionMembers`, so the corpus is unchanged.
+  // rules are projected out and extension members are marked reference-only, at
+  // the FACT level on BOTH sides, so the proof stays honest by construction.
+  // `verb` rules remain for the delta-level filter below. With no policy/baseline
+  // and no member edges this is the identity projection, so the corpus is unchanged.
   const source = resolveView(
     rawSource,
     options?.policy,

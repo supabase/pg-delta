@@ -54,11 +54,16 @@
 
 import type { Delta } from "../core/diff.ts";
 import type { DependencyEdge, EdgeKind, Fact, FactBase } from "../core/fact.ts";
+import { buildFactBase } from "../core/fact.ts";
 import type { FactKind, StableId } from "../core/stable-id.ts";
 import { encodeId } from "../core/stable-id.ts";
 import { KNOWN_PARAMS, type PlanParams } from "../plan/rules.ts";
 import { subtractBaseline } from "./baseline.ts";
-import { excludeByProvenance, excludeFactsAndDescendants } from "./view.ts";
+import {
+  excludeByProvenance,
+  excludeFactsAndDescendants,
+  extensionMemberReferenceOnly,
+} from "./view.ts";
 import {
   capabilityExcludedRoots,
   type ApplierCapability,
@@ -218,6 +223,26 @@ export interface Policy {
   serialize?: SerializeRule[];
   baseline?: string;
   extends?: Policy[];
+  /**
+   * Role names assumed to exist at apply time but NOT managed by this policy —
+   * platform-preset roles (e.g. Supabase's `anon`, `authenticated`) whose role
+   * OBJECT is filtered out of the managed view, yet which remain valid grant /
+   * ownership targets. The planner treats these like `pg_*` / `PUBLIC`: a
+   * `consumes` edge to one does not strand the missing-requirement guard. This
+   * lets the engine emit `GRANT … TO anon` (which old pg-delta and dbdev rely
+   * on) without re-admitting the role into the diff.
+   */
+  assumedRoles?: string[];
+  /**
+   * Schema names assumed to exist at apply time but NOT managed by this policy —
+   * platform-managed schemas (e.g. Supabase's `extensions`) whose schema OBJECT
+   * is filtered out of the managed view, yet which remain valid dependency
+   * targets. The planner treats these like assumed roles / `pg_*` / `PUBLIC`: a
+   * `consumes` edge to one does not strand the missing-requirement guard. This
+   * lets the engine emit `CREATE EXTENSION … SCHEMA extensions` (which old
+   * pg-delta and dbdev rely on) without re-admitting the schema into the diff.
+   */
+  assumedSchemas?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -567,6 +592,8 @@ export function flattenPolicy(policy: Policy): {
   id: string;
   filter: FilterRule[];
   serialize: SerializeRule[];
+  assumedRoles: string[];
+  assumedSchemas: string[];
   baseline?: string;
 } {
   const visited = new Set<string>();
@@ -580,6 +607,8 @@ function flattenInner(
   id: string;
   filter: FilterRule[];
   serialize: SerializeRule[];
+  assumedRoles: string[];
+  assumedSchemas: string[];
   baseline?: string;
 } {
   if (visited.has(policy.id)) {
@@ -591,8 +620,12 @@ function flattenInner(
 
   const ownFilter: FilterRule[] = policy.filter ?? [];
   const ownSerialize: SerializeRule[] = policy.serialize ?? [];
+  const ownAssumedRoles: string[] = policy.assumedRoles ?? [];
+  const ownAssumedSchemas: string[] = policy.assumedSchemas ?? [];
   const parentFilter: FilterRule[] = [];
   const parentSerialize: SerializeRule[] = [];
+  const parentAssumedRoles: string[] = [];
+  const parentAssumedSchemas: string[] = [];
 
   if (policy.extends) {
     for (const parent of policy.extends) {
@@ -603,6 +636,8 @@ function flattenInner(
       const flat = flattenInner(parent, branch);
       parentFilter.push(...flat.filter);
       parentSerialize.push(...flat.serialize);
+      parentAssumedRoles.push(...flat.assumedRoles);
+      parentAssumedSchemas.push(...flat.assumedSchemas);
     }
   }
 
@@ -612,11 +647,18 @@ function flattenInner(
     id: string;
     filter: FilterRule[];
     serialize: SerializeRule[];
+    assumedRoles: string[];
+    assumedSchemas: string[];
     baseline?: string;
   } = {
     id: policy.id,
     filter: [...ownFilter, ...parentFilter],
     serialize: [...ownSerialize, ...parentSerialize],
+    // own ∪ parent, de-duplicated (membership test only — order irrelevant).
+    assumedRoles: [...new Set([...ownAssumedRoles, ...parentAssumedRoles])],
+    assumedSchemas: [
+      ...new Set([...ownAssumedSchemas, ...parentAssumedSchemas]),
+    ],
   };
   if (policy.baseline !== undefined) {
     result.baseline = policy.baseline;
@@ -742,14 +784,15 @@ function factScopeExcluded(
 }
 
 /**
- * Resolve the managed VIEW that the engine diffs: extension members and
- * operationally-managed objects are always projected out (provenance —
- * `memberOfExtension` then `managedBy`), then the policy's scope (non-`verb`)
- * rules remove the facts they exclude — at the FACT level, on both sides and the
- * proof re-extract, so `plan == prove == run` holds by construction. `verb` rules
- * are left to the delta-level filter (filterDeltas). With no policy and no
- * provenance edges this is the identity projection, so the corpus path is
- * unchanged. This is the SINGLE projection point for the managed view.
+ * Resolve the managed VIEW that the engine diffs: extension members are kept
+ * REFERENCE-ONLY (present so their satellite customizations diff, but the member
+ * object is never a create/drop/alter action — CREATE EXTENSION manages it);
+ * operationally-managed (`managedBy`) objects are hard-projected out; then the
+ * policy's scope (non-`verb`) rules remove the facts they exclude — at the FACT
+ * level, on both sides and the proof re-extract, so `plan == prove == run` holds
+ * by construction. `verb` rules are left to the delta-level filter (filterDeltas).
+ * With no policy and no provenance edges this is the identity projection, so the
+ * corpus path is unchanged. This is the SINGLE projection point for the managed view.
  */
 export function resolveView(
   fb: FactBase,
@@ -757,19 +800,25 @@ export function resolveView(
   capability?: ApplierCapability,
   baseline?: FactBase,
 ): FactBase {
+  // Extension members become REFERENCE-ONLY, not pruned: the member OBJECT (and
+  // its non-satellite descendants) is kept but never diffed, while its satellite
+  // customizations (acl/comment/securityLabel) stay diffable. Computed on the RAW
+  // input, BEFORE baseline subtraction — subtractBaseline prunes a member's
+  // `memberOfExtension` edge when it removes the (baseline-identical) extension
+  // endpoint, which would otherwise leave a surviving customized member looking
+  // like a plain diffable object. Intersected with survivors below.
+  const memberRefOnly = extensionMemberReferenceOnly(fb);
   // baseline subtraction (§3.9): facts present-and-identical in the platform
   // baseline drop out before anything else, so platform-managed objects are
   // invisible without a filter rule per object. Same fact-level projection as
   // extension-member / managed-object exclusion → the proof stays honest.
   let base = baseline ? subtractBaseline(fb, baseline) : fb;
-  base = excludeByProvenance(base, "memberOfExtension");
   // managed-object projection (P0): objects a stateful extension created
   // operationally (pg_partman children, pgmq queue tables) carry a `managedBy`
-  // edge from a handler's snapshot-bound capture. They are projected out exactly
-  // like extension members so the default plan/prove/apply path never diffs them
-  // as drift (CLI-1555). Unconditional: with bare extraction there are no
-  // `managedBy` edges, so this is a no-op (corpus path unchanged). resolveView is
-  // thus the SINGLE projection point — callers no longer compose `excludeManaged`.
+  // edge from a handler's snapshot-bound capture. They are HARD-projected out so
+  // the default plan/prove/apply path never diffs them as drift (CLI-1555).
+  // Unconditional: with bare extraction there are no `managedBy` edges, so this
+  // is a no-op (corpus path unchanged).
   base = excludeByProvenance(base, "managedBy");
   // capability restriction (move 6): project out facts whose action the applier
   // cannot execute. Additive; default unrestricted. FDW ACLs are superuser-only
@@ -780,17 +829,47 @@ export function resolveView(
     const capRoots = capabilityExcludedRoots(base, capability);
     if (capRoots.size > 0) base = excludeFactsAndDescendants(base, capRoots);
   }
-  if (!policy) return base;
-  const rules = flattenPolicy(policy).filter;
-  if (rules.length === 0) return base;
 
-  const roots = new Set<string>();
+  // policy scope (non-`verb`) rules: hard-prune the facts they exclude, EXCEPT
+  // an excluded fact whose schema is an assumedSchema (e.g. Supabase's `auth`),
+  // which is kept REFERENCE-ONLY so a managed dependent (a user trigger on
+  // `auth.users`) resolves its parent. `verb` rules are left to the delta filter.
+  const flat = policy ? flattenPolicy(policy) : undefined;
+  const rules = flat?.filter ?? [];
+  const assumed = new Set(flat?.assumedSchemas ?? []);
+  const assumedSchemaOf = (id: StableId): string | undefined =>
+    id.kind === "schema" ? getName(id) : getSchema(id);
+  const hardRoots = new Set<string>();
+  const policyRefOnly = new Set<string>();
   for (const fact of base.facts()) {
-    if (factScopeExcluded(fact, rules, base)) {
-      roots.add(encodeId(fact.id));
+    if (!factScopeExcluded(fact, rules, base)) continue;
+    const schema = assumedSchemaOf(fact.id);
+    if (schema !== undefined && assumed.has(schema)) {
+      policyRefOnly.add(encodeId(fact.id));
+    } else {
+      hardRoots.add(encodeId(fact.id));
     }
   }
-  return excludeFactsAndDescendants(base, roots);
+  const pruned = excludeFactsAndDescendants(base, hardRoots);
+
+  // Merge the reference-only sets (extension members + assumed-schema), keeping
+  // only facts that actually survived pruning. This is the SINGLE projection
+  // point for the managed view; `referenceOnly` is per-side deterministic (no
+  // cross-side dependency → fingerprint/proof stay consistent).
+  if (memberRefOnly.size === 0 && policyRefOnly.size === 0) return pruned;
+  const surviving = new Set(pruned.facts().map((f) => encodeId(f.id)));
+  const referenceOnly = new Set<string>();
+  for (const key of memberRefOnly)
+    if (surviving.has(key)) referenceOnly.add(key);
+  for (const key of policyRefOnly)
+    if (surviving.has(key)) referenceOnly.add(key);
+  if (referenceOnly.size === 0) return pruned;
+  return buildFactBase(
+    pruned.facts(),
+    [...pruned.edges],
+    pruned.source,
+    referenceOnly,
+  );
 }
 
 // ---------------------------------------------------------------------------

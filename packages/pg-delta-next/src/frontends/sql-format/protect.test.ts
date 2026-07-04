@@ -1,6 +1,20 @@
 import { describe, expect, it } from "bun:test";
 import { DEFAULT_OPTIONS } from "./constants.ts";
+import { formatSqlStatements } from "./index.ts";
 import { protectSegments, restorePlaceholders } from "./protect.ts";
+
+describe("placeholder collision safety", () => {
+  it("does not clobber an identifier equal to the placeholder token", () => {
+    // The original SQL contains the fixed placeholder prefix verbatim, so a
+    // global-replace restore with a fixed sentinel would rewrite the view NAME
+    // to the protected body. The collision-free sentinel prevents that.
+    const sql = `CREATE VIEW "__PGDELTA_PLACEHOLDER_0__" AS SELECT 1`;
+    const [result] = formatSqlStatements([sql]);
+    expect(result).toContain(`"__PGDELTA_PLACEHOLDER_0__"`);
+    expect(result).toContain("SELECT 1");
+    expect(result).not.toContain(`"AS SELECT 1"`);
+  });
+});
 
 describe("protectSegments", () => {
   it("protects function body after AS", () => {

@@ -32,6 +32,20 @@ export function p(fact: Fact, key: string): PayloadValue {
   return fact.payload[key];
 }
 
+/** The `depends` edge targets of `id` in `view` — the objects the fact's
+ *  definition references. A routine's def-alter (CREATE OR REPLACE) consumes
+ *  these so it is ordered AFTER their creates: a BEGIN ATOMIC body is parsed and
+ *  dependency-checked at replace time. plpgsql / quoted-string bodies are not
+ *  (check_function_bodies=off in the preamble) and record no such edges, so this
+ *  is exactly the set that needs ordering. Consuming an id nothing in-plan
+ *  produces is harmless — no ordering edge is added. */
+export function dependencyConsumes(view: FactView, id: StableId): StableId[] {
+  return view
+    .outgoingEdges(id)
+    .filter((e) => e.kind === "depends")
+    .map((e) => e.to);
+}
+
 /** ` WITH (k=v, …)` clause from a fact's `reloptions` payload (the canonical
  *  sorted `key=value` array captured from pg_class.reloptions), or "" when the
  *  relation carries no storage/view options. */
@@ -444,10 +458,20 @@ export function defaultPrivConsumes(id: {
   return consumes;
 }
 
-export function defaultPrivilegeActions(
-  fact: Fact,
-  verb: "GRANT",
-): ActionSpec[] {
+/**
+ * A `defaultPrivilege` fact with EMPTY `privileges` is a synthesized marker for
+ * a REVOKED built-in default (e.g. `ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON
+ * FUNCTIONS FROM PUBLIC`): the grantee's built-in default was taken away. Its
+ * `_revokedDefault` carries the privileges that were removed so the DROP can
+ * restore them. A non-empty fact is an ordinary positive grant.
+ */
+function isRevokedDefaultMarker(fact: Fact): boolean {
+  return ((p(fact, "privileges") as string[]) ?? []).length === 0;
+}
+
+/** CREATE a default-privilege fact: GRANT the privileges, or — for a revoked
+ *  default marker — REVOKE the built-in default the marker records is gone. */
+export function defaultPrivilegeCreateActions(fact: Fact): ActionSpec[] {
   const id = fact.id as {
     role: string;
     schema: string | null;
@@ -456,38 +480,78 @@ export function defaultPrivilegeActions(
   };
   const grantee = id.grantee === "PUBLIC" ? "PUBLIC" : qid(id.grantee);
   const objtype = DEFACL_OBJTYPE[id.objtype] ?? "TABLES";
+  const consumes = defaultPrivConsumes(id);
+  if (isRevokedDefaultMarker(fact)) {
+    return [
+      {
+        sql: `${defaultPrivPrefix(id)} REVOKE ALL ON ${objtype} FROM ${grantee}`,
+        consumes,
+      },
+    ];
+  }
   const privileges = (p(fact, "privileges") as string[]) ?? [];
   const grantable = new Set((p(fact, "grantable") as string[]) ?? []);
   const plain = privileges.filter((priv) => !grantable.has(priv));
   const withOption = privileges.filter((priv) => grantable.has(priv));
-  const consumes = defaultPrivConsumes(id);
   const specs: ActionSpec[] = [];
   if (plain.length > 0) {
     specs.push({
-      sql: `${defaultPrivPrefix(id)} ${verb} ${plain.join(", ")} ON ${objtype} TO ${grantee}`,
+      sql: `${defaultPrivPrefix(id)} GRANT ${plain.join(", ")} ON ${objtype} TO ${grantee}`,
       consumes,
     });
   }
   if (withOption.length > 0) {
     specs.push({
-      sql: `${defaultPrivPrefix(id)} ${verb} ${withOption.join(", ")} ON ${objtype} TO ${grantee} WITH GRANT OPTION`,
+      sql: `${defaultPrivPrefix(id)} GRANT ${withOption.join(", ")} ON ${objtype} TO ${grantee} WITH GRANT OPTION`,
       consumes,
     });
   }
   return specs;
 }
 
-/** The `TABLE rel [(cols)] [WHERE (…)]` clause for a publicationRel fact. */
-export function publicationRelClause(fact: Fact): string {
+/** DROP a default-privilege fact: REVOKE the positive grant, or — for a revoked
+ *  default marker — GRANT the built-in default back (restoring it). */
+export function defaultPrivilegeDropActions(fact: Fact): ActionSpec {
+  const id = fact.id as {
+    role: string;
+    schema: string | null;
+    objtype: string;
+    grantee: string;
+  };
+  const grantee = id.grantee === "PUBLIC" ? "PUBLIC" : qid(id.grantee);
+  const objtype = DEFACL_OBJTYPE[id.objtype] ?? "TABLES";
+  const consumes = defaultPrivConsumes(id);
+  if (isRevokedDefaultMarker(fact)) {
+    const restored = (p(fact, "_revokedDefault") as string[]) ?? [];
+    return {
+      sql: `${defaultPrivPrefix(id)} GRANT ${restored.join(", ")} ON ${objtype} TO ${grantee}`,
+      consumes,
+    };
+  }
+  return {
+    sql: `${defaultPrivPrefix(id)} REVOKE ALL ON ${objtype} FROM ${grantee}`,
+    consumes,
+  };
+}
+
+/** The `rel [(cols)] [WHERE (…)]` member for a publicationRel fact, without the
+ *  leading `TABLE` keyword (so it can be grouped under a single `TABLE`). */
+function publicationRelMember(fact: Fact): string {
   const id = fact.id as { schema: string; table: string };
-  let clause = `TABLE ${rel(id.schema, id.table)}`;
+  let member = rel(id.schema, id.table);
   const cols = p(fact, "columns") as string[] | null;
   if (cols != null && cols.length > 0) {
-    clause += ` (${cols.map((c) => qid(c)).join(", ")})`;
+    member += ` (${cols.map((c) => qid(c)).join(", ")})`;
   }
   const where = p(fact, "where");
-  if (where != null) clause += ` WHERE (${str(where)})`;
-  return clause;
+  if (where != null) member += ` WHERE (${str(where)})`;
+  return member;
+}
+
+/** The `TABLE rel [(cols)] [WHERE (…)]` clause for a publicationRel fact, used
+ *  by the standalone `ALTER PUBLICATION … ADD TABLE` path. */
+export function publicationRelClause(fact: Fact): string {
+  return `TABLE ${publicationRelMember(fact)}`;
 }
 
 /** Inlined FOR-clause object list for a fresh publication, gathered from its
@@ -497,21 +561,31 @@ export function publicationObjects(
   fact: Fact,
   view: FactView,
 ): { clauses: string[]; consumes: StableId[]; produced: StableId[] } {
-  const clauses: string[] = [];
+  // Group all table relations under a single `TABLE` keyword and all schemas
+  // under a single `TABLES IN SCHEMA`. Repeating the keyword per item
+  // (`FOR TABLE a, TABLE b`) is only valid grammar on PG15+; PG14 requires the
+  // collapsed `FOR TABLE a, b` form, and the collapsed form is valid on every
+  // version (PG14 never has schema members).
+  const tableMembers: string[] = [];
+  const schemaMembers: string[] = [];
   const consumes: StableId[] = [];
   const produced: StableId[] = [];
   for (const child of view.childrenOf(fact.id)) {
     if (child.id.kind === "publicationRel") {
       const cid = child.id as { schema: string; table: string };
-      clauses.push(publicationRelClause(child));
+      tableMembers.push(publicationRelMember(child));
       consumes.push({ kind: "table", schema: cid.schema, name: cid.table });
       produced.push(child.id);
     } else if (child.id.kind === "publicationSchema") {
       const cid = child.id as { schema: string };
-      clauses.push(`TABLES IN SCHEMA ${qid(cid.schema)}`);
+      schemaMembers.push(qid(cid.schema));
       consumes.push({ kind: "schema", name: cid.schema });
       produced.push(child.id);
     }
   }
+  const clauses: string[] = [];
+  if (tableMembers.length > 0) clauses.push(`TABLE ${tableMembers.join(", ")}`);
+  if (schemaMembers.length > 0)
+    clauses.push(`TABLES IN SCHEMA ${schemaMembers.join(", ")}`);
   return { clauses, consumes, produced };
 }

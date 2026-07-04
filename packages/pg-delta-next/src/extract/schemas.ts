@@ -1,7 +1,7 @@
 /** Schemas and extensions. */
 import type { StableId } from "../core/stable-id.ts";
 import {
-  aclJson,
+  aclJsonMemberAware,
   type ExtractContext,
   memberExtensionExpr,
   parseAcl,
@@ -17,7 +17,7 @@ export async function extractSchemasAndExtensions(
   for (const row of await q(`
     SELECT n.nspname AS name, r.rolname AS owner,
            obj_description(n.oid, 'pg_namespace') AS comment,
-           ${aclJson("n.nspacl", "n", "n.nspowner")} AS acl,
+           ${aclJsonMemberAware("n.nspacl", "n", "n.nspowner", "pg_namespace", "n.oid")} AS acl,
            ${memberExtensionExpr("pg_namespace", "n.oid")} AS ext_member_of
     FROM pg_namespace n
     JOIN pg_roles r ON r.oid = n.nspowner
@@ -37,6 +37,10 @@ export async function extractSchemasAndExtensions(
   }
 
   // ── extensions (version deliberately excluded from the payload) ─────
+  // Whether CREATE EXTENSION emits `SCHEMA <s>` is decided at PLAN time from the
+  // schema's presence (extension create rule), not from an extract-time signal:
+  // Postgres records no schema→extension ownership edge (deptype 'e' never
+  // exists), so there is nothing to extract here for that decision.
   for (const row of await q(`
     SELECT e.extname AS name, n.nspname AS schema,
            e.extrelocatable AS relocatable,

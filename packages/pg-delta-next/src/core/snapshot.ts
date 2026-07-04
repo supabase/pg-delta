@@ -19,6 +19,12 @@ interface SnapshotDoc {
   pgVersion: string;
   /** ISO-8601 capture time; auditability only, never affects the digest */
   capturedAt?: string;
+  /** whether secrets were redacted when this snapshot was extracted. Recorded
+   *  so `drift` re-extracts the live env with the SAME mode — an unredacted
+   *  (`--unsafe-show-secrets`) snapshot compared against a default-redacted live
+   *  extract would report placeholder-vs-real drift. Metadata only: it describes
+   *  how the facts were produced and never affects the digest. */
+  redactSecrets?: boolean;
   digest: string;
   facts: Array<{ id: string; parent?: string; payload: unknown }>;
   edges: Array<{ from: string; to: string; kind: EdgeKind }>;
@@ -54,12 +60,15 @@ function decodePayload(value: unknown): PayloadValue {
 
 export function serializeSnapshot(
   fb: FactBase,
-  meta: { pgVersion: string; capturedAt?: string },
+  meta: { pgVersion: string; capturedAt?: string; redactSecrets?: boolean },
 ): string {
   const doc: SnapshotDoc = {
     formatVersion: FORMAT_VERSION,
     pgVersion: meta.pgVersion,
     ...(meta.capturedAt !== undefined ? { capturedAt: meta.capturedAt } : {}),
+    ...(meta.redactSecrets !== undefined
+      ? { redactSecrets: meta.redactSecrets }
+      : {}),
     digest: fb.rootHash,
     facts: fb
       .facts()
@@ -85,6 +94,7 @@ export function serializeSnapshot(
 export function deserializeSnapshot(json: string): {
   factBase: FactBase;
   pgVersion: string;
+  redactSecrets?: boolean;
 } {
   const doc = JSON.parse(json) as SnapshotDoc;
   if (doc.formatVersion !== FORMAT_VERSION) {
@@ -108,5 +118,11 @@ export function deserializeSnapshot(json: string): {
       `snapshot digest mismatch — content is corrupt or was edited (expected ${doc.digest}, computed ${factBase.rootHash})`,
     );
   }
-  return { factBase, pgVersion: doc.pgVersion };
+  return {
+    factBase,
+    pgVersion: doc.pgVersion,
+    ...(doc.redactSecrets !== undefined
+      ? { redactSecrets: doc.redactSecrets }
+      : {}),
+  };
 }

@@ -1,9 +1,9 @@
 /**
- * The `CREATE EXTENSION … SCHEMA` clause is derived from the extension's
- * `relocatable` fact field (docs/architecture/managed-view-architecture.md, move 2), NOT a
- * `skipSchema` serialize param. A relocatable extension honours a SCHEMA clause
- * (and must be ordered after that schema); a non-relocatable extension creates
- * its own schema, so it neither emits SCHEMA nor requires the schema to exist.
+ * The `CREATE EXTENSION … SCHEMA` clause is a PLAN-TIME decision based on the
+ * target schema's PRESENCE, not the extension's `relocatable` field: emit
+ * `SCHEMA s` iff `s` is present on the target or produced by this plan (order
+ * the extension after it), else emit the bare form so an extension that creates
+ * its own schema (pgmq) does not reference a not-yet-existing schema.
  *
  * No Docker required — synthetic fact bases exercise the rule + planner wiring.
  */
@@ -18,34 +18,42 @@ const f = (id: StableId, payload: Fact["payload"] = {}): Fact => ({
   payload,
 });
 
-describe("extension SCHEMA clause derived from relocatable", () => {
-  test("a non-relocatable extension does not require its schema to pre-exist", () => {
+describe("extension SCHEMA clause derived from schema presence", () => {
+  test("an extension whose schema is neither present nor produced emits a bare CREATE", () => {
     const pgmq: StableId = { kind: "extension", name: "pgmq" };
     const source = buildFactBase([f(publicSchema)], []);
-    // desired adds pgmq (non-relocatable, installs its own `pgmq` schema). The
-    // `pgmq` schema is NOT present as a fact and is NOT produced by the plan.
+    // desired adds pgmq (installs its own `pgmq` schema). The `pgmq` schema is
+    // NOT a fact and is NOT produced by the plan → the extension must create it.
     const desired = buildFactBase(
       [f(publicSchema), f(pgmq, { schema: "pgmq", relocatable: false })],
       [],
     );
-
-    // RED today: the rule always emits `SCHEMA pgmq` + `consumes` the pgmq
-    // schema → the missing-requirement guard throws. GREEN: bare CREATE, no
-    // schema requirement, exactly one action.
+    // bare CREATE, no schema requirement, exactly one action (no guard throw).
     const thePlan = plan(source, desired);
     expect(thePlan.actions).toHaveLength(1);
+    expect(thePlan.actions[0]!.sql).toBe(`CREATE EXTENSION "pgmq"`);
   });
 
-  test("a relocatable extension is ordered after (requires) its target schema", () => {
+  test("an extension whose target schema is produced by the plan emits SCHEMA and is ordered after it", () => {
     const hstore: StableId = { kind: "extension", name: "hstore" };
+    const app: StableId = { kind: "schema", name: "app" };
     const source = buildFactBase([f(publicSchema)], []);
-    // relocatable extension targeting `app`, but `app` is absent → the create
-    // consumes a schema that neither exists nor is produced → guard throws.
+    // desired adds a managed `app` schema AND hstore installed into it → the
+    // extension emits `SCHEMA app` and consumes it (ordered after CREATE SCHEMA).
     const desired = buildFactBase(
-      [f(publicSchema), f(hstore, { schema: "app", relocatable: true })],
+      [
+        f(publicSchema),
+        f(app),
+        f(hstore, { schema: "app", relocatable: true }),
+      ],
       [],
     );
-
-    expect(() => plan(source, desired)).toThrow(/missing requirement/);
+    const sqls = plan(source, desired).actions.map((a) => a.sql);
+    const schemaAt = sqls.findIndex((s) => /CREATE SCHEMA "app"/.test(s));
+    const extAt = sqls.findIndex((s) =>
+      /CREATE EXTENSION "hstore" SCHEMA "app"/.test(s),
+    );
+    expect(schemaAt).toBeGreaterThanOrEqual(0);
+    expect(extAt).toBeGreaterThan(schemaAt);
   });
 });

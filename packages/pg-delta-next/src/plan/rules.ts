@@ -4,7 +4,7 @@
  * (guardrail 3). Each rule maps facts/attribute-changes to SQL plus the
  * dependency metadata the graph needs.
  */
-import type { Fact } from "../core/fact.ts";
+import type { DependencyEdge, Fact } from "../core/fact.ts";
 import type { PayloadValue } from "../core/hash.ts";
 import type { StableId } from "../core/stable-id.ts";
 import type { LockClass } from "./locks.ts";
@@ -93,11 +93,29 @@ export interface FactView {
   childrenOf(id: StableId): Fact[];
   facts(): Fact[];
   get(id: StableId): Fact | undefined;
+  /** Outgoing dependency edges of `id` (with kind), so a rule can order its
+   *  action after the objects the fact references — e.g. a routine's def-alter
+   *  consuming its `depends` targets for BEGIN ATOMIC body validation. */
+  outgoingEdges(id: StableId): readonly DependencyEdge[];
   readonly edges: readonly { from: StableId; to: StableId }[];
+  /** Whether `id` is present for REFERENCE ONLY (kept in the view so dependents
+   *  resolve, but never itself created/dropped/altered — e.g. an assumed-schema
+   *  platform object). Lets a rule tell "present on the target" from "produced
+   *  by this plan". */
+  isReferenceOnly(id: StableId): boolean;
 }
 
 export interface KindRules {
-  create(fact: Fact, view: FactView, params?: PlanParams): ActionSpec[];
+  /** `sourceView` is the resolved SOURCE (target) view, so a rule can decide by
+   *  plan-time presence — e.g. CREATE EXTENSION omits `SCHEMA s` when schema `s`
+   *  is neither on the target nor produced by this plan (the extension creates
+   *  it). Optional so existing single-arg rules stay type-compatible. */
+  create(
+    fact: Fact,
+    view: FactView,
+    params?: PlanParams,
+    sourceView?: FactView,
+  ): ActionSpec[];
   drop(fact: Fact): ActionSpec;
   /** rename support (stage 9): render the in-place rename from the old
    *  fact to the new id. Kinds without this member never become rename

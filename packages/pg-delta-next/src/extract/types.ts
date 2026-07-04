@@ -2,7 +2,7 @@
  *  / ranges, and collations. */
 import type { StableId } from "../core/stable-id.ts";
 import {
-  aclJson,
+  aclJsonMemberAware,
   type ExtractContext,
   memberExtensionExpr,
   notExtensionMember,
@@ -24,7 +24,7 @@ export async function extractDomains(ctx: ExtractContext): Promise<void> {
              WHERE co.oid = t.typcollation)
            END AS collation,
            obj_description(t.oid, 'pg_type') AS comment,
-           ${aclJson("t.typacl", "T", "t.typowner")} AS acl,
+           ${aclJsonMemberAware("t.typacl", "T", "t.typowner", "pg_type", "t.oid")} AS acl,
            ${memberExtensionExpr("pg_type", "t.oid")} AS ext_member_of
     FROM pg_type t
     JOIN pg_namespace n ON n.oid = t.typnamespace
@@ -101,7 +101,7 @@ export async function extractTypes(ctx: ExtractContext): Promise<void> {
            ARRAY(SELECT e.enumlabel::text FROM pg_enum e
                  WHERE e.enumtypid = t.oid ORDER BY e.enumsortorder) AS values,
            obj_description(t.oid, 'pg_type') AS comment,
-           ${aclJson("t.typacl", "T", "t.typowner")} AS acl,
+           ${aclJsonMemberAware("t.typacl", "T", "t.typowner", "pg_type", "t.oid")} AS acl,
            ${memberExtensionExpr("pg_type", "t.oid")} AS ext_member_of
     FROM pg_type t
     JOIN pg_namespace n ON n.oid = t.typnamespace
@@ -142,7 +142,7 @@ export async function extractTypes(ctx: ExtractContext): Promise<void> {
             JOIN pg_type at ON at.oid = a.atttypid
             WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped) AS attrs,
            obj_description(t.oid, 'pg_type') AS comment,
-           ${aclJson("t.typacl", "T", "t.typowner")} AS acl,
+           ${aclJsonMemberAware("t.typacl", "T", "t.typowner", "pg_type", "t.oid")} AS acl,
            ${memberExtensionExpr("pg_type", "t.oid")} AS ext_member_of
     FROM pg_type t
     JOIN pg_class tc ON tc.oid = t.typrelid AND tc.relkind = 'c'
@@ -216,7 +216,7 @@ export async function extractTypes(ctx: ExtractContext): Promise<void> {
            CASE WHEN rng.rngsubdiff <> 0 THEN rng.rngsubdiff::regproc::text END AS subtype_diff,
            ${multirangeExpr} AS multirange_type_name,
            obj_description(t.oid, 'pg_type') AS comment,
-           ${aclJson("t.typacl", "T", "t.typowner")} AS acl,
+           ${aclJsonMemberAware("t.typacl", "T", "t.typowner", "pg_type", "t.oid")} AS acl,
            ${memberExtensionExpr("pg_type", "t.oid")} AS ext_member_of
     FROM pg_range rng
     JOIN pg_type t ON t.oid = rng.rngtypid

@@ -47,6 +47,14 @@ export class FactBase {
   readonly diagnostics: Diagnostic[] = [];
   /** provenance; metadata only, never folded into rollups */
   readonly source: FactSource;
+  /**
+   * Encoded ids of facts that are present for REFERENCE ONLY — kept in the view
+   * so managed dependents can resolve them (e.g. a platform `auth.users` so a
+   * user trigger on it has a parent), but never diffed (no add/remove/set/edge
+   * delta). Set by the managed-view projection (resolveView) for objects in a
+   * policy's `assumedSchemas`. Empty for raw extraction and the corpus.
+   */
+  readonly referenceOnly: ReadonlySet<string>;
   readonly #byId = new Map<string, Entry>();
   readonly #children = new Map<string, Entry[]>();
   readonly #outgoing = new Map<string, DependencyEdge[]>();
@@ -60,8 +68,10 @@ export class FactBase {
     facts: Fact[],
     edges: DependencyEdge[],
     source: FactSource = "liveDb",
+    referenceOnly: ReadonlySet<string> = new Set(),
   ) {
     this.source = source;
+    this.referenceOnly = referenceOnly;
     for (const fact of facts) {
       const encoded = encodeId(fact.id);
       if (this.#byId.has(encoded)) {
@@ -131,6 +141,13 @@ export class FactBase {
 
   has(id: StableId): boolean {
     return this.#byId.has(encodeId(id));
+  }
+
+  /** Whether `id` is present for REFERENCE ONLY (see `referenceOnly`). Satisfies
+   *  the `FactView` member so a rule can distinguish "on the target" from
+   *  "produced by this plan". */
+  isReferenceOnly(id: StableId): boolean {
+    return this.referenceOnly.has(encodeId(id));
   }
 
   hashOf(id: StableId): ContentHash {
@@ -216,7 +233,10 @@ export class FactBase {
     return rollup;
   }
 
-  /** The fingerprint of the whole state: (rootId=rollup) pairs, sorted. */
+  /** The fingerprint of the whole state: (rootId=rollup) pairs, sorted.
+   *  NOTE: this folds EVERY fact, including `referenceOnly` assumed-schema facts.
+   *  The apply fingerprint gate relies on that (a plan is only applicable against
+   *  the same baseline) — see the "KNOWN PITFALL" note in apply.ts. */
   get rootHash(): ContentHash {
     if (this.#rootHash === undefined) {
       const parts = this.roots().map(
@@ -232,6 +252,7 @@ export function buildFactBase(
   facts: Fact[],
   edges: DependencyEdge[],
   source: FactSource = "liveDb",
+  referenceOnly: ReadonlySet<string> = new Set(),
 ): FactBase {
-  return new FactBase(facts, edges, source);
+  return new FactBase(facts, edges, source, referenceOnly);
 }

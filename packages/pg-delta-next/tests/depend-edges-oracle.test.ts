@@ -106,7 +106,6 @@ describe("pg_depend resolver: edge-set oracle", () => {
     expect(dependsEdges).toMatchInlineSnapshot(`
       [
         "column:app.users.home -> type:app.addr",
-        "column:app.users.id -> sequence:app.id_seq",
         "column:app.users.qty -> domain:app.pos",
         "constraint:app.orders.orders_pkey -> column:app.orders.id",
         "constraint:app.orders.orders_user_fk -> column:app.orders.user_id",

@@ -70,9 +70,17 @@ export async function cmdApply(args: string[]): Promise<void> {
     const ctx = await resolveCliProfile(tgt.pool, profileId);
     process.stderr.write(`Applying ${thePlan.actions.length} action(s)...\n`);
 
+    // Reconstruct the fingerprint with the SAME redaction mode the plan used
+    // (stamped on the artifact). Without this, an `--unsafe-show-secrets` plan
+    // fingerprinted over unredacted secrets is gated against a default-redacted
+    // re-extract and aborts unless `--force`. Absent on direct library plans →
+    // the extract default (redacted), matching the profile's default reextract.
+    const redactSecrets = thePlan.redactSecrets ?? true;
+
     const report = await apply(thePlan, tgt.pool, {
       fingerprintGate: !force,
       ...ctx.applyOptions, // reextract (handler-aware) + baseline
+      reextract: (p) => ctx.extract(p, { redactSecrets }),
     });
 
     if (report.status === "applied") {

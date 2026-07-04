@@ -25,8 +25,10 @@ import pg from "pg";
 const PG_IMAGE = process.env["PGDELTA_TEST_IMAGE"] ?? "postgres:17-alpine";
 
 /** Supabase image (ships pg_partman / pgmq / pg_cron) for extension-intent
- *  integration tests (docs/architecture/extension-intent.md). */
-const SUPABASE_IMAGE =
+ *  integration tests (docs/architecture/extension-intent.md). Exported so the
+ *  baseline-fixture pipeline (scripts/sync-supabase-base-images.ts) boots the
+ *  exact same tag it validates against. */
+export const SUPABASE_IMAGE =
   process.env["PGDELTA_SUPABASE_TEST_IMAGE"] ?? "supabase/postgres:17.6.1.135";
 
 /**
@@ -43,7 +45,9 @@ const SUPABASE_IMAGE =
  * Use as `describe.skipIf(!runSupabaseBareTests)(...)`.
  */
 const LEG_PG_MAJOR = Number(/postgres:(\d+)/.exec(PG_IMAGE)?.[1] ?? "17");
-const SUPABASE_BARE_MAJOR = Number(
+/** Major version of the pinned Supabase image — names the baseline fixture
+ *  (tests/fixtures/supabase-base-init/<major>.sql) and its regeneration. */
+export const SUPABASE_BARE_MAJOR = Number(
   /postgres:(\d+)/.exec(SUPABASE_IMAGE)?.[1] ?? "17",
 );
 export const runSupabaseBareTests =

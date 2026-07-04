@@ -60,6 +60,13 @@ export interface Plan {
   engineVersion: string;
   source: { fingerprint: string };
   target: { fingerprint: string };
+  /** whether the source/desired fact bases were extracted with secret redaction
+   *  on (the extract default). Stamped by the CLI so `apply`/`prove` re-extract
+   *  the target with the SAME redaction mode for the fingerprint gate: a plan
+   *  fingerprinted over unredacted secrets (`--unsafe-show-secrets`) would
+   *  otherwise mismatch a default-redacted re-extract and fail the gate. Absent
+   *  on direct library plans (corpus), which apply treats as the default (on). */
+  redactSecrets?: boolean;
   /** session settings the executor applies per transaction segment —
    *  explicit plan metadata, not loose SQL in the action list */
   preamble: { name: string; value: string }[];
@@ -124,6 +131,20 @@ export interface PlanOptions {
    *  resolved profile's `planOptions`), so `apply`/`prove` can reconstruct the
    *  same managed view without the operator re-specifying `--profile`. */
   profile?: { id: string };
+  /** schemas/roles assumed present-but-unmanaged at apply time, supplementing
+   *  any derived from `policy`. The DB-to-DB path supplies a `policy` and the
+   *  sets are read from it; callers that already hold a RESOLVED managed view
+   *  (e.g. declarative export, which re-plans the view from a pristine baseline)
+   *  pass the assumed sets directly so the action-graph requirement guard does
+   *  not treat a kept `CREATE EXTENSION … SCHEMA <s>` / `GRANT … TO <role>` as
+   *  a stranded reference — without re-running policy filtering/serialize rules
+   *  over an already-resolved view. */
+  assumedSchemas?: string[];
+  assumedRoles?: string[];
+  /** the redaction mode used to extract the source/desired fact bases, stamped
+   *  onto the artifact so `apply`/`prove` reconstruct the fingerprint identically
+   *  (see `Plan.redactSecrets`). Omit on direct library plans. */
+  redactSecrets?: boolean;
 }
 
 export function plan(
@@ -164,6 +185,24 @@ export function plan(
   const serializeRules = options?.policy
     ? flattenPolicy(options.policy).serialize
     : [];
+
+  // roles the policy assumes exist at apply time but does not manage (e.g.
+  // Supabase's anon/authenticated). Threaded into the action-graph guard so a
+  // kept `GRANT … TO <role>` whose role object is filtered out of the view is
+  // not mistaken for a stranded requirement (§ managed-view-architecture).
+  const assumedRoleNames = new Set([
+    ...(options?.policy ? flattenPolicy(options.policy).assumedRoles : []),
+    ...(options?.assumedRoles ?? []),
+  ]);
+
+  // schemas the policy assumes exist at apply time but does not manage (e.g.
+  // Supabase's `extensions`). Threaded into the action-graph guard so a kept
+  // `CREATE EXTENSION … SCHEMA <schema>` whose schema object is filtered out of
+  // the view is not mistaken for a stranded requirement (§ managed-view-architecture).
+  const assumedSchemaNames = new Set([
+    ...(options?.policy ? flattenPolicy(options.policy).assumedSchemas : []),
+    ...(options?.assumedSchemas ?? []),
+  ]);
 
   // ── phase 2: replacement expansion + drop-root suppression ────────────
   // Classify set-deltas (alter vs replace), expand the forced dependent
@@ -221,6 +260,9 @@ export function plan(
     renameActionIndices,
     foldHints,
     acceptsFolds,
+    assumedRoleNames,
+    assumedSchemaNames,
+    capability: options?.capability,
     compact: options?.compact !== false,
   });
 
@@ -235,6 +277,9 @@ export function plan(
     ...(options?.policy ? { policy: options.policy } : {}),
     ...(options?.capability ? { capability: options.capability } : {}),
     ...(options?.profile ? { profile: options.profile } : {}),
+    ...(options?.redactSecrets !== undefined
+      ? { redactSecrets: options.redactSecrets }
+      : {}),
     renameCandidates,
     actions: finalActions,
     safetyReport,

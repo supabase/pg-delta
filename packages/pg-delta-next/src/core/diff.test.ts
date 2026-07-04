@@ -56,6 +56,36 @@ describe("diff", () => {
     ]);
   });
 
+  test("a payload key starting with `_` is non-semantic metadata — no delta", () => {
+    // version-dependent / extraction-only metadata (e.g. an ACL's owner default
+    // privilege set) lives under a `_` key so it never produces a spurious delta
+    // (which would otherwise throw `no rule for attribute …`) across snapshots
+    // or PG versions.
+    const a = buildFactBase(
+      [
+        {
+          id: table,
+          parent: schema,
+          payload: { persistence: "p", _meta: [1] },
+        },
+        { id: schema, payload: {} },
+      ],
+      [],
+    );
+    const b = buildFactBase(
+      [
+        {
+          id: table,
+          parent: schema,
+          payload: { persistence: "p", _meta: [2, 3] },
+        },
+        { id: schema, payload: {} },
+      ],
+      [],
+    );
+    expect(diff(a, b)).toEqual([]);
+  });
+
   test("removed fact yields remove with the full fact", () => {
     const a = buildFactBase(facts(), []);
     const b = buildFactBase(facts({ withColB: false }), []);

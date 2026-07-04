@@ -25,6 +25,32 @@ database with fail-safe ordering (bounded rounds), routine-body
 re-validation, shared-object leak detection, and parser-free DML rejection
 — then the result flows through the same plan/prove path.
 
+### Statement reordering assist (opt-in)
+
+`loadSqlFiles` is parser-free: it sequences whole *files* into the shadow, so it
+tolerates cross-file disorder but cannot reorder statements *within* a file. The
+opt-in **statement reordering assist** restores "author in any internal order,
+it still loads" by splitting files into one-statement units and topologically
+pre-sorting them (via `@supabase/pg-topo`) before the loader runs. See
+[target-architecture §4.4.1](../../docs/architecture/target-architecture.md).
+
+- **Subpath:** `@supabase/pg-delta-next/sql-order` exposes
+  `orderForShadow(files)` / `analyzeForShadow(files)` (returning single-statement
+  `SqlFile`s ready to feed straight into `loadSqlFiles`), `canReorder()`, and the
+  typed `ReorderUnavailableError`.
+- **Dependency posture:** `@supabase/pg-topo` is an **optional peer dependency**,
+  loaded only through a guarded dynamic `import()` when this subpath runs —
+  importing the core (`fact` / `diff` / `plan` / `apply` / `loadSqlFiles`) never
+  pulls the libpg-query WASM parser. If the peer is absent the subpath throws
+  `ReorderUnavailableError` with an install hint; `canReorder()` probes instead.
+- **CLI:** `schema apply` runs the assist by default (`--no-reorder` reproduces
+  raw file granularity for debugging). On a non-converging load it rewrites
+  synthetic ordinal names back to `file:line:col` and attaches any detected
+  shadow-load cycle as an advisory hint on top of the authoritative Postgres
+  error. `schema lint --dir <dir>` runs the analyzer statically (no database) to
+  surface cycles and other diagnostics for proactive authoring — deliberately
+  out of the apply path so apply stays Postgres-truth.
+
 - **Corpus proof loop**: every scenario in `corpus/` proven in BOTH
   directions (build and teardown) — state proof = zero drift deltas after
   applying the plan to a clone; data proof = seeded rows survive. The proof
@@ -83,7 +109,11 @@ All engineering stages are implemented:
   (`renames: "auto" | "prompt" | "off"`, ambiguity/near-miss verdicts,
   data preservation proven down to column values), declarative export
   with the `load(export(fb)) ≡ fb` gate (+ an "ordered" layout that
-  loads in a single pass), drift, finalized public API (subpath
+  loads in a single pass, and a "grouped" layout that restores the old
+  engine's category-grouped/readable output with opt-in name-pattern,
+  flat-schema, and partition grouping; opt-in SQL pretty-printing via
+  `--format-options`, also exposed as the `@supabase/pg-delta-next/sql-format`
+  library helper), drift, finalized public API (subpath
   exports, reviewed name-by-name in `API-REVIEW.md`), CLI v2.
 
 The proof loop now verifies the two safety fields state-proof alone can't
@@ -109,7 +139,7 @@ on first run and `PGDELTA_SKIP_DUMMY_SECLABEL_BUILD=1` skips it where the
 build CDNs are unreachable. The real-Supabase-image baseline proof needs a
 Supabase container (mechanism + generation script exist — run
 `scripts/generate-supabase-baseline.ts`). Stage 10 (cutover) is a product
-decision gated on the parity bar — the differential harness, soak quota at
+decision gated on the parity bar — the porting ledger, soak quota at
 scale, and naming are deliberately not unilateral engineering calls.
 
 Known v1 simplifications:
@@ -141,7 +171,30 @@ PGDELTA_NEXT_SOAK=200 bun test tests/generative.test.ts # bigger soak
 bun scripts/benchmark.ts                                # timing numbers
 ```
 
-## Guardrails
+Compaction (cosmetic clause folding + redundant-drop / default-ACL elision) is
+**on by default** and proof-stable — the plan converges to the same state either
+way. The passes, in order:
+
+- **column folds** — `ADD COLUMN` clauses fold into their bare `CREATE TABLE`
+  when no graph edge crosses the merge.
+- **redundant-drop elision** — a replace's drop is dropped when the create
+  reproduces the byte-identical statement (self-resetting ACL/REVOKE).
+- **default-ACL elision** — whole `REVOKE`/`GRANT` groups that only
+  re-materialize a freshly-created object's built-in owner/PUBLIC defaults are
+  removed.
+- **co-create REVOKE elision** — the leading `REVOKE ALL` is trimmed off a
+  remaining third-party grant on a co-created object (the `GRANT` is kept), gated
+  by a strict-superset guard against any create-time `defaultPrivilege` for the
+  applier role.
+- **co-create ownership fold** — a co-created object's owner `ALTER` folds into
+  its `CREATE`: `CREATE SCHEMA … AUTHORIZATION owner` (always, syntactic), and a
+  no-op `ALTER … OWNER TO` is dropped when the desired owner is the applier
+  (`capability.role`, probed at apply time).
+
+Pass `--no-compact` to `compare` to emit the maximally-inlined DDL (one
+statement per action, every `REVOKE`/`GRANT`/`OWNER TO` spelled out), which is
+useful when diffing engine output statement-by-statement.
+
 
 See `docs/architecture/target-architecture.md` §10. The ones most often relevant here:
 no SQL parsing in the trusted path; no per-kind code outside the rule

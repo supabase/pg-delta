@@ -11,7 +11,60 @@
  * No Docker required (pure string scan).
  */
 import { describe, expect, test } from "bun:test";
-import { findTransactionControl } from "./load-sql-files.ts";
+import {
+  findClusterDdlStatements,
+  findDefaultPrivilegeStatements,
+  findSessionSettingStatements,
+  findTransactionControl,
+  stripClusterDdl,
+} from "./load-sql-files.ts";
+
+describe("cluster-DDL scanner (database scope guard)", () => {
+  test("detects role lifecycle, membership, and role metadata", () => {
+    expect(findClusterDdlStatements(`CREATE ROLE app NOLOGIN;`)).toEqual([
+      "CREATE ROLE",
+    ]);
+    expect(
+      findClusterDdlStatements(`ALTER ROLE app SET search_path=x;`),
+    ).toEqual(["ALTER ROLE"]);
+    expect(findClusterDdlStatements(`DROP USER app;`)).toEqual(["DROP ROLE"]);
+    expect(findClusterDdlStatements(`GRANT app TO reader;`)).toEqual([
+      "GRANT (role membership)",
+    ]);
+    expect(findClusterDdlStatements(`COMMENT ON ROLE app IS 'x';`)).toEqual([
+      "COMMENT ON ROLE",
+    ]);
+  });
+
+  test("does NOT flag database-local privilege grants (they have ON)", () => {
+    expect(findClusterDdlStatements(`GRANT SELECT ON t TO reader;`)).toEqual(
+      [],
+    );
+    expect(
+      findClusterDdlStatements(`REVOKE ALL ON SCHEMA app FROM PUBLIC;`),
+    ).toEqual([]);
+    expect(findClusterDdlStatements(`CREATE TABLE t (id int);`)).toEqual([]);
+  });
+
+  test("ignores keywords inside comments/strings", () => {
+    expect(
+      findClusterDdlStatements(`-- CREATE ROLE app\nCREATE TABLE t (id int);`),
+    ).toEqual([]);
+  });
+
+  test("stripClusterDdl removes role DDL, keeps the rest (block-aware)", () => {
+    const sql = `CREATE ROLE app NOLOGIN;
+CREATE SCHEMA s;
+CREATE FUNCTION s.f() RETURNS int LANGUAGE sql AS $$ SELECT 1; $$;
+GRANT app TO reader;`;
+    const { kept, skipped } = stripClusterDdl(sql);
+    expect(skipped).toEqual(["CREATE ROLE app NOLOGIN", "GRANT app TO reader"]);
+    expect(kept).toContain("CREATE SCHEMA s");
+    expect(kept).toContain("SELECT 1"); // function body not mis-split
+    expect(kept).not.toContain("CREATE ROLE");
+    expect(kept).not.toMatch(/GRANT app TO/);
+  });
+});
 
 describe("findTransactionControl — rejects top-level transaction control", () => {
   test("a bare COMMIT between statements is detected", () => {
@@ -72,6 +125,111 @@ describe("findTransactionControl — no false positives", () => {
     expect(
       findTransactionControl(
         `CREATE FUNCTION f() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT 1; END;`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("findSessionSettingStatements — detects search_path / role barriers", () => {
+  test("SET search_path is detected (with SESSION / LOCAL variants)", () => {
+    expect(findSessionSettingStatements(`SET search_path TO app;`)).toContain(
+      "SET search_path",
+    );
+    expect(
+      findSessionSettingStatements(`SET SESSION search_path TO app, public;`),
+    ).toContain("SET search_path");
+    expect(
+      findSessionSettingStatements(`SET LOCAL search_path = app;`),
+    ).toContain("SET search_path");
+  });
+
+  test("SET SCHEMA (a search_path alias) is detected", () => {
+    expect(
+      findSessionSettingStatements(`SET SCHEMA 'app';`).length,
+    ).toBeGreaterThan(0);
+    expect(
+      findSessionSettingStatements(`SET LOCAL SCHEMA 'app';`).length,
+    ).toBeGreaterThan(0);
+  });
+
+  test("SET ROLE / SET SESSION AUTHORIZATION are detected", () => {
+    expect(findSessionSettingStatements(`SET ROLE app_owner;`)).toContain(
+      "SET ROLE",
+    );
+    expect(
+      findSessionSettingStatements(`SET SESSION AUTHORIZATION app_owner;`),
+    ).toContain("SET SESSION AUTHORIZATION");
+  });
+
+  test("RESET of role / search_path / ALL is detected", () => {
+    expect(findSessionSettingStatements(`RESET ROLE;`).length).toBeGreaterThan(
+      0,
+    );
+    expect(
+      findSessionSettingStatements(`RESET search_path;`).length,
+    ).toBeGreaterThan(0);
+    expect(findSessionSettingStatements(`RESET ALL;`).length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  test("statements mixed with other DDL in one file are detected", () => {
+    expect(
+      findSessionSettingStatements(
+        `CREATE SCHEMA app; SET search_path TO app; CREATE TABLE t (id int);`,
+      ),
+    ).toContain("SET search_path");
+  });
+
+  test("no false positives on unrelated SET or on quoted/commented keywords", () => {
+    // an unrelated GUC does not change object resolution / ownership
+    expect(
+      findSessionSettingStatements(`SET statement_timeout = '5s';`),
+    ).toEqual([]);
+    // keyword in a literal or comment is ignored
+    expect(
+      findSessionSettingStatements(
+        `CREATE FUNCTION f() RETURNS text LANGUAGE sql AS 'SELECT ''SET search_path''';`,
+      ),
+    ).toEqual([]);
+    expect(
+      findSessionSettingStatements(`-- SET ROLE app\nCREATE TABLE t (id int);`),
+    ).toEqual([]);
+  });
+});
+
+describe("findDefaultPrivilegeStatements — reorder barrier", () => {
+  test("ALTER DEFAULT PRIVILEGES is detected", () => {
+    expect(
+      findDefaultPrivilegeStatements(
+        `ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT SELECT ON TABLES TO anon;`,
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      findDefaultPrivilegeStatements(
+        `ALTER DEFAULT PRIVILEGES FOR ROLE alice GRANT EXECUTE ON FUNCTIONS TO PUBLIC;`,
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
+  test("mixed with other DDL in one file is detected", () => {
+    expect(
+      findDefaultPrivilegeStatements(
+        `CREATE SCHEMA app; ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT SELECT ON TABLES TO anon; CREATE TABLE app.t (id int);`,
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
+  test("no false positives on plain ALTER / GRANT or quoted keywords", () => {
+    expect(
+      findDefaultPrivilegeStatements(`ALTER TABLE t ADD COLUMN c int;`),
+    ).toEqual([]);
+    expect(
+      findDefaultPrivilegeStatements(`GRANT SELECT ON t TO anon;`),
+    ).toEqual([]);
+    expect(
+      findDefaultPrivilegeStatements(
+        `CREATE FUNCTION f() RETURNS text LANGUAGE sql AS 'SELECT ''ALTER DEFAULT PRIVILEGES''';`,
       ),
     ).toEqual([]);
   });

@@ -94,7 +94,27 @@ export async function cmdProve(args: string[]): Promise<void> {
 
   const json = readFileSync(planPath, "utf8");
   const thePlan = parsePlan(json);
-  const { factBase: desiredFb } = loadSnapshot(snapshotPath);
+  const { factBase: desiredFb, redactSecrets: snapshotRedactSecrets } =
+    loadSnapshot(snapshotPath);
+
+  // The proof re-extracts the (mutated) clone with the PLAN's redaction mode and
+  // compares it to the desired snapshot. If the snapshot was captured with a
+  // different mode, FDW/subscription secrets would compare placeholder-vs-real
+  // and fail the proof spuriously — and only AFTER the clone is destroyed.
+  // Reject a mismatch up front so the operator re-generates a consistent pair
+  // instead of getting a false failure (review P2).
+  // Both default to redacted (true) when unstamped: a snapshot written before the
+  // redactSecrets field existed is a default-redacted extract, so it must still be
+  // caught as a mismatch against an --unsafe-show-secrets plan (review P2).
+  const planRedactSecrets = thePlan.redactSecrets ?? true;
+  const snapRedactSecrets = snapshotRedactSecrets ?? true;
+  if (snapRedactSecrets !== planRedactSecrets) {
+    process.stderr.write(
+      `prove: the desired snapshot's redaction mode (redactSecrets=${snapRedactSecrets}) does not match the plan's (redactSecrets=${planRedactSecrets}). ` +
+        `Re-generate both with the same --unsafe-show-secrets setting; a mismatch would compare placeholder-vs-real secrets and fail the proof spuriously.\n`,
+    );
+    process.exit(2);
+  }
 
   // The profile MUST match the one used to plan: it supplies the handler-aware
   // re-extractor + baseline so the proof reconstructs the SAME managed view it
@@ -118,12 +138,14 @@ export async function cmdProve(args: string[]): Promise<void> {
       `Proving plan (${thePlan.actions.length} action(s))...\n`,
     );
     const ctx = await resolveCliProfile(clone.pool, profileId);
-    const verdict = await provePlan(
-      thePlan,
-      clone.pool,
-      desiredFb,
-      ctx.proveOptions,
-    );
+    // Re-extract the post-apply clone with the SAME redaction mode the plan used
+    // (stamped on the artifact), so the proof compares like-for-like against the
+    // desired snapshot — an unredacted (`--unsafe-show-secrets`) plan must not be
+    // proven against a default-redacted re-extract. Absent → the extract default.
+    const verdict = await provePlan(thePlan, clone.pool, desiredFb, {
+      ...ctx.proveOptions,
+      reextract: (p) => ctx.extract(p, { redactSecrets: planRedactSecrets }),
+    });
 
     if (verdict.ok) {
       process.stderr.write(

@@ -53,22 +53,73 @@ export async function extractRolesAndGrants(
   }
 
   // ── default privileges ───────────────────────────────────────────────
+  // `pg_default_acl` stores the RESULTING default ACL, so a revoked built-in
+  // default (e.g. `ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM
+  // PUBLIC`) shows up only as the ABSENCE of that grantee's row — there is no
+  // explicit "no privileges" entry. Mirror `aclJson` (scope.ts): when the
+  // object kind grants PUBLIC (functions EXECUTE, types USAGE) or the owner a
+  // built-in default, and the stored acl has dropped it, synthesize an empty
+  // grantee row carrying `revoked_default` (the built-in privileges that were
+  // removed) so the diff can plan the REVOKE — and, in reverse, restore the
+  // default with a GRANT. The "has a PUBLIC/owner default" test is derived from
+  // acldefault() itself, so it stays correct across kinds and PG versions.
+  // `defaclobjtype` uses 'S' for sequences where acldefault() wants 's'.
+  // Model each fact as a DEVIATION from the built-in default, not the raw stored
+  // ACL. `pg_default_acl` materializes the whole effective default, so a grantee
+  // that sits at its built-in default (e.g. the owner keeping its create-time
+  // grant) appears in the row even though it is not a customization — extracting
+  // it would make a customized row assert grants a fresh database already has,
+  // and DROPPING that fact would wrongly REVOKE the built-in default. So:
+  //   • a grantee whose stored privileges EQUAL its built-in default → no fact;
+  //   • a grantee that DIFFERS (custom grant, partial change, grant option) →
+  //     a fact carrying its actual privileges;
+  //   • a grantee that HAS a built-in default but is ABSENT from the stored acl
+  //     (the default was revoked, e.g. `REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`)
+  //     → an empty marker carrying `revoked_default` so the diff can plan the
+  //     REVOKE and, in reverse, restore the default with a GRANT.
+  // The built-in default is derived from acldefault() (kind/version-robust);
+  // `defaclobjtype` uses 'S' for sequences where acldefault() wants 's'.
+  const defaclCode = `CASE d.defaclobjtype WHEN 'S' THEN 's' ELSE d.defaclobjtype END`;
   for (const row of await q(`
     SELECT dr.rolname AS role, n.nspname AS schema, d.defaclobjtype AS objtype,
-           acl.grantee_name AS grantee, acl.privileges, acl.grantable
+           acl.grantee_name AS grantee, acl.privileges, acl.grantable,
+           acl.revoked_default
     FROM pg_default_acl d
     JOIN pg_roles dr ON dr.oid = d.defaclrole
     LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace,
     LATERAL (
-      SELECT COALESCE(g.rolname, 'PUBLIC') AS grantee_name,
-             array_agg(e.privilege_type ORDER BY e.privilege_type) AS privileges,
-             array_agg(e.privilege_type ORDER BY e.privilege_type)
-               FILTER (WHERE e.is_grantable) AS grantable
-      FROM aclexplode(d.defaclacl) e
-      LEFT JOIN pg_roles g ON g.oid = e.grantee
-      GROUP BY 1
+      WITH stored AS (
+        SELECT e.grantee AS grantee_oid,
+               COALESCE(g.rolname, 'PUBLIC') AS grantee_name,
+               array_agg(e.privilege_type ORDER BY e.privilege_type) AS privileges,
+               array_agg(e.privilege_type ORDER BY e.privilege_type)
+                 FILTER (WHERE e.is_grantable) AS grantable
+        FROM aclexplode(d.defaclacl) e
+        LEFT JOIN pg_roles g ON g.oid = e.grantee
+        GROUP BY 1, 2
+      ),
+      def AS (
+        SELECT x.grantee AS grantee_oid,
+               array_agg(x.privilege_type ORDER BY x.privilege_type) AS privileges
+        FROM aclexplode(acldefault(${defaclCode}, d.defaclrole)) x
+        GROUP BY 1
+      )
+      -- present grantees whose privileges DEVIATE from the built-in default
+      SELECT s.grantee_name, s.privileges, s.grantable, NULL::text[] AS revoked_default
+      FROM stored s
+      LEFT JOIN def dd ON dd.grantee_oid = s.grantee_oid
+      WHERE s.privileges IS DISTINCT FROM dd.privileges
+         OR s.grantable IS NOT NULL
+      UNION ALL
+      -- grantees that HAVE a built-in default but are ABSENT (revoked)
+      SELECT CASE WHEN dd.grantee_oid = 0 THEN 'PUBLIC'
+                  ELSE (SELECT rolname FROM pg_roles WHERE oid = dd.grantee_oid) END,
+             ARRAY[]::text[], NULL::text[], dd.privileges
+      FROM def dd
+      WHERE NOT EXISTS (SELECT 1 FROM stored s WHERE s.grantee_oid = dd.grantee_oid)
     ) acl
     ORDER BY 1, 2, 3, 4`)) {
+    const revokedDefault = (row["revoked_default"] as string[] | null) ?? null;
     facts.push({
       id: {
         kind: "defaultPrivilege",
@@ -80,6 +131,11 @@ export async function extractRolesAndGrants(
       payload: {
         privileges: (row["privileges"] as string[]).map(String),
         grantable: ((row["grantable"] as string[] | null) ?? []).map(String),
+        // non-semantic metadata (excluded from hash/diff): the built-in default
+        // privileges this empty marker revoked, so the drop can restore them.
+        ...(revokedDefault != null
+          ? { _revokedDefault: revokedDefault.map(String) }
+          : {}),
       },
     });
   }

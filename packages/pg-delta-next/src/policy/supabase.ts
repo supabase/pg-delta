@@ -161,6 +161,24 @@ export const SUPABASE_SYSTEM_EXTENSIONS = [
 export const supabasePolicy: Policy = {
   id: "supabase",
 
+  // Platform-preset roles assumed to exist at apply time. Rule 7 below projects
+  // their role OBJECT out of the managed view, but ACL / default-privilege facts
+  // that grant TO them are kept — old pg-delta emits those grants and dbdev
+  // relies on them. Declaring the names here lets the planner's ambient-role
+  // exemption (like pg_*/PUBLIC) accept `consumes role:anon` without re-admitting
+  // the role into the diff. Mirrors Rule 7's exclusion list by construction.
+  assumedRoles: [...SUPABASE_SYSTEM_ROLES],
+
+  // Platform-managed schemas assumed to exist at apply time. Rules 4/5 below
+  // project their schema OBJECT out of the managed view, but a kept user object
+  // can still reference one as a dependency target — most notably a relocatable
+  // extension installed into `extensions` (`CREATE EXTENSION … SCHEMA
+  // extensions`), which old pg-delta and dbdev rely on. Declaring the names here
+  // lets the planner's ambient-schema exemption (like assumed roles / pg_* /
+  // PUBLIC) accept `consumes schema:extensions` without re-admitting the schema
+  // into the diff. Mirrors the system-schema exclusion list by construction.
+  assumedSchemas: [...SUPABASE_SYSTEM_SCHEMAS],
+
   // baseline (intentionally UNSET in v1): a baseline names the snapshot that
   // represents "empty" on a Supabase instance; facts present-and-identical in
   // it are subtracted before diffing (resolveBaseline → plan options.baseline),
@@ -172,6 +190,14 @@ export const supabasePolicy: Policy = {
   // baseline snapshot lands, re-add `baseline: "supabase-baseline"` here and
   // resolveBaseline will subtract it. Generate with:
   //   bun run scripts/generate-supabase-baseline.ts <db-url> <pg-major>
+  //
+  // ⚠️ Phase 2b (#41) depends on this being UNSET: the co-located-shadow seed
+  // (frontends/seed-assumed-schemas.ts) materializes assumed-schema objects from
+  // the target's `resolveView` reference-only set, and subtractBaseline removes
+  // baseline-identical facts BEFORE that marking — so a declared baseline empties
+  // the seed and quick-mode `schema apply` regresses. When landing the baseline,
+  // revisit the seed derivation; the "non-empty seed" pin in
+  // seed-assumed-schemas.test.ts fails loudly if this is missed.
 
   serialize: [
     // Old-13 (REMOVED): the skipAuthorization serialize rule is no longer needed.

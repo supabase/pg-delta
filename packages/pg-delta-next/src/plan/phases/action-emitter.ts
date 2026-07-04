@@ -149,7 +149,12 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   };
 
   const emitCreate = (fact: Fact, base: FactBase): void => {
-    const specs = rulesFor(fact.id.kind).create(fact, base, paramsFor(fact));
+    const specs = rulesFor(fact.id.kind).create(
+      fact,
+      base,
+      paramsFor(fact),
+      source,
+    );
     specs.forEach((spec, i) => {
       pushAction("create", spec, {
         produces: i === 0 ? [fact.id] : [],
@@ -182,6 +187,59 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         consumes: to.parent !== undefined ? [to.parent] : [],
       }),
     );
+  }
+
+  // replaces: drop old + create new (+ recreate unchanged descendants).
+  // Emitted BEFORE the added-creates loop so a replaced parent's CREATE registers
+  // its inlined delta-set children (publication members, etc.) in `producerOf`
+  // first — the added loop's producerOf check then suppresses the redundant
+  // standalone create of a child the replacement already materialized (a member
+  // ADDed by CREATE … FOR TABLE must not also emit ALTER PUBLICATION ADD TABLE).
+  // Emission order does not affect apply order (the action graph re-sorts).
+  const recreatedByReplace = new Set<string>();
+  for (const key of replaceIds) {
+    const oldFact = source.getByEncoded(key) as Fact;
+    // the replacement is rendered from the PROJECTED plan target, so a filtered
+    // attribute change or child fact is not baked into the recreated SQL (P1 #1)
+    const newFact = projectedDesired.getByEncoded(key) as Fact;
+    // old descendants die with the drop
+    const oldDescendants: StableId[] = [oldFact.id];
+    const walkOld = (id: StableId): void => {
+      for (const child of source.childrenOf(id)) {
+        oldDescendants.push(child.id);
+        walkOld(child.id);
+      }
+    };
+    walkOld(oldFact.id);
+    const dropSpec = rulesFor(oldFact.id.kind).drop(oldFact);
+    pushAction("drop", dropSpec, {
+      consumes: oldFact.parent !== undefined ? [oldFact.parent] : [],
+      destroys: oldDescendants,
+    });
+    emitCreate(newFact, projectedDesired);
+    // recreate surviving descendants from the PROJECTED plan target (satellites,
+    // sub-facts). Descendants with their own attribute deltas are covered: the
+    // create renders the projected payload, so their alters are skipped; a
+    // descendant whose add was policy-filtered is absent and so not recreated.
+    const recreate = (id: StableId): void => {
+      for (const child of projectedDesired.childrenOf(id)) {
+        const childKey = encodeId(child.id);
+        if (added.has(childKey)) continue; // already created via add delta
+        // already materialized by an ancestor's create via `alsoProduces`
+        // (delta-set inlining — e.g. a validated CHECK inlined into CREATE
+        // DOMAIN, a partitioned table's columns): don't recreate it as a
+        // standalone action (which would duplicate it and fail apply), but still
+        // descend for any non-inlined descendants. Mirrors the added-create loop.
+        if (producerOf.has(childKey)) {
+          recreate(child.id);
+          continue;
+        }
+        recreatedByReplace.add(childKey);
+        emitCreate(child, projectedDesired);
+        recreate(child.id);
+      }
+    };
+    recreate(newFact.id);
   }
 
   // creates — parents first, so a parent's delta-set inlining (e.g. a
@@ -234,7 +292,21 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // add AND its grantee role, and the hygiene REVOKE must not surface a
   // filtered-away role (which would then fail the planner's own
   // missing-requirement check). Mirrors the create/alter seam.
-  for (const fact of added.values()) {
+  //
+  // Hygiene covers every fact this plan CREATES on the target: added facts AND
+  // replaced facts (drop + recreate) with their replace-recreated descendants —
+  // a recreate fires active default ACLs exactly like a fresh create. The ADP
+  // itself may be UNCHANGED (present on both sides, no delta) yet still inject
+  // a grant the desired object never had, because on the source the object
+  // predated the ADP (regression: the Supabase baseline's replaced
+  // extensions.grant_pg_net_access() acquired a stale `postgres` grant from the
+  // image's pre-existing default privileges).
+  const hygieneTargets: Fact[] = [...added.values()];
+  for (const key of [...replaceIds, ...recreatedByReplace]) {
+    const fact = projectedDesired.getByEncoded(key);
+    if (fact) hygieneTargets.push(fact);
+  }
+  for (const fact of hygieneTargets) {
     // which pg_default_acl objtype this kind maps to is declared per-kind in the
     // rule table (`defaclObjtype`); absent → no default ACLs
     const objtype = ruleFlag(fact.id.kind, "defaclObjtype");
@@ -306,44 +378,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     });
   }
 
-  // replaces: drop old + create new (+ recreate unchanged descendants)
-  const recreatedByReplace = new Set<string>();
-  for (const key of replaceIds) {
-    const oldFact = source.getByEncoded(key) as Fact;
-    // the replacement is rendered from the PROJECTED plan target, so a filtered
-    // attribute change or child fact is not baked into the recreated SQL (P1 #1)
-    const newFact = projectedDesired.getByEncoded(key) as Fact;
-    // old descendants die with the drop
-    const oldDescendants: StableId[] = [oldFact.id];
-    const walkOld = (id: StableId): void => {
-      for (const child of source.childrenOf(id)) {
-        oldDescendants.push(child.id);
-        walkOld(child.id);
-      }
-    };
-    walkOld(oldFact.id);
-    const dropSpec = rulesFor(oldFact.id.kind).drop(oldFact);
-    pushAction("drop", dropSpec, {
-      consumes: oldFact.parent !== undefined ? [oldFact.parent] : [],
-      destroys: oldDescendants,
-    });
-    emitCreate(newFact, projectedDesired);
-    // recreate surviving descendants from the PROJECTED plan target (satellites,
-    // sub-facts). Descendants with their own attribute deltas are covered: the
-    // create renders the projected payload, so their alters are skipped; a
-    // descendant whose add was policy-filtered is absent and so not recreated.
-    const recreate = (id: StableId): void => {
-      for (const child of projectedDesired.childrenOf(id)) {
-        const childKey = encodeId(child.id);
-        if (added.has(childKey)) continue; // already created via add delta
-        recreatedByReplace.add(childKey);
-        emitCreate(child, projectedDesired);
-        recreate(child.id);
-      }
-    };
-    recreate(newFact.id);
-  }
-
   // in-place alters (skipped for facts a replace already recreated)
   for (const [key, sets] of setsByFact) {
     if (replaceIds.has(key) || recreatedByReplace.has(key)) continue;
@@ -411,6 +445,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         toFact,
         projectedDesired,
         paramsFor(toFact),
+        source,
       );
       createSpecs.forEach((spec, i) => {
         pushAction("create", spec, {
@@ -474,6 +509,9 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         renamedOwnerId.set(encodeId(dstId), ownerEdge.to);
       }
     }
+    // objKeys whose owner a link delta already (re-)established below, so the
+    // replaced-fact pass does not emit a second ALTER … OWNER TO for them.
+    const ownerEmitted = new Set<string>();
     for (const delta of deltas) {
       if (delta.verb !== "link" || delta.edge.kind !== "owner") continue;
       const objId = delta.edge.from;
@@ -527,6 +565,43 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
           ...(oldRoleId !== undefined ? { releases: [oldRoleId] } : {}),
         },
         { consumes: [objId] },
+      );
+      ownerEmitted.add(objKey);
+    }
+
+    // Replaced facts (drop + recreate) revert to the applying role's ownership;
+    // their owner edge is UNCHANGED source->target so it produced no owner link
+    // delta above. Re-establish it from the PROJECTED target for every replaced
+    // fact (and any descendant a replace recreated) a link delta did not already
+    // own — mirroring how the replace loop recreates child ACL facts. Without
+    // this, a function/type/table whose body/definition changed is silently
+    // re-owned to whoever runs the migration (regression: Supabase auth.uid() et
+    // al., owned by supabase_auth_admin, reverted to the applier after replace).
+    for (const key of [...replaceIds, ...recreatedByReplace]) {
+      if (ownerEmitted.has(key)) continue;
+      const fact = projectedDesired.getByEncoded(key);
+      if (!fact) continue;
+      const ownerAlterPrefix = ruleFlag(fact.id.kind, "ownerAlterPrefix");
+      if (!ownerAlterPrefix) continue;
+      const ownerEdge = projectedDesired
+        .outgoingEdges(fact.id)
+        .find((e) => e.kind === "owner");
+      if (ownerEdge?.to.kind !== "role") continue;
+      const roleName = (ownerEdge.to as { kind: "role"; name: string }).name;
+      if (capability !== undefined && !canSetOwner(capability, roleName)) {
+        throw new Error(
+          `capability: cannot set owner of ${key} to role "${roleName}" — ` +
+            `applier "${capability.role}" is not a superuser or a member of that role; ` +
+            `grant membership or apply as a member/superuser`,
+        );
+      }
+      pushAction(
+        "alter",
+        {
+          sql: `${ownerAlterPrefix(fact)} OWNER TO ${qid(roleName)}`,
+          consumes: [ownerEdge.to],
+        },
+        { consumes: [fact.id] },
       );
     }
   }

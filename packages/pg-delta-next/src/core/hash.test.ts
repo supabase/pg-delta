@@ -6,6 +6,19 @@ describe("canonicalize", () => {
     expect(canonicalize({ b: 1, a: 2 })).toBe(canonicalize({ a: 2, b: 1 }));
   });
 
+  test("keys starting with `_` are non-semantic metadata, excluded from the encoding", () => {
+    // extraction-only / version-dependent metadata (e.g. an ACL's owner default
+    // privilege set) must not join the equality surface, or it would produce
+    // spurious diff deltas / fingerprint drift across PG versions and snapshots.
+    expect(canonicalize({ a: 1, _meta: [1, 2] })).toBe(canonicalize({ a: 1 }));
+    expect(contentHash({ a: 1, _meta: ["x"] })).toBe(
+      contentHash({ a: 1, _meta: ["y", "z"] }),
+    );
+    expect(canonicalize({ x: { a: 1, _m: 9 } })).toBe(
+      canonicalize({ x: { a: 1 } }),
+    );
+  });
+
   test("nested key order does not matter", () => {
     expect(canonicalize({ x: { b: [1, { z: 1, y: 2 }], a: null } })).toBe(
       canonicalize({ x: { a: null, b: [1, { y: 2, z: 1 }] } }),

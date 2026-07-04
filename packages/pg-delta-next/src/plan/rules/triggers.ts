@@ -47,6 +47,19 @@ export const triggerRules: Record<string, KindRules> = {
 
   eventTrigger: {
     weight: 17,
+    // An event trigger depends on its backing function (pg_depend 'n' edge +
+    // the create's `consumes: [fnId]`). A function BODY change now alters in
+    // place (CREATE OR REPLACE — see routines.ts), leaving the ET untouched; but
+    // a change CREATE OR REPLACE cannot express (return type / language / window-
+    // kind) or a REMOVE+ADD of the backing function still DEMOLISHES it. A
+    // surviving event trigger on a demolished function must therefore be dropped
+    // before the function and recreated after; without `rebuildable` the closure
+    // skips it and `DROP FUNCTION` fails with "other objects depend on it"
+    // (regression: Supabase's grant_pg_net_access et al. back event triggers).
+    // Pinned by plan/rules/routines.test.ts — Alpine cannot drive an ET-function
+    // replace through the corpus (its backing fn must stay `() RETURNS
+    // event_trigger` plpgsql, none of which can change under CREATE OR REPLACE).
+    rebuildable: true,
     create: (fact) => {
       const name = qid((fact.id as { name: string }).name);
       // an event-trigger function is always a real function (prokind 'f',

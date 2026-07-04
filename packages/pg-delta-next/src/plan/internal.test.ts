@@ -74,11 +74,16 @@ function aclFact(
   grantee: string,
   privileges: string[],
   grantable: string[] = [],
+  ownerDefault?: string[],
 ): Fact {
   return {
     id: aclId(target, grantee),
     parent: target,
-    payload: { privileges, grantable },
+    payload: {
+      privileges,
+      grantable,
+      ...(ownerDefault !== undefined ? { _ownerDefault: ownerDefault } : {}),
+    },
   };
 }
 
@@ -94,7 +99,8 @@ describe("elideDefaultAclCreates", () => {
       { id: mood, payload: {} },
       roleFact("test"),
       aclFact(mood, "PUBLIC", ["USAGE"]),
-      aclFact(mood, "test", ["USAGE"]),
+      // owner has exactly the create-time default (USAGE for a type) → elidable
+      aclFact(mood, "test", ["USAGE"], [], ["USAGE"]),
     ];
     const edges: DependencyEdge[] = [
       { from: mood, to: { kind: "role", name: "test" }, kind: "owner" },
@@ -117,6 +123,82 @@ describe("elideDefaultAclCreates", () => {
       "CREATE TYPE app.mood ...",
       "ALTER TYPE app.mood OWNER TO test",
     ]);
+  });
+
+  test("keeps the owner ACL group when the owner revoked a create-time default", () => {
+    // owner default for a table is the full set; here the owner kept everything
+    // EXCEPT UPDATE. Eliding the REVOKE/GRANT group would leave PostgreSQL's full
+    // create-time default in place, so UPDATE would wrongly come back (review P2).
+    const t = tableId("t");
+    const ownerDefault = [
+      "DELETE",
+      "INSERT",
+      "REFERENCES",
+      "SELECT",
+      "TRIGGER",
+      "TRUNCATE",
+      "UPDATE",
+    ];
+    const desiredOwnerPrivs = ownerDefault.filter((p) => p !== "UPDATE");
+    const facts: Fact[] = [
+      { id: t, payload: {} },
+      roleFact("test"),
+      aclFact(t, "test", desiredOwnerPrivs, [], ownerDefault),
+    ];
+    const desired = buildFactBase(facts, [
+      { from: t, to: { kind: "role", name: "test" }, kind: "owner" },
+    ]);
+    const actions: Action[] = [
+      mkAction({ sql: "CREATE TABLE app.t ...", produces: [t] }),
+      ...aclActions(t, "test"),
+    ];
+    const kept = elideDefaultAclCreates(actions, desired);
+    expect(kept.map((a) => a.sql)).toContain("REVOKE ALL ... FROM test");
+    expect(kept.map((a) => a.sql)).toContain("GRANT ... TO test");
+  });
+
+  test("keeps the owner ACL group when an ALTER DEFAULT PRIVILEGES customizes the objtype", () => {
+    // desired owner == the built-in default, BUT an ADP reduces the owner default
+    // for new tables. Since a from-empty plan does not guarantee the table is
+    // created AFTER the ADP, the create-time owner ACL is ambiguous, so the
+    // REVOKE/GRANT group is load-bearing and must NOT be elided (review P2).
+    const t = tableId("t");
+    const ownerDefault = [
+      "DELETE",
+      "INSERT",
+      "REFERENCES",
+      "SELECT",
+      "TRIGGER",
+      "TRUNCATE",
+      "UPDATE",
+    ];
+    const adp: StableId = {
+      kind: "defaultPrivilege",
+      role: "test",
+      schema: null,
+      objtype: "r",
+      grantee: "test",
+    };
+    const facts: Fact[] = [
+      { id: t, payload: {} },
+      roleFact("test"),
+      aclFact(t, "test", ownerDefault, [], ownerDefault),
+      {
+        id: adp,
+        payload: { privileges: ownerDefault.filter((p) => p !== "UPDATE") },
+      },
+    ];
+    const desired = buildFactBase(facts, [
+      { from: t, to: { kind: "role", name: "test" }, kind: "owner" },
+    ]);
+    const actions: Action[] = [
+      mkAction({ sql: "CREATE TABLE app.t ...", produces: [t] }),
+      ...aclActions(t, "test"),
+    ];
+    // capability's role is the ADP's defaclrole (the applier creates the object)
+    const kept = elideDefaultAclCreates(actions, desired, cap("test"));
+    expect(kept.map((a) => a.sql)).toContain("REVOKE ALL ... FROM test");
+    expect(kept.map((a) => a.sql)).toContain("GRANT ... TO test");
   });
 
   test("keeps a third-party grant on a co-created object", () => {

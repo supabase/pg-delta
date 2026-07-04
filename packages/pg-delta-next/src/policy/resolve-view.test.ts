@@ -10,10 +10,10 @@
  */
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
-import type { StableId } from "../core/stable-id.ts";
+import { encodeId, type StableId } from "../core/stable-id.ts";
 import type { Policy } from "./policy.ts";
 import { resolveView } from "./policy.ts";
-import { excludeExtensionMembers } from "./extension-members.ts";
+import { excludeByProvenance } from "./view.ts";
 
 const f = (id: StableId, payload: Fact["payload"] = {}): Fact => ({
   id,
@@ -92,17 +92,64 @@ describe("resolveView — fact-level scope projection", () => {
     expect(resolveView(fb, policy).get(table("public", "t"))).toBeDefined();
   });
 
-  test("no policy → identical to excludeExtensionMembers (corpus path unchanged)", () => {
+  test("no policy → extension members kept REFERENCE-ONLY (not hard-pruned)", () => {
     const member = table("public", "q_jobs");
     const fb = buildFactBase(
       [f(schema("public")), f(ext("pgmq")), f(member)],
       [{ from: member, to: ext("pgmq"), kind: "memberOfExtension" }],
     );
     const viaResolve = resolveView(fb, undefined);
-    const viaExclude = excludeExtensionMembers(fb);
-    expect(viaResolve.get(member)).toBeUndefined();
-    expect(viaResolve.facts().length).toBe(viaExclude.facts().length);
+    const viaExclude = excludeByProvenance(fb, "memberOfExtension");
+    // The raw primitive hard-prunes the member; resolveView keeps it
+    // REFERENCE-ONLY so its satellite customizations (acl/comment/securityLabel)
+    // stay diffable while the member object itself is never diffed.
+    expect(viaExclude.get(member)).toBeUndefined();
+    expect(viaResolve.get(member)).toBeDefined();
+    expect(viaResolve.referenceOnly.has(encodeId(member))).toBe(true);
+    // a non-member (the schema) is neither pruned nor reference-only
     expect(viaResolve.get(schema("public"))).toBeDefined();
+    expect(viaResolve.referenceOnly.has(encodeId(schema("public")))).toBe(
+      false,
+    );
+  });
+
+  test("member stays reference-only when baseline subtraction prunes its extension edge", () => {
+    const netSchema = schema("net");
+    const pgNet = ext("pg_net");
+    const memberFn: StableId = {
+      kind: "function",
+      schema: "net",
+      name: "http_get",
+      args: [],
+    };
+    const aclFact: Fact = {
+      id: { kind: "acl", target: memberFn, grantee: "r" },
+      parent: memberFn,
+      payload: { privileges: ["EXECUTE"], grantable: [] },
+    };
+    const edge = {
+      from: memberFn,
+      to: pgNet,
+      kind: "memberOfExtension" as const,
+    };
+    // fb has the extension, its member function, and a user GRANT on the member.
+    const fb = buildFactBase(
+      [f(netSchema), f(pgNet, netSchema), f(memberFn, netSchema), aclFact],
+      [edge],
+    );
+    // Baseline is identical EXCEPT the user grant → subtractBaseline drops the
+    // extension + function, but force-keeps the function (its acl survives) and
+    // PRUNES the now-dangling member edge.
+    const baseline = buildFactBase(
+      [f(netSchema), f(pgNet, netSchema), f(memberFn, netSchema)],
+      [edge],
+    );
+    const view = resolveView(fb, undefined, undefined, baseline);
+    // RED today: the member closure is computed AFTER subtraction, when the edge
+    // is already gone, so the surviving function is NOT reference-only and would
+    // be planned as a spurious CREATE FUNCTION.
+    expect(view.get(memberFn)).toBeDefined();
+    expect(view.referenceOnly.has(encodeId(memberFn))).toBe(true);
   });
 
   test("managedBy facts are projected out (no policy) — single projection point", () => {

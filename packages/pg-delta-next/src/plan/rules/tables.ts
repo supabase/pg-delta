@@ -200,7 +200,12 @@ export const tableRules: Record<string, KindRules> = {
         ...(rewrites ? { rewriteRisk: true } : {}),
       };
       if (fact.parent !== undefined && fact.parent.kind === "table") {
-        spec.compaction = { foldInto: fact.parent, clause };
+        // Generated columns reference other columns in their expression; folding
+        // them into an empty CREATE TABLE before those columns are present emits
+        // invalid SQL (dbdev package_upgrades.from_version_struct roundtrip).
+        if (fact.payload["generatedExpr"] == null) {
+          spec.compaction = { foldInto: fact.parent, clause };
+        }
       }
       return [spec];
     },
@@ -218,12 +223,19 @@ export const tableRules: Record<string, KindRules> = {
         alter: (fact, _from, to, view) => {
           const { schema, table, column } = columnRef(fact);
           const target = `ALTER TABLE ${rel(schema, table)} ALTER COLUMN ${qid(column)}`;
+          // Foreign tables have no local storage, so PostgreSQL rejects the
+          // USING cast clause ("<rel> is not a table", 42809) — it would force a
+          // rewrite. The plain TYPE change is metadata-only and carries no
+          // rewrite risk. (Regular tables keep the USING cast + rewriteRisk.)
+          const isForeign = fact.parent?.kind === "foreignTable";
           const specs: ActionSpec[] = [
             { sql: `${target} DROP DEFAULT` },
-            {
-              sql: `${target} TYPE ${str(to)} USING ${qid(column)}::${str(to)}`,
-              rewriteRisk: true,
-            },
+            isForeign
+              ? { sql: `${target} TYPE ${str(to)}` }
+              : {
+                  sql: `${target} TYPE ${str(to)} USING ${qid(column)}::${str(to)}`,
+                  rewriteRisk: true,
+                },
           ];
           const desiredDefault = view
             .childrenOf(fact.id)

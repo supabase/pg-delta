@@ -80,6 +80,15 @@ export type StableId =
 
 export type FactKind = StableId["kind"];
 
+/** A satellite fact (comment / acl / securityLabel) hangs off a target object
+ *  via a `target` field, rather than being an object in its own right. Callers
+ *  that special-case "object vs its metadata" test this instead of re-deriving
+ *  the `"target" in id` shape (extension-member projection, orphan-satellite
+ *  pruning). */
+export function isSatelliteId(id: StableId): boolean {
+  return "target" in id;
+}
+
 /** Every `FactKind`, as a runtime array. The `satisfies` + the `_exhaustive`
  *  assignment below make this a COMPILE error if a new `StableId` kind is added
  *  without listing it here — which in turn keeps the role-name-bearing registry

@@ -1,7 +1,7 @@
 /** Routines: functions / procedures and aggregates. */
 import type { StableId } from "../core/stable-id.ts";
 import {
-  aclJson,
+  aclJsonMemberAware,
   type ExtractContext,
   memberExtensionExpr,
   parseAcl,
@@ -19,22 +19,27 @@ export async function extractRoutines(ctx: ExtractContext): Promise<void> {
                  FROM unnest(p.proargtypes) WITH ORDINALITY AS t(t, ord)
                  ORDER BY t.ord)::text[] AS identity_args,
            pg_get_functiondef(p.oid) AS def,
+           pg_get_function_result(p.oid) AS return_type,
+           pg_get_function_arguments(p.oid) AS arg_signature,
+           l.lanname AS language,
            obj_description(p.oid, 'pg_proc') AS comment,
-           ${aclJson("p.proacl", "f", "p.proowner")} AS acl,
+           ${aclJsonMemberAware("p.proacl", "f", "p.proowner", "pg_proc", "p.oid")} AS acl,
            ${memberExtensionExpr("pg_proc", "p.oid")} AS ext_member_of
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
     JOIN pg_roles r ON r.oid = p.proowner
-    WHERE p.prokind IN ('f', 'p') AND ${USER_SCHEMA_FILTER}
+    JOIN pg_language l ON l.oid = p.prolang
+    WHERE p.prokind IN ('f', 'p', 'w') AND ${USER_SCHEMA_FILTER}
       AND NOT EXISTS (
         SELECT 1 FROM pg_depend idep
         WHERE idep.classid = 'pg_proc'::regclass AND idep.objid = p.oid
           AND idep.deptype = 'i')
     ORDER BY n.nspname, p.proname`)) {
     const args = (row["identity_args"] as string[]).map(String);
-    // prokind distinguishes functions ('f') from procedures ('p'); the kind
+    // prokind distinguishes procedures ('p') from functions ('f'/'w'); the kind
     // lives in the id (not the payload) so satellite renderers address the
-    // routine with the correct DDL keyword (FUNCTION vs PROCEDURE).
+    // routine with the correct DDL keyword (FUNCTION vs PROCEDURE). Window
+    // functions ('w') are still FUNCTIONs for DDL — they only differ by `isWindow`.
     const id: StableId = {
       kind: String(row["prokind"]) === "p" ? "procedure" : "function",
       schema: String(row["schema"]),
@@ -47,6 +52,25 @@ export async function extractRoutines(ctx: ExtractContext): Promise<void> {
         parent: schemaId(row["schema"]),
         payload: {
           def: String(row["def"]),
+          // Classification fields for the change path: `def` (pg_get_functiondef)
+          // is itself a CREATE OR REPLACE, so a body/volatility/… change alters
+          // in place — but return type, language, and window-kind are things
+          // CREATE OR REPLACE refuses or cannot express, so a change to any of
+          // them must demolish (see plan/rules/routines.ts). They deliberately
+          // double-count with `def` (all change together) so they carry no extra
+          // diff signal; they exist only to route the change. `return_type` is
+          // NULL for procedures (null-stable — no delta among procedures).
+          returnType:
+            row["return_type"] == null ? null : (row["return_type"] as string),
+          // full argument signature (names / modes / defaults). CREATE OR
+          // REPLACE refuses to rename a parameter or remove a default, so ANY
+          // arg-signature change must demolish. Arg TYPES are identity (a
+          // different stable id → natural drop+create), so within a stable id
+          // this differs only by name/mode/default — the part OR-REPLACE can't
+          // always express.
+          argSignature: String(row["arg_signature"]),
+          language: String(row["language"]),
+          isWindow: String(row["prokind"]) === "w",
         },
       },
       row,
@@ -91,7 +115,7 @@ export async function extractAggregates(ctx: ExtractContext): Promise<void> {
              WHERE o.oid = a.aggsortop) END AS sortop,
            p.proparallel AS parallel,
            obj_description(p.oid, 'pg_proc') AS comment,
-           ${aclJson("p.proacl", "f", "p.proowner")} AS acl,
+           ${aclJsonMemberAware("p.proacl", "f", "p.proowner", "pg_proc", "p.oid")} AS acl,
            ${memberExtensionExpr("pg_proc", "p.oid")} AS ext_member_of
     FROM pg_proc p
     JOIN pg_aggregate a ON a.aggfnoid = p.oid

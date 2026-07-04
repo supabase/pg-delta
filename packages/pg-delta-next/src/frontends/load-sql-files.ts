@@ -36,6 +36,7 @@ import {
   type ExtractResult,
 } from "../extract/extract.ts";
 import { notExtensionMember, USER_SCHEMA_FILTER } from "../extract/scope.ts";
+import { splitSqlStatements } from "./sql-format/format-utils.ts";
 
 /** SQLSTATE 25001 ("active_sql_transaction") — raised when a statement that
  *  cannot run inside a transaction block (CREATE INDEX CONCURRENTLY, VACUUM, …)
@@ -211,6 +212,141 @@ export function findTransactionControl(sql: string): string[] {
   return found;
 }
 
+/** Statement-leading session-setting forms that change object resolution or
+ *  ownership for every statement that follows them on the same session:
+ *  `SET search_path` (where unqualified names resolve), `SET ROLE` /
+ *  `SET SESSION AUTHORIZATION` (who owns created objects), and the matching
+ *  RESETs. `SET LOCAL`/`SET SESSION` modifiers are tolerated. Unrelated GUCs
+ *  (e.g. `SET statement_timeout`) are NOT flagged — they don't affect the
+ *  extracted schema. */
+const SESSION_SETTING_RULES: ReadonlyArray<{ re: RegExp; label: string }> = [
+  {
+    re: /^set\s+(?:session\s+|local\s+)?search_path\b/i,
+    label: "SET search_path",
+  },
+  {
+    // `SET SCHEMA 'x'` is documented as an alias for `SET search_path TO x`.
+    re: /^set\s+(?:session\s+|local\s+)?schema\b/i,
+    label: "SET SCHEMA",
+  },
+  { re: /^set\s+(?:session\s+|local\s+)?role\b/i, label: "SET ROLE" },
+  {
+    re: /^set\s+(?:session\s+|local\s+)?session\s+authorization\b/i,
+    label: "SET SESSION AUTHORIZATION",
+  },
+  {
+    re: /^reset\s+(?:role|search_path|session\s+authorization|all)\b/i,
+    label: "RESET session setting",
+  },
+];
+
+/**
+ * Return the session-setting statement labels found at STATEMENT LEVEL in a SQL
+ * file (empty when clean). The statement-reordering assist (`sql-order.ts`)
+ * treats variable `SET`/`RESET` as no-dependency bootstrap statements, so it can
+ * move them relative to the DDL they were meant to scope — silently changing the
+ * shadow state (e.g. an unqualified `CREATE TABLE` resolving into the wrong
+ * schema). The CLI uses this to fall back to raw, file-granular loading (which
+ * preserves the authored order) when a directory contains such statements
+ * (review P1). Keywords inside comments / string / dollar-quoted literals are
+ * NOT flagged (reuses the same literal mask as `findTransactionControl`).
+ */
+export function findSessionSettingStatements(sql: string): string[] {
+  const skeleton = maskLiteralsAndComments(sql);
+  const found: string[] = [];
+  for (const raw of skeleton.split(";")) {
+    const stmt = raw.trim();
+    if (stmt === "") continue;
+    for (const { re, label } of SESSION_SETTING_RULES) {
+      if (re.test(stmt)) {
+        found.push(label);
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Return the `ALTER DEFAULT PRIVILEGES` statements found at STATEMENT LEVEL
+ * (empty when clean). pg-topo classifies these in its `privileges` phase, which
+ * sorts AFTER object creation — but PostgreSQL applies a schema's default
+ * privileges to objects created AFTER the `ALTER DEFAULT PRIVILEGES` in authored
+ * order. Reordering can therefore move the statement past the `CREATE` it was
+ * meant to scope, so the shadow misses the implicit ACLs and the plan diffs the
+ * wrong grants. The CLI treats a directory containing one as a reorder barrier
+ * and falls back to raw, file-granular loading (review P2). Keywords inside
+ * comments / literals are ignored (same literal mask as the others).
+ */
+export function findDefaultPrivilegeStatements(sql: string): string[] {
+  const skeleton = maskLiteralsAndComments(sql);
+  const found: string[] = [];
+  for (const raw of skeleton.split(";")) {
+    if (/^\s*alter\s+default\s+privileges\b/i.test(raw)) {
+      found.push("ALTER DEFAULT PRIVILEGES");
+    }
+  }
+  return found;
+}
+
+/** Cluster-global (not database-local) DDL: role lifecycle, role membership, and
+ *  role metadata. `schema apply --scope database` refuses these (or skips them
+ *  with `--skip-cluster-ddl`) because roles are shared across the cluster and are
+ *  not the declarative source's to manage in that scope. Membership grants are
+ *  distinguished from privilege grants by the absence of an `ON` target. */
+const CLUSTER_DDL_RULES: { re: RegExp; label: string }[] = [
+  { re: /^\s*create\s+(role|user|group)\b/i, label: "CREATE ROLE" },
+  { re: /^\s*alter\s+(role|user|group)\b/i, label: "ALTER ROLE" },
+  { re: /^\s*drop\s+(role|user|group)\b/i, label: "DROP ROLE" },
+  { re: /^\s*comment\s+on\s+role\b/i, label: "COMMENT ON ROLE" },
+  {
+    re: /^\s*security\s+label\b[\s\S]*\bon\s+role\b/i,
+    label: "SECURITY LABEL ON ROLE",
+  },
+  { re: /^\s*grant\b(?![\s\S]*\bon\b)/i, label: "GRANT (role membership)" },
+  { re: /^\s*revoke\b(?![\s\S]*\bon\b)/i, label: "REVOKE (role membership)" },
+];
+
+/** Labels of cluster-global DDL statements found at statement level (empty when
+ *  clean). Keywords inside comments / literals are ignored (same literal mask as
+ *  the other scanners). */
+export function findClusterDdlStatements(sql: string): string[] {
+  const skeleton = maskLiteralsAndComments(sql);
+  const found: string[] = [];
+  for (const raw of skeleton.split(";")) {
+    const stmt = raw.trim();
+    if (stmt === "") continue;
+    for (const { re, label } of CLUSTER_DDL_RULES) {
+      if (re.test(stmt)) {
+        found.push(label);
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+/** Partition `sql` into the statements that are NOT cluster-global DDL (`kept`,
+ *  rejoined and ready to load) and the cluster-DDL statements removed
+ *  (`skipped`, original text, for the skip ledger). Uses the block-aware
+ *  `splitSqlStatements` so function bodies etc. are not mis-split. */
+export function stripClusterDdl(sql: string): {
+  kept: string;
+  skipped: string[];
+} {
+  const keptParts: string[] = [];
+  const skipped: string[] = [];
+  for (const stmt of splitSqlStatements(sql)) {
+    const masked = maskLiteralsAndComments(stmt).trim();
+    if (masked !== "" && CLUSTER_DDL_RULES.some(({ re }) => re.test(masked))) {
+      skipped.push(stmt.trim());
+    } else {
+      keptParts.push(masked === "" ? stmt : `${stmt};`);
+    }
+  }
+  return { kept: keptParts.join("\n"), skipped };
+}
+
 export interface SqlFile {
   name: string;
   sql: string;
@@ -255,6 +391,12 @@ export async function loadSqlFiles(
      *  desired state is projected with the SAME handlers as the target (review
      *  P1 — SQL-file workflows must match the profile-aware DB-to-DB path). */
     extract?: (pool: Pool, options?: ExtractOptions) => Promise<ExtractResult>;
+    /** Assumed schemas the caller PRE-SEEDED into the shadow (Phase 2b): the
+     *  emptiness guard below excludes them from its count so a deliberately
+     *  seeded shadow (auth.users under --profile supabase) is not rejected as
+     *  "not empty". Only these schemas are exempt — an unexpected object
+     *  anywhere else still fails the guard. */
+    seededSchemas?: string[];
   } = {},
 ): Promise<LoadResult> {
   // Rounds scale with dependency DEPTH, not file count: each round resolves
@@ -270,12 +412,20 @@ export async function loadSqlFiles(
   const mode = options.mode ?? "databaseScratch";
   const extractShadow = options.extract ?? extract;
 
-  // the shadow must be empty — verify by observation
-  const preexisting = await shadow.query(`
+  // the shadow must be empty — verify by observation. Schemas the caller
+  // pre-seeded (Phase 2b assumed schemas) are exempt: they were deliberately
+  // populated before this load, and `<> ALL(ARRAY[]::text[])` is TRUE for every
+  // row when nothing was seeded, so the default (unseeded) path is unchanged.
+  const seededSchemas = options.seededSchemas ?? [];
+  const preexisting = await shadow.query(
+    `
     SELECT count(*)::int AS n FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
-      AND n.nspname NOT LIKE 'pg\\_%'`);
+      AND n.nspname NOT LIKE 'pg\\_%'
+      AND n.nspname <> ALL($1::text[])`,
+    [seededSchemas],
+  );
   if ((preexisting.rows[0] as { n: number }).n > 0) {
     throw new ShadowLoadError("shadow database is not empty", []);
   }

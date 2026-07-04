@@ -3,7 +3,7 @@
  *  rewrite rules. */
 import type { StableId } from "../core/stable-id.ts";
 import {
-  aclJson,
+  aclJsonMemberAware,
   type ExtractContext,
   memberExtensionExpr,
   notExtensionMember,
@@ -42,7 +42,7 @@ export async function extractTables(ctx: ExtractContext): Promise<void> {
             WHERE inh.inhrelid = c.oid
             LIMIT 1) AS parent_table,
            obj_description(c.oid, 'pg_class') AS comment,
-           ${aclJson("c.relacl", "r", "c.relowner")} AS acl,
+           ${aclJsonMemberAware("c.relacl", "r", "c.relowner", "pg_class", "c.oid")} AS acl,
            ${memberExtensionExpr("pg_class", "c.oid")} AS ext_member_of
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -259,7 +259,17 @@ export async function extractIndexes(ctx: ExtractContext): Promise<void> {
     JOIN pg_class c ON c.oid = i.indrelid
     JOIN pg_namespace n ON n.oid = ic.relnamespace
     WHERE c.relkind IN ('r', 'p', 'm') AND ${USER_SCHEMA_FILTER}
-      AND NOT EXISTS (SELECT 1 FROM pg_constraint pc WHERE pc.conindid = i.indexrelid)
+      -- Exclude indexes OWNED by a constraint (PRIMARY KEY / UNIQUE / EXCLUSION),
+      -- which are serialized via the constraint, not as standalone CREATE INDEX.
+      -- Gate on contype: a FOREIGN KEY constraint also sets conindid — to the
+      -- index on the REFERENCED table it depends on — so an unqualified check
+      -- wrongly drops a standalone unique index the moment any FK references it
+      -- (regression: realtime.tenants' unique index on external_id, referenced by
+      -- an FK from _realtime.extensions, vanished from extraction).
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_constraint pc
+        WHERE pc.conindid = i.indexrelid AND pc.contype IN ('p', 'u', 'x')
+      )
       AND NOT EXISTS (SELECT 1 FROM pg_inherits ih WHERE ih.inhrelid = i.indexrelid)
       AND ${notExtensionMember("pg_class", "c.oid")}
     ORDER BY n.nspname, ic.relname`)) {
@@ -304,7 +314,7 @@ export async function extractSequences(ctx: ExtractContext): Promise<void> {
               AND od.refobjsubid > 0
             LIMIT 1) AS owned_by,
            obj_description(c.oid, 'pg_class') AS comment,
-           ${aclJson("c.relacl", "s", "c.relowner")} AS acl,
+           ${aclJsonMemberAware("c.relacl", "s", "c.relowner", "pg_class", "c.oid")} AS acl,
            ${memberExtensionExpr("pg_class", "c.oid")} AS ext_member_of
     FROM pg_sequence s
     JOIN pg_class c ON c.oid = s.seqrelid
@@ -360,7 +370,7 @@ export async function extractViews(ctx: ExtractContext): Promise<void> {
            pg_get_viewdef(c.oid) AS def,
            c.reloptions AS reloptions,
            obj_description(c.oid, 'pg_class') AS comment,
-           ${aclJson("c.relacl", "r", "c.relowner")} AS acl,
+           ${aclJsonMemberAware("c.relacl", "r", "c.relowner", "pg_class", "c.oid")} AS acl,
            ${memberExtensionExpr("pg_class", "c.oid")} AS ext_member_of
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
