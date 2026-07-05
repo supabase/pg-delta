@@ -245,13 +245,49 @@ tokenization.
 - `export-manifest.ts` — fail closed on a malformed manifest.
 - `view.ts` — preserve reference-only marks across fact projection.
 - `schema.ts` — re-check executable SQL after `--skip-cluster-ddl` stripping.
-- `schema.ts` scope-projection vs owner-policy ordering — in progress.
 - `load-sql-files.ts` non-role cluster DDL — already closed by the 25001
   fallback allowlist (see the shadow item above).
 - `.changeset/pg-topo-total-ordered.md` — already bumped to minor.
 
 **False positive:** `dbdev-roundtrip.test.ts` "missing dbdev fixture helper" —
 `scripts/lib/bootstrap-dbdev-fixture.ts` is committed and tracked.
+
+**Deferred P1 — owner-based policy exclusion is blind under `--scope database`
+(dedicated follow-up PR):**
+
+`cmdSchemaApply` projects both fact bases to management scope (`schema.ts:936-937`)
+*before* `plan()` applies the policy. `projectManagementScope("database")` prunes
+`role`/`membership` facts and every `owner` edge (they point at roles); the policy
+owner predicate (`policy.ts:~397`) resolves owner from that edge (the extractor
+never populates `payload.owner`), so the Supabase `{ owner: SUPABASE_SYSTEM_ROLES }`
+exclusion (`supabase.ts:322`) can't match — a platform-role-owned object in a USER
+schema (e.g. a `supabase_admin`-owned table in `public`) is treated as managed and
+planned for DROP/ALTER. Data loss, in the default scope. (`schema export` already
+composes the correct order — `resolveView` then project — so an export omits these
+objects while a subsequent apply drops them.)
+
+Deferred to its own PR because it changes core plan/apply/prove signatures and has
+deliberate test-harness fallout. Recommended fix (Fable design):
+
+- Add a trailing `scope: ManagementScope = "cluster"` param to `resolveView`
+  (`policy.ts`) that applies `projectManagementScope` as the LAST step — owner
+  edges are intact when the owner rule is evaluated, and
+  `excludeFactsAndDescendants` already carries `referenceOnly` forward.
+- Thread `scope` through `PlanOptions.scope` → `Plan.scope` (stamped like
+  `capability`) → both `resolveView` calls in `change-set.ts` → the `apply`
+  fingerprint gate (`apply.ts:145`) → both `resolveView` calls in `prove.ts:436`.
+- In `schema.ts`, delete the two `projectManagementScope` calls (936-937) and the
+  one in the fingerprint-gate re-extract closure (1000-1004); pass `scope` in
+  `planOptions` instead. Export path unchanged.
+- `"cluster"` (default) makes `projectManagementScope` identity, so the DB-to-DB
+  plan path and the corpus are byte-identical (verify with a full corpus run).
+- **Test-harness landmine:** `supabaseCluster()` connects as `supabase_admin` (a
+  system role), so `phase2b-seed-shadow.test.ts` shadow objects become owner-
+  excluded and strand requirements. Fix those tests to apply as a non-system
+  login role (as `supabase-dsl-e2e.test.ts` already does) — do NOT weaken the fix.
+- RED: a supabase-profile integration test where a `supabase_admin`-owned table in
+  `public` must survive `schema apply --scope database --profile supabase` (today
+  it is planned for DROP). Plus `resolve-view.test.ts` unit cases for the new param.
 
 **Deferred P2 (tracked follow-ups; not blocking this PR):**
 
