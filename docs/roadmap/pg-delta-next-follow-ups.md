@@ -316,3 +316,26 @@ deliberate test-harness fallout. Recommended fix (Fable design):
   / roles on the shared cluster without dropping them (leak); the
   `privilege-operations--create-grant-drop-unrelated` corpus case needs
   `isolatedCluster: true` so the CREATE ROLE + GRANT ordering is actually tested.
+- `plan/internal.ts` `elideCascadeSubsumedPolicyDrops` — a policy's `TO <role>`
+  refs live in the payload, not as edges, so dropping a table+role can elide the
+  only `DROP POLICY` that releases the role (also on our own review list).
+- `frontends/load-sql-files.ts` `CLUSTER_DDL_RULES` — the role/user/group regexes
+  also match `CREATE/ALTER/DROP USER MAPPING` (a database-local FDW object), so
+  database scope wrongly refuses/strips user mappings. Exclude `USER MAPPING`.
+- `frontends/load-sql-files.ts` `maskLiteralsAndComments` — treats only doubled
+  quotes as escapes, not `E'...\''` backslash escapes, so an `E`-string with a
+  `;` can mis-split and trip the cluster-DDL / statement scanners. Make the mask
+  E-string-aware (or reuse the sql-format scanner).
+- `cli/commands/schema.ts` — a dir with `SET ROLE` / `SET SESSION AUTHORIZATION`
+  / `SET search_path` leaves session state on the pooled client after the load
+  (survives COMMIT), so validation/extraction can run under the wrong role. Reset
+  session state after loading or isolate it.
+- `plan/phases/action-emitter.ts` — default-ACL hygiene on replaced objects keys
+  off the FINAL owner, but under `--restrict-to-applier` the recreate runs as the
+  applier, so an applier-level ADP grant can survive without a matching REVOKE.
+  Key the hygiene off the creator/applier role for recreated objects.
+- Redaction safety: `extract/sensitive-options.ts` redacts `file_fdw`'s standard
+  `filename` (not in the allowlist), producing a placeholder path that applies to
+  a bogus file; `extract/publications.ts` keeps `enabled: true` for a redacted
+  subscription, so a default redacted export can activate a worker against a
+  placeholder conninfo. Both should preserve the non-credential value or refuse.
