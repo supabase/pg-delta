@@ -131,6 +131,13 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
+      # pg-delta-next type-checks its optional @supabase/pg-topo peer through
+      # the `types` field (dist/*.d.ts), which is gitignored and not produced
+      # by install. oxlint-tsgolint does real type-checking, so it needs the
+      # same build pg-delta-next.yml's own type-check job already requires.
+      - name: Build @supabase/pg-topo (provides .d.ts for oxlint-tsgolint)
+        working-directory: packages/pg-topo
+        run: bun run build
       - name: Format and lint
         run: bun run format-and-lint
 
