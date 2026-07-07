@@ -9,13 +9,14 @@
  * the recipe.
  */
 import type { ExtensionHandler } from "../extract/handler.ts";
-import { pgPartmanHandler } from "../policy/extensions/index.ts";
+import { pgCronHandler, pgPartmanHandler } from "../policy/extensions/index.ts";
 import { supabasePolicy } from "../policy/supabase.ts";
 import type { IntegrationProfile } from "./profile.ts";
 
 /** The stateful-extension handlers the Supabase integration composes. */
 export const SUPABASE_EXTENSION_HANDLERS: readonly ExtensionHandler[] = [
   pgPartmanHandler,
+  pgCronHandler,
 ];
 
 export const supabaseProfile: IntegrationProfile = {

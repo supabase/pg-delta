@@ -20,3 +20,4 @@ export type {
   HandlerContext,
 } from "../../extract/handler.ts";
 export { pgPartmanHandler } from "./pg-partman.ts";
+export { pgCronHandler } from "./pg-cron.ts";

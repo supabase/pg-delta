@@ -24,7 +24,7 @@ import { grantTarget, qid } from "../render.ts";
 import { subtreeIds } from "../renames.ts";
 import { ruleFlag } from "../rule-flags.ts";
 import { ownerEdgeKey } from "../role-rename-carry.ts";
-import { type ActionSpec, type PlanParams, rulesFor } from "../rules.ts";
+import { type ActionSpec, type PlanParams, type RulesForId } from "../rules.ts";
 import type { ChangedRoleFact } from "./change-set.ts";
 
 export interface ActionEmitterInput {
@@ -49,6 +49,9 @@ export interface ActionEmitterInput {
   params: PlanParams;
   serializeRules: readonly SerializeRule[];
   capability: ApplierCapability | undefined;
+  /** id-keyed rule resolver (schema kinds via the static RULES table,
+   *  `extensionIntent` via the profile's intent rules) */
+  rulesForId: RulesForId;
 }
 
 export interface ActionEmitterOutput {
@@ -82,6 +85,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     params,
     serializeRules,
     capability,
+    rulesForId,
   } = input;
 
   const actions: Action[] = [];
@@ -149,7 +153,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   };
 
   const emitCreate = (fact: Fact, base: FactBase): void => {
-    const specs = rulesFor(fact.id.kind).create(
+    const specs = rulesForId(fact.id).create(
       fact,
       base,
       paramsFor(fact),
@@ -174,7 +178,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // through the rename (review P1 #2: rename/rename cycle).
   const renameActionIndices = new Set<number>();
   for (const { from, to } of acceptedRenames) {
-    const rename = rulesFor(from.id.kind).rename;
+    const rename = rulesForId(from.id).rename;
     if (rename === undefined) {
       throw new Error(
         `rename: kind '${from.id.kind}' matched as candidate but has no rename rule`,
@@ -211,7 +215,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       }
     };
     walkOld(oldFact.id);
-    const dropSpec = rulesFor(oldFact.id.kind).drop(oldFact);
+    const dropSpec = rulesForId(oldFact.id).drop(oldFact);
     pushAction("drop", dropSpec, {
       consumes: oldFact.parent !== undefined ? [oldFact.parent] : [],
       destroys: oldDescendants,
@@ -369,7 +373,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   for (const [key, fact] of removed) {
     if (dropRootOf.get(key) !== key) continue; // suppressed
     if (replaceIds.has(key)) continue; // replace handles its own drop
-    const spec = rulesFor(fact.id.kind).drop(fact);
+    const spec = rulesForId(fact.id).drop(fact);
     const destroyList = destroysByRoot.get(key) ?? [fact.id];
     pushAction("drop", spec, {
       consumes: fact.parent !== undefined ? [fact.parent] : [],
@@ -386,7 +390,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // REPLICA IDENTITY USING a desired index) must not surface a filtered-out
     // child (review P1 #1). `source` stays as the from-state for the rule.
     const fact = projectedDesired.get(sets[0]!.id) as Fact;
-    const rules = rulesFor(fact.id.kind);
+    const rules = rulesForId(fact.id);
     for (const s of sets) {
       const attrRule = rules.attributes[s.attr];
       if (attrRule === undefined || attrRule === "replace") continue;
@@ -411,7 +415,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // consume the carried fact id itself: it is neither in `source` nor produced
   // by any action, so buildActionGraph would flag it missing.
   for (const { toFact, fromPayload, orderingConsumes } of changedRoleFacts) {
-    const rules = rulesFor(toFact.id.kind);
+    const rules = rulesForId(toFact.id);
     const alterSpecs: ActionSpec[] = [];
     let needsReplace = false;
     const attrs = new Set([

@@ -203,10 +203,12 @@ async function extractOnClient(
     const handlerCtx: HandlerContext = { query: ctx.q };
     const extraFacts: Fact[] = [];
     const extraEdges: DependencyEdge[] = [];
+    const extraDiagnostics: Diagnostic[] = [];
     for (const handler of handlers) {
       const captured = await handler.capture(handlerCtx, factBase);
       extraFacts.push(...captured.facts);
       extraEdges.push(...captured.edges);
+      if (captured.diagnostics) extraDiagnostics.push(...captured.diagnostics);
     }
     if (extraFacts.length > 0 || extraEdges.length > 0) {
       factBase = buildFactBase(
@@ -215,6 +217,12 @@ async function extractOnClient(
         source,
       );
     }
+    // handler diagnostics ride on the fact base itself — `plan()` reads
+    // `rawDesired.diagnostics` to gate a desired-side unkeyed-intent (an unnamed
+    // pg_cron job that can never converge). Pushed before line ~221 copies
+    // factBase.diagnostics into ctx.diagnostics, so they also reach
+    // ExtractResult.diagnostics for CLI rendering.
+    factBase.diagnostics.push(...extraDiagnostics);
   }
 
   // dangling edges (e.g. references to unextracted kinds) become diagnostics

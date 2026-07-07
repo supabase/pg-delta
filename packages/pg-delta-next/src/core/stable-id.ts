@@ -76,7 +76,13 @@ export type StableId =
       schema: string | null;
       objtype: string;
       grantee: string;
-    };
+    }
+  /** Extension intent (docs/architecture/extension-intent.md §3): a single
+   *  generic kind for every stateful-extension intent fact (pg_cron jobs,
+   *  future pgmq queues, …), keyed by `ext` + `intentKind` + `key`. Produced by
+   *  the integration layer (handlers), never by core `pg_catalog` extraction —
+   *  the codec gains ONE generic kind, not one per extension. */
+  | { kind: "extensionIntent"; ext: string; intentKind: string; key: string };
 
 export type FactKind = StableId["kind"];
 
@@ -107,6 +113,7 @@ export const ALL_FACT_KINDS = [
   "acl",
   "securityLabel",
   "defaultPrivilege",
+  "extensionIntent",
 ] as const satisfies readonly FactKind[];
 // `satisfies` rejects an entry that is not a FactKind; this assertion rejects a
 // FactKind that is MISSING from the array (it resolves to `never`, so the
@@ -152,6 +159,8 @@ export function encodeId(id: StableId): string {
       return `securityLabel:(${encodeId(id.target)}).${seg(id.provider)}`;
     case "defaultPrivilege":
       return `defaultPrivilege:${seg(id.role)}.${seg(id.schema ?? "")}.${seg(id.objtype)}.${seg(id.grantee)}`;
+    case "extensionIntent":
+      return `extensionIntent:${seg(id.ext)}.${seg(id.intentKind)}.${seg(id.key)}`;
     default:
       if (SIMPLE.has(k)) return `${k}:${seg((id as { name: string }).name)}`;
       if (QUALIFIED.has(k)) {
@@ -349,6 +358,14 @@ function parseAt(c: Cursor): StableId {
         objtype,
         grantee,
       };
+    }
+    case "extensionIntent": {
+      const ext = c.readSegment();
+      c.expect(".");
+      const intentKind = c.readSegment();
+      c.expect(".");
+      const key = c.readSegment();
+      return { kind, ext, intentKind, key };
     }
     default:
       throw new Error(`parseId: unknown kind '${kind}' in '${c.input}'`);

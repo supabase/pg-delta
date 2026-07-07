@@ -19,7 +19,7 @@ import { type ApplierCapability, canSetOwner } from "../policy/capability.ts";
 import { extensionMemberClosure } from "../policy/view.ts";
 import type { Action, SafetyReport } from "./plan.ts";
 import { ruleFlag } from "./rule-flags.ts";
-import { rulesFor } from "./rules.ts";
+import { defaultRulesForId, type RulesForId } from "./rules.ts";
 import { schemaCreateSql } from "./rules/schemas.ts";
 
 /**
@@ -304,14 +304,21 @@ export function buildActionGraph(
  * subject id, then by emission index (zero-padded so "10" sorts after "9" —
  * multi-spec sequences like the enum value-set migration rely on it).
  */
-export function actionTieKey(actions: readonly Action[], i: number): string {
+export function actionTieKey(
+  actions: readonly Action[],
+  i: number,
+  // id-keyed resolver so an `extensionIntent` action ties on its DECLARED late
+  // weight (via the profile's intent rules) rather than the accidental 99
+  // catch-fallback. Defaults to the no-intent resolver for direct callers/tests.
+  rulesForId: RulesForId = defaultRulesForId,
+): string {
   const action = actions[i] as Action;
   const subject =
     action.produces[0] ?? action.destroys[0] ?? action.consumes[0];
-  const kind = subject?.kind ?? "zz";
   const weight = (() => {
+    if (subject === undefined) return 99;
     try {
-      return rulesFor(kind).weight;
+      return rulesForId(subject).weight;
     } catch {
       return 99;
     }

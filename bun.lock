@@ -32,7 +32,7 @@
     },
     "packages/pg-delta": {
       "name": "@supabase/pg-delta",
-      "version": "1.0.0-alpha.30",
+      "version": "1.0.0-alpha.31",
       "bin": {
         "pgdelta": "./dist/cli/bin/cli.js",
       },
@@ -90,7 +90,7 @@
     },
     "packages/pg-topo": {
       "name": "@supabase/pg-topo",
-      "version": "1.0.0-alpha.2",
+      "version": "1.0.0-alpha.3",
       "dependencies": {
         "@pgsql/traverse": "^17.2.4",
         "plpgsql-parser": "^0.5.4",

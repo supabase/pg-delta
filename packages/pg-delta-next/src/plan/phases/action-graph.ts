@@ -13,6 +13,7 @@ import type { Action, SafetyReport } from "../plan.ts";
 import { topoSort } from "../graph.ts";
 import type { StableId } from "../../core/stable-id.ts";
 import type { ApplierCapability } from "../../policy/capability.ts";
+import type { RulesForId } from "../rules.ts";
 import {
   actionTieKey,
   buildActionGraph,
@@ -52,6 +53,9 @@ export interface FinalizeInput {
   capability: ApplierCapability | undefined;
   /** §3.6 compaction; cosmetic-by-contract (proof unchanged). Default true. */
   compact: boolean;
+  /** id-keyed rule resolver (schema kinds + `extensionIntent`), used by the
+   *  tie-break so intent actions sort on their declared late weight. */
+  rulesForId: RulesForId;
 }
 
 export interface FinalizeOutput {
@@ -78,6 +82,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     assumedSchemaNames,
     capability,
     compact,
+    rulesForId,
   } = input;
 
   // ── graph edges + deterministic order ─────────────────────────────────
@@ -95,7 +100,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   const order = topoSort(
     actions.length,
     edges,
-    (i) => actionTieKey(actions, i),
+    (i) => actionTieKey(actions, i, rulesForId),
     (i) => (actions[i] as Action).sql,
   );
 

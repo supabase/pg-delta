@@ -16,7 +16,7 @@
  */
 import type { Fact, FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
-import { rulesFor } from "./rules.ts";
+import { defaultRulesForId, type RulesForId } from "./rules.ts";
 
 export type RenameMode = "auto" | "prompt" | "off";
 
@@ -50,12 +50,17 @@ export function matchRenameCandidates(
   added: ReadonlyMap<string, Fact>,
   source: FactBase,
   desired: FactBase,
+  // id-keyed resolver so an `extensionIntent` add/remove present during rename
+  // matching resolves its (rename-less) intent rule instead of throwing through
+  // the schema-only `rulesFor`. Defaults to the no-intent resolver for direct
+  // callers/tests that never see intent facts.
+  rulesForId: RulesForId = defaultRulesForId,
 ): RenameCandidate[] {
   const candidates: RenameCandidate[] = [];
 
   const removedGroups = new Map<string, Fact[]>();
   for (const fact of removed.values()) {
-    if (rulesFor(fact.id.kind).rename === undefined) continue;
+    if (rulesForId(fact.id).rename === undefined) continue;
     // children of a removed/renamed container are handled by their root
     if (fact.parent !== undefined && removed.has(encodeId(fact.parent)))
       continue;
@@ -66,7 +71,7 @@ export function matchRenameCandidates(
   }
   const addedGroups = new Map<string, Fact[]>();
   for (const fact of added.values()) {
-    if (rulesFor(fact.id.kind).rename === undefined) continue;
+    if (rulesForId(fact.id).rename === undefined) continue;
     if (fact.parent !== undefined && added.has(encodeId(fact.parent))) continue;
     const key = groupKey(fact, desired.structuralRollupOf(fact.id));
     const list = addedGroups.get(key) ?? [];
@@ -103,7 +108,7 @@ export function matchRenameCandidates(
   // would-be rename degrades (§4.1)
   for (const fact of removed.values()) {
     if (matchedRemoved.has(encodeId(fact.id))) continue;
-    if (rulesFor(fact.id.kind).rename === undefined) continue;
+    if (rulesForId(fact.id).rename === undefined) continue;
     if (fact.parent !== undefined && removed.has(encodeId(fact.parent)))
       continue;
     for (const addedFact of added.values()) {

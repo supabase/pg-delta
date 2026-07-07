@@ -308,6 +308,20 @@ collapse into `capture` emitting facts + edges, because *provenance is data*
 (§3.1): the `managedBy` edge is the filter signal (§4.3), the intent rule's
 `produces`, and the data-preservation seed target — one concept, three readers.
 
+> **Implementation note (pg_cron slice, shipped).** The concrete `IntentKindRule`
+> in `src/plan/rules.ts` collapses the sketch's separate `consumes` / `produces` /
+> `dataLoss` / `transactionality` slots into the SAME `ActionSpec` the schema
+> rules already return (a `create`/`drop` returning `ActionSpec[]` carries those
+> as per-spec fields) — one action-metadata grammar, not two. `alter?` is kept,
+> but a rule instead declares `payloadAttrs: string[]`; every listed attribute is
+> treated as `"replace"` (extension intent has no in-place ALTER), and a *changed*
+> attribute NOT listed trips the "extend the rule vocabulary" guard, so payload
+> evolution fails loudly. And "register … into the one rule table" is realized as
+> a per-plan **resolver** (`buildRuleResolver(intentRules)`), NOT a mutation of the
+> global `RULES`: the resolved profile supplies its handlers' `intentKinds` as
+> `PlanOptions.intentRules`, and `rules.ts` stays the single lookup seam — this
+> keeps `plan()` pure (no global state) across the corpus's many plans per process.
+
 ### 4.2 Diff, rule table, graph, proof — all unchanged
 
 Because intent facts are facts, the generic differ already emits intent deltas

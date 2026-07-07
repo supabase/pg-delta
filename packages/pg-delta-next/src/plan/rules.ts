@@ -189,3 +189,119 @@ export function rulesFor(kind: string): KindRules {
   }
   return rules;
 }
+
+// ── extension intent (docs/architecture/extension-intent.md §4) ───────────────
+// A stateful extension's intent (a pg_cron job, a future pgmq queue, …) is an
+// ordinary fact of the single generic `extensionIntent` kind. Its rules live in
+// the integration layer (a handler's `intentKinds`), resolved per-plan through
+// the profile — NEVER mutated into the global RULES table (that would be shared
+// mutable state across the corpus's many plans). rules.ts stays the single
+// lookup seam; the intent index is an ARGUMENT to that seam (guardrail 3).
+
+/** The intent counterpart of `KindRules`: a narrow, data-shaped replay rule for
+ *  one `(ext, intentKind)`. ActionSpec-shaped so replays reuse the SAME action
+ *  metadata grammar (consumes/dataLoss/transactionality) as schema rules — no
+ *  second action vocabulary (docs §4.1 deviation, resolved toward the code). */
+export interface IntentKindRule {
+  /** replay that (re)creates the intent, e.g. `select cron.schedule(...)`. The
+   *  `view` is the desired-state view (unused by simple replays like cron). */
+  create(fact: Fact, view: FactView): ActionSpec[];
+  /** replay that removes the intent, e.g. `select cron.unschedule(...)`. */
+  drop(fact: Fact): ActionSpec;
+  /** the payload attributes this intent recognises. EVERY listed attribute is
+   *  treated as `"replace"`: extension intent has no in-place ALTER, so any
+   *  change replays as drop+create by key (docs §3.2). A changed attribute NOT
+   *  listed here trips the "extend the rule vocabulary" guard in
+   *  replacement-expansion — payload evolution fails loudly, never silently. */
+  readonly payloadAttrs: readonly string[];
+  /** tie-break weight; defaults to {@link INTENT_DEFAULT_WEIGHT} — later than
+   *  every schema kind, so replay orders after all schema DDL (docs §4.5). */
+  weight?: number;
+}
+
+/** Later than every schema kind's weight (the max schema weight is far below
+ *  this), so intent replays sort after all schema DDL on ties (docs §4.5). */
+export const INTENT_DEFAULT_WEIGHT = 90;
+
+/** An intent-rule index keyed by `${ext}\x00${intentKind}`, each value a
+ *  `KindRules` adapter the generic planner dispatches exactly like a schema
+ *  kind. */
+export type IntentRuleIndex = ReadonlyMap<string, KindRules>;
+
+/** A rule resolver keyed by the whole id: schema kinds resolve by `id.kind`,
+ *  `extensionIntent` by `(id.ext, id.intentKind)`. */
+export type RulesForId = (id: StableId) => KindRules;
+
+function intentKey(ext: string, intentKind: string): string {
+  return `${ext}\x00${intentKind}`;
+}
+
+/** Wrap an `IntentKindRule` as a `KindRules` so the generic planner dispatches
+ *  it like any schema kind. Extension-intent facts have no children, satellites,
+ *  renames, owners, or default ACLs, so every OPTIONAL `KindRules` member is
+ *  omitted — the planner's undefined-guards then skip rename candidacy,
+ *  default-privilege hygiene, owner emission, and folding. `lockClass: "none"`
+ *  is injected as the per-spec default (a `select <ext>.<fn>()` replay takes no
+ *  lock on an existing user relation); a rule may still override per spec. */
+function intentRuleToKindRules(rule: IntentKindRule): KindRules {
+  const attributes: Record<string, AttributeRule> = {};
+  for (const attr of rule.payloadAttrs) attributes[attr] = "replace";
+  const withLock = (spec: ActionSpec): ActionSpec => ({
+    lockClass: "none",
+    ...spec,
+  });
+  return {
+    create: (fact, view) => rule.create(fact, view).map(withLock),
+    drop: (fact) => withLock(rule.drop(fact)),
+    attributes,
+    weight: rule.weight ?? INTENT_DEFAULT_WEIGHT,
+  };
+}
+
+/** Build the intent-rule index from a profile's handlers. Handlers without
+ *  `intentKinds` (filter-only Phase-A handlers like pg_partman) contribute
+ *  nothing. */
+export function buildIntentRuleIndex(
+  handlers: ReadonlyArray<{
+    extension: string;
+    intentKinds?: Record<string, IntentKindRule>;
+  }>,
+): IntentRuleIndex {
+  const index = new Map<string, KindRules>();
+  for (const handler of handlers) {
+    if (handler.intentKinds === undefined) continue;
+    for (const [intentKind, rule] of Object.entries(handler.intentKinds)) {
+      index.set(
+        intentKey(handler.extension, intentKind),
+        intentRuleToKindRules(rule),
+      );
+    }
+  }
+  return index;
+}
+
+/** Build the per-plan rule resolver. Schema kinds resolve through the static
+ *  {@link RULES} table (via {@link rulesFor}); `extensionIntent` ids resolve
+ *  through the profile-supplied `intentRules` by `(ext, intentKind)`. An intent
+ *  id with no registered rule throws — a plan cannot silently drop declared
+ *  intent it has no rule for. */
+export function buildRuleResolver(intentRules?: IntentRuleIndex): RulesForId {
+  return (id: StableId): KindRules => {
+    if (id.kind === "extensionIntent") {
+      const rules = intentRules?.get(intentKey(id.ext, id.intentKind));
+      if (rules === undefined) {
+        throw new Error(
+          `rule table: no intent rule registered for extension '${id.ext}' ` +
+            `intent kind '${id.intentKind}' — register the handler's intentKinds ` +
+            `via the integration profile`,
+        );
+      }
+      return rules;
+    }
+    return rulesFor(id.kind);
+  };
+}
+
+/** The default resolver with no intent rules — for direct callers/tests that
+ *  never see intent facts (the corpus). An intent id throws through it. */
+export const defaultRulesForId: RulesForId = buildRuleResolver();

@@ -23,6 +23,7 @@ import {
 } from "../extract/extract.ts";
 import type { ExtensionHandler } from "../extract/handler.ts";
 import type { PlanOptions } from "../plan/plan.ts";
+import { buildIntentRuleIndex } from "../plan/rules.ts";
 import type { ProveOptions } from "../proof/prove.ts";
 import { resolveBaseline } from "../policy/baseline.ts";
 import { probeApplierCapability } from "../policy/capability.ts";
@@ -108,6 +109,12 @@ export async function resolveProfile(
     extractOptions: ExtractOptions = {},
   ): Promise<ExtractResult> => extract(p, { ...extractOptions, handlers });
 
+  // fold the handlers' intent replay rules (pg_cron jobs, …) into a resolver
+  // index. Only `plan()` needs it (prove never re-plans; apply only replays
+  // artifact SQL), and it holds functions so it is NEVER serialized onto the
+  // plan artifact — apply/prove reconstruct it from the same profile.
+  const intentRules = buildIntentRuleIndex(handlers);
+
   // omit undefined keys: under exactOptionalPropertyTypes an explicit
   // `policy: undefined` is not assignable to an optional `policy?` field. The
   // SAME view-projection values are shared by reference across all three
@@ -124,7 +131,11 @@ export async function resolveProfile(
     // stamp the profile id on planOptions so plan() records it on the artifact;
     // apply/prove then reconstruct this view without the operator repeating
     // --profile (P2 follow-up).
-    planOptions: { ...view, profile: { id: profile.id } },
+    planOptions: {
+      ...view,
+      profile: { id: profile.id },
+      ...(intentRules.size > 0 ? { intentRules } : {}),
+    },
     proveOptions: { ...view, reextract: (p) => profileExtract(p) },
     applyOptions: {
       ...(baseline !== undefined ? { baseline } : {}),

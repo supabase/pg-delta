@@ -18,7 +18,9 @@
  * them out of the schema diff (no data loss). Phase B adds intent facts + replay
  * rules.
  */
+import type { Diagnostic } from "../core/diagnostic.ts";
 import type { DependencyEdge, Fact, FactBase } from "../core/fact.ts";
+import type { IntentKindRule } from "../plan/rules.ts";
 import type { Row } from "./scope.ts";
 
 /**
@@ -38,6 +40,12 @@ export interface CaptureResult {
   facts: Fact[];
   /** Provenance edges (`managedBy`) marking operationally-created objects. */
   edges: DependencyEdge[];
+  /** Diagnostics the capture surfaces — e.g. an unnamed pg_cron job that cannot
+   *  be keyed as an intent fact. Rides on the resulting `FactBase.diagnostics`
+   *  (so `plan()` can gate on a desired-side "intent-unkeyed" diagnostic) AND on
+   *  `ExtractResult.diagnostics` (for CLI rendering). Optional; most captures
+   *  emit none. */
+  diagnostics?: Diagnostic[];
 }
 
 export interface ExtensionHandler {
@@ -50,4 +58,13 @@ export interface ExtensionHandler {
    * can target only objects that exist as facts (and avoid dangling edges).
    */
   capture(ctx: HandlerContext, current: FactBase): Promise<CaptureResult>;
+  /**
+   * Phase B (docs/architecture/extension-intent.md §4.1): replay rules for this
+   * handler's intent kinds, keyed by `intentKind` (e.g. `job` for pg_cron). The
+   * resolved profile folds these into the plan's rule resolver, so the generic
+   * planner dispatches an `extensionIntent` fact exactly like a schema kind.
+   * Absent for filter-only Phase-A handlers (pg_partman today), which emit
+   * `managedBy` edges but no intent facts.
+   */
+  readonly intentKinds?: Record<string, IntentKindRule>;
 }

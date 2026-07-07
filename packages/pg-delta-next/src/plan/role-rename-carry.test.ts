@@ -321,6 +321,10 @@ describe("role-name-bearing kind registry (review P3 guard)", () => {
     "typeAttribute",
     "publicationRel",
     "publicationSchema",
+    // extension intent ids carry ext/intentKind/key only; any role reference
+    // (e.g. a cron job's `username`) lives in the payload, not the id, so no
+    // role name is relabeled — same honest blind spot as function bodies.
+    "extensionIntent",
   ]);
 
   test("ROLE_NAME_BEARING_KINDS and NON_ROLE_BEARING partition ALL_FACT_KINDS", () => {

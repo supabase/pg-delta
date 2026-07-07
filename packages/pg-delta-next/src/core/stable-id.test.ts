@@ -115,6 +115,26 @@ describe("encodeId", () => {
       encodeId({ kind: "userMapping", server: "files", role: "bob" }),
     ).toBe("userMapping:files.bob");
   });
+
+  test("extension intent carries ext.intentKind.key", () => {
+    expect(
+      encodeId({
+        kind: "extensionIntent",
+        ext: "pg_cron",
+        intentKind: "job",
+        key: "nightly",
+      }),
+    ).toBe("extensionIntent:pg_cron.job.nightly");
+    // a jobname with delimiters must quote the key segment only
+    expect(
+      encodeId({
+        kind: "extensionIntent",
+        ext: "pg_cron",
+        intentKind: "job",
+        key: "night.ly job",
+      }),
+    ).toBe('extensionIntent:pg_cron.job."night.ly job"');
+  });
 });
 
 describe("parseId round-trips", () => {
@@ -191,6 +211,13 @@ describe("parseId round-trips", () => {
       schema: null,
       objtype: "functions",
       grantee: "app",
+    },
+    { kind: "extensionIntent", ext: "pg_cron", intentKind: "job", key: "nb" },
+    {
+      kind: "extensionIntent",
+      ext: "pg_cron",
+      intentKind: "job",
+      key: "weird.job, name",
     },
   ];
 

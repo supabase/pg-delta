@@ -12,7 +12,7 @@ import type { Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import { cascadesToChildren, isRebuildable } from "../rule-flags.ts";
-import { rulesFor } from "../rules.ts";
+import type { RulesForId } from "../rules.ts";
 
 export interface ReplacementExpansionInput {
   /** removed facts keyed by encoded id (rename/role-rename cancellation applied) */
@@ -22,6 +22,8 @@ export interface ReplacementExpansionInput {
   /** resolved source / desired views */
   source: FactBase;
   desired: FactBase;
+  /** id-keyed rule resolver (schema kinds + `extensionIntent`) */
+  rulesForId: RulesForId;
 }
 
 export interface ReplacementExpansion {
@@ -39,7 +41,7 @@ export interface ReplacementExpansion {
 export function expandReplacements(
   input: ReplacementExpansionInput,
 ): ReplacementExpansion {
-  const { removed, setsByFact, source, desired } = input;
+  const { removed, setsByFact, source, desired, rulesForId } = input;
 
   // ── classify set-deltas: in-place alter vs replace ────────────────────
   const replaceIds = new Set<string>();
@@ -49,13 +51,13 @@ export function expandReplacements(
   // kinds to rebuild (null = all rebuildable kinds).
   const rebuildSeeds = new Map<string, ReadonlySet<string> | null>();
   for (const [key, sets] of setsByFact) {
-    const kind = (desired.get(sets[0]!.id) as Fact).id.kind;
-    const rules = rulesFor(kind);
+    const fact = desired.get(sets[0]!.id) as Fact;
+    const rules = rulesForId(fact.id);
     for (const s of sets) {
       const attrRule = rules.attributes[s.attr];
       if (attrRule === undefined) {
         throw new Error(
-          `rule table: kind '${kind}' has no rule for attribute '${s.attr}' (${key}) — extend the rule vocabulary (guardrail 3)`,
+          `rule table: kind '${fact.id.kind}' has no rule for attribute '${s.attr}' (${key}) — extend the rule vocabulary (guardrail 3)`,
         );
       }
       if (attrRule === "replace") {
@@ -136,7 +138,7 @@ export function expandReplacements(
     const cached = dropRootOf.get(key);
     if (cached) return cached;
     let root = key;
-    const rules = rulesFor(fact.id.kind);
+    const rules = rulesForId(fact.id);
     const suppressible = rules.suppressible?.(fact) ?? true;
     const parent = fact.parent;
     if (parent !== undefined && suppressible) {
@@ -159,10 +161,7 @@ export function expandReplacements(
   // a fact whose drop folds into a NON-parent ancestor (an OWNED BY sequence
   // into its owning column/table) — declared per-kind via dropRootRedirect.
   for (const fact of removed.values()) {
-    const redirect = rulesFor(fact.id.kind).dropRootRedirect?.(
-      fact,
-      isRemovedId,
-    );
+    const redirect = rulesForId(fact.id).dropRootRedirect?.(fact, isRemovedId);
     if (redirect === undefined) continue;
     const redirectKey = encodeId(redirect);
     dropRootOf.set(

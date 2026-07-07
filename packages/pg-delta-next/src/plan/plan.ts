@@ -2,6 +2,7 @@
  * The planner (target-architecture §3.4–3.6): deltas × rule table → atomic
  * actions → one mixed dependency graph → one deterministic sort.
  */
+import { INTENT_UNKEYED } from "../core/diagnostic.ts";
 import type { Delta } from "../core/diff.ts";
 import type { FactBase } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
@@ -13,7 +14,12 @@ import { buildChangeSet } from "./phases/change-set.ts";
 import { expandReplacements } from "./phases/replacement-expansion.ts";
 import type { LockClass } from "./locks.ts";
 import type { RenameCandidate, RenameMode } from "./renames.ts";
-import { KNOWN_PARAMS, type PlanParams } from "./rules.ts";
+import {
+  buildRuleResolver,
+  type IntentRuleIndex,
+  KNOWN_PARAMS,
+  type PlanParams,
+} from "./rules.ts";
 
 /** Engine version stamped into plan artifacts; apply refuses artifacts
  *  from an engine it does not understand (stage 6 deliverable 1). */
@@ -145,6 +151,13 @@ export interface PlanOptions {
    *  onto the artifact so `apply`/`prove` reconstruct the fingerprint identically
    *  (see `Plan.redactSecrets`). Omit on direct library plans. */
   redactSecrets?: boolean;
+  /** intent-rule index for stateful-extension intent facts (`extensionIntent`
+   *  kind — pg_cron jobs, …). Supplied by the resolved profile
+   *  (`resolveProfile` builds it from the profile's handlers' `intentKinds`);
+   *  direct library callers with no intent facts omit it. NOT serialized onto
+   *  the artifact (it holds functions); `apply`/`prove` reconstruct it from the
+   *  same profile. */
+  intentRules?: IntentRuleIndex;
 }
 
 export function plan(
@@ -155,6 +168,25 @@ export function plan(
   // ── phase 1: change set (managed-view resolution, diff, filter, group,
   // rename + role-rename cancellation) → ./phases/change-set.ts. `source` /
   // `desired` below are the RESOLVED managed views. ────────────────────
+  // A desired-side intent object the engine cannot key (an unnamed pg_cron job)
+  // can never converge — refuse rather than silently drop it. The handler emits
+  // this as a warning during capture; here, on the DESIRED side, it is fatal.
+  // (A SOURCE-side unkeyed intent is just unmanaged drift — left untouched.)
+  const unkeyed = rawDesired.diagnostics.filter(
+    (d) => d.code === INTENT_UNKEYED,
+  );
+  if (unkeyed.length > 0) {
+    throw new Error(
+      `plan: the desired state declares intent the engine cannot key — name it so it can be managed:\n` +
+        unkeyed.map((d) => `  - ${d.message}`).join("\n"),
+    );
+  }
+
+  // one id-keyed rule resolver for the whole plan: schema kinds via the static
+  // RULES table, `extensionIntent` via the profile-supplied intent rules. Built
+  // once and threaded through every phase so all of them dispatch identically.
+  const rulesForId = buildRuleResolver(options?.intentRules);
+
   const {
     source,
     desired,
@@ -169,7 +201,7 @@ export function plan(
     roleRenameMap,
     carriedOwnerLinks,
     changedRoleFacts,
-  } = buildChangeSet(rawSource, rawDesired, options);
+  } = buildChangeSet(rawSource, rawDesired, options, rulesForId);
 
   // serialize params are emission-time setup, independent of the change set.
   const params: PlanParams = options?.params ?? {};
@@ -213,6 +245,7 @@ export function plan(
     setsByFact,
     source,
     desired,
+    rulesForId,
   });
 
   // ── phase 3: emit actions (./phases/action-emitter.ts) ────────────────
@@ -244,6 +277,7 @@ export function plan(
     params,
     serializeRules,
     capability: options?.capability,
+    rulesForId,
   });
 
   // ── phase 4: order, segment-mark, compact, and report ─────────────────
@@ -264,6 +298,7 @@ export function plan(
     assumedSchemaNames,
     capability: options?.capability,
     compact: options?.compact !== false,
+    rulesForId,
   });
 
   return {

@@ -184,6 +184,34 @@ describe("resolveView — fact-level scope projection", () => {
     expect(view.get(ext("pg_partman"))).toBeDefined();
   });
 
+  test("an extension intent fact survives managedBy projection; managed objects don't", () => {
+    // An intent fact carries only an OUTGOING `depends` edge to its extension —
+    // it must NOT carry an outgoing `managedBy` edge (that marks operationally-
+    // created objects for projection). So it survives resolveView, while a table
+    // the extension created operationally (outgoing `managedBy`) is projected out
+    // with its subtree. Pins the one handler-authoring rule: never attach a
+    // `managedBy` edge FROM the intent fact.
+    const cronJob: StableId = {
+      kind: "extensionIntent",
+      ext: "pg_cron",
+      intentKind: "job",
+      key: "nightly",
+    };
+    const managedTable = table("public", "q_events");
+    const fb = buildFactBase(
+      [f(schema("public")), f(ext("pg_cron")), f(cronJob), f(managedTable)],
+      [
+        { from: cronJob, to: ext("pg_cron"), kind: "depends" },
+        { from: managedTable, to: ext("pg_cron"), kind: "managedBy" },
+      ],
+    );
+    const view = resolveView(fb, undefined);
+    expect(view.get(cronJob)).toBeDefined(); // intent fact survives
+    expect(view.get(managedTable)).toBeUndefined(); // operational object projected
+    // and the primitive directly, for the invariant:
+    expect(excludeByProvenance(fb, "managedBy").get(cronJob)).toBeDefined();
+  });
+
   test("the { owner } predicate resolves via the owner edge (move 2)", () => {
     // owner left the payload; an { owner } scope rule must match through the
     // `owner` edge (object --owner--> role). This is the Supabase Rule 6 path.

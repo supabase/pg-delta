@@ -19,6 +19,7 @@ import {
   validatePolicy,
 } from "../../policy/policy.ts";
 import type { PlanOptions } from "../plan.ts";
+import type { RulesForId } from "../rules.ts";
 import { projectTarget } from "../project.ts";
 import {
   matchRenameCandidates,
@@ -72,6 +73,7 @@ export function buildChangeSet(
   rawSource: FactBase,
   rawDesired: FactBase,
   options: PlanOptions | undefined,
+  rulesForId: RulesForId,
 ): ChangeSet {
   if (options?.policy) validatePolicy(options.policy);
   // a declared baseline must NEVER be silently ignored (review finding 3): if
@@ -138,7 +140,13 @@ export function buildChangeSet(
   const renameCandidates: RenameCandidate[] = [];
   const acceptedRenames: Array<{ from: Fact; to: Fact }> = [];
   if (renameMode !== "off") {
-    const candidates = matchRenameCandidates(removed, added, source, desired);
+    const candidates = matchRenameCandidates(
+      removed,
+      added,
+      source,
+      desired,
+      rulesForId,
+    );
     renameCandidates.push(...candidates);
     const confirmed = new Set(
       (options?.acceptRenames ?? []).map(
