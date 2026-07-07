@@ -30,6 +30,10 @@ import {
   resolveProfile,
 } from "../src/integrations/profile.ts";
 import { pgCronHandler } from "../src/policy/extensions/index.ts";
+import {
+  SUPABASE_EXTENSION_HANDLERS,
+  supabaseProfile,
+} from "../src/integrations/supabase.ts";
 import { runSupabaseBareTests, supabaseCluster } from "./containers.ts";
 
 const cronProfile: IntegrationProfile = {
@@ -241,6 +245,59 @@ describe.skipIf(!runSupabaseBareTests)(
       expect(() =>
         plan(sourceFb, desiredFb, { ...ctx.planOptions, renames: "off" }),
       ).toThrow(/cannot key|unnamed|no jobname/i);
+    }, 180_000);
+
+    // ── Supabase database context (review #318): the isolated cronProfile above
+    // proves the MECHANISM; this proves the same works through the REAL
+    // `supabaseProfile` — the full managed view (supabase policy + baseline +
+    // the bundled pgPartmanHandler) must NOT filter out a user cron job's intent
+    // fact, and the replay must apply cleanly against a Supabase database. ──────
+    test("supabaseProfile bundles pgCronHandler", () => {
+      expect(SUPABASE_EXTENSION_HANDLERS).toContain(pgCronHandler);
+      expect(supabaseProfile.handlers).toContain(pgCronHandler);
+    });
+
+    test("supabase context: a user cron job plans + applies as intent through supabaseProfile", async () => {
+      const cluster = await supabaseCluster();
+      const pool = cluster.adminPool;
+      await pool.query(`CREATE EXTENSION IF NOT EXISTS pg_cron`);
+
+      // Resolve the FULL Supabase profile (handlers + policy + baseline), the
+      // way the platform would.
+      const ctx = await resolveProfile(pool, supabaseProfile);
+
+      // SOURCE snapshot: no such job (unique name avoids colliding with any
+      // job the Supabase image / baseline ships).
+      const sourceFb = (await ctx.extract(pool)).factBase;
+
+      // DESIRED snapshot: a user job whose command references a user schema,
+      // like the middleware-db jobs do.
+      await pool.query(
+        `SELECT cron.schedule('pgdelta_e2e_supa_prune', '*/15 * * * *', $$DELETE FROM public.audit_log WHERE created_at < now() - interval '30 days'$$)`,
+      );
+      const desiredFb = (await ctx.extract(pool)).factBase;
+
+      const thePlan = plan(sourceFb, desiredFb, {
+        ...ctx.planOptions,
+        renames: "off",
+      });
+
+      // the cron intent survives the supabase policy + baseline projection.
+      const scheduleAction = thePlan.actions.find((a) =>
+        /select cron\.schedule\('pgdelta_e2e_supa_prune'/.test(a.sql),
+      );
+      expect(scheduleAction).toBeDefined();
+      expect(scheduleAction?.verb).toBe("create");
+
+      // reset to SOURCE, then apply the plan for real through the profile.
+      await pool.query(`SELECT cron.unschedule('pgdelta_e2e_supa_prune')`);
+      const report = await apply(thePlan, pool, ctx.applyOptions);
+      expect(report.status).toBe("applied");
+
+      const { rows } = await pool.query<{ c: number }>(
+        `SELECT count(*)::int AS c FROM cron.job WHERE jobname = 'pgdelta_e2e_supa_prune'`,
+      );
+      expect(rows[0]?.c).toBe(1);
     }, 180_000);
   },
 );
