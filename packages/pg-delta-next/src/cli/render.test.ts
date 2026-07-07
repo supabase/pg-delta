@@ -164,6 +164,45 @@ describe("renderPlan", () => {
     `);
   });
 
+  test("destructive non-drop action without allowDrops throws (gates on dataLoss, not just verb)", () => {
+    // an enum value-set migration rewrites dependent columns: verb `alter`,
+    // but dataLoss "destructive". The verb-only guard would let it through.
+    const plan = makePlan({
+      actions: [
+        action({
+          sql: "ALTER TABLE foo ALTER COLUMN c TYPE new_enum USING c::text::new_enum",
+          verb: "alter",
+          dataLoss: "destructive",
+        }),
+      ],
+    });
+
+    expect(() => renderPlan(plan, { allowDrops: false })).toThrow(
+      /destructive action/,
+    );
+    // and it renders once the caller opts in
+    expect(renderPlan(plan, { allowDrops: true }).files).toHaveLength(1);
+  });
+
+  test("non-destructive drop-verb action (e.g. cron unschedule) is still gated by allowDrops", () => {
+    // conservative union: a `drop`-verb action stays gated even when dataLoss
+    // is "none", so nothing that reads as a drop slips out silently.
+    const plan = makePlan({
+      actions: [
+        action({
+          sql: "select cron.unschedule('nightly')",
+          verb: "drop",
+          dataLoss: "none",
+        }),
+      ],
+    });
+
+    expect(() => renderPlan(plan, { allowDrops: false })).toThrow(
+      /drop action/,
+    );
+    expect(renderPlan(plan, { allowDrops: true }).files).toHaveLength(1);
+  });
+
   test("empty plan: no changes, no files", () => {
     const plan = makePlan({ actions: [] });
 

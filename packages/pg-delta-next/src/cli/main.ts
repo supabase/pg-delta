@@ -90,8 +90,10 @@ Notes:
     leaves runner-specific packaging to a thin consumer. For dbmate, that
     consumer writes one migration per segment with a DISTINCT version, wraps
     each in -- migrate:up / -- migrate:down, and maps the transactionality
-    header to "-- migrate:up transaction:false". Refuses to render a plan
-    containing "drop" actions unless --allow-drops is given.
+    header to "-- migrate:up transaction:false". Refuses to render a
+    DESTRUCTIVE plan unless --allow-drops is given — any "drop"-verb action
+    OR any action marked dataLoss:"destructive" (e.g. an enum rewrite), per
+    the plan's safety metadata, not the verb alone.
     Exit codes: 0 = files written, 1 = error (no files written),
     2 = usage error, 3 = plan has no actions (no files written, not an
     error). Prints one JSON summary line to stdout; human/status output
