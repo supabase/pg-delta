@@ -157,16 +157,29 @@ export const pgCronHandler: ExtensionHandler = {
       create(fact) {
         const key = (fact.id as Extract<StableId, { kind: "extensionIntent" }>)
           .key;
-        const p = fact.payload as { schedule: string; command: string };
-        // v1 limitation: `database` and `active` are captured (so a changed
-        // value replays as unschedule+reschedule) but the 3-arg cron.schedule
-        // form always (re)creates the job in the CURRENT database, active.
-        // Cross-database jobs and inactive jobs are a known gap for this
-        // slice — the middleware-db dogfood target only has same-db, active,
-        // postgres-owned jobs, so it is exact there.
+        const p = fact.payload as {
+          schedule: string;
+          command: string;
+          database: string;
+          username: string;
+          active: boolean;
+        };
+        // Replay ALL captured fields deterministically via the 6-arg
+        // `cron.schedule_in_database(job_name, schedule, command, database,
+        // username, active)`. The 3-arg `cron.schedule` form would always
+        // (re)create the job in the CURRENT database, active, owned by the
+        // executing user — so a job that is inactive, targets another
+        // database, or has a non-current username would never converge. The
+        // 6-arg signature has been stable since pg_cron 1.4 (2021), which
+        // every supported PostgreSQL image and the supabase/postgres image
+        // ship, so this stays compatible across the pg_cron versions we
+        // target. String args keep `lit()` quoting; `active` is a bare
+        // boolean literal.
         return [
           {
-            sql: `select cron.schedule(${lit(key)}, ${lit(p.schedule)}, ${lit(p.command)})`,
+            sql:
+              `select cron.schedule_in_database(${lit(key)}, ${lit(p.schedule)}, ` +
+              `${lit(p.command)}, ${lit(p.database)}, ${lit(p.username)}, ${p.active})`,
           },
         ];
       },
