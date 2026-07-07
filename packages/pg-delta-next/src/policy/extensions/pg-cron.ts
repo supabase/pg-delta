@@ -22,6 +22,7 @@ import type {
   HandlerContext,
 } from "../../extract/handler.ts";
 import type { IntentKindRule } from "../../plan/rules.ts";
+import { lit } from "../../plan/render.ts";
 import type { StableId } from "../../core/stable-id.ts";
 
 const PG_CRON: StableId = { kind: "extension", name: "pg_cron" };
@@ -31,13 +32,6 @@ const PG_CRON: StableId = { kind: "extension", name: "pg_cron" };
  *  rebuild (unschedule + reschedule) never reproduces the legacy owner. */
 const LEGACY_JOB_OWNER = "supabase_read_only_user";
 const NORMALIZED_JOB_OWNER = "postgres";
-
-/** Single-quote a SQL string literal, doubling embedded single quotes. Always
- *  correct regardless of content — unlike dollar-quoting, which can collide
- *  with a literal `$$` inside the value (e.g. inside a cron command). */
-function quoteLiteral(s: string): string {
-  return `'${s.replaceAll("'", "''")}'`;
-}
 
 /** Resolve whether pg_cron is installed (any schema — often `pg_catalog` on
  *  Supabase). Returns true/false; the handler always queries `cron.job`
@@ -172,7 +166,7 @@ export const pgCronHandler: ExtensionHandler = {
         // postgres-owned jobs, so it is exact there.
         return [
           {
-            sql: `select cron.schedule(${quoteLiteral(key)}, ${quoteLiteral(p.schedule)}, ${quoteLiteral(p.command)})`,
+            sql: `select cron.schedule(${lit(key)}, ${lit(p.schedule)}, ${lit(p.command)})`,
           },
         ];
       },
@@ -180,7 +174,7 @@ export const pgCronHandler: ExtensionHandler = {
         const key = (fact.id as Extract<StableId, { kind: "extensionIntent" }>)
           .key;
         return {
-          sql: `select cron.unschedule(${quoteLiteral(key)})`,
+          sql: `select cron.unschedule(${lit(key)})`,
           dataLoss: "none",
         };
       },
