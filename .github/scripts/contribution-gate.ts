@@ -18,12 +18,16 @@ export const GATE_LABEL = "open-for-contribution";
 const INTERNAL_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 
 export interface LinkedIssue {
+  /** `owner/name` of the repo the issue lives in (from GraphQL nameWithOwner). */
+  repository: string;
   number: number;
   state: "OPEN" | "CLOSED";
   labels: string[];
 }
 
 export interface GateInput {
+  /** `owner/name` of this repository (from GITHUB_REPOSITORY). */
+  repository: string;
   authorAssociation: string;
   isBot: boolean;
   linkedIssues: LinkedIssue[];
@@ -91,7 +95,15 @@ export function evaluateGate(input: GateInput): GateResult {
     return { pass: true, reason: "internal" };
   }
 
-  if (input.linkedIssues.length === 0) {
+  // Only issues in THIS repository count. A cross-repository closing keyword
+  // (e.g. `Closes attacker/repo#1`) links an issue the contributor controls,
+  // so it must never satisfy the gate.
+  const repo = input.repository.toLowerCase();
+  const repoIssues = input.linkedIssues.filter(
+    (issue) => issue.repository.toLowerCase() === repo,
+  );
+
+  if (repoIssues.length === 0) {
     return {
       pass: false,
       reason: "no-linked-issue",
@@ -99,16 +111,14 @@ export function evaluateGate(input: GateInput): GateResult {
     };
   }
 
-  const qualifies = input.linkedIssues.some(
+  const qualifies = repoIssues.some(
     (issue) => issue.state === "OPEN" && issue.labels.includes(GATE_LABEL),
   );
   if (qualifies) {
     return { pass: true, reason: "ok" };
   }
 
-  const hasOpenIssue = input.linkedIssues.some(
-    (issue) => issue.state === "OPEN",
-  );
+  const hasOpenIssue = repoIssues.some((issue) => issue.state === "OPEN");
   const reason: GateReason = hasOpenIssue ? "missing-label" : "issue-closed";
   return { pass: false, reason, message: buildMessage(reason) };
 }
@@ -118,6 +128,7 @@ export function evaluateGate(input: GateInput): GateResult {
 interface GraphQLIssueNode {
   number: number;
   state: "OPEN" | "CLOSED";
+  repository: { nameWithOwner: string };
   labels: { nodes: Array<{ name: string }> };
 }
 
@@ -166,6 +177,7 @@ async function fetchLinkedIssues(
             nodes {
               number
               state
+              repository { nameWithOwner }
               labels(first: 50) { nodes { name } }
             }
           }
@@ -197,6 +209,7 @@ async function fetchLinkedIssues(
   const nodes =
     payload.data?.repository?.pullRequest?.closingIssuesReferences?.nodes ?? [];
   return nodes.map((node) => ({
+    repository: node.repository.nameWithOwner,
     number: node.number,
     state: node.state,
     labels: node.labels.nodes.map((label) => label.name),
@@ -205,13 +218,19 @@ async function fetchLinkedIssues(
 
 async function main(): Promise<void> {
   const token = requireEnv("GITHUB_TOKEN");
-  const [owner, repo] = requireEnv("GITHUB_REPOSITORY").split("/");
+  const repository = requireEnv("GITHUB_REPOSITORY");
+  const [owner, repo] = repository.split("/");
   const prNumber = Number(requireEnv("PR_NUMBER"));
   const authorAssociation = process.env.PR_AUTHOR_ASSOCIATION ?? "NONE";
   const isBot = (process.env.PR_AUTHOR_TYPE ?? "User") === "Bot";
 
   const linkedIssues = await fetchLinkedIssues(token, owner!, repo!, prNumber);
-  const result = evaluateGate({ authorAssociation, isBot, linkedIssues });
+  const result = evaluateGate({
+    repository,
+    authorAssociation,
+    isBot,
+    linkedIssues,
+  });
 
   console.log(
     `Contribution gate for PR #${prNumber}: pass=${result.pass} reason=${result.reason} ` +
