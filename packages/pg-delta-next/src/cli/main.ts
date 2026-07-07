@@ -81,12 +81,17 @@ Notes:
     file is { "id": ..., "handlers": ["pg_partman", "pg_cron"], "policy"?: {…} },
     referencing bundled handlers by name. Available on plan / diff / drift /
     snapshot / apply / prove / schema export / schema apply.
-  render: writes the plan's SQL as one or more dbmate-friendly .sql files,
-    split on the same segment boundaries "apply" uses at execution time.
-    A single segment writes <base>.sql; multiple segments write
-    <base>_1.sql, <base>_2.sql, ... in execution order. A non-transactional
-    segment's file starts with "-- pg-delta: transaction=false". Refuses to
-    render a plan containing "drop" actions unless --allow-drops is given.
+  render: writes the plan's SQL as one .sql file per executor segment,
+    split on the same boundaries "apply" uses at execution time. A single
+    segment writes <base>.sql; multiple segments write <base>_1.sql,
+    <base>_2.sql, ... in execution order. A non-transactional segment's file
+    starts with a machine-readable "-- pg-delta: transaction=false" header.
+    render is migration-runner-agnostic: it emits ordered segment SQL and
+    leaves runner-specific packaging to a thin consumer. For dbmate, that
+    consumer writes one migration per segment with a DISTINCT version, wraps
+    each in -- migrate:up / -- migrate:down, and maps the transactionality
+    header to "-- migrate:up transaction:false". Refuses to render a plan
+    containing "drop" actions unless --allow-drops is given.
     Exit codes: 0 = files written, 1 = error (no files written),
     2 = usage error, 3 = plan has no actions (no files written, not an
     error). Prints one JSON summary line to stdout; human/status output
