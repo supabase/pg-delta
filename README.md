@@ -62,8 +62,8 @@ bunx changeset publish  # Publish to npm
 See [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
 
 - Open an issue first.
-- Wait for maintainer triage via one of `✨ Feature`, `🐛 Bug`, `📘 Docs`, or `🛠️ Chore`.
-- Then open a pull request.
+- Wait for a maintainer to triage it and add the `open-for-contribution` label.
+- Then open a pull request that links the issue (for example `Closes #123`).
 
 Use [ISSUES.md](./ISSUES.md) for issue-writing guidance, especially for `pg-delta` reproductions.
 

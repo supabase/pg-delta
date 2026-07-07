@@ -5,16 +5,12 @@ Thanks for helping improve `pg-toolbelt`.
 ## Before you open a pull request
 
 1. **Open an issue first.**
-2. **Wait for maintainer triage.** An issue is ready for implementation only after a maintainer adds one of these labels:
-   - `✨ Feature`
-   - `🐛 Bug`
-   - `📘 Docs`
-   - `🛠️ Chore`
-3. **Open a pull request only after that approval.**
+2. **Wait for maintainer triage.** A maintainer categorizes the issue with one of `✨ Feature`, `🐛 Bug`, `📘 Docs`, or `🛠️ Chore`, and adds the **`open-for-contribution`** label once it is ready to be worked on.
+3. **Open a pull request only after the `open-for-contribution` label is set**, and link the issue with a closing keyword (for example `Closes #123`).
 
-Until one of those labels is set, the issue is considered untracked and still in triage, so work should not start and a pull request should not be opened.
+Until the `open-for-contribution` label is present, the issue is still in triage, so work should not start and a pull request should not be opened.
 
-Pull requests that do not follow this workflow are automatically closed by a bot.
+Pull requests from external contributors that do not follow this workflow are commented on and closed automatically by a bot. Supabase members are exempt, so they can work from Linear tickets that are not public on GitHub.
 
 When you open the issue, use the guidance in [`ISSUES.md`](./ISSUES.md), especially for `pg-delta` bugs and regressions.
 

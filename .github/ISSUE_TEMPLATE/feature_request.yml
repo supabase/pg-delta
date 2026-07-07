@@ -1,0 +1,40 @@
+name: ✨ Feature request
+description: Suggest a new capability or improvement for pg-delta or pg-topo
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! Please open the issue **before** starting work — a
+        maintainer will add the `open-for-contribution` label once it is triaged and ready.
+        See [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md).
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      options:
+        - "@supabase/pg-delta"
+        - "@supabase/pg-topo"
+        - "Not sure / cross-cutting"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what's the limitation today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What behavior or API would you like to see?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false

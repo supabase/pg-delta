@@ -1,0 +1,107 @@
+name: 🐛 Bug report
+description: Report a defect in pg-delta or pg-topo
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug! Please open the issue **before** starting work — a
+        maintainer will add the `open-for-contribution` label once it is ready to be
+        worked on. See [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md) and
+        [ISSUES.md](../blob/main/ISSUES.md).
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      description: Which package is affected?
+      options:
+        - "@supabase/pg-delta"
+        - "@supabase/pg-topo"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit / branch
+      description: The published version, commit SHA, or branch you tested.
+      placeholder: "e.g. @supabase/pg-delta@0.0.0-alpha.x or commit abc1234"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS and runtime
+      description: Your OS and runtime (Bun / Node / Deno) versions, when relevant.
+      placeholder: "e.g. macOS 15, Bun 1.3.13"
+    validations:
+      required: false
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: |
+        The smallest steps or SQL that reproduce the problem. Prefer inline SQL/text over screenshots.
+      placeholder: |
+        Steps, commands, and/or SQL to reproduce.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: The actual SQL, plan, error, or diff output (as text).
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        ### `pg-delta` reproductions
+        If this affects `pg-delta`, the fields below make the bug much easier to turn into a regression test.
+        Leave them blank for `pg-topo`.
+  - type: dropdown
+    id: pg-delta-flavor
+    attributes:
+      label: PostgreSQL flavor (pg-delta)
+      options:
+        - "Plain PostgreSQL"
+        - "Supabase (--integration supabase)"
+    validations:
+      required: false
+  - type: input
+    id: pg-delta-versions
+    attributes:
+      label: PostgreSQL version(s) (pg-delta)
+      placeholder: "e.g. 15, 17, 18 — or 'only 17'"
+    validations:
+      required: false
+  - type: dropdown
+    id: pg-delta-mode
+    attributes:
+      label: Command / mode (pg-delta)
+      options:
+        - plan
+        - apply
+        - sync
+        - catalog-export
+        - declarative export
+        - declarative apply
+        - other
+    validations:
+      required: false
+  - type: textarea
+    id: pg-delta-schema
+    attributes:
+      label: Schema input and exact command (pg-delta)
+      description: |
+        SQL to create the source and target state (or a minimal declarative schema
+        directory / catalog snapshot), plus the exact command and flags you ran. Include
+        any required extension, role, policy, trigger, or Supabase-managed object.
+      render: sql
+    validations:
+      required: false

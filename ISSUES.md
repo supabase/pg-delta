@@ -1,13 +1,8 @@
 # Filing issues for pg-toolbelt
 
-Open an issue before opening a pull request. A pull request should only be opened after a maintainer adds one of these labels to that issue:
+Open an issue before opening a pull request. A maintainer categorizes each issue with one of `✨ Feature`, `🐛 Bug`, `📘 Docs`, or `🛠️ Chore`, and adds the **`open-for-contribution`** label once it is ready to be worked on. A pull request should only be opened after that label is present.
 
-- `✨ Feature`
-- `🐛 Bug`
-- `📘 Docs`
-- `🛠️ Chore`
-
-Until one of those labels is present, the issue is considered untracked and still waiting for triage, so work should not start and a pull request should not be opened.
+Until the `open-for-contribution` label is present, the issue is still waiting for triage, so work should not start and a pull request should not be opened.
 
 ## Start with the basics
 
@@ -20,7 +15,7 @@ Please include:
 - the expected result
 - the actual result
 
-If you already know the fix, still open the issue first and wait for maintainer triage into one of those labels before sending a pull request.
+If you already know the fix, still open the issue first and wait for the `open-for-contribution` label before sending a pull request.
 
 ## What to include for `pg-delta`
 
