@@ -45,7 +45,7 @@ describe("schema export forwards intent rules to the internal plan()", () => {
     const dump = exportSqlFiles(fb, { layout: "by-object", intentRules })
       .map((f) => f.sql)
       .join("\n");
-    expect(dump).toContain("cron.schedule('nightly_prune'");
+    expect(dump).toContain("cron.schedule_in_database('nightly_prune'");
   });
 
   test("WITHOUT intentRules, export throws the unregistered-rule error (the bug this guards)", () => {

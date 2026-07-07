@@ -224,7 +224,7 @@ describe("pgCronHandler.intentKinds.job", () => {
     ]);
   });
 
-  test("create: renders select cron.schedule(...) with quoted literals", () => {
+  test("create: renders select cron.schedule_in_database(...) with quoted literals", () => {
     const fact: Fact = {
       id: jobIntentId("nightly"),
       payload: {
@@ -238,7 +238,25 @@ describe("pgCronHandler.intentKinds.job", () => {
     const actions = jobRule?.create(fact, undefined as never);
     expect(actions).toHaveLength(1);
     expect(actions?.[0]?.sql).toMatchInlineSnapshot(
-      `"select cron.schedule('nightly', '0 0 * * *', 'select 1')"`,
+      `"select cron.schedule_in_database('nightly', '0 0 * * *', 'select 1', 'postgres', 'postgres', true)"`,
+    );
+  });
+
+  test("create: replays database, username, and active via cron.schedule_in_database", () => {
+    const fact: Fact = {
+      id: jobIntentId("reports"),
+      payload: {
+        schedule: "0 0 * * *",
+        command: "select 1",
+        database: "analytics",
+        username: "reporter",
+        active: false,
+      },
+    };
+    const actions = jobRule?.create(fact, undefined as never);
+    expect(actions).toHaveLength(1);
+    expect(actions?.[0]?.sql).toMatchInlineSnapshot(
+      `"select cron.schedule_in_database('reports', '0 0 * * *', 'select 1', 'analytics', 'reporter', false)"`,
     );
   });
 
@@ -255,7 +273,7 @@ describe("pgCronHandler.intentKinds.job", () => {
     };
     const actions = jobRule?.create(fact, undefined as never);
     expect(actions?.[0]?.sql).toMatchInlineSnapshot(
-      `"select cron.schedule('bob''s job', '0 0 * * *', 'select ''hi'' from t where x = ''y''')"`,
+      `"select cron.schedule_in_database('bob''s job', '0 0 * * *', 'select ''hi'' from t where x = ''y''', 'postgres', 'postgres', true)"`,
     );
   });
 
@@ -272,9 +290,11 @@ describe("pgCronHandler.intentKinds.job", () => {
     };
     const actions = jobRule?.create(fact, undefined as never);
     // the whole statement is never wrapped in $$ ... $$ dollar-quoting
-    expect(actions?.[0]?.sql.startsWith("select cron.schedule(")).toBe(true);
+    expect(
+      actions?.[0]?.sql.startsWith("select cron.schedule_in_database("),
+    ).toBe(true);
     expect(actions?.[0]?.sql).toMatchInlineSnapshot(
-      `"select cron.schedule('dollar', '0 0 * * *', 'select ''$$not a dollar quote$$''')"`,
+      `"select cron.schedule_in_database('dollar', '0 0 * * *', 'select ''$$not a dollar quote$$''', 'postgres', 'postgres', true)"`,
     );
   });
 

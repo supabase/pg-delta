@@ -49,7 +49,7 @@ describe.skipIf(!runSupabaseBareTests)(
       await cluster.adminPool.query(`DELETE FROM cron.job`);
     });
 
-    test("create: a named job in the desired state plans a select cron.schedule(...) action, and applying it creates the job", async () => {
+    test("create: a named job in the desired state plans a select cron.schedule_in_database(...) action, and applying it creates the job", async () => {
       const cluster = await supabaseCluster();
       const pool = cluster.adminPool;
       await pool.query(`CREATE EXTENSION IF NOT EXISTS pg_cron`);
@@ -71,7 +71,7 @@ describe.skipIf(!runSupabaseBareTests)(
       });
 
       const scheduleAction = thePlan.actions.find((a) =>
-        /select cron\.schedule\('vac_create'/.test(a.sql),
+        /select cron\.schedule_in_database\('vac_create'/.test(a.sql),
       );
       expect(scheduleAction).toBeDefined();
       expect(scheduleAction?.verb).toBe("create");
@@ -120,7 +120,9 @@ describe.skipIf(!runSupabaseBareTests)(
         /select cron\.unschedule\('vac_edit'\)/.test(a.sql),
       );
       const scheduleIdx = thePlan.actions.findIndex((a) =>
-        /select cron\.schedule\('vac_edit', '\*\/5 \* \* \* \*'/.test(a.sql),
+        /select cron\.schedule_in_database\('vac_edit', '\*\/5 \* \* \* \*'/.test(
+          a.sql,
+        ),
       );
       expect(unscheduleIdx).toBeGreaterThanOrEqual(0);
       expect(scheduleIdx).toBeGreaterThanOrEqual(0);
@@ -223,6 +225,134 @@ describe.skipIf(!runSupabaseBareTests)(
       expect(secondPlan.actions.length).toBe(0);
     }, 180_000);
 
+    test("convergence: an inactive job replays via schedule_in_database and stays inactive", async () => {
+      const cluster = await supabaseCluster();
+      const pool = cluster.adminPool;
+      await pool.query(`CREATE EXTENSION IF NOT EXISTS pg_cron`);
+
+      const ctx = await resolveProfile(pool, cronProfile);
+
+      // SOURCE snapshot: clean, no jobs.
+      const sourceFb = (await ctx.extract(pool)).factBase;
+
+      // DESIRED snapshot: an INACTIVE job. The 3-arg cron.schedule form cannot
+      // express this (it always creates the job active), so this is the case
+      // the schedule_in_database replay exists for.
+      await pool.query(
+        `SELECT cron.schedule_in_database('vac_inactive', '0 0 * * *', 'VACUUM', current_database(), 'postgres', false)`,
+      );
+      const desiredFb = (await ctx.extract(pool)).factBase;
+
+      const thePlan = plan(sourceFb, desiredFb, {
+        ...ctx.planOptions,
+        renames: "off",
+      });
+
+      const scheduleAction = thePlan.actions.find((a) =>
+        /select cron\.schedule_in_database\('vac_inactive'/.test(a.sql),
+      );
+      expect(scheduleAction).toBeDefined();
+      expect(scheduleAction?.verb).toBe("create");
+      // active=false is replayed as the 6th argument.
+      expect(scheduleAction?.sql).toContain(", false)");
+
+      // reset the DB to exactly the SOURCE state before apply. Delete directly
+      // (not cron.unschedule, which filters by username = current_user) because
+      // the job is owned by `postgres` while adminPool connects as
+      // `supabase_admin`.
+      await pool.query(`DELETE FROM cron.job WHERE jobname = 'vac_inactive'`);
+
+      const report = await apply(thePlan, pool, ctx.applyOptions);
+      expect(report.status).toBe("applied");
+
+      // the applied job is inactive AND owned by `postgres` — both the 6-arg
+      // replay's whole point (the 3-arg form would create it active, owned by
+      // the executing `supabase_admin`).
+      const { rows } = await pool.query<{ active: boolean; username: string }>(
+        `SELECT active, username FROM cron.job WHERE jobname = 'vac_inactive'`,
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.active).toBe(false);
+      expect(rows[0]?.username).toBe("postgres");
+
+      // convergence: re-extracting the applied DB and re-planning against the
+      // same desired state is a no-op (with the old 3-arg form the reapplied
+      // job would be active=true, so this plan would NOT be empty).
+      const reappliedFb = (await ctx.extract(pool)).factBase;
+      const secondPlan = plan(reappliedFb, desiredFb, {
+        ...ctx.planOptions,
+        renames: "off",
+      });
+      expect(secondPlan.actions.length).toBe(0);
+    }, 180_000);
+
+    test("convergence: a job targeting another database replays that database via schedule_in_database", async () => {
+      const cluster = await supabaseCluster();
+      const pool = cluster.adminPool;
+      await pool.query(`CREATE EXTENSION IF NOT EXISTS pg_cron`);
+      // A distinct target database the job runs in. pg_cron metadata still lives
+      // in the cron database (postgres); only the job's `database` column points
+      // elsewhere — exactly what the 3-arg cron.schedule form cannot reproduce.
+      await pool.query(
+        `DROP DATABASE IF EXISTS pgdelta_cron_target WITH (FORCE)`,
+      );
+      await pool.query(`CREATE DATABASE pgdelta_cron_target`);
+      try {
+        const ctx = await resolveProfile(pool, cronProfile);
+
+        // SOURCE snapshot: clean, no jobs.
+        const sourceFb = (await ctx.extract(pool)).factBase;
+
+        // DESIRED snapshot: a job whose command runs in the other database.
+        await pool.query(
+          `SELECT cron.schedule_in_database('vac_xdb', '0 0 * * *', 'VACUUM', 'pgdelta_cron_target', 'postgres', true)`,
+        );
+        const desiredFb = (await ctx.extract(pool)).factBase;
+
+        const thePlan = plan(sourceFb, desiredFb, {
+          ...ctx.planOptions,
+          renames: "off",
+        });
+
+        const scheduleAction = thePlan.actions.find((a) =>
+          /select cron\.schedule_in_database\('vac_xdb'/.test(a.sql),
+        );
+        expect(scheduleAction).toBeDefined();
+        expect(scheduleAction?.verb).toBe("create");
+        expect(scheduleAction?.sql).toContain("'pgdelta_cron_target'");
+
+        // reset the DB to exactly the SOURCE state before apply. Delete
+        // directly (not cron.unschedule, which filters by current_user) since
+        // the job is owned by `postgres`, not the `supabase_admin` connection.
+        await pool.query(`DELETE FROM cron.job WHERE jobname = 'vac_xdb'`);
+
+        const report = await apply(thePlan, pool, ctx.applyOptions);
+        expect(report.status).toBe("applied");
+
+        // the applied job targets the other database — the whole point.
+        const { rows } = await pool.query<{ database: string }>(
+          `SELECT database FROM cron.job WHERE jobname = 'vac_xdb'`,
+        );
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.database).toBe("pgdelta_cron_target");
+
+        // convergence: re-planning against the same desired state is a no-op
+        // (with the old 3-arg form the job's database would be `postgres`).
+        const reappliedFb = (await ctx.extract(pool)).factBase;
+        const secondPlan = plan(reappliedFb, desiredFb, {
+          ...ctx.planOptions,
+          renames: "off",
+        });
+        expect(secondPlan.actions.length).toBe(0);
+      } finally {
+        // afterEach clears cron.job; drop the extra target database so it does
+        // not leak across tests (FORCE terminates the cron launcher's backend).
+        await pool.query(
+          `DROP DATABASE IF EXISTS pgdelta_cron_target WITH (FORCE)`,
+        );
+      }
+    }, 180_000);
+
     test("an unnamed job in the desired state makes plan() throw the unkeyed error", async () => {
       const cluster = await supabaseCluster();
       const pool = cluster.adminPool;
@@ -284,7 +414,9 @@ describe.skipIf(!runSupabaseBareTests)(
 
       // the cron intent survives the supabase policy + baseline projection.
       const scheduleAction = thePlan.actions.find((a) =>
-        /select cron\.schedule\('pgdelta_e2e_supa_prune'/.test(a.sql),
+        /select cron\.schedule_in_database\('pgdelta_e2e_supa_prune'/.test(
+          a.sql,
+        ),
       );
       expect(scheduleAction).toBeDefined();
       expect(scheduleAction?.verb).toBe("create");
