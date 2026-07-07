@@ -41,6 +41,7 @@
         "pg": "^8.17.2",
       },
       "devDependencies": {
+        "@supabase/bun-istanbul-coverage": "workspace:*",
         "@supabase/pg-topo": "^1.0.0-alpha.2",
         "@types/bun": "^1.3.9",
         "@types/debug": "^4.1.12",

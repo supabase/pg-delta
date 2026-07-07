@@ -30,9 +30,27 @@ bun run build           # Build all packages
 bun run test            # Test all packages
 bun run test:pg-delta   # Test pg-delta only
 bun run test:pg-topo    # Test pg-topo only
+bun run coverage        # Test coverage report (all packages)
 bun run check-types     # Type check all packages
 bun run format-and-lint # Format and lint all code
 ```
+
+### Test coverage
+
+`bun run coverage` runs both packages' suites with Istanbul instrumentation and
+writes an HTML/lcov report to `.coverage-artifacts/` (open
+`.coverage-artifacts/index.html`). Docker is required (the suites use
+testcontainers).
+
+```bash
+bun run coverage                               # everything (unit + integration + corpus)
+bun run coverage --unit-only                   # skip pg-delta's slow integration + corpus suites
+bun run coverage --pg-image postgres:17-alpine # pin the PostgreSQL image for pg-delta
+bun run coverage --skip-tests                  # regenerate the report from the last run
+```
+
+New code is expected to come with test coverage — see
+[CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ### Working with individual packages
 

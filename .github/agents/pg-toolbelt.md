@@ -165,6 +165,33 @@ When changing shard count or PG versions, update all of these locations:
 - `.github/workflows/tests.yml` — the `postgres_version` list and `shard` list in `pg-delta-corpus`, and the `postgres_version` list in `pg-delta-integration`.
 - This file (`AGENTS.md` / `CLAUDE.md`) — both the CI section and the Testing Discipline section.
 
+### Coverage
+
+Local coverage is produced by the `@supabase/bun-istanbul-coverage` preload,
+which instruments the source globs in `.nycrc.json` (both packages' `src/`) and
+writes per-process istanbul JSON to `NYC_OUTPUT_DIR`. Each package's
+`scripts/run-tests.ts` injects that preload **only when `BUN_COVERAGE=1`** and is
+otherwise a transparent passthrough to `bun test` (so CI, which calls `bun test`
+directly, is unaffected).
+
+```bash
+bun run coverage                         # pg-topo + pg-delta (unit + integration + corpus), then nyc report
+bun run coverage --unit-only             # skip pg-delta's slow integration + corpus (pg-topo still runs; Docker required)
+bun run coverage --pg-image postgres:17-alpine   # pin the PG image for pg-delta integration/corpus
+bun run coverage --skip-tests            # regenerate the report from an existing .nyc_output
+```
+
+Reports land in `.coverage-artifacts/` (HTML/lcov/json-summary). Docker is
+required — pg-topo and pg-delta integration/corpus use testcontainers.
+
+CI uploads **pg-topo coverage only** (`pg-delta-*` jobs run without
+`BUN_COVERAGE`); pg-delta coverage is a local-on-demand tool by choice, because
+instrumenting the corpus PG-version × shard matrix in CI is disproportionately
+costly. To restore pg-delta coverage in CI, set `BUN_COVERAGE=1` +
+`NYC_OUTPUT_DIR` on the `pg-delta-*` jobs and upload their `.nyc_output` as a
+`coverage-*` artifact (the aggregation job already merges everything matching
+`coverage-*`).
+
 ## Agent Workflow
 
 ### Plan Before Acting
