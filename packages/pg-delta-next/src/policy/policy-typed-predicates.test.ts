@@ -76,6 +76,20 @@ describe("validatePolicy — reject typo'd idField (review #7)", () => {
     expect(() => validatePolicy(good)).not.toThrow();
   });
 
+  test("extensionIntent id fields (ext/intentKind/key) are accepted", () => {
+    // a custom profile policy must be able to scope extension-intent facts
+    // (e.g. exclude a specific pg_cron job) by the fields of its stable id.
+    for (const field of ["ext", "intentKind", "key"]) {
+      const p: Policy = {
+        id: `intent-${field}`,
+        filter: [
+          { match: { idField: { field, glob: "x" } }, action: "exclude" },
+        ],
+      };
+      expect(() => validatePolicy(p)).not.toThrow();
+    }
+  });
+
   test("a typo'd id field throws (would otherwise silently never match)", () => {
     const bad: Policy = {
       id: "typo",

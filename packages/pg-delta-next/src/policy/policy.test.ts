@@ -840,6 +840,31 @@ describe("factMatches — idField predicate", () => {
     ).toBe(false);
   });
 
+  test("scopes an extensionIntent fact by ext / intentKind / key", () => {
+    const fact: Fact = {
+      id: {
+        kind: "extensionIntent",
+        ext: "pg_cron",
+        intentKind: "job",
+        key: "nightly_prune",
+      },
+      payload: {},
+    };
+    const fb = buildFactBase([fact], []);
+    expect(
+      factMatches({ idField: { field: "ext", glob: "pg_cron" } }, fact, fb),
+    ).toBe(true);
+    expect(
+      factMatches({ idField: { field: "intentKind", glob: "job" } }, fact, fb),
+    ).toBe(true);
+    expect(
+      factMatches({ idField: { field: "key", glob: "nightly_*" } }, fact, fb),
+    ).toBe(true);
+    expect(
+      factMatches({ idField: { field: "key", glob: "hourly_*" } }, fact, fb),
+    ).toBe(false);
+  });
+
   test("returns false when field does not exist on id", () => {
     const fact: Fact = {
       id: { kind: "schema", name: "public" },

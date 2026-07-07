@@ -690,6 +690,12 @@ const KNOWN_ID_FIELDS = new Set<string>([
   "objtype",
   "provider",
   "target",
+  // extensionIntent id fields (docs/architecture/extension-intent.md §3): let a
+  // custom profile policy scope extension-intent facts (e.g. a pg_cron job) by
+  // its stable-id parts.
+  "ext",
+  "intentKind",
+  "key",
 ]);
 
 /** Recursively reject any `idField` naming an unknown identity field. */
