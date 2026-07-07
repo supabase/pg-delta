@@ -359,6 +359,12 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       ...(format !== undefined ? { format } : {}),
       ...(assumedSchemas.length > 0 ? { assumedSchemas } : {}),
       ...(assumedRoles.length > 0 ? { assumedRoles } : {}),
+      // forward the profile's intent rules (e.g. pg_cron under --profile
+      // supabase) so a named cron job in the view renders as intent instead of
+      // throwing "no intent rule registered" (the from-pristine plan sees it).
+      ...(ctx.planOptions.intentRules !== undefined
+        ? { intentRules: ctx.planOptions.intentRules }
+        : {}),
       onWarning: (message) => process.stderr.write(`  WARNING: ${message}\n`),
     });
 

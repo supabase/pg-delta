@@ -16,6 +16,7 @@
 import { buildFactBase, type FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { plan, type Action } from "../plan/plan.ts";
+import type { IntentRuleIndex } from "../plan/rules.ts";
 import type { SqlFile } from "./load-sql-files.ts";
 import {
   formatSqlStatements,
@@ -59,6 +60,12 @@ export interface ExportOptions {
    *  the `raw` profile (no policy) — an identity projection (review P1). */
   assumedSchemas?: string[];
   assumedRoles?: string[];
+  /** Intent-rule index from the active profile's handlers (e.g. pg_cron under
+   *  `--profile supabase`). Forwarded to the internal `plan()` so an
+   *  `extensionIntent` fact in `fb` (a named cron job) renders its replay SQL
+   *  instead of throwing "no intent rule registered". Omit for profiles with no
+   *  intent handlers. */
+  intentRules?: IntentRuleIndex;
 }
 
 /** Assemble a file's SQL from bare (semicolon-less) statements: optionally
@@ -360,6 +367,9 @@ export function exportSqlFiles(
       : {}),
     ...(options.assumedRoles !== undefined
       ? { assumedRoles: options.assumedRoles }
+      : {}),
+    ...(options.intentRules !== undefined
+      ? { intentRules: options.intentRules }
       : {}),
   });
 
