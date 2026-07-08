@@ -84,6 +84,21 @@ const ADP_OBJTYPES_SQL = `
   CREATE FUNCTION d.f2() RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT 2';
 `;
 
+// Regression pin for the scratchpad handoff's "Finding 4" (suspected extractor
+// gaps, unconfirmed while the load never completed): table autovacuum reloptions
+// and non-owner function GRANTs. Now that export round-trips, confirm they are
+// captured, rendered, AND reload identically. `pg_read_all_data` is a built-in
+// predefined role present on every PG14+ cluster (never emitted as CREATE ROLE),
+// so the non-owner grant needs no fixture role and pollutes no shared cluster.
+const RELOPTIONS_AND_GRANTS_SQL = `
+  CREATE SCHEMA e;
+  CREATE TABLE e.t (id integer)
+    WITH (autovacuum_vacuum_scale_factor = 0.2, fillfactor = 70);
+  CREATE FUNCTION e.f() RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT 1';
+  REVOKE ALL ON FUNCTION e.f() FROM PUBLIC;
+  GRANT EXECUTE ON FUNCTION e.f() TO pg_read_all_data;
+`;
+
 function forLoad(files: { name: string; sql: string }[]) {
   // roles are cluster-global and already present in the shared cluster; drop
   // the CREATE ROLE file exactly as export-format.test.ts does. The `ordered`
@@ -135,6 +150,28 @@ describe("export: round-trip fidelity (all layouts)", () => {
         const fb = (await extract(src.pool)).factBase;
 
         const files = forLoad(exportSqlFiles(fb, { layout }));
+        const loaded = await loadSqlFiles(files, shadow.pool);
+        expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+      } finally {
+        await Promise.all([src.drop(), shadow.drop()]);
+      }
+    }, 120_000);
+
+    test(`autovacuum reloptions + non-owner function grants round-trip (${layout})`, async () => {
+      const cluster = await sharedCluster();
+      const src = await cluster.createDb(`fid_relopt_src_${layout}`);
+      const shadow = await cluster.createDb(`fid_relopt_shadow_${layout}`);
+      try {
+        await src.pool.query(RELOPTIONS_AND_GRANTS_SQL);
+        const fb = (await extract(src.pool)).factBase;
+
+        const files = forLoad(exportSqlFiles(fb, { layout }));
+        // both must actually appear in the export (not just round-trip to a
+        // matching-but-empty state)
+        const all = files.map((f) => f.sql).join("\n");
+        expect(all).toMatch(/autovacuum_vacuum_scale_factor/);
+        expect(all).toMatch(/GRANT EXECUTE[\s\S]*pg_read_all_data/);
+
         const loaded = await loadSqlFiles(files, shadow.pool);
         expect(loaded.factBase.rootHash).toBe(fb.rootHash);
       } finally {
