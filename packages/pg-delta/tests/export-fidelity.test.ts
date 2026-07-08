@@ -66,6 +66,24 @@ const ADP_ASYMMETRY_SQL = `
   CREATE TABLE c.t2 (id integer);
 `;
 
+// ADP order-independence must hold across OBJTYPES, not just tables, and in the
+// restrictive direction (REVOKE of a built-in default). Sequences: s1 (pre-ADP)
+// has no PUBLIC usage, s2 (post-ADP) does — an additive grant. Functions:
+// EXECUTE is granted to PUBLIC by DEFAULT, so f1 (pre-ADP) keeps it and f2
+// (post-ADP) has it revoked — the restrictive direction that exercises the
+// empty-PUBLIC-entry synthesis in the ACL extractor. Both must round-trip on
+// every layout with no code change (the explicit per-object grants the exporter
+// emits are load-bearing regardless of when the ADP statement replays).
+const ADP_OBJTYPES_SQL = `
+  CREATE SCHEMA d;
+  CREATE SEQUENCE d.s1;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA d GRANT USAGE ON SEQUENCES TO PUBLIC;
+  CREATE SEQUENCE d.s2;
+  CREATE FUNCTION d.f1() RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT 1';
+  ALTER DEFAULT PRIVILEGES IN SCHEMA d REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+  CREATE FUNCTION d.f2() RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT 2';
+`;
+
 function forLoad(files: { name: string; sql: string }[]) {
   // roles are cluster-global and already present in the shared cluster; drop
   // the CREATE ROLE file exactly as export-format.test.ts does. The `ordered`
@@ -98,6 +116,22 @@ describe("export: round-trip fidelity (all layouts)", () => {
       const shadow = await cluster.createDb(`fid_adp_shadow_${layout}`);
       try {
         await src.pool.query(ADP_ASYMMETRY_SQL);
+        const fb = (await extract(src.pool)).factBase;
+
+        const files = forLoad(exportSqlFiles(fb, { layout }));
+        const loaded = await loadSqlFiles(files, shadow.pool);
+        expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+      } finally {
+        await Promise.all([src.drop(), shadow.drop()]);
+      }
+    }, 120_000);
+
+    test(`ADP order-independence holds for sequences + functions, incl. the restrictive REVOKE (${layout})`, async () => {
+      const cluster = await sharedCluster();
+      const src = await cluster.createDb(`fid_adpobj_src_${layout}`);
+      const shadow = await cluster.createDb(`fid_adpobj_shadow_${layout}`);
+      try {
+        await src.pool.query(ADP_OBJTYPES_SQL);
         const fb = (await extract(src.pool)).factBase;
 
         const files = forLoad(exportSqlFiles(fb, { layout }));
