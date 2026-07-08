@@ -12,7 +12,11 @@
  *  - pg-delta/tests/integration/pgmq-declarative-roundtrip.test.ts
  */
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { apply } from "../src/apply/apply.ts";
+import { cmdSchemaApply, cmdSchemaExport } from "../src/cli/commands/schema.ts";
 import { resolveCliProfile } from "../src/cli/profile.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
@@ -200,5 +204,81 @@ describe.skipIf(!runSupabaseBareTests)(
         await Promise.all([main.drop(), branch.drop()]);
       }
     }, 240_000);
+
+    // Export-as-source-of-truth on the heavy image, through the FULL CLI
+    // pipeline (schema export → schema apply), for a realistic middleware shape:
+    // a real extension (pgmq), cross-schema mutual FKs, and multi-role ADP
+    // history using the Supabase preset roles (authenticated). The existing
+    // supabase tests exercise the DB→diff path; this pins the file-export →
+    // reload → converge path the "source of truth" workflow uses.
+    //
+    // Uses the `raw` profile (no policy) — the real middleware profile is
+    // handlers-only; the full supabase POLICY is designed for Supabase's own
+    // schema shape, not arbitrary user schemas, so it is the wrong lens here. The
+    // Supabase IMAGE is still required for the pgmq extension. (pg_partman is
+    // excluded — `create_parent` is imperative, not captured DDL, so it does not
+    // round-trip declaratively; pg_cron is excluded because it runs only in the
+    // postgres DB, not an isolated shadow — that guard is covered by
+    // tests/schema-apply-cron-guard.test.ts.)
+    test("schema export → apply round-trips a pgmq + multi-role-ADP + mutual-FK DB and converges", async () => {
+      const cluster = await supabaseCluster();
+      const source = await cluster.createDb("supa_sot_src");
+      const target = await cluster.createDb("supa_sot_tgt");
+      const work = mkdtempSync(join(tmpdir(), "pgdelta-supa-sot-"));
+      try {
+        await source.pool.query(`
+          CREATE EXTENSION pgmq;
+          SELECT FROM pgmq.create('my_queue');
+          CREATE SCHEMA app;
+          CREATE SCHEMA ref;
+          CREATE TABLE app.orders (id integer PRIMARY KEY, customer_id integer);
+          CREATE TABLE ref.customers (id integer PRIMARY KEY, last_order_id integer);
+          ALTER TABLE app.orders
+            ADD CONSTRAINT fk_cust FOREIGN KEY (customer_id) REFERENCES ref.customers (id);
+          ALTER TABLE ref.customers
+            ADD CONSTRAINT fk_order FOREIGN KEY (last_order_id) REFERENCES app.orders (id);
+          -- multi-role ADP history: t1 predates the grant, t2 inherits it
+          CREATE TABLE app.t1 (id integer);
+          ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT SELECT ON TABLES TO authenticated;
+          CREATE TABLE app.t2 (id integer);
+          -- a public SECURITY DEFINER wrapper around pgmq + a non-owner grant
+          CREATE FUNCTION public.read_queue(q text)
+            RETURNS SETOF pgmq.message_record
+            LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'pgmq'
+            AS $fn$ BEGIN RETURN QUERY SELECT * FROM pgmq.read(q, 0, 1); END; $fn$;
+          GRANT EXECUTE ON FUNCTION public.read_queue(text) TO authenticated;
+        `);
+
+        const dir = join(work, "export");
+        await cmdSchemaExport(["--source", source.uri, "--out-dir", dir]);
+
+        // apply the exported dir onto a fresh target (co-located shadow), then
+        // confirm the re-plan of the applied target against the source is EMPTY
+        // — export → load reproduced the source's managed view.
+        await cmdSchemaApply([
+          "--dir",
+          dir,
+          "--target",
+          target.uri,
+          "--renames",
+          "off",
+        ]);
+
+        const ctx = await resolveCliProfile(source.pool, undefined);
+        const [sourceFb, targetFb] = await Promise.all([
+          ctx.extract(source.pool).then((r) => r.factBase),
+          ctx.extract(target.pool).then((r) => r.factBase),
+        ]);
+        const drift = plan(targetFb, sourceFb, ctx.planOptions);
+        if (drift.actions.length > 0) {
+          throw new Error(
+            `${drift.actions.length} drift action(s) after export→apply:\n${drift.actions.map((a) => a.sql).join("\n")}`,
+          );
+        }
+        expect(drift.actions).toEqual([]);
+      } finally {
+        await Promise.all([source.drop(), target.drop()]);
+      }
+    }, 300_000);
   },
 );

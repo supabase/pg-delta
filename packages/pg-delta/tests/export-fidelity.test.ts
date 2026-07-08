@@ -179,4 +179,39 @@ describe("export: round-trip fidelity (all layouts)", () => {
       }
     }, 120_000);
   }
+
+  // ADP `FOR ROLE` and `WITH GRANT OPTION` rendering fidelity (Fable checklist
+  // items 3 + 5). These need a named (non-PUBLIC) role, so the fixture creates
+  // one; it is cluster-global and dropped in `finally`. by-object layout only —
+  // this pins ACL/ADP RENDERING, and layout-independence is already covered by
+  // the cases above. RED risk is a mangled `FOR ROLE` / `WITH GRANT OPTION`
+  // clause that fails to reload; GREEN = hash-identical round-trip.
+  test("ADP FOR ROLE + WITH GRANT OPTION round-trip", async () => {
+    const cluster = await sharedCluster();
+    const src = await cluster.createDb("fid_adprole_src");
+    const shadow = await cluster.createDb("fid_adprole_shadow");
+    try {
+      await src.pool.query(`
+        CREATE ROLE fidrole NOLOGIN;
+        CREATE SCHEMA h;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA h
+          GRANT SELECT ON TABLES TO fidrole WITH GRANT OPTION;
+        CREATE TABLE h.t (id integer);
+        ALTER DEFAULT PRIVILEGES FOR ROLE fidrole IN SCHEMA h
+          GRANT INSERT ON TABLES TO PUBLIC;
+      `);
+      const fb = (await extract(src.pool)).factBase;
+      const files = forLoad(exportSqlFiles(fb));
+      const loaded = await loadSqlFiles(files, shadow.pool);
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+    } finally {
+      await cluster.adminPool
+        .query(`DROP OWNED BY fidrole CASCADE`)
+        .catch(() => {});
+      await cluster.adminPool
+        .query(`DROP ROLE IF EXISTS fidrole`)
+        .catch(() => {});
+      await Promise.all([src.drop(), shadow.drop()]);
+    }
+  }, 120_000);
 });
