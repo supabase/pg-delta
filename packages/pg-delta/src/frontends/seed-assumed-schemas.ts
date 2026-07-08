@@ -20,6 +20,16 @@
  * Symmetry: after seed + user load, the shadow is re-extracted through the SAME
  * profile, so the seeded objects come back reference-only and cancel against the
  * target's reference-only copies in `plan()` — nothing leaks into the diff.
+ *
+ * Baseline is deliberately NOT applied here (Codex #323 finding 3). The seed is
+ * the SUPERSET question — "what platform objects must exist for the user SQL to
+ * elaborate in the shadow" — whereas the diff is the SUBSET question — "what do
+ * we manage". Only the diff subtracts the baseline. A baseline routinely
+ * CONTAINS the assumed-schema objects (e.g. `auth.users`), so subtracting it
+ * before the reference-only marking would silently empty the seed and a
+ * co-located apply of a user dir referencing those objects could not load. The
+ * profile's baseline is still accepted in `opts` so callers pass their resolved
+ * options uniformly, but it is intentionally ignored for seed derivation.
  */
 import { buildFactBase, type FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
@@ -55,6 +65,9 @@ export function deriveAssumedSchemaSeed(
   opts: {
     policy?: Policy;
     capability?: ApplierCapability;
+    /** The profile's diff-time baseline. Accepted so callers can pass their
+     *  resolved options uniformly, but INTENTIONALLY NOT applied to seed
+     *  derivation — see the module doc (Codex #323 finding 3). */
     baseline?: FactBase;
     assumedSchemas: string[];
     /** Policy assumed roles PLUS the target's own role names — same cluster, so
@@ -65,12 +78,10 @@ export function deriveAssumedSchemaSeed(
   // raw profile (no assumed schemas): nothing is platform-external, no seed.
   if (opts.assumedSchemas.length === 0) return EMPTY;
 
-  const view = resolveView(
-    targetFb,
-    opts.policy,
-    opts.capability,
-    opts.baseline,
-  );
+  // NB: opts.baseline is deliberately NOT passed — the seed derives from the RAW
+  // target so baseline-identical platform objects (auth.users) stay in the view
+  // and get seeded. See the module doc (Codex #323 finding 3).
+  const view = resolveView(targetFb, opts.policy, opts.capability);
   const members = extensionMemberReferenceOnly(targetFb);
   const seedIds = new Set(
     [...view.referenceOnly].filter((id) => !members.has(id)),
