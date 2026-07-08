@@ -6,14 +6,16 @@
  * by-object layout contract so it cannot silently regress.
  *
  * Preserved from the old engine (its tests asserted these and still hold):
+ *   - FK constraints render INTO the owning table's file (no foreign_keys/ dir);
  *   - triggers render INTO the table's file (no triggers/ dir);
  *   - RLS policies render INTO the table's file (no policies/ dir).
  *
- * Deliberate v2 invariant (round-trip fidelity, export-fidelity.test.ts): FK
- * constraints render into a SIBLING `<table>.fk.sql` file, NOT the table file —
- * two tables with mutual FKs would otherwise each land in the other's atomic
- * file and neither could load. Still no `foreign_keys/` directory; the FK just
- * lives next to its table, loaded after all table files.
+ * Deliberate v2 invariant (round-trip fidelity, export-fidelity.test.ts): ONLY
+ * an FK that participates in a cross-table reference CYCLE (mutual FKs) moves to
+ * a sibling `<table>.fk.sql` — files apply atomically, so a cyclic pair inline
+ * would deadlock the loader. Acyclic FKs (the overwhelmingly common case) stay
+ * inline in their table's file for readability; the loader's bounded retry
+ * orders them. Still no `foreign_keys/` directory.
  *
  * Deliberate v2 invariant (the old tests asserted the opposite — recorded as
  * not-ported in the porting ledger, pinned here as v2 behavior): v2 keeps ONE
@@ -68,6 +70,13 @@ describe("export: by-object file mapping (v2 contract)", () => {
         CREATE MATERIALIZED VIEW test_schema.user_summary AS
           SELECT id FROM test_schema.users;
         CREATE INDEX user_summary_idx ON test_schema.user_summary (id);
+        -- mutual FK pair: the ONLY case whose FKs move to sibling .fk.sql files
+        CREATE TABLE test_schema.m1 (id integer PRIMARY KEY, m2_id integer);
+        CREATE TABLE test_schema.m2 (id integer PRIMARY KEY, m1_id integer);
+        ALTER TABLE test_schema.m1
+          ADD CONSTRAINT m1_m2_fk FOREIGN KEY (m2_id) REFERENCES test_schema.m2(id);
+        ALTER TABLE test_schema.m2
+          ADD CONSTRAINT m2_m1_fk FOREIGN KEY (m1_id) REFERENCES test_schema.m1(id);
       `);
       const fb = (await extract(src.pool)).factBase;
       const files = exportSqlFiles(fb);
@@ -78,16 +87,25 @@ describe("export: by-object file mapping (v2 contract)", () => {
       // --- preserved co-location (old declarative-schema-export intent) ---
       const usersFile = byName.get("schemas/test_schema/tables/users.sql");
       const postsFile = byName.get("schemas/test_schema/tables/posts.sql");
-      const postsFkFile = byName.get("schemas/test_schema/tables/posts.fk.sql");
       expect(usersFile).toBeDefined();
       expect(postsFile).toBeDefined();
-      // FK constraint lands in a SIBLING <table>.fk.sql (round-trip fidelity:
-      // mutual FKs must not share a table's atomic file); still no foreign_keys/
-      // dir, and the CREATE TABLE itself stays in the table file.
-      expect(postsFile).not.toContain("REFERENCES");
-      expect(postsFkFile).toContain("REFERENCES");
-      expect(postsFkFile).toContain("test_schema.users");
+      // an ACYCLIC FK stays INLINE in the owning table's file (readability);
+      // no separate foreign_keys/ dir and no sibling .fk.sql for it.
+      expect(postsFile).toContain("REFERENCES");
+      expect(postsFile).toContain("test_schema.users");
+      expect(has("posts.fk.sql")).toBe(false);
       expect(has("foreign_keys/")).toBe(false);
+      // a CYCLIC FK pair moves to sibling .fk.sql files (atomic files can't
+      // hold a reference cycle), and the table files carry no REFERENCES.
+      expect(byName.get("schemas/test_schema/tables/m1.fk.sql")).toContain(
+        "m1_m2_fk",
+      );
+      expect(byName.get("schemas/test_schema/tables/m2.fk.sql")).toContain(
+        "m2_m1_fk",
+      );
+      expect(byName.get("schemas/test_schema/tables/m1.sql")).not.toContain(
+        "REFERENCES",
+      );
       // trigger + RLS policy in the table file, no separate dirs
       expect(usersFile).toContain("CREATE TRIGGER");
       expect(usersFile).toContain("users_trigger");
