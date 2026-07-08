@@ -290,7 +290,152 @@ function seg(name: string): string {
   );
 }
 
-function pathFor(id: StableId, fb: FactBase): string {
+/** Explanatory header prepended to every split `.fk.sql` file. */
+const FK_SPLIT_HEADER =
+  "-- Foreign keys in a cross-table reference cycle are split out of their\n" +
+  "-- table's file: each file loads atomically, so keeping them inline would\n" +
+  "-- deadlock the loader (every file would need a table another pending file\n" +
+  "-- creates). These statements apply once all referenced tables exist.\n\n";
+
+/** The owning table of a table-scoped (or table) id, as an opaque key. */
+function owningTableKey(id: StableId): string | undefined {
+  if (id.kind === "table") {
+    const t = id as { schema: string; name: string };
+    return `${t.schema} ${t.name}`;
+  }
+  if (TABLE_SCOPED.has(id.kind)) {
+    const t = id as unknown as { schema: string; table: string };
+    return `${t.schema} ${t.table}`;
+  }
+  return undefined;
+}
+
+/**
+ * Encoded ids of FOREIGN KEY constraints that participate in a cross-table
+ * reference CYCLE (mutual FKs, or a longer loop). ONLY these move to a sibling
+ * `<table>.fk.sql`: export files apply atomically, so a reference cycle across
+ * table files can never load (each file needs a table another un-committed file
+ * creates), while every ACYCLIC FK resolves through the loader's bounded retry
+ * and stays inline in its table's file for readability.
+ *
+ * Reference edges come from extraction's pg_depend edges (an FK constraint
+ * `depends` on the referenced table's columns / unique constraint), so no SQL
+ * is parsed here. Cycle test: Tarjan SCC over the table-reference graph — an FK
+ * is cyclic iff its owning table and a referenced table share a component.
+ */
+function cyclicForeignKeys(fb: FactBase): Set<string> {
+  interface Fk {
+    encoded: string;
+    owner: string;
+    refs: Set<string>;
+  }
+  const fks = new Map<string, Fk>();
+  for (const fact of fb.facts()) {
+    if (fact.id.kind !== "constraint") continue;
+    if ((fact.payload as { type?: unknown }).type !== "f") continue;
+    const owner = owningTableKey(fact.id);
+    if (owner === undefined) continue;
+    const encoded = encodeId(fact.id);
+    fks.set(encoded, { encoded, owner, refs: new Set() });
+  }
+  if (fks.size === 0) return new Set();
+
+  // table-reference graph: owner → referenced table, per FK edge
+  const adjacency = new Map<string, Set<string>>();
+  for (const edge of fb.edges) {
+    const fk = fks.get(encodeId(edge.from));
+    if (fk === undefined) continue;
+    const ref = owningTableKey(edge.to);
+    if (ref === undefined || ref === fk.owner) continue;
+    fk.refs.add(ref);
+    let targets = adjacency.get(fk.owner);
+    if (targets === undefined) {
+      targets = new Set();
+      adjacency.set(fk.owner, targets);
+    }
+    targets.add(ref);
+  }
+
+  // Tarjan SCC (iterative — no recursion-depth ceiling on large schemas)
+  const sccOf = new Map<string, number>();
+  {
+    const index = new Map<string, number>();
+    const low = new Map<string, number>();
+    const onStack = new Set<string>();
+    const stack: string[] = [];
+    let counter = 0;
+    let sccCount = 0;
+    const nodes = new Set<string>(adjacency.keys());
+    for (const targets of adjacency.values()) {
+      for (const t of targets) nodes.add(t);
+    }
+    interface Frame {
+      node: string;
+      neighbors: string[];
+      i: number;
+    }
+    const visit = (frames: Frame[], node: string): void => {
+      index.set(node, counter);
+      low.set(node, counter);
+      counter++;
+      stack.push(node);
+      onStack.add(node);
+      frames.push({ node, neighbors: [...(adjacency.get(node) ?? [])], i: 0 });
+    };
+    for (const root of nodes) {
+      if (index.has(root)) continue;
+      const frames: Frame[] = [];
+      visit(frames, root);
+      while (frames.length > 0) {
+        const frame = frames[frames.length - 1]!;
+        if (frame.i < frame.neighbors.length) {
+          const next = frame.neighbors[frame.i++]!;
+          if (!index.has(next)) {
+            visit(frames, next);
+          } else if (onStack.has(next)) {
+            low.set(
+              frame.node,
+              Math.min(low.get(frame.node)!, index.get(next)!),
+            );
+          }
+        } else {
+          frames.pop();
+          const parent = frames[frames.length - 1];
+          if (parent !== undefined) {
+            low.set(
+              parent.node,
+              Math.min(low.get(parent.node)!, low.get(frame.node)!),
+            );
+          }
+          if (low.get(frame.node) === index.get(frame.node)) {
+            let member: string;
+            do {
+              member = stack.pop()!;
+              onStack.delete(member);
+              sccOf.set(member, sccCount);
+            } while (member !== frame.node);
+            sccCount++;
+          }
+        }
+      }
+    }
+  }
+
+  const cyclic = new Set<string>();
+  for (const fk of fks.values()) {
+    const ownerScc = sccOf.get(fk.owner);
+    if (ownerScc === undefined) continue;
+    for (const ref of fk.refs) {
+      if (sccOf.get(ref) === ownerScc) {
+        cyclic.add(fk.encoded);
+        break;
+      }
+    }
+  }
+  return cyclic;
+}
+
+function pathFor(id: StableId, cyclicFks: ReadonlySet<string>): string {
   const target = fileTarget(id);
   const kind = target.kind;
   // A schema-scoped ALTER DEFAULT PRIVILEGES depends on its schema, so it must
@@ -315,20 +460,16 @@ function pathFor(id: StableId, fb: FactBase): string {
   }
   if (TABLE_SCOPED.has(kind)) {
     const t = target as { schema: string; table: string };
-    // Foreign keys can form cross-table (even cross-schema) reference cycles:
-    // two tables that reference each other would each land in the other's file,
-    // and because the loader applies each file atomically, neither file can
-    // commit (each needs a table the other file creates). File a table's FK
-    // constraints — and their comment/acl satellites, already unwrapped by
-    // `fileTarget` — into a separate `<table>.fk.sql`, so the table files carry
-    // no inter-table statement and no single file is un-appliable regardless of
-    // cycle shape. The loader's bounded retry loads the `.fk.sql` files once
-    // their referenced tables exist (pg_dump's post-data precedent). PK / UNIQUE
-    // / CHECK / EXCLUDE are single-table and stay in the table file.
-    if (
-      target.kind === "constraint" &&
-      (fb.get(target)?.payload as { type?: string } | undefined)?.type === "f"
-    ) {
+    // A foreign key participating in a cross-table reference CYCLE cannot stay
+    // in its table's file: the loader applies each file atomically, so two
+    // mutually-referencing tables would each need a table the other
+    // un-committed file creates, and neither could ever commit. Those FKs —
+    // and their comment/acl satellites, already unwrapped by `fileTarget` —
+    // move to a sibling `<table>.fk.sql` loaded once all referenced tables
+    // exist (pg_dump's post-data precedent). ACYCLIC FKs (the common case)
+    // stay INLINE for readability — the loader's bounded retry orders their
+    // files. `cyclicFks` is precomputed by {@link cyclicForeignKeys}.
+    if (target.kind === "constraint" && cyclicFks.has(encodeId(target))) {
       return `schemas/${seg(t.schema)}/tables/${seg(t.table)}.fk.sql`;
     }
     return `schemas/${seg(t.schema)}/tables/${seg(t.table)}.sql`;
@@ -405,8 +546,12 @@ export function exportSqlFiles(
       : {}),
   });
 
+  // FKs inside a cross-table reference cycle move to a sibling `.fk.sql`
+  // (see cyclicForeignKeys); computed once per export, empty for ~all schemas.
+  const cyclicFks = cyclicForeignKeys(fb);
+
   if (layout === "grouped") {
-    return exportGrouped(rendered.actions, fb, options);
+    return exportGrouped(rendered.actions, fb, options, cyclicFks);
   }
 
   // group statements by file, preserving plan order within AND across
@@ -416,7 +561,7 @@ export function exportSqlFiles(
   rendered.actions.forEach((action, position) => {
     const subject = subjectOf(action);
     const path =
-      subject === undefined ? "cluster/misc.sql" : pathFor(subject, fb);
+      subject === undefined ? "cluster/misc.sql" : pathFor(subject, cyclicFks);
     const entry = files.get(path) ?? { firstAt: position, statements: [] };
     entry.statements.push(action.sql);
     files.set(path, entry);
@@ -431,7 +576,9 @@ export function exportSqlFiles(
     rendered.actions.forEach((action) => {
       const subject = subjectOf(action);
       const path =
-        subject === undefined ? "cluster/misc.sql" : pathFor(subject, fb);
+        subject === undefined
+          ? "cluster/misc.sql"
+          : pathFor(subject, cyclicFks);
       const last = runs[runs.length - 1];
       if (last !== undefined && last.path === path) {
         last.statements.push(action.sql);
@@ -450,7 +597,9 @@ export function exportSqlFiles(
   );
   return ordered.map(([path, entry]) => ({
     name: path,
-    sql: renderFileSql(entry.statements, options.format),
+    sql:
+      (path.endsWith(".fk.sql") ? FK_SPLIT_HEADER : "") +
+      renderFileSql(entry.statements, options.format),
   }));
 }
 
@@ -486,6 +635,7 @@ function exportGrouped(
   actions: Action[],
   fb: FactBase,
   options: ExportOptions,
+  cyclicFks: ReadonlySet<string>,
 ): SqlFile[] {
   const grouping = options.grouping ?? {};
   const mode = grouping.mode ?? "subdirectory";
@@ -497,13 +647,13 @@ function exportGrouped(
   );
 
   const groupedPath = (id: StableId): string => {
-    const base = pathFor(id, fb);
-    // Foreign-key constraints keep their sibling `<table>.fk.sql` path in EVERY
+    const base = pathFor(id, cyclicFks);
+    // Cycle-participating FKs keep their sibling `<table>.fk.sql` path in EVERY
     // grouping mode: the flat-schema / name-pattern regrouping below would
-    // otherwise fold them back into the table's own file, re-introducing the
-    // mutual-FK atomic-load cycle the split exists to prevent (two flat schemas
-    // referencing each other). pathFor routes only FK constraints to `.fk.sql`,
-    // so the suffix uniquely identifies them.
+    // otherwise fold them back into an atomic per-schema file, re-introducing
+    // the mutual-FK load deadlock the split exists to prevent (two flat schemas
+    // referencing each other). pathFor routes only cyclic FKs to `.fk.sql`, so
+    // the suffix uniquely identifies them.
     if (base.endsWith(".fk.sql")) return base;
     const { schema, objectName } = schemaAndName(id);
     // cluster-level objects (no schema) are never regrouped
@@ -574,6 +724,11 @@ function exportGrouped(
           a.verbRank - b.verbRank || a.scopeRank - b.scopeRank || a.at - b.at,
       )
       .map((item) => item.sql);
-    return { name: path, sql: renderFileSql(statements, options.format) };
+    return {
+      name: path,
+      sql:
+        (path.endsWith(".fk.sql") ? FK_SPLIT_HEADER : "") +
+        renderFileSql(statements, options.format),
+    };
   });
 }
