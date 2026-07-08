@@ -498,6 +498,13 @@ function exportGrouped(
 
   const groupedPath = (id: StableId): string => {
     const base = pathFor(id, fb);
+    // Foreign-key constraints keep their sibling `<table>.fk.sql` path in EVERY
+    // grouping mode: the flat-schema / name-pattern regrouping below would
+    // otherwise fold them back into the table's own file, re-introducing the
+    // mutual-FK atomic-load cycle the split exists to prevent (two flat schemas
+    // referencing each other). pathFor routes only FK constraints to `.fk.sql`,
+    // so the suffix uniquely identifies them.
+    if (base.endsWith(".fk.sql")) return base;
     const { schema, objectName } = schemaAndName(id);
     // cluster-level objects (no schema) are never regrouped
     if (schema === undefined) return base;

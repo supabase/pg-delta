@@ -180,6 +180,29 @@ describe("export: round-trip fidelity (all layouts)", () => {
     }, 120_000);
   }
 
+  // grouped layout with `--flat-schemas` must STILL split FKs into `.fk.sql`:
+  // flat regrouping collapses a schema to one file per category, which would
+  // otherwise fold cross-schema mutual FKs back together and re-stick the load.
+  test("grouped + flat-schemas keeps the FK split for cross-schema mutual FKs", async () => {
+    const cluster = await sharedCluster();
+    const src = await cluster.createDb("fid_flatfk_src");
+    const shadow = await cluster.createDb("fid_flatfk_shadow");
+    try {
+      await src.pool.query(MUTUAL_FK_SQL);
+      const fb = (await extract(src.pool)).factBase;
+      const files = forLoad(
+        exportSqlFiles(fb, {
+          layout: "grouped",
+          grouping: { flatSchemas: ["a", "b"] },
+        }),
+      );
+      const loaded = await loadSqlFiles(files, shadow.pool);
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+    } finally {
+      await Promise.all([src.drop(), shadow.drop()]);
+    }
+  }, 120_000);
+
   // ADP `FOR ROLE` and `WITH GRANT OPTION` rendering fidelity (Fable checklist
   // items 3 + 5). These need a named (non-PUBLIC) role, so the fixture creates
   // one; it is cluster-global and dropped in `finally`. by-object layout only —
