@@ -130,6 +130,33 @@ async function applyFile(client: PoolClient, sql: string): Promise<void> {
 }
 
 /**
+ * Enrich a failed file's error with the offending statement's location. A file
+ * is applied as ONE multi-statement query, so node-postgres sets `position` (a
+ * 1-based character offset into the file's SQL) on the DatabaseError. Turn that
+ * into an "at line N: <excerpt>" suffix so a stuck / non-converged load reports
+ * WHICH statement failed inside a multi-statement file, not just the file name +
+ * bare message. The position comes straight from PostgreSQL — no SQL parsing.
+ */
+function describeFileFailure(sql: string, error: unknown): string {
+  const base = error instanceof Error ? error.message : String(error);
+  const raw = (error as { position?: unknown } | null)?.position;
+  const pos =
+    typeof raw === "string"
+      ? Number.parseInt(raw, 10)
+      : typeof raw === "number"
+        ? raw
+        : Number.NaN;
+  if (!Number.isFinite(pos) || pos < 1 || pos > sql.length) return base;
+  const before = sql.slice(0, pos - 1);
+  const line = before.split("\n").length;
+  const lineStart = before.lastIndexOf("\n") + 1;
+  const nl = sql.indexOf("\n", pos - 1);
+  const lineText = sql.slice(lineStart, nl === -1 ? undefined : nl).trim();
+  const excerpt = lineText.length > 80 ? `${lineText.slice(0, 80)}…` : lineText;
+  return `${base} — at line ${line}: ${excerpt}`;
+}
+
+/**
  * Blank out comments and string/identifier/dollar-quoted literals, replacing
  * their contents (and any `;` inside them) with spaces so the remaining "code
  * skeleton" can be scanned for statement-level keywords without a SQL grammar.
@@ -506,6 +533,11 @@ export async function loadSqlFiles(
   // the most recent round's per-file failures, retained so a budget-exhaustion
   // error can report WHY each still-pending file failed (review P1 #2).
   let lastFailures: Array<{ file: SqlFile; message: string }> = [];
+  // per-file count of CONSECUTIVE rounds a file failed with the SAME message, so
+  // a stuck / non-converged error can say "failed identically in N round(s)" —
+  // a file whose error never changes is a genuine missing dependency (or cycle),
+  // not something more rounds will resolve.
+  const failStreak = new Map<string, { message: string; count: number }>();
   const client = await shadow.connect();
   try {
     await client.query(`SET check_function_bodies = off`);
@@ -542,10 +574,16 @@ export async function loadSqlFiles(
           // surface it immediately with its own message instead of deferring it
           // until the round budget or a "stuck" round wraps it.
           if (error instanceof ShadowLoadError) throw error;
-          failures.push({
-            file,
-            message: error instanceof Error ? error.message : String(error),
+          const message = describeFileFailure(file.sql, error);
+          const prev = failStreak.get(file.name);
+          failStreak.set(file.name, {
+            message,
+            count:
+              prev !== undefined && prev.message === message
+                ? prev.count + 1
+                : 1,
           });
+          failures.push({ file, message });
           next.push(file);
         }
       }
@@ -556,11 +594,18 @@ export async function loadSqlFiles(
           : "";
         throw new ShadowLoadError(
           `shadow load stuck after ${rounds} round(s): ${next.length} file(s) cannot apply${mutualFkHint}`,
-          failures.map((f) => ({
-            code: "stuck_statement",
-            severity: "error",
-            message: `${f.file.name}: ${f.message}`,
-          })),
+          failures.map((f) => {
+            const streak = failStreak.get(f.file.name);
+            const streakNote =
+              streak !== undefined && streak.count > 1
+                ? ` (failed identically in ${streak.count} round(s) — likely a genuine missing dependency, not ordering)`
+                : "";
+            return {
+              code: "stuck_statement",
+              severity: "error",
+              message: `${f.file.name}: ${f.message}${streakNote}`,
+            };
+          }),
         );
       }
       lastFailures = failures;
