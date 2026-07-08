@@ -88,7 +88,7 @@ Notes:
     captured in it are invisible to the managed view — no policy or per-command
     flag needed. Its digest is stamped on plan artifacts / export manifests and
     reconciled at apply/prove time, so a swapped/edited/missing baseline fails
-    loud (plan == prove == apply). Capture one with `snapshot --profile <same>`
+    loud (plan == prove == apply). Capture one with 'snapshot --profile <same>'
     so it carries the same handler-aware facts. A baseline captured in a
     different --unsafe-show-secrets mode than the command's is rejected.
   render: writes the plan's SQL as one .sql file per executor segment,
