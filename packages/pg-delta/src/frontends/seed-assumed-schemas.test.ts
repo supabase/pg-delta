@@ -77,6 +77,26 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.facts).toBe(1);
   });
 
+  test("a diff-time baseline containing the assumed schema does NOT empty the seed", () => {
+    // The seed answers the SUPERSET question — "what platform objects must
+    // exist for user SQL to elaborate in the shadow" — so it must derive from
+    // the RAW target, BEFORE the diff-time baseline subtraction. A baseline that
+    // contains `auth` (as a real platform baseline would) must NOT remove auth
+    // from the seed, or a co-located apply of a user dir referencing auth.users
+    // could not load. (Codex #323 finding 3: the seed used to forward the
+    // baseline into resolveView, silently emptying the seed.)
+    const target = buildFactBase([f(schemaPublic), f(schemaAuth)], []);
+    const baseline = buildFactBase([f(schemaAuth)], []);
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: supabasePolicy,
+      assumedSchemas: supabaseAssumedSchemas,
+      assumedRoles: [],
+      baseline,
+    });
+    expect(seed.sql).toContain('CREATE SCHEMA "auth"');
+    expect(seed.facts).toBe(1);
+  });
+
   test("raw profile (no assumed schemas) seeds nothing", () => {
     const target = buildFactBase([f(schemaPublic), f(schemaApp)], []);
     const seed = deriveAssumedSchemaSeed(target, {
