@@ -4,10 +4,11 @@
  */
 import { diff } from "../../core/diff.ts";
 import { encodeId } from "../../core/stable-id.ts";
-import { extract } from "../../extract/extract.ts";
+import { resolveView } from "../../policy/policy.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
 import { parseFlags, UsageError } from "../flags.ts";
+import { PROFILE_IDS, resolveCliProfile } from "../profile.ts";
 import type { Delta } from "../../core/diff.ts";
 
 function subjectKind(d: Delta): string {
@@ -42,13 +43,14 @@ export async function cmdDiff(args: string[]): Promise<void> {
     parsed = parseFlags(args, {
       source: { type: "value", required: true },
       desired: { type: "value", required: true },
+      profile: { type: "value" },
       "strict-coverage": { type: "boolean" },
       "unsafe-show-secrets": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
-        `${err.message}\nUsage: pgdelta diff --source <pg-url> --desired <pg-url> [--strict-coverage] [--unsafe-show-secrets]\n`,
+        `${err.message}\nUsage: pgdelta diff --source <pg-url> --desired <pg-url> [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets]\n`,
       );
       process.exit(2);
     }
@@ -63,10 +65,17 @@ export async function cmdDiff(args: string[]): Promise<void> {
   const src = makePool(sourceUrl);
   const dst = makePool(desiredUrl);
   try {
+    // Resolve the profile against the source: handler-aware extraction + the
+    // policy / capability / baseline that define the managed view, so a
+    // profile-declared baseline's platform objects are subtracted and not shown
+    // as ordinary differences (raw when --profile is omitted).
+    const ctx = await resolveCliProfile(src.pool, flags["profile"], {
+      redactSecrets,
+    });
     process.stderr.write("Extracting source...\n");
     const [sourceResult, desiredResult] = await Promise.all([
-      extract(src.pool, { redactSecrets }),
-      extract(dst.pool, { redactSecrets }),
+      ctx.extract(src.pool, { redactSecrets }),
+      ctx.extract(dst.pool, { redactSecrets }),
     ]);
     process.stderr.write("Extracting desired...\n");
 
@@ -80,7 +89,21 @@ export async function cmdDiff(args: string[]): Promise<void> {
       },
     );
 
-    const deltas = diff(sourceResult.factBase, desiredResult.factBase);
+    // project BOTH sides through the managed view (policy scope + baseline
+    // subtraction + capability) so the diff reflects only what the profile
+    // manages — same lens the DB-to-DB `plan` uses. For the raw profile this is
+    // an identity projection, so the default `diff` is unchanged.
+    const projected = (fb: typeof sourceResult.factBase) =>
+      resolveView(
+        fb,
+        ctx.planOptions.policy,
+        ctx.planOptions.capability,
+        ctx.planOptions.baseline,
+      );
+    const deltas = diff(
+      projected(sourceResult.factBase),
+      projected(desiredResult.factBase),
+    );
 
     if (deltas.length === 0) {
       process.stdout.write("No differences found.\n");

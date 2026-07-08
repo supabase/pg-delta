@@ -6,11 +6,11 @@
  */
 import { diff } from "../../core/diff.ts";
 import { encodeId } from "../../core/stable-id.ts";
-import { extract } from "../../extract/extract.ts";
 import { loadSnapshot } from "../../frontends/snapshot-file.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
 import { parseFlags, UsageError } from "../flags.ts";
+import { PROFILE_IDS, resolveCliProfile } from "../profile.ts";
 
 export async function cmdDrift(args: string[]): Promise<void> {
   let parsed;
@@ -18,13 +18,14 @@ export async function cmdDrift(args: string[]): Promise<void> {
     parsed = parseFlags(args, {
       env: { type: "value", required: true },
       snapshot: { type: "value", required: true },
+      profile: { type: "value" },
       "strict-coverage": { type: "boolean" },
       "unsafe-show-secrets": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
-        `${err.message}\nUsage: pgdelta drift --env <pg-url> --snapshot <file> [--strict-coverage] [--unsafe-show-secrets]\n`,
+        `${err.message}\nUsage: pgdelta drift --env <pg-url> --snapshot <file> [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets]\n`,
       );
       process.exit(2);
     }
@@ -54,12 +55,23 @@ export async function cmdDrift(args: string[]): Promise<void> {
     const redactSecrets =
       snapshotRedactSecrets ?? !flags["unsafe-show-secrets"];
 
+    // Match the extractor to the snapshot: a snapshot captured with
+    // `--profile` carries handler-aware facts (pg_cron intent, pg_partman
+    // provenance), so the live re-extract must run the SAME handlers or those
+    // facts read as spurious drift. `skipBaseline` — drift is a raw
+    // snapshot-vs-live comparison, and the profile may declare a baseline that is
+    // irrelevant here (and need not exist).
+    const ctx = await resolveCliProfile(env.pool, flags["profile"], {
+      redactSecrets,
+      skipBaseline: true,
+    });
+
     process.stderr.write("Extracting live environment...\n");
     const {
       factBase: liveFb,
       pgVersion: livePgVersion,
       diagnostics,
-    } = await extract(env.pool, { redactSecrets });
+    } = await ctx.extract(env.pool, { redactSecrets });
     printDiagnostics(diagnostics);
     exitIfBlocking(diagnostics, {
       strictCoverage: flags["strict-coverage"],
