@@ -290,7 +290,7 @@ function seg(name: string): string {
   );
 }
 
-function pathFor(id: StableId): string {
+function pathFor(id: StableId, fb: FactBase): string {
   const target = fileTarget(id);
   const kind = target.kind;
   // A schema-scoped ALTER DEFAULT PRIVILEGES depends on its schema, so it must
@@ -315,6 +315,22 @@ function pathFor(id: StableId): string {
   }
   if (TABLE_SCOPED.has(kind)) {
     const t = target as { schema: string; table: string };
+    // Foreign keys can form cross-table (even cross-schema) reference cycles:
+    // two tables that reference each other would each land in the other's file,
+    // and because the loader applies each file atomically, neither file can
+    // commit (each needs a table the other file creates). File a table's FK
+    // constraints — and their comment/acl satellites, already unwrapped by
+    // `fileTarget` — into a separate `<table>.fk.sql`, so the table files carry
+    // no inter-table statement and no single file is un-appliable regardless of
+    // cycle shape. The loader's bounded retry loads the `.fk.sql` files once
+    // their referenced tables exist (pg_dump's post-data precedent). PK / UNIQUE
+    // / CHECK / EXCLUDE are single-table and stay in the table file.
+    if (
+      target.kind === "constraint" &&
+      (fb.get(target)?.payload as { type?: string } | undefined)?.type === "f"
+    ) {
+      return `schemas/${seg(t.schema)}/tables/${seg(t.table)}.fk.sql`;
+    }
     return `schemas/${seg(t.schema)}/tables/${seg(t.table)}.sql`;
   }
   if (kind === "index") {
@@ -399,7 +415,8 @@ export function exportSqlFiles(
   const files = new Map<string, { firstAt: number; statements: string[] }>();
   rendered.actions.forEach((action, position) => {
     const subject = subjectOf(action);
-    const path = subject === undefined ? "cluster/misc.sql" : pathFor(subject);
+    const path =
+      subject === undefined ? "cluster/misc.sql" : pathFor(subject, fb);
     const entry = files.get(path) ?? { firstAt: position, statements: [] };
     entry.statements.push(action.sql);
     files.set(path, entry);
@@ -414,7 +431,7 @@ export function exportSqlFiles(
     rendered.actions.forEach((action) => {
       const subject = subjectOf(action);
       const path =
-        subject === undefined ? "cluster/misc.sql" : pathFor(subject);
+        subject === undefined ? "cluster/misc.sql" : pathFor(subject, fb);
       const last = runs[runs.length - 1];
       if (last !== undefined && last.path === path) {
         last.statements.push(action.sql);
@@ -480,7 +497,7 @@ function exportGrouped(
   );
 
   const groupedPath = (id: StableId): string => {
-    const base = pathFor(id);
+    const base = pathFor(id, fb);
     const { schema, objectName } = schemaAndName(id);
     // cluster-level objects (no schema) are never regrouped
     if (schema === undefined) return base;
