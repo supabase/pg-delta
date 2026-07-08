@@ -18,7 +18,7 @@
  * Docker required.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cmdSchemaApply, cmdSchemaExport } from "../src/cli/commands/schema.ts";
@@ -105,6 +105,38 @@ describe("profile-declared baseline (end-to-end)", () => {
       expect((applyError as Error).message).toMatch(/baseline mismatch/);
     } finally {
       await Promise.all([db.drop(), target.drop()]);
+    }
+  }, 120_000);
+
+  test("snapshot --profile can CAPTURE the baseline its profile declares (chicken-and-egg)", async () => {
+    const cluster = await sharedCluster();
+    const db = await cluster.createDb("profbase_capture");
+    const work = mkdtempSync(join(tmpdir(), "pgdelta-profbase-cap-"));
+    try {
+      await db.pool.query(
+        `CREATE SCHEMA plat; CREATE TABLE plat.t (id integer);`,
+      );
+      // the profile DECLARES ./base.json, which does NOT exist yet — this is the
+      // exact file the snapshot is about to write. It must not fail loading it.
+      const profilePath = join(work, "pgdelta-profile.json");
+      const baselinePath = join(work, "base.json");
+      writeFileSync(
+        profilePath,
+        JSON.stringify({ id: "mw", handlers: [], baseline: "./base.json" }),
+        "utf8",
+      );
+      expect(existsSync(baselinePath)).toBe(false);
+      await cmdSnapshot([
+        "--source",
+        db.uri,
+        "--out",
+        baselinePath,
+        "--profile",
+        profilePath,
+      ]);
+      expect(existsSync(baselinePath)).toBe(true);
+    } finally {
+      await db.drop();
     }
   }, 120_000);
 });

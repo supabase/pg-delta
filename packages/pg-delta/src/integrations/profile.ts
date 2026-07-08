@@ -68,6 +68,14 @@ export interface ResolveProfileOptions {
    *  silently stop subtracting. Defaults to `true` (redacted), matching the CLI
    *  default. */
   redactSecrets?: boolean;
+  /** Skip ALL baseline resolution (profile-declared file, policy-declared name,
+   *  and the explicit override). For commands that use only the profile's
+   *  handler-aware EXTRACTION and never subtract a baseline — `snapshot` (which
+   *  CAPTURES the baseline a profile declares, so it must not require that file
+   *  to already exist — the chicken-and-egg) and `drift` (raw snapshot-vs-live
+   *  comparison). `ctx.baseline`, `planOptions.baseline`, and `baselineMeta` stay
+   *  undefined. */
+  skipBaseline?: boolean;
 }
 
 /** A profile resolved against a live source pool: a handler-aware extractor plus
@@ -129,7 +137,9 @@ export async function resolveProfile(
   // when the policy actually declares a baseline, so the common no-baseline path
   // pays nothing.
   let loaded: LoadedBaseline | undefined;
-  if (options.baseline !== undefined) {
+  if (options.skipBaseline) {
+    loaded = undefined;
+  } else if (options.baseline !== undefined) {
     loaded = options.baseline;
   } else if (profile.baselinePath !== undefined) {
     loaded = loadBaselineFile(profile.baselinePath);

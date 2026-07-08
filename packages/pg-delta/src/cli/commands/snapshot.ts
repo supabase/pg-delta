@@ -9,6 +9,12 @@
  * otherwise those handler facts would never hash-match and the baseline would not
  * subtract them. A profile's policy/baseline projection is deliberately NOT
  * applied: a baseline is the raw handler-aware capture, not a managed view.
+ *
+ * Baseline resolution is SKIPPED (`skipBaseline`): a profile that declares a
+ * `"baseline"` is very often being used to CAPTURE that very file, so requiring
+ * it to already exist would be a chicken-and-egg — the first capture (or a
+ * regeneration after the file is deleted / the base image changes) must not fail
+ * loading a baseline it is about to write.
  */
 import { saveSnapshot } from "../../frontends/snapshot-file.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
@@ -44,9 +50,12 @@ export async function cmdSnapshot(args: string[]): Promise<void> {
   const src = makePool(sourceUrl);
   try {
     // handler-aware extraction (profile handlers only); no policy/baseline
-    // projection — a baseline snapshot is the raw capture.
+    // projection — a baseline snapshot is the raw capture. skipBaseline avoids
+    // the chicken-and-egg of a profile that declares the baseline this very
+    // command is capturing.
     const ctx = await resolveCliProfile(src.pool, flags["profile"], {
       redactSecrets,
+      skipBaseline: true,
     });
     process.stderr.write("Extracting...\n");
     const { factBase, pgVersion, diagnostics } = await ctx.extract(src.pool, {

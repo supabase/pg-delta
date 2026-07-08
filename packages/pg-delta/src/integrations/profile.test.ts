@@ -153,4 +153,20 @@ describe("resolveProfile", () => {
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toMatch(/redactSecrets/);
   });
+
+  test("skipBaseline resolves handlers only — a missing declared baseline does not fail", async () => {
+    // snapshot/drift capture handler-aware facts and never subtract a baseline;
+    // a profile that DECLARES a baseline (e.g. the file this snapshot is about to
+    // write) must not make resolution fail loading a not-yet-existent file.
+    const profile: IntegrationProfile = {
+      id: "p",
+      handlers: [],
+      baselinePath: "/no/such/baseline-snapshot.json",
+    };
+    const ctx = await resolveProfile(mockPool({}), profile, {
+      skipBaseline: true,
+    });
+    expect(ctx.baseline).toBeUndefined();
+    expect(ctx.planOptions.baseline).toBeUndefined();
+  });
 });
