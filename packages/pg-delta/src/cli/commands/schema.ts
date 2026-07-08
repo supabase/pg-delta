@@ -876,15 +876,23 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         //    phase (after creates), but PostgreSQL applies a schema's default
         //    privileges only to objects created AFTER it in authored order;
         //    reordering it past a CREATE drops those implicit ACLs (review P2).
+        //    HAND-AUTHORED dirs only: an EXPORTED dir (manifest present) never
+        //    relies on implicit ADP grants — the exporter emits explicit
+        //    per-object REVOKE/GRANT for every object (enforced invariant,
+        //    pinned across objtypes by tests/export-fidelity.test.ts), so ADP
+        //    position is semantics-free there and the assist stays available.
         const parseErrors = analyzed.diagnostics.filter(
           (d) => d.code === "PARSE_ERROR" || d.code === "DISCOVERY_ERROR",
         );
         const sessionSettingFiles = files.filter(
           (f) => findSessionSettingStatements(f.sql).length > 0,
         );
-        const defaultPrivFiles = files.filter(
-          (f) => findDefaultPrivilegeStatements(f.sql).length > 0,
-        );
+        const defaultPrivFiles =
+          manifest === undefined
+            ? files.filter(
+                (f) => findDefaultPrivilegeStatements(f.sql).length > 0,
+              )
+            : [];
 
         if (
           parseErrors.length > 0 ||
