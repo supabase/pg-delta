@@ -13,6 +13,7 @@ import { parseFlags, UsageError } from "../flags.ts";
 import {
   effectiveProfileId,
   PROFILE_IDS,
+  reconcileBaselineDigest,
   resolveCliProfile,
 } from "../profile.ts";
 
@@ -67,15 +68,26 @@ export async function cmdApply(args: string[]): Promise<void> {
         "WARNING: --force disables the fingerprint gate. Applying without state verification.\n",
       );
     }
-    const ctx = await resolveCliProfile(tgt.pool, profileId);
-    process.stderr.write(`Applying ${thePlan.actions.length} action(s)...\n`);
-
     // Reconstruct the fingerprint with the SAME redaction mode the plan used
     // (stamped on the artifact). Without this, an `--unsafe-show-secrets` plan
     // fingerprinted over unredacted secrets is gated against a default-redacted
     // re-extract and aborts unless `--force`. Absent on direct library plans →
     // the extract default (redacted), matching the profile's default reextract.
+    // Passed into profile resolution so a profile-declared baseline captured in
+    // the other mode is rejected.
     const redactSecrets = thePlan.redactSecrets ?? true;
+    const ctx = await resolveCliProfile(tgt.pool, profileId, { redactSecrets });
+    // The baseline the profile resolves MUST match the one the plan was produced
+    // with, or apply reconstructs a different managed view and the fingerprint
+    // gate fails opaquely. Fail loud with a precise message instead (Codex #323
+    // finding 1). --force still skips the fingerprint gate but not this check —
+    // a wrong baseline is a profile/artifact contradiction, not target drift.
+    reconcileBaselineDigest(
+      thePlan.baseline?.digest,
+      ctx.baseline?.digest,
+      "plan artifact",
+    );
+    process.stderr.write(`Applying ${thePlan.actions.length} action(s)...\n`);
 
     const report = await apply(thePlan, tgt.pool, {
       fingerprintGate: !force,

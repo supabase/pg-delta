@@ -21,11 +21,7 @@ import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
 import { parseFlags, UsageError } from "../flags.ts";
-import {
-  loadBaselineFlag,
-  PROFILE_IDS,
-  resolveCliProfile,
-} from "../profile.ts";
+import { PROFILE_IDS, resolveCliProfile } from "../profile.ts";
 import type { RenameMode } from "../../plan/renames.ts";
 import { writeFileSync } from "node:fs";
 
@@ -34,7 +30,7 @@ const USAGE =
   `[--profile ${PROFILE_IDS}] ` +
   "[--renames auto|prompt|off] [--no-compact] [--out <plan.json>] " +
   "[--accept-rename <from>=<to>] ... [--restrict-to-applier] [--strict-coverage] " +
-  "[--baseline <snapshot.json>] [--unsafe-show-secrets]\n";
+  "[--unsafe-show-secrets]\n";
 
 export async function cmdPlan(args: string[]): Promise<void> {
   let parsed;
@@ -49,7 +45,6 @@ export async function cmdPlan(args: string[]): Promise<void> {
       "accept-rename": { type: "multi" },
       "restrict-to-applier": { type: "boolean" },
       "strict-coverage": { type: "boolean" },
-      baseline: { type: "value" },
       "unsafe-show-secrets": { type: "boolean" },
     });
   } catch (err) {
@@ -105,16 +100,19 @@ export async function cmdPlan(args: string[]): Promise<void> {
   const src = makePool(sourceUrl);
   const dst = makePool(desiredUrl);
   try {
+    // redaction mode is passed into profile resolution so a profile-declared
+    // baseline captured in the OTHER mode is rejected (its secret-bearing facts
+    // would hash differently and silently stop subtracting).
+    const redactSecrets = !flags["unsafe-show-secrets"];
     // Resolve the profile against the SOURCE pool (the source is the apply
     // target): this composes handler-aware extraction, the profile's policy +
     // baseline, and — with --restrict-to-applier — the applier capability. All
     // three flow into planOptions so plan == prove == apply (P0/P2).
     const ctx = await resolveCliProfile(src.pool, flags["profile"], {
       restrictToApplier: flags["restrict-to-applier"],
-      ...loadBaselineFlag(flags["baseline"]),
+      redactSecrets,
     });
 
-    const redactSecrets = !flags["unsafe-show-secrets"];
     process.stderr.write("Extracting source...\n");
     process.stderr.write("Extracting desired...\n");
     const [sourceResult, desiredResult] = await Promise.all([

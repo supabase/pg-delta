@@ -78,15 +78,19 @@ Commands:
 Notes:
   --profile: raw | supabase, OR a path to a custom profile .json file
     (a value containing "/" or ending in ".json" is loaded from disk). The
-    file is { "id": ..., "handlers": ["pg_partman", "pg_cron"], "policy"?: {…} },
-    referencing bundled handlers by name. Available on plan / diff / drift /
-    snapshot / apply / prove / schema export / schema apply.
-  --baseline <snapshot.json> (plan, schema export, schema apply): subtract a
-    baseline FactBase (a "pgdelta snapshot" file) from both sides before
-    diffing, so platform-provided objects (base-image roles, extension-owned
-    schemas, etc.) captured in the baseline are invisible. Lets a CUSTOM profile
-    scope the managed view without a committed, policy-declared baseline; takes
-    precedence over any policy-declared baseline name.
+    file is { "id": ..., "handlers": ["pg_partman", "pg_cron"], "policy"?: {…},
+    "baseline"?: "./middleware-base.json" }, referencing bundled handlers by
+    name. Available on plan / diff / drift / snapshot / apply / prove /
+    schema export / schema apply.
+    A profile's "baseline" is a "pgdelta snapshot" file (path resolved relative
+    to the profile file) subtracted from both sides before diffing, so
+    platform-provided objects (base-image roles, extension-owned schemas)
+    captured in it are invisible to the managed view — no policy or per-command
+    flag needed. Its digest is stamped on plan artifacts / export manifests and
+    reconciled at apply/prove time, so a swapped/edited/missing baseline fails
+    loud (plan == prove == apply). Capture one with `snapshot --profile <same>`
+    so it carries the same handler-aware facts. A baseline captured in a
+    different --unsafe-show-secrets mode than the command's is rejected.
   render: writes the plan's SQL as one .sql file per executor segment,
     split on the same boundaries "apply" uses at execution time. A single
     segment writes <base>.sql; multiple segments write <base>_1.sql,

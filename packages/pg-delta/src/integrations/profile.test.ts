@@ -88,27 +88,32 @@ describe("resolveProfile", () => {
     expect(ctx.proveOptions.capability).toBeUndefined();
   });
 
-  test("an explicit baseline override is threaded into all three bundles", async () => {
-    // a caller (e.g. the CLI `--baseline <file>`) can supply a pre-loaded
-    // baseline FactBase for a profile with no policy-declared baseline.
-    const baseline = buildFactBase(
+  test("an explicit baseline override is threaded into all three bundles + stamped", async () => {
+    // a caller (library / test) can supply a pre-loaded LoadedBaseline for a
+    // profile with no policy-declared baseline. The engine option is its
+    // FactBase; the digest is stamped on planOptions.baselineMeta + ctx.baseline.
+    const factBase = buildFactBase(
       [{ id: { kind: "schema", name: "platform" }, payload: {} }],
       [],
     );
+    const baseline = { factBase, digest: factBase.rootHash };
     const ctx = await resolveProfile(mockPool({}), rawProfile, { baseline });
-    expect(ctx.planOptions.baseline).toBe(baseline);
-    expect(ctx.proveOptions.baseline).toBe(baseline);
-    expect(ctx.applyOptions.baseline).toBe(baseline);
+    expect(ctx.planOptions.baseline).toBe(factBase);
+    expect(ctx.proveOptions.baseline).toBe(factBase);
+    expect(ctx.applyOptions.baseline).toBe(factBase);
+    expect(ctx.planOptions.baselineMeta?.digest).toBe(factBase.rootHash);
+    expect(ctx.baseline?.digest).toBe(factBase.rootHash);
   });
 
   test("an explicit baseline override wins over a policy-declared baseline name", async () => {
     // profile whose policy declares a baseline NAME (which would resolve from
     // the committed baselines dir); the explicit override replaces it without
     // touching the dir, so a missing committed snapshot never even matters.
-    const override = buildFactBase(
+    const factBase = buildFactBase(
       [{ id: { kind: "schema", name: "x" }, payload: {} }],
       [],
     );
+    const override = { factBase, digest: factBase.rootHash };
     const profile: IntegrationProfile = {
       id: "p",
       handlers: [],
@@ -121,6 +126,31 @@ describe("resolveProfile", () => {
     const ctx = await resolveProfile(mockPool({}), profile, {
       baseline: override,
     });
-    expect(ctx.planOptions.baseline).toBe(override);
+    expect(ctx.planOptions.baseline).toBe(factBase);
+  });
+
+  test("rejects a baseline whose redaction mode differs from the command's", async () => {
+    // a baseline captured redacted, applied by a command extracting unredacted
+    // (or vice versa) would silently stop subtracting — fail loud.
+    const factBase = buildFactBase(
+      [{ id: { kind: "schema", name: "platform" }, payload: {} }],
+      [],
+    );
+    const baseline = {
+      factBase,
+      digest: factBase.rootHash,
+      redactSecrets: true,
+    };
+    let err: unknown;
+    try {
+      await resolveProfile(mockPool({}), rawProfile, {
+        baseline,
+        redactSecrets: false,
+      });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/redactSecrets/);
   });
 });

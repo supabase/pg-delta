@@ -84,7 +84,8 @@ export {
 } from "./policy/policy.ts";
 export {
   subtractBaseline,
-  loadBaseline,
+  loadBaselineFile,
+  type LoadedBaseline,
   resolveBaseline,
 } from "./policy/baseline.ts";
 export { supabasePolicy } from "./policy/supabase.ts";

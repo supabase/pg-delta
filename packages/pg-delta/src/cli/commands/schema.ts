@@ -98,8 +98,8 @@ import {
 import { parseFlags, UsageError } from "../flags.ts";
 import {
   effectiveProfileId,
-  loadBaselineFlag,
   PROFILE_IDS,
+  reconcileBaselineDigest,
   resolveCliProfile,
 } from "../profile.ts";
 import type { RenameMode } from "../../plan/renames.ts";
@@ -150,6 +150,7 @@ export function writeExportFiles(
     redactSecrets: boolean;
     profile?: string;
     scope?: "database" | "cluster";
+    baselineDigest?: string;
   },
 ): string[] {
   mkdirSync(outRoot, { recursive: true });
@@ -179,7 +180,6 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       "out-dir": { type: "value", required: true },
       layout: { type: "value" },
       profile: { type: "value" },
-      baseline: { type: "value" },
       "strict-coverage": { type: "boolean" },
       "unsafe-show-secrets": { type: "boolean" },
       "grouping-mode": { type: "value" },
@@ -193,7 +193,7 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pgdelta schema export --source <pg-url> --out-dir <dir> ` +
-          `[--layout by-object|ordered|grouped] [--profile ${PROFILE_IDS}] [--baseline <snapshot.json>] [--strict-coverage] [--unsafe-show-secrets] [--scope database|cluster]\n` +
+          `[--layout by-object|ordered|grouped] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets] [--scope database|cluster]\n` +
           `  [--format-options '{"keywordCase":"upper","maxWidth":180}']  (pretty-print SQL; any layout)\n` +
           `  Grouped-layout options (only with --layout grouped):\n` +
           `    [--grouping-mode single-file|subdirectory] [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]\n`,
@@ -304,13 +304,15 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
 
   const src = makePool(sourceUrl);
   try {
+    const redactSecrets = !flags["unsafe-show-secrets"];
     // resolve the profile against the source pool so export sees the SAME
     // handler-aware managed view as the profile-aware DB-to-DB path (review P1).
+    // redactSecrets is passed so a profile-declared baseline captured in the
+    // other mode is rejected rather than silently not subtracting.
     const ctx = await resolveCliProfile(src.pool, flags["profile"], {
-      ...loadBaselineFlag(flags["baseline"]),
+      redactSecrets,
     });
     process.stderr.write("Extracting...\n");
-    const redactSecrets = !flags["unsafe-show-secrets"];
     const { factBase, diagnostics } = await ctx.extract(src.pool, {
       redactSecrets,
     });
@@ -343,11 +345,17 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     // edges) from the exported view, so no `cluster/roles.sql` is written and the
     // directory reloads on any cluster. The projected-out roles become ambient,
     // so a `GRANT … TO <role>` the export still emits must be assumed present, or
-    // the from-pristine export plan would fail its requirement guard.
+    // the from-pristine export plan would fail its requirement guard. Enumerate
+    // the assumed roles from the PRE-baseline extraction (`factBase`), not the
+    // subtracted `view`: a role subtracted as baseline-identical (a platform role)
+    // still exists at apply time and is still referenced by a surviving object's
+    // owner/REVOKE, so it must stay assumed — otherwise a profile-declared
+    // baseline breaks the export's requirement guard (same pre-subtraction rule as
+    // the assumed-schema seed).
     const scopedView = projectManagementScope(view, exportScope);
     const scopeAssumedRoles =
       exportScope === "database"
-        ? view
+        ? factBase
             .facts()
             .filter((f) => f.id.kind === "role")
             .map((f) => (f.id as { name: string }).name)
@@ -383,6 +391,12 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       redactSecrets,
       scope: exportScope,
       ...(exportProfileId !== undefined ? { profile: exportProfileId } : {}),
+      // stamp the baseline digest so `schema apply` fails loud if the profile it
+      // resolves subtracts a different (or no) baseline — otherwise the platform
+      // objects this export omitted would read as source-only drops.
+      ...(ctx.baseline !== undefined
+        ? { baselineDigest: ctx.baseline.digest }
+        : {}),
     });
     if (removed.length > 0) {
       process.stderr.write(
@@ -480,7 +494,6 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       force: { type: "boolean" },
       "accept-rename": { type: "multi" },
       profile: { type: "value" },
-      baseline: { type: "value" },
       "restrict-to-applier": { type: "boolean" },
       "strict-coverage": { type: "boolean" },
       "no-reorder": { type: "boolean" },
@@ -495,7 +508,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       process.stderr.write(
         `${err.message}\nUsage: pgdelta schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
-          `[--profile ${PROFILE_IDS}] [--baseline <snapshot.json>] [--restrict-to-applier] [--strict-coverage] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow]\n` +
+          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow]\n` +
           `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.\n`,
       );
       process.exit(2);
@@ -667,15 +680,6 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   const shadow = makePool(shadowUrl);
   const tgt = makePool(targetUrl);
   try {
-    // resolve the profile against the TARGET pool (the apply target): this
-    // composes handler-aware extraction, policy, baseline, and — with
-    // --restrict-to-applier — the applier capability, exactly as the DB-to-DB
-    // `plan` command does, so SQL-file apply == DB-to-DB plan (review P1).
-    const ctx = await resolveCliProfile(tgt.pool, profileId, {
-      restrictToApplier: flags["restrict-to-applier"],
-      ...loadBaselineFlag(flags["baseline"]),
-    });
-
     // Secret redaction applies to BOTH sides so the diff stays consistent. With
     // --unsafe-show-secrets the declarative SQL's real FDW/server credentials and
     // subscription conninfo flow through the shadow extract unredacted and apply
@@ -688,9 +692,33 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     // manifest, so a `--unsafe-show-secrets` export re-loads its real credentials
     // without the operator re-passing the flag (and a redacted export is not
     // silently applied unredacted). The flag remains the fallback for directories
-    // without a manifest (older exports / hand-authored dirs).
+    // without a manifest (older exports / hand-authored dirs). Computed BEFORE
+    // profile resolution so a profile-declared baseline captured in the other
+    // mode is rejected.
     const redactSecrets =
       manifest?.redactSecrets ?? !flags["unsafe-show-secrets"];
+
+    // resolve the profile against the TARGET pool (the apply target): this
+    // composes handler-aware extraction, policy, baseline, and — with
+    // --restrict-to-applier — the applier capability, exactly as the DB-to-DB
+    // `plan` command does, so SQL-file apply == DB-to-DB plan (review P1).
+    const ctx = await resolveCliProfile(tgt.pool, profileId, {
+      restrictToApplier: flags["restrict-to-applier"],
+      redactSecrets,
+    });
+
+    // Reconcile the baseline this profile resolves against the digest the export
+    // recorded: a directory whose platform objects were omitted by a baseline
+    // must not be applied under a profile that subtracts a DIFFERENT (or no)
+    // baseline, or those platform objects read as source-only drops (Codex #323
+    // findings 1+2). No manifest (hand-authored dir) → nothing to reconcile.
+    if (manifest !== undefined) {
+      reconcileBaselineDigest(
+        manifest.baselineDigest,
+        ctx.baseline?.digest,
+        "export manifest",
+      );
+    }
 
     // Extract the target FIRST (Phase 2b): the co-located seed is derived from
     // it, and the SAME result is reused as the diff source below — no second

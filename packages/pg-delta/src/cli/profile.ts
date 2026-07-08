@@ -8,6 +8,7 @@
  * default) is the unrestricted view for generic users and tests.
  */
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import type { Pool } from "pg";
 import {
   type ExtensionHandler,
@@ -20,7 +21,6 @@ import {
   resolveProfile,
   supabaseProfile,
 } from "../integrations/index.ts";
-import { loadBaseline } from "../policy/baseline.ts";
 import type { Policy } from "../policy/policy.ts";
 import { UsageError } from "./flags.ts";
 
@@ -50,14 +50,19 @@ export function isProfilePath(id: string): boolean {
  * {@link HANDLER_BY_NAME}) so it stays plain, serializable data:
  *
  *   { "id": "platform-middleware", "handlers": ["pg_partman", "pg_cron"],
- *     "policy"?: { ...a serializable Policy... } }
+ *     "policy"?: { ...a serializable Policy... },
+ *     "baseline"?: "./middleware-base.json" }
  *
- * `source` is the path/label used in error messages. Pure (no disk) so it is
- * unit-testable; {@link loadProfile} reads the file and delegates here.
+ * `baseline` is a path to a `pgdelta snapshot` file; a relative path is resolved
+ * against `opts.dir` (the profile file's own directory) so a committed profile +
+ * baseline pair is portable. `source` is the path/label used in error messages.
+ * Pure (no disk) so it is unit-testable; {@link loadProfile} reads the file,
+ * passes its directory as `opts.dir`, and delegates here.
  */
 export function parseProfileFile(
   json: string,
   source: string,
+  opts: { dir?: string } = {},
 ): IntegrationProfile {
   let parsed: unknown;
   try {
@@ -95,12 +100,30 @@ export function parseProfileFile(
     handlers.push(handler);
   }
   const policy = obj["policy"];
+  const rawBaseline = obj["baseline"];
+  if (
+    rawBaseline !== undefined &&
+    (typeof rawBaseline !== "string" || rawBaseline === "")
+  ) {
+    throw new UsageError(
+      `profile ${source}: "baseline" must be a non-empty string path to a snapshot file`,
+    );
+  }
+  // resolve a relative baseline path against the profile file's own directory so
+  // a committed profile + baseline pair is portable; an absolute path is kept.
+  const baselinePath =
+    typeof rawBaseline === "string"
+      ? opts.dir !== undefined
+        ? resolve(opts.dir, rawBaseline)
+        : rawBaseline
+      : undefined;
   return {
     id: obj["id"],
     handlers,
     ...(policy !== undefined && policy !== null
       ? { policy: policy as Policy }
       : {}),
+    ...(baselinePath !== undefined ? { baselinePath } : {}),
   };
 }
 
@@ -114,7 +137,7 @@ export function loadProfile(path: string): IntegrationProfile {
       `profile ${path}: cannot read file — ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  return parseProfileFile(json, path);
+  return parseProfileFile(json, path, { dir: dirname(path) });
 }
 
 /** Map a `--profile` value to its profile: a built-in id (`raw`/`supabase`,
@@ -141,23 +164,43 @@ export function resolveCliProfile(
 }
 
 /**
- * Resolve a `--baseline <file>` flag into a spreadable `ResolveProfileOptions`
- * fragment: `{ baseline }` when a path is given (loaded via {@link loadBaseline}
- * — a `pgdelta snapshot` file), or `{}` otherwise. Lets a command feed an
- * external platform baseline into `resolveCliProfile` for a custom profile that
- * has no committed, policy-declared baseline. Wraps load errors as UsageErrors.
+ * Reconcile the baseline DIGEST stamped on a produced artifact (plan artifact /
+ * export manifest) against the digest the current command resolved from its
+ * profile. Throws a UsageError on ANY asymmetry:
+ *   - both present but different → a swapped or edited baseline;
+ *   - stamped but the command resolved none → the profile no longer declares the
+ *     baseline the artifact was produced with;
+ *   - the command resolved one but the artifact carries none → the profile now
+ *     declares a baseline the artifact was NOT produced with.
+ *
+ * This turns the fingerprint gate's opaque "re-plan" into a precise diagnosis and
+ * enforces the plan == prove == apply invariant for profile-file baselines (which
+ * carry no policy-declared NAME the older name-based guard could check). `context`
+ * names the artifact for the message (e.g. "plan artifact", "export manifest").
  */
-export function loadBaselineFlag(
-  path: string | undefined,
-): Pick<ResolveProfileOptions, "baseline"> {
-  if (path === undefined) return {};
-  try {
-    return { baseline: loadBaseline(path) };
-  } catch (err) {
+export function reconcileBaselineDigest(
+  stamped: string | undefined,
+  resolved: string | undefined,
+  context: string,
+): void {
+  if (stamped === resolved) return;
+  if (stamped !== undefined && resolved !== undefined) {
     throw new UsageError(
-      `--baseline ${path}: ${err instanceof Error ? err.message : String(err)}`,
+      `baseline mismatch: the ${context} was produced with baseline digest ${stamped.slice(0, 12)} ` +
+        `but the profile now resolves to ${resolved.slice(0, 12)}. The baseline changed since the ` +
+        `${context} was produced — regenerate it, or point the profile back at the original baseline.`,
     );
   }
+  if (stamped !== undefined) {
+    throw new UsageError(
+      `baseline mismatch: the ${context} was produced with baseline digest ${stamped.slice(0, 12)} ` +
+        `but the profile now declares NO baseline. Restore the profile's baseline, or regenerate the ${context}.`,
+    );
+  }
+  throw new UsageError(
+    `baseline mismatch: the profile declares a baseline (digest ${resolved?.slice(0, 12)}) but the ${context} ` +
+      `was produced with NONE. Regenerate the ${context} with this profile, or remove the profile's baseline.`,
+  );
 }
 
 /**

@@ -30,6 +30,12 @@ export interface ExportManifest {
    *  cluster-global roles/memberships; `cluster` includes them. `schema apply`
    *  defaults to this and rejects a contradicting `--scope`. */
   scope?: "database" | "cluster";
+  /** the DIGEST of the baseline subtracted when the directory was exported.
+   *  `schema apply` reconciles the baseline it resolves against this and fails
+   *  loud on a mismatch — so an export whose platform objects were omitted by a
+   *  baseline can't be applied under a profile that no longer subtracts the same
+   *  baseline (which would read those platform objects as source-only drops). */
+  baselineDigest?: string;
 }
 
 export function writeExportManifest(
@@ -38,6 +44,7 @@ export function writeExportManifest(
     redactSecrets: boolean;
     profile?: string;
     scope?: "database" | "cluster";
+    baselineDigest?: string;
   },
 ): void {
   writeFileSync(
@@ -84,6 +91,9 @@ export function readExportManifest(dir: string): ExportManifest | undefined {
   }
   if (doc["scope"] === "database" || doc["scope"] === "cluster") {
     manifest.scope = doc["scope"];
+  }
+  if (typeof doc["baselineDigest"] === "string") {
+    manifest.baselineDigest = doc["baselineDigest"];
   }
   return manifest;
 }

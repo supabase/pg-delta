@@ -107,15 +107,46 @@ export function subtractBaseline(fb: FactBase, baseline: FactBase): FactBase {
 }
 
 /**
- * Load a baseline FactBase from a snapshot JSON file at the given path.
+ * A baseline loaded from a `pgdelta snapshot` file, carrying the metadata a
+ * caller needs to keep the managed view consistent across commands:
+ *   - `factBase`  — the facts to subtract (fed to `subtractBaseline`);
+ *   - `digest`    — the snapshot's verified content hash (`factBase.rootHash`),
+ *                   stamped on plan artifacts / export manifests and reconciled
+ *                   at apply/prove time so a swapped or edited baseline fails
+ *                   loud instead of silently diffing a different view;
+ *   - `redactSecrets` — the redaction mode the snapshot was captured with, so a
+ *                   command extracting in a DIFFERENT mode can reject the
+ *                   mismatch (redacted vs unredacted payloads hash differently,
+ *                   so the baseline would silently stop subtracting);
+ *   - `path`      — source path, for diagnostics.
+ */
+export interface LoadedBaseline {
+  readonly factBase: FactBase;
+  readonly digest: string;
+  readonly redactSecrets?: boolean;
+  readonly path?: string;
+}
+
+/**
+ * Load a baseline from a snapshot JSON file at the given path, with the digest
+ * and redaction metadata needed for cross-command reconciliation.
  *
  * Uses node:fs (synchronous) to read the file, then deserializes via
  * src/core/snapshot.ts. Throws if the file does not exist or the snapshot
- * digest is corrupt.
+ * digest is corrupt (deserializeSnapshot re-verifies the digest on load, so a
+ * successful load IS verification).
  */
-export function loadBaseline(path: string): FactBase {
+export function loadBaselineFile(path: string): LoadedBaseline {
   const json = readFileSync(path, "utf-8");
-  return deserializeSnapshot(json).factBase;
+  const snap = deserializeSnapshot(json);
+  return {
+    factBase: snap.factBase,
+    digest: snap.factBase.rootHash,
+    ...(snap.redactSecrets !== undefined
+      ? { redactSecrets: snap.redactSecrets }
+      : {}),
+    path,
+  };
 }
 
 /** Where committed baseline snapshots live (`src/policy/baselines/`). */
@@ -138,7 +169,7 @@ const BASELINE_DIR = fileURLToPath(new URL("./baselines/", import.meta.url));
 export function resolveBaseline(
   policy: { id: string; baseline?: string },
   opts: { pgMajor: number; dir?: string },
-): FactBase | undefined {
+): LoadedBaseline | undefined {
   if (policy.baseline === undefined) return undefined;
   const dir = opts.dir ?? BASELINE_DIR;
   const candidates = [
@@ -146,7 +177,7 @@ export function resolveBaseline(
     join(dir, `${policy.baseline}.json`),
   ];
   for (const path of candidates) {
-    if (existsSync(path)) return loadBaseline(path);
+    if (existsSync(path)) return loadBaselineFile(path);
   }
   throw new Error(
     `policy "${policy.id}" declares baseline "${policy.baseline}" but no baseline ` +

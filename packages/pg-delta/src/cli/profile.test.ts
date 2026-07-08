@@ -13,9 +13,9 @@ import { UsageError } from "./flags.ts";
 import {
   effectiveProfileId,
   isProfilePath,
-  loadBaselineFlag,
   parseProfileFile,
   profileById,
+  reconcileBaselineDigest,
 } from "./profile.ts";
 
 function writeTempProfile(contents: string): string {
@@ -158,28 +158,86 @@ describe("profileById with a file path", () => {
   });
 });
 
-describe("loadBaselineFlag", () => {
-  test("returns {} when no --baseline path is given", () => {
-    expect(loadBaselineFlag(undefined)).toEqual({});
+describe("parseProfileFile: baseline field", () => {
+  test("resolves a relative baseline path against the profile file's directory", () => {
+    const profile = parseProfileFile(
+      JSON.stringify({
+        id: "mw",
+        handlers: [],
+        baseline: "./middleware-base.json",
+      }),
+      "/proj/db/pgdelta-profile.json",
+      { dir: "/proj/db" },
+    );
+    expect(profile.baselinePath).toBe("/proj/db/middleware-base.json");
   });
 
-  test("loads a snapshot file into a baseline FactBase override", () => {
+  test("keeps an absolute baseline path as-is; omits when absent", () => {
+    expect(
+      parseProfileFile(
+        JSON.stringify({ id: "a", handlers: [], baseline: "/abs/base.json" }),
+        "p.json",
+        { dir: "/proj" },
+      ).baselinePath,
+    ).toBe("/abs/base.json");
+    expect(
+      parseProfileFile(JSON.stringify({ id: "b", handlers: [] }), "p.json")
+        .baselinePath,
+    ).toBeUndefined();
+  });
+
+  test("rejects a non-string / empty baseline", () => {
+    expect(() =>
+      parseProfileFile(
+        JSON.stringify({ id: "a", handlers: [], baseline: 5 }),
+        "p.json",
+      ),
+    ).toThrow(/"baseline" must be a non-empty string/);
+    expect(() =>
+      parseProfileFile(
+        JSON.stringify({ id: "a", handlers: [], baseline: "" }),
+        "p.json",
+      ),
+    ).toThrow(/"baseline" must be a non-empty string/);
+  });
+
+  test("a profile .json with a relative baseline loads with an absolute baselinePath", () => {
     const fb = buildFactBase(
       [{ id: { kind: "schema", name: "platform" }, payload: {} }],
       [],
     );
-    const path = writeTempSnapshot(fb);
-    const result = loadBaselineFlag(path);
-    // round-trips to the same fact base (same content hash)
-    expect(result.baseline?.rootHash).toBe(fb.rootHash);
+    const snapPath = writeTempSnapshot(fb);
+    const dir = mkdtempSync(join(tmpdir(), "pgdelta-profile-baseline-"));
+    const profilePath = join(dir, "profile.json");
+    // reference the snapshot by a path relative to the profile file's dir
+    writeFileSync(
+      profilePath,
+      JSON.stringify({ id: "mw", handlers: [], baseline: snapPath }),
+      "utf8",
+    );
+    expect(profileById(profilePath).baselinePath).toBe(snapPath);
+  });
+});
+
+describe("reconcileBaselineDigest", () => {
+  test("passes when the digests match (or both absent)", () => {
+    expect(() =>
+      reconcileBaselineDigest("abc", "abc", "plan artifact"),
+    ).not.toThrow();
+    expect(() =>
+      reconcileBaselineDigest(undefined, undefined, "plan artifact"),
+    ).not.toThrow();
   });
 
-  test("wraps a load failure (missing file) as a UsageError", () => {
-    expect(() => loadBaselineFlag("/no/such/snapshot.json")).toThrow(
-      UsageError,
-    );
-    expect(() => loadBaselineFlag("/no/such/snapshot.json")).toThrow(
-      /--baseline \/no\/such\/snapshot\.json:/,
-    );
+  test("throws on every asymmetry (mismatch / stamped-only / resolved-only)", () => {
+    expect(() =>
+      reconcileBaselineDigest("aaaa", "bbbb", "plan artifact"),
+    ).toThrow(UsageError);
+    expect(() =>
+      reconcileBaselineDigest("aaaa", undefined, "export manifest"),
+    ).toThrow(/declares NO baseline/);
+    expect(() =>
+      reconcileBaselineDigest(undefined, "bbbb", "export manifest"),
+    ).toThrow(/was produced with NONE/);
   });
 });

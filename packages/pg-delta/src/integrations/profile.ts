@@ -16,7 +16,6 @@
  */
 import type { Pool } from "pg";
 import type { ApplyOptions } from "../apply/apply.ts";
-import type { FactBase } from "../core/fact.ts";
 import {
   extract,
   type ExtractOptions,
@@ -26,7 +25,11 @@ import type { ExtensionHandler } from "../extract/handler.ts";
 import type { PlanOptions } from "../plan/plan.ts";
 import { buildIntentRuleIndex } from "../plan/rules.ts";
 import type { ProveOptions } from "../proof/prove.ts";
-import { resolveBaseline } from "../policy/baseline.ts";
+import {
+  type LoadedBaseline,
+  loadBaselineFile,
+  resolveBaseline,
+} from "../policy/baseline.ts";
 import { probeApplierCapability } from "../policy/capability.ts";
 import type { Policy } from "../policy/policy.ts";
 
@@ -40,6 +43,12 @@ export interface IntegrationProfile {
   /** Policy supplying scope-filter + serialize rules (and an optional declared
    *  baseline name resolved at `resolveProfile` time). */
   readonly policy?: Policy;
+  /** Absolute path to an external baseline snapshot (`pgdelta snapshot` file).
+   *  Stays pure data — the FactBase is loaded ONCE at `resolveProfile` time
+   *  (the snapshot self-verifies its digest on load). Set by the CLI when a
+   *  custom profile file declares `"baseline": "./…"` (resolved relative to the
+   *  profile file's directory). Wins over a policy-declared baseline NAME. */
+  readonly baselinePath?: string;
 }
 
 export interface ResolveProfileOptions {
@@ -49,12 +58,16 @@ export interface ResolveProfileOptions {
   /** Directory to resolve a policy's declared baseline snapshot from (defaults
    *  to the committed `src/policy/baselines/`). */
   baselineDir?: string;
-  /** Explicit baseline FactBase (e.g. from the CLI `--baseline <file>`, loaded
-   *  via `loadBaseline`). Takes precedence over a policy-declared baseline name:
-   *  when set, it is used as-is and the committed baselines dir is not consulted.
-   *  Lets a CUSTOM profile subtract an external platform baseline without
-   *  shipping a committed snapshot. */
-  baseline?: FactBase;
+  /** Explicit pre-loaded baseline. The engine-level override seam (library
+   *  callers / tests); wins over both `profile.baselinePath` and a policy-declared
+   *  baseline name. */
+  baseline?: LoadedBaseline;
+  /** The redaction mode of the extraction this profile will drive. Validated
+   *  against the resolved baseline's recorded mode — a mismatch throws, because
+   *  redacted vs unredacted payloads hash differently and the baseline would
+   *  silently stop subtracting. Defaults to `true` (redacted), matching the CLI
+   *  default. */
+  redactSecrets?: boolean;
 }
 
 /** A profile resolved against a live source pool: a handler-aware extractor plus
@@ -62,6 +75,9 @@ export interface ResolveProfileOptions {
  *  capability + baseline. */
 export interface ResolvedProfile {
   readonly id: string;
+  /** The profile's extension handlers (exposed so a caller — e.g. `schema
+   *  apply`'s shadow precheck — can inspect them without re-opening the profile). */
+  readonly handlers: readonly ExtensionHandler[];
   /** Handler-aware extraction (core + this profile's handlers, same snapshot).
    *  A plain function field, not a method: callers pass it around by value
    *  (`ctx.extract ?? extract`), and it never relies on `this`. */
@@ -69,6 +85,13 @@ export interface ResolvedProfile {
     pool: Pool,
     options?: ExtractOptions,
   ) => Promise<ExtractResult>;
+  /** Metadata of the baseline in effect (undefined when none), for stamping a
+   *  plan artifact / export manifest and reconciling it at apply/prove time. */
+  readonly baseline?: {
+    readonly digest: string;
+    readonly redactSecrets?: boolean;
+    readonly path?: string;
+  };
   readonly planOptions: PlanOptions;
   readonly proveOptions: ProveOptions;
   readonly applyOptions: ApplyOptions;
@@ -99,20 +122,48 @@ export async function resolveProfile(
     ? await probeApplierCapability(pool)
     : undefined;
 
-  // An explicit baseline override (CLI `--baseline <file>`) wins over a
-  // policy-declared baseline name and skips the committed-dir lookup entirely.
-  // Otherwise resolveBaseline returns undefined immediately when the policy
-  // declares no baseline, so we only pay for the pgMajor probe when needed.
-  const baseline =
-    options.baseline ??
-    (policy?.baseline !== undefined
-      ? resolveBaseline(policy, {
-          pgMajor: await probePgMajor(pool),
-          ...(options.baselineDir !== undefined
-            ? { dir: options.baselineDir }
-            : {}),
-        })
-      : undefined);
+  // Baseline precedence: an explicit pre-loaded override (options.baseline) wins,
+  // then a profile-declared file (baselinePath), then a policy-declared NAME
+  // resolved against the committed baselines dir. Each yields a LoadedBaseline
+  // carrying facts + digest + redaction mode. resolveBaseline only probes pgMajor
+  // when the policy actually declares a baseline, so the common no-baseline path
+  // pays nothing.
+  let loaded: LoadedBaseline | undefined;
+  if (options.baseline !== undefined) {
+    loaded = options.baseline;
+  } else if (profile.baselinePath !== undefined) {
+    loaded = loadBaselineFile(profile.baselinePath);
+  } else if (policy?.baseline !== undefined) {
+    loaded = resolveBaseline(policy, {
+      pgMajor: await probePgMajor(pool),
+      ...(options.baselineDir !== undefined
+        ? { dir: options.baselineDir }
+        : {}),
+    });
+  }
+
+  // Redaction guard: a baseline captured in a DIFFERENT redaction mode than this
+  // command's extraction hashes its secret-bearing facts differently, so it would
+  // silently stop subtracting them (the platform objects the operator asked to
+  // hide would reappear). Fail loud instead. Default both sides to redacted.
+  if (loaded !== undefined) {
+    const baselineMode = loaded.redactSecrets ?? true;
+    const commandMode = options.redactSecrets ?? true;
+    if (baselineMode !== commandMode) {
+      throw new Error(
+        `baseline ${loaded.path ?? loaded.digest.slice(0, 12)} was captured with ` +
+          `redactSecrets=${baselineMode}, but this command extracts with ` +
+          `redactSecrets=${commandMode}; mismatched redaction makes baseline facts ` +
+          `hash differently so the baseline would silently stop subtracting. ` +
+          `Re-capture the baseline in the matching mode ` +
+          `(pgdelta snapshot ${commandMode ? "" : "--unsafe-show-secrets "}--profile …).`,
+      );
+    }
+  }
+
+  // The engine option is a plain FactBase; the digest/redaction metadata travels
+  // separately (planOptions.baselineMeta + ResolvedProfile.baseline).
+  const baseline = loaded?.factBase;
 
   const profileExtract = (
     p: Pool,
@@ -135,15 +186,33 @@ export async function resolveProfile(
     ...(baseline !== undefined ? { baseline } : {}),
   };
 
+  // baseline metadata for artifact/manifest stamping + apply/prove reconciliation
+  const baselineMeta =
+    loaded !== undefined
+      ? {
+          digest: loaded.digest,
+          ...(loaded.redactSecrets !== undefined
+            ? { redactSecrets: loaded.redactSecrets }
+            : {}),
+          ...(loaded.path !== undefined ? { path: loaded.path } : {}),
+        }
+      : undefined;
+
   return {
     id: profile.id,
+    handlers,
     extract: profileExtract,
+    ...(baselineMeta !== undefined ? { baseline: baselineMeta } : {}),
     // stamp the profile id on planOptions so plan() records it on the artifact;
     // apply/prove then reconstruct this view without the operator repeating
-    // --profile (P2 follow-up).
+    // --profile (P2 follow-up). baselineMeta stamps the baseline DIGEST on the
+    // artifact so apply/prove fail loud on a swapped/edited baseline.
     planOptions: {
       ...view,
       profile: { id: profile.id },
+      ...(loaded !== undefined
+        ? { baselineMeta: { digest: loaded.digest } }
+        : {}),
       ...(intentRules.size > 0 ? { intentRules } : {}),
     },
     proveOptions: { ...view, reextract: (p) => profileExtract(p) },

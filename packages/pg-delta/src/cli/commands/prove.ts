@@ -15,6 +15,7 @@ import { parseFlags, UsageError } from "../flags.ts";
 import {
   effectiveProfileId,
   PROFILE_IDS,
+  reconcileBaselineDigest,
   resolveCliProfile,
 } from "../profile.ts";
 
@@ -137,7 +138,18 @@ export async function cmdProve(args: string[]): Promise<void> {
     process.stderr.write(
       `Proving plan (${thePlan.actions.length} action(s))...\n`,
     );
-    const ctx = await resolveCliProfile(clone.pool, profileId);
+    const ctx = await resolveCliProfile(clone.pool, profileId, {
+      redactSecrets: planRedactSecrets,
+    });
+    // The baseline the profile resolves MUST match the plan's, or the proof
+    // reconstructs a different managed view than the plan diffed. Fail loud with
+    // a precise message (Codex #323 finding 1) — prove never got the old
+    // `--baseline` flag, so a baselined plan silently proved a different view.
+    reconcileBaselineDigest(
+      thePlan.baseline?.digest,
+      ctx.baseline?.digest,
+      "plan artifact",
+    );
     // Re-extract the post-apply clone with the SAME redaction mode the plan used
     // (stamped on the artifact), so the proof compares like-for-like against the
     // desired snapshot — an unredacted (`--unsafe-show-secrets`) plan must not be

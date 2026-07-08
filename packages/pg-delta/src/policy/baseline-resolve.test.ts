@@ -60,7 +60,10 @@ describe("resolveBaseline — fail-loud", () => {
       { id: "supabase", baseline: "supabase-baseline" },
       { pgMajor: 17, dir },
     );
-    expect(resolved?.has(schemaPublic)).toBe(true);
+    expect(resolved?.factBase.has(schemaPublic)).toBe(true);
+    // the loaded baseline carries the digest (== the snapshot's rootHash) so
+    // plan/apply/prove can reconcile it across commands.
+    expect(resolved?.digest).toBe(baselineFb.rootHash);
   });
 });
 
