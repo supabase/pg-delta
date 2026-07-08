@@ -43,6 +43,35 @@ describe("loadSqlFiles (shadow frontend)", () => {
     }
   }, 60_000);
 
+  test("a stuck load names the offending statement (line + excerpt)", async () => {
+    const shadow = await createTestDb("shadow");
+    try {
+      // one file that can never apply (references a relation nothing creates):
+      // the load gets stuck and must report WHICH statement failed, not just the
+      // file name + bare PG message — the failing line and a short excerpt.
+      const err = await captureError(
+        loadSqlFiles(
+          [
+            {
+              name: "01_view.sql",
+              sql: "CREATE VIEW public.v AS\n  SELECT id FROM public.missing_table;",
+            },
+          ],
+          shadow.pool,
+        ),
+      );
+      expect(err).toBeInstanceOf(ShadowLoadError);
+      const detail = (err as ShadowLoadError).details
+        .map((d) => d.message)
+        .join("\n");
+      // the statement's location + excerpt, derived from the PG error position
+      expect(detail).toMatch(/at line \d+:/);
+      expect(detail).toContain("SELECT id FROM public.missing_table");
+    } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+
   test("a deep dependency chain converges (rounds scale with depth, not the old 25 cap)", async () => {
     // A linear chain of 30 views, each selecting from the next, with the base
     // table last — and files named so lexicographic order is EXACTLY reverse
