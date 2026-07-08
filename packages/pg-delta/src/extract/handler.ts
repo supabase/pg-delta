@@ -67,4 +67,25 @@ export interface ExtensionHandler {
    * `managedBy` edges but no intent facts.
    */
   readonly intentKinds?: Record<string, IntentKindRule>;
+  /**
+   * Optional guard for extensions that can only run their DDL/intent in a
+   * SPECIFIC database (pg_cron's schedule* functions work solely in the cluster's
+   * `cron.database_name`). `schema apply` runs this BEFORE loading declarative
+   * files into the shadow: if any file matches `matchesStatement` and the shadow
+   * is not `capable`, it errors out early with `reason` instead of getting stuck
+   * mid-load. Generic — pgmq / pg_partman have no such constraint and omit it.
+   */
+  readonly shadowPrecheck?: ShadowPrecheck;
+}
+
+/** A handler's shadow-capability guard (see {@link ExtensionHandler.shadowPrecheck}). */
+export interface ShadowPrecheck {
+  /** True when a (literal-masked) declarative statement expresses this handler's
+   *  DDL/intent — e.g. a `cron.schedule(...)` call or `CREATE EXTENSION pg_cron`. */
+  matchesStatement(maskedStatement: string): boolean;
+  /** Whether the given database (the shadow) can execute the matched statements.
+   *  `query` runs against the shadow. */
+  capable(
+    query: (sql: string) => Promise<Row[]>,
+  ): Promise<{ capable: true } | { capable: false; reason: string }>;
 }

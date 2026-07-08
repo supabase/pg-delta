@@ -349,6 +349,20 @@ export function findDefaultPrivilegeStatements(sql: string): string[] {
   return found;
 }
 
+/** The (literal-masked, trimmed) statements in `sql` for which `predicate` is
+ *  true. The generic form behind the other scanners — used by the extension
+ *  shadow precheck to find a handler's DDL/intent statements without a SQL
+ *  grammar (same literal/comment mask, so keywords inside strings are ignored). */
+export function findMatchingStatements(
+  sql: string,
+  predicate: (maskedStatement: string) => boolean,
+): string[] {
+  return maskLiteralsAndComments(sql)
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s !== "" && predicate(s));
+}
+
 /** Cluster-global (not database-local) DDL: role lifecycle, role membership, and
  *  role metadata. `schema apply --scope database` refuses these (or skips them
  *  with `--skip-cluster-ddl`) because roles are shared across the cluster and are

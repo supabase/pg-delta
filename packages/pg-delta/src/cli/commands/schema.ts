@@ -64,6 +64,7 @@ import {
 import {
   findClusterDdlStatements,
   findDefaultPrivilegeStatements,
+  findMatchingStatements,
   findSessionSettingStatements,
   loadSqlFiles,
   ShadowLoadError,
@@ -718,6 +719,35 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         ctx.baseline?.digest,
         "export manifest",
       );
+    }
+
+    // Extension shadow precheck: some extensions (pg_cron) can only run their
+    // DDL/intent in a specific database, so a declarative dir containing such
+    // statements could never load into an arbitrary shadow. Fail EARLY with a
+    // clear remediation instead of a mid-load "function does not exist" stuck
+    // error. Handlers without a precheck (pg_partman, pgmq) skip this.
+    for (const handler of ctx.handlers) {
+      const precheck = handler.shadowPrecheck;
+      if (precheck === undefined) continue;
+      const matched = files.filter(
+        (f) =>
+          findMatchingStatements(f.sql, (s) => precheck.matchesStatement(s))
+            .length > 0,
+      );
+      if (matched.length === 0) continue;
+      const verdict = await precheck.capable((sql) =>
+        shadow.pool.query(sql).then((r) => r.rows),
+      );
+      if (!verdict.capable) {
+        throw new UsageError(
+          `${matched.length} file(s) contain ${handler.extension} statements ` +
+            `(${matched.map((f) => f.name).join(", ")}) but the shadow database cannot ` +
+            `execute them: ${verdict.reason}. ` +
+            `Apply from a cluster whose shadow IS the ${handler.extension} database ` +
+            `(pass --shadow pointing at it), or exclude ${handler.extension} intent from the ` +
+            `managed view (a profile baseline / policy filter).`,
+        );
+      }
     }
 
     // Extract the target FIRST (Phase 2b): the co-located seed is derived from

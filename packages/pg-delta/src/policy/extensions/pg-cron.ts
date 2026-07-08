@@ -193,4 +193,43 @@ export const pgCronHandler: ExtensionHandler = {
       },
     } satisfies IntentKindRule,
   },
+
+  // pg_cron's schedule* functions run ONLY in the cluster's `cron.database_name`
+  // (default `postgres`). A co-located shadow database `schema apply` creates is
+  // never that database, so a declarative dir containing cron intent could never
+  // load there. Detect it and fail early with a clear remediation instead of a
+  // mid-load "function cron.schedule_in_database does not exist" stuck error.
+  shadowPrecheck: {
+    matchesStatement(masked) {
+      // `cron.<fn>(` survives literal masking (unquoted schema + function name);
+      // this is the intent replay a cron export/schema always contains.
+      return /\bcron\s*\.\s*(schedule|schedule_in_database|unschedule|alter_job)\s*\(/i.test(
+        masked,
+      );
+    },
+    async capable(query) {
+      const rows = await query(
+        `SELECT current_setting('cron.database_name', true) AS db,
+                current_database() AS cur,
+                EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') AS avail`,
+      );
+      const row = rows[0] as
+        | { db: string | null; cur: string; avail: boolean }
+        | undefined;
+      if (row === undefined || !row.avail) {
+        return {
+          capable: false,
+          reason:
+            "pg_cron is not available in the shadow (not in shared_preload_libraries)",
+        };
+      }
+      if (row.db === null || row.db !== row.cur) {
+        return {
+          capable: false,
+          reason: `the shadow database "${row.cur}" is not the cron database (cron.database_name = ${row.db === null ? "unset" : `"${row.db}"`})`,
+        };
+      }
+      return { capable: true };
+    },
+  },
 };
