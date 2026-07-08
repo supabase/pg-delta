@@ -98,6 +98,7 @@ import {
 import { parseFlags, UsageError } from "../flags.ts";
 import {
   effectiveProfileId,
+  loadBaselineFlag,
   PROFILE_IDS,
   resolveCliProfile,
 } from "../profile.ts";
@@ -178,6 +179,7 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       "out-dir": { type: "value", required: true },
       layout: { type: "value" },
       profile: { type: "value" },
+      baseline: { type: "value" },
       "strict-coverage": { type: "boolean" },
       "unsafe-show-secrets": { type: "boolean" },
       "grouping-mode": { type: "value" },
@@ -191,7 +193,7 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pgdelta schema export --source <pg-url> --out-dir <dir> ` +
-          `[--layout by-object|ordered|grouped] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets] [--scope database|cluster]\n` +
+          `[--layout by-object|ordered|grouped] [--profile ${PROFILE_IDS}] [--baseline <snapshot.json>] [--strict-coverage] [--unsafe-show-secrets] [--scope database|cluster]\n` +
           `  [--format-options '{"keywordCase":"upper","maxWidth":180}']  (pretty-print SQL; any layout)\n` +
           `  Grouped-layout options (only with --layout grouped):\n` +
           `    [--grouping-mode single-file|subdirectory] [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]\n`,
@@ -304,7 +306,9 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
   try {
     // resolve the profile against the source pool so export sees the SAME
     // handler-aware managed view as the profile-aware DB-to-DB path (review P1).
-    const ctx = await resolveCliProfile(src.pool, flags["profile"]);
+    const ctx = await resolveCliProfile(src.pool, flags["profile"], {
+      ...loadBaselineFlag(flags["baseline"]),
+    });
     process.stderr.write("Extracting...\n");
     const redactSecrets = !flags["unsafe-show-secrets"];
     const { factBase, diagnostics } = await ctx.extract(src.pool, {
@@ -476,6 +480,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       force: { type: "boolean" },
       "accept-rename": { type: "multi" },
       profile: { type: "value" },
+      baseline: { type: "value" },
       "restrict-to-applier": { type: "boolean" },
       "strict-coverage": { type: "boolean" },
       "no-reorder": { type: "boolean" },
@@ -490,7 +495,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       process.stderr.write(
         `${err.message}\nUsage: pgdelta schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
-          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow]\n` +
+          `[--profile ${PROFILE_IDS}] [--baseline <snapshot.json>] [--restrict-to-applier] [--strict-coverage] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow]\n` +
           `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.\n`,
       );
       process.exit(2);
@@ -668,6 +673,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     // `plan` command does, so SQL-file apply == DB-to-DB plan (review P1).
     const ctx = await resolveCliProfile(tgt.pool, profileId, {
       restrictToApplier: flags["restrict-to-applier"],
+      ...loadBaselineFlag(flags["baseline"]),
     });
 
     // Secret redaction applies to BOTH sides so the diff stays consistent. With

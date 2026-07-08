@@ -16,6 +16,7 @@
  */
 import type { Pool } from "pg";
 import type { ApplyOptions } from "../apply/apply.ts";
+import type { FactBase } from "../core/fact.ts";
 import {
   extract,
   type ExtractOptions,
@@ -48,6 +49,12 @@ export interface ResolveProfileOptions {
   /** Directory to resolve a policy's declared baseline snapshot from (defaults
    *  to the committed `src/policy/baselines/`). */
   baselineDir?: string;
+  /** Explicit baseline FactBase (e.g. from the CLI `--baseline <file>`, loaded
+   *  via `loadBaseline`). Takes precedence over a policy-declared baseline name:
+   *  when set, it is used as-is and the committed baselines dir is not consulted.
+   *  Lets a CUSTOM profile subtract an external platform baseline without
+   *  shipping a committed snapshot. */
+  baseline?: FactBase;
 }
 
 /** A profile resolved against a live source pool: a handler-aware extractor plus
@@ -92,17 +99,20 @@ export async function resolveProfile(
     ? await probeApplierCapability(pool)
     : undefined;
 
-  // resolveBaseline returns undefined immediately when the policy declares no
-  // baseline, so we only pay for the pgMajor probe when one is actually needed.
+  // An explicit baseline override (CLI `--baseline <file>`) wins over a
+  // policy-declared baseline name and skips the committed-dir lookup entirely.
+  // Otherwise resolveBaseline returns undefined immediately when the policy
+  // declares no baseline, so we only pay for the pgMajor probe when needed.
   const baseline =
-    policy?.baseline !== undefined
+    options.baseline ??
+    (policy?.baseline !== undefined
       ? resolveBaseline(policy, {
           pgMajor: await probePgMajor(pool),
           ...(options.baselineDir !== undefined
             ? { dir: options.baselineDir }
             : {}),
         })
-      : undefined;
+      : undefined);
 
   const profileExtract = (
     p: Pool,

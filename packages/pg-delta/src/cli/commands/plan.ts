@@ -21,7 +21,11 @@ import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
 import { parseFlags, UsageError } from "../flags.ts";
-import { PROFILE_IDS, resolveCliProfile } from "../profile.ts";
+import {
+  loadBaselineFlag,
+  PROFILE_IDS,
+  resolveCliProfile,
+} from "../profile.ts";
 import type { RenameMode } from "../../plan/renames.ts";
 import { writeFileSync } from "node:fs";
 
@@ -30,7 +34,7 @@ const USAGE =
   `[--profile ${PROFILE_IDS}] ` +
   "[--renames auto|prompt|off] [--no-compact] [--out <plan.json>] " +
   "[--accept-rename <from>=<to>] ... [--restrict-to-applier] [--strict-coverage] " +
-  "[--unsafe-show-secrets]\n";
+  "[--baseline <snapshot.json>] [--unsafe-show-secrets]\n";
 
 export async function cmdPlan(args: string[]): Promise<void> {
   let parsed;
@@ -45,6 +49,7 @@ export async function cmdPlan(args: string[]): Promise<void> {
       "accept-rename": { type: "multi" },
       "restrict-to-applier": { type: "boolean" },
       "strict-coverage": { type: "boolean" },
+      baseline: { type: "value" },
       "unsafe-show-secrets": { type: "boolean" },
     });
   } catch (err) {
@@ -106,6 +111,7 @@ export async function cmdPlan(args: string[]): Promise<void> {
     // three flow into planOptions so plan == prove == apply (P0/P2).
     const ctx = await resolveCliProfile(src.pool, flags["profile"], {
       restrictToApplier: flags["restrict-to-applier"],
+      ...loadBaselineFlag(flags["baseline"]),
     });
 
     const redactSecrets = !flags["unsafe-show-secrets"];

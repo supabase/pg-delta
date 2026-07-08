@@ -20,6 +20,7 @@ import {
   resolveProfile,
   supabaseProfile,
 } from "../integrations/index.ts";
+import { loadBaseline } from "../policy/baseline.ts";
 import type { Policy } from "../policy/policy.ts";
 import { UsageError } from "./flags.ts";
 
@@ -137,6 +138,26 @@ export function resolveCliProfile(
   options?: ResolveProfileOptions,
 ): Promise<ResolvedProfile> {
   return resolveProfile(pool, profileById(id), options);
+}
+
+/**
+ * Resolve a `--baseline <file>` flag into a spreadable `ResolveProfileOptions`
+ * fragment: `{ baseline }` when a path is given (loaded via {@link loadBaseline}
+ * — a `pgdelta snapshot` file), or `{}` otherwise. Lets a command feed an
+ * external platform baseline into `resolveCliProfile` for a custom profile that
+ * has no committed, policy-declared baseline. Wraps load errors as UsageErrors.
+ */
+export function loadBaselineFlag(
+  path: string | undefined,
+): Pick<ResolveProfileOptions, "baseline"> {
+  if (path === undefined) return {};
+  try {
+    return { baseline: loadBaseline(path) };
+  } catch (err) {
+    throw new UsageError(
+      `--baseline ${path}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 /**

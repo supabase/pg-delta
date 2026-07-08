@@ -5,12 +5,15 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { buildFactBase } from "../core/fact.ts";
+import { serializeSnapshot } from "../core/snapshot.ts";
 import { rawProfile } from "../integrations/profile.ts";
 import { supabaseProfile } from "../integrations/supabase.ts";
 import { UsageError } from "./flags.ts";
 import {
   effectiveProfileId,
   isProfilePath,
+  loadBaselineFlag,
   parseProfileFile,
   profileById,
 } from "./profile.ts";
@@ -19,6 +22,13 @@ function writeTempProfile(contents: string): string {
   const dir = mkdtempSync(join(tmpdir(), "pgdelta-profile-"));
   const path = join(dir, "profile.json");
   writeFileSync(path, contents, "utf8");
+  return path;
+}
+
+function writeTempSnapshot(fb: ReturnType<typeof buildFactBase>): string {
+  const dir = mkdtempSync(join(tmpdir(), "pgdelta-baseline-"));
+  const path = join(dir, "snapshot.json");
+  writeFileSync(path, serializeSnapshot(fb, { pgVersion: "170000" }), "utf8");
   return path;
 }
 
@@ -145,5 +155,31 @@ describe("profileById with a file path", () => {
     const profile = profileById(path);
     expect(profile.id).toBe("platform-middleware");
     expect(profile.handlers.map((h) => h.extension)).toEqual(["pg_cron"]);
+  });
+});
+
+describe("loadBaselineFlag", () => {
+  test("returns {} when no --baseline path is given", () => {
+    expect(loadBaselineFlag(undefined)).toEqual({});
+  });
+
+  test("loads a snapshot file into a baseline FactBase override", () => {
+    const fb = buildFactBase(
+      [{ id: { kind: "schema", name: "platform" }, payload: {} }],
+      [],
+    );
+    const path = writeTempSnapshot(fb);
+    const result = loadBaselineFlag(path);
+    // round-trips to the same fact base (same content hash)
+    expect(result.baseline?.rootHash).toBe(fb.rootHash);
+  });
+
+  test("wraps a load failure (missing file) as a UsageError", () => {
+    expect(() => loadBaselineFlag("/no/such/snapshot.json")).toThrow(
+      UsageError,
+    );
+    expect(() => loadBaselineFlag("/no/such/snapshot.json")).toThrow(
+      /--baseline \/no\/such\/snapshot\.json:/,
+    );
   });
 });

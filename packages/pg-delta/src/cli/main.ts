@@ -81,6 +81,12 @@ Notes:
     file is { "id": ..., "handlers": ["pg_partman", "pg_cron"], "policy"?: {…} },
     referencing bundled handlers by name. Available on plan / diff / drift /
     snapshot / apply / prove / schema export / schema apply.
+  --baseline <snapshot.json> (plan, schema export, schema apply): subtract a
+    baseline FactBase (a "pgdelta snapshot" file) from both sides before
+    diffing, so platform-provided objects (base-image roles, extension-owned
+    schemas, etc.) captured in the baseline are invisible. Lets a CUSTOM profile
+    scope the managed view without a committed, policy-declared baseline; takes
+    precedence over any policy-declared baseline name.
   render: writes the plan's SQL as one .sql file per executor segment,
     split on the same boundaries "apply" uses at execution time. A single
     segment writes <base>.sql; multiple segments write <base>_1.sql,
