@@ -53,6 +53,11 @@ export interface FinalizeInput {
   capability: ApplierCapability | undefined;
   /** §3.6 compaction; cosmetic-by-contract (proof unchanged). Default true. */
   compact: boolean;
+  /** Export-only constraint folding: apply the constraint rules' inline-fold
+   *  hints (CONSTRAINT name <def> into the table's CREATE parens), excluding
+   *  the given encoded constraint ids (cycle-participating FKs). Undefined
+   *  (the default, and every non-export path) leaves those hints inert. */
+  foldConstraints: { exclude?: ReadonlySet<string> } | undefined;
   /** id-keyed rule resolver (schema kinds + `extensionIntent`), used by the
    *  tie-break so intent actions sort on their declared late weight. */
   rulesForId: RulesForId;
@@ -82,6 +87,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     assumedSchemaNames,
     capability,
     compact,
+    foldConstraints,
     rulesForId,
   } = input;
 
@@ -150,6 +156,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
                   foldHints,
                   acceptsFolds,
                   positionOf,
+                  foldConstraints,
                 ),
                 source,
               ),

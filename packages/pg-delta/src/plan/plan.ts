@@ -133,6 +133,15 @@ export interface PlanOptions {
    *  no graph edge crosses the merge. Cosmetic by contract — proof results
    *  never change (asserted by the compaction suite). Default: true. */
   compact?: boolean;
+  /** Export-only constraint folding: also fold VALIDATED table constraints
+   *  into their table's CREATE parens (`CONSTRAINT name <def>`), like
+   *  hand-written SQL. ONLY safe when the plan's SQL is consumed by the
+   *  file loader (bounded retry / reorder) rather than the apply executor —
+   *  a folded FK may reference a table a LATER file creates. Set by
+   *  `schema export`; leave unset everywhere else. `exclude` lists encoded
+   *  constraint ids that must stay as ALTERs (cycle-participating FKs, which
+   *  the export routes to `.fk.sql`). */
+  foldConstraints?: { exclude?: ReadonlySet<string> };
   /** applier capability (move 6): operations the applier cannot execute (e.g.
    *  FDW ACLs for a non-superuser) are projected out of the view. Supplied by
    *  the resolved profile (`resolveProfile(pool, profile, { restrictToApplier:
@@ -309,6 +318,7 @@ export function plan(
     assumedSchemaNames,
     capability: options?.capability,
     compact: options?.compact !== false,
+    foldConstraints: options?.foldConstraints,
     rulesForId,
   });
 

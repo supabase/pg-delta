@@ -642,11 +642,18 @@ export function exportSqlFiles(
     return fb.referenceOnly.has(key) && !members.has(key);
   });
   const baseline = buildFactBase(pristine, []);
+  // FKs inside a cross-table reference cycle stay as ALTERs (routed to a
+  // sibling `.fk.sql`); everything else folds inline. Computed BEFORE the plan
+  // so the fold pass can exclude them.
+  const cyclicFks = cyclicForeignKeys(fb);
   // `fb` is the already-resolved managed view, so we do NOT re-run policy
   // filtering / serialize rules here; we only forward the assumed schema/role
   // sets so the requirement guard exempts actions consuming assumed-but-filtered
-  // objects (review P1).
+  // objects (review P1). `foldConstraints` renders validated table constraints
+  // INLINE in their CREATE TABLE (export files are consumed by the retry /
+  // reorder loader, where that is safe — see PlanOptions.foldConstraints).
   const rendered = plan(baseline, fb, {
+    foldConstraints: { exclude: cyclicFks },
     ...(options.assumedSchemas !== undefined
       ? { assumedSchemas: options.assumedSchemas }
       : {}),
@@ -664,7 +671,7 @@ export function exportSqlFiles(
   // relation-kind map (satellites on views), and the concurrent-index
   // exception set (must stay alone in their file).
   const pathContext: PathContext = {
-    cyclicFks: cyclicForeignKeys(fb),
+    cyclicFks,
     memberExt: extensionMembersByEncoded(fb),
     indexParent: indexParentsByEncoded(fb),
     relationDir: relationDirsByName(fb),

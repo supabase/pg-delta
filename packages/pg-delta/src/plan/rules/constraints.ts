@@ -22,6 +22,22 @@ export const constraintRules: Record<string, KindRules> = {
       if (!p(fact, "validated") && !str(p(fact, "def")).includes("NOT VALID")) {
         sql += " NOT VALID";
       }
+      // Inline-fold hint (compaction §3.6, constraint folding): a VALIDATED
+      // TABLE constraint can render inline inside its table's CREATE parens as
+      // `CONSTRAINT name <def>` (pg_get_constraintdef text, verbatim). Data
+      // only — the fold pass applies it solely under
+      // `PlanOptions.foldConstraints` (set by `schema export`, whose files are
+      // loaded by the retry/reorder loader, not the apply executor). NOT VALID
+      // constraints never hint: an inline constraint always validates.
+      const foldHint =
+        p(fact, "validated") === true && fact.parent?.kind === "table"
+          ? {
+              compaction: {
+                foldInto: fact.parent,
+                clause: `CONSTRAINT ${qid(id.name)} ${str(p(fact, "def"))}`,
+              },
+            }
+          : {};
       // ADD FOREIGN KEY takes SHARE ROW EXCLUSIVE (both tables), weaker
       // than the ACCESS EXCLUSIVE default for other constraint forms
       return [
@@ -30,6 +46,7 @@ export const constraintRules: Record<string, KindRules> = {
           ...(p(fact, "type") === "f"
             ? { lockClass: "shareRowExclusive" as const }
             : {}),
+          ...foldHint,
         },
       ];
     },

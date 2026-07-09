@@ -342,6 +342,7 @@ export function compactColumnFolds(
   foldHints: ReadonlyArray<{ foldInto: StableId; clause: string } | undefined>,
   acceptsFolds: readonly boolean[],
   positionOf: readonly number[],
+  foldConstraints?: { exclude?: ReadonlySet<string> },
 ): Action[] {
   const predecessorsOf = new Map<number, number[]>();
   for (const [a, b] of edges) {
@@ -365,16 +366,37 @@ export function compactColumnFolds(
     const action = orderedActions[pos] as Action;
     if (action.newSegmentBefore || action.transactionality !== "transactional")
       continue;
+    // Constraint fold hints (CONSTRAINT name <def> clauses) apply ONLY under
+    // `foldConstraints` — the export-only mode whose output is loaded by the
+    // retry/reorder loader. In a regular diff plan the apply EXECUTOR runs
+    // actions in graph order, and folding an FK into a CREATE TABLE that
+    // precedes the referenced table's CREATE would fail — so constraint hints
+    // stay inert (data) unless the caller opted in. Cycle-participating FKs
+    // (the caller's `exclude` set) stay as ALTERs so the raw file loader keeps
+    // converging via the .fk.sql split.
+    const isConstraintFold = action.produces[0]?.kind === "constraint";
+    if (isConstraintFold) {
+      if (foldConstraints === undefined) continue;
+      if (foldConstraints.exclude?.has(encodeId(action.produces[0]!))) {
+        continue;
+      }
+    }
     const targetPos = targetPosOf.get(encodeId(hint.foldInto));
     if (targetPos === undefined || targetPos >= pos) continue;
     const targetOrig = order[targetPos] as number;
     if (!acceptsFolds[targetOrig] || foldedPos.has(targetPos)) continue;
     const target = orderedActions[targetPos] as Action;
     if (target.verb !== "create" || target.newSegmentBefore) continue;
-    const crossesEdge = (predecessorsOf.get(origIndex) ?? []).some((p) => {
-      const pPos = effectivePosOf.get(p) ?? (positionOf[p] as number);
-      return pPos > targetPos;
-    });
+    // Under loader semantics a constraint fold may cross edges (an FK's
+    // referenced table can be created by a LATER file — the loader's bounded
+    // retry orders files); the executor-safety crossing guard applies only to
+    // column folds.
+    const crossesEdge =
+      !isConstraintFold &&
+      (predecessorsOf.get(origIndex) ?? []).some((p) => {
+        const pPos = effectivePosOf.get(p) ?? (positionOf[p] as number);
+        return pPos > targetPos;
+      });
     if (crossesEdge) continue;
     // fold: splice the clause into the CREATE's column list
     target.sql = target.sql.endsWith("()")
