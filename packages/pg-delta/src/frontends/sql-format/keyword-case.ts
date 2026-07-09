@@ -20,11 +20,13 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "ALTER",
   "ALWAYS",
   "AS",
+  "ASC",
   "ATTACH",
   "ATTRIBUTE",
   "AUTHORIZATION",
   "BEFORE",
   "BY",
+  "CONCURRENTLY",
   "CACHE",
   "CALLED",
   "CANONICAL",
@@ -48,6 +50,7 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "DEFERRED",
   "DEFINER",
   "DELETE",
+  "DESC",
   "DESERIALFUNC",
   "DETACH",
   "DETERMINISTIC",
@@ -100,8 +103,12 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "LEVEL",
   "LIMIT",
   "LOCALE",
+  "FIRST",
+  "INCLUDE",
+  "LAST",
   "LOGGED",
   "LOGIN",
+  "MAINTAIN",
   "MATERIALIZED",
   "MAXVALUE",
   "MATCH",
@@ -119,6 +126,7 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "NOT",
   "NOTHING",
   "NULL",
+  "NULLS",
   "OF",
   "ON",
   "ONLY",
@@ -182,6 +190,7 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "TEMPORARY",
   "TO",
   "TRIGGER",
+  "TRUNCATE",
   "TRUSTED",
   "TYPE",
   "UNIQUE",
@@ -320,7 +329,10 @@ function collectCaseableTokenStarts(
   const scopedKeywords = getStatementScopedKeywords(topLevelTokens);
   const objectNameTokenIndexes = new Set<number>();
   for (let topIndex = 0; topIndex < topLevelTokens.length; topIndex += 1) {
-    if (isLikelyObjectNameToken(command, topLevelTokens, topIndex)) {
+    if (
+      isLikelyObjectNameToken(command, topLevelTokens, topIndex) &&
+      !quotedNameInGap(statement, topLevelTokens, topIndex)
+    ) {
       objectNameTokenIndexes.add(topLevelTokens[topIndex]!.index);
     }
   }
@@ -340,6 +352,27 @@ function collectCaseableTokenStarts(
   }
 
   return caseable;
+}
+
+/**
+ * True when a QUOTED identifier sits between the previous top-level word token
+ * and the candidate "object name" token. Quoted identifiers produce no scanner
+ * token, so the positional object-name heuristic would otherwise mark the word
+ * AFTER the real (quoted) name — `ENABLE` in
+ * `ALTER TABLE "s"."t" ENABLE ROW LEVEL SECURITY`, `ON` in
+ * `CREATE POLICY "p" ON …` — as the name and shield it from casing. When the
+ * gap carries a quote, the real name was quoted (and needs no protection), so
+ * no word token should be treated as the object name.
+ */
+function quotedNameInGap(
+  statement: string,
+  topLevelTokens: Array<{ token: Token; index: number }>,
+  topIndex: number,
+): boolean {
+  if (topIndex === 0) return false;
+  const prev = topLevelTokens[topIndex - 1]!.token;
+  const candidate = topLevelTokens[topIndex]!.token;
+  return statement.slice(prev.end, candidate.start).includes('"');
 }
 
 function isLikelyObjectNameToken(

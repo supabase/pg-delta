@@ -197,7 +197,7 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
         `${err.message}\nUsage: pgdelta schema export --source <pg-url> --out-dir <dir> ` +
           `[--layout by-object|ordered|grouped] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets] [--scope database|cluster]\n` +
           `  [--format-options '{"keywordCase":"upper","maxWidth":180}'] [--no-format]\n` +
-          `    (SQL is pretty-printed by default: lowercase keywords, width 100; any layout)\n` +
+          `    (SQL is pretty-printed by default: lowercase keywords, width 180; any layout)\n` +
           `  Grouped-layout options (only with --layout grouped):\n` +
           `    [--grouping-mode single-file|subdirectory] [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]\n`,
       );
@@ -288,14 +288,14 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
   }
 
   // SQL formatting is ON by default — the export is a human-facing artifact, so
-  // it pretty-prints with lowercase keywords (formatter defaults otherwise:
-  // maxWidth 100, aligned columns). --format-options overrides every knob;
-  // --no-format restores the raw renderer output. Layout-agnostic, and purely
-  // cosmetic by contract: the fidelity gate (load(export) ≡ fb) covers the
-  // formatter. Parsed up front so a malformed value fails before connecting.
+  // it pretty-prints with lowercase keywords and a 180-char width (formatter
+  // defaults otherwise: aligned columns). --format-options overrides every
+  // knob; --no-format restores the raw renderer output. Layout-agnostic, and
+  // purely cosmetic by contract: the fidelity gate (load(export) ≡ fb) covers
+  // the formatter. Parsed up front so a malformed value fails before connecting.
   let format: SqlFormatOptions | undefined = flags["no-format"]
     ? undefined
-    : { keywordCase: "lower" };
+    : { keywordCase: "lower", maxWidth: 180 };
   if (flags["format-options"] !== undefined) {
     if (flags["no-format"]) {
       process.stderr.write(
