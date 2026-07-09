@@ -10,12 +10,12 @@ that carries the **`open-for-contribution`** label. This is enforced by the
 [`Contribution Gate`](./workflows/contribution-gate.yml) workflow, whose decision logic
 lives in [`scripts/contribution-gate.ts`](./scripts/contribution-gate.ts).
 
-The gate runs as a **periodic sweep over every open PR** (a `schedule` cron, currently
-every 15 minutes) and **on demand** via the workflow's *Run workflow* button
-(`workflow_dispatch`). It deliberately does **not** use `pull_request_target`: it only
-ever runs trusted base-branch code with the repository token and never checks out or
-executes a fork's code. The tradeoff is latency — a non-conforming PR is closed within
-one sweep interval rather than instantly.
+The gate runs **reactively on each PR** via `pull_request_target`
+(`opened`/`reopened`/`edited`) so a non-conforming PR is closed right away, and can also
+be **swept across every open PR on demand** via the workflow's *Run workflow* button
+(`workflow_dispatch`). Both paths only ever run trusted base-branch code with the
+repository token: `pull_request_target` checks out the base branch (not the PR head), and
+the script only makes GitHub API calls — it never checks out or executes a fork's code.
 
 A pull request is **auto-closed with an explanatory comment** when the author is external
 and any of these is true:
@@ -32,10 +32,10 @@ aren't public on GitHub.
 ### Running the gate manually
 
 Use **Actions → Contribution Gate → Run workflow** to sweep all open PRs on demand — for
-example right after bulk-applying `open-for-contribution` labels, so the backlog is
-re-evaluated without waiting for the next scheduled tick. Set the **`dry_run`** input to
-`true` first to log each PR's decision in the run output without commenting on or closing
-anything; run again with `dry_run` unchecked to apply the decisions.
+example right after bulk-applying `open-for-contribution` labels, so the whole backlog is
+re-evaluated at once instead of waiting for each PR's next edit. Set the **`dry_run`**
+input to `true` first to log each PR's decision in the run output without commenting on or
+closing anything; run again with `dry_run` unchecked to apply the decisions.
 
 ## Triage: applying the label (manual)
 

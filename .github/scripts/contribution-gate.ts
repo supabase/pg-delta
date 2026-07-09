@@ -7,13 +7,17 @@
  * exempt (they work from Linear tickets or automation). PRs that do not follow
  * the process are commented on and closed.
  *
- * This runs as a periodic sweep (`schedule`) and on demand (`workflow_dispatch`)
- * over every open PR — deliberately NOT on `pull_request_target`, so it only
- * ever executes trusted base-branch code with the repository token and never
- * checks out or runs a fork's code.
+ * Two modes, both driven from `main()`:
+ *   - single-PR (default): reacts to one PR on `pull_request_target`
+ *     (`opened`/`reopened`/`edited`), using the PR_* env vars from the event.
+ *   - all-PRs sweep (`GATE_MODE=all`, or the `--all` flag): evaluates every
+ *     open PR, for on-demand `workflow_dispatch` runs. Set `DRY_RUN=true` to
+ *     log decisions without commenting/closing.
  *
- * Run in CI as: `bun .github/scripts/contribution-gate.ts`
- * (set `DRY_RUN=true` to log decisions without commenting/closing).
+ * In both modes the workflow checks out the base branch, so this only ever
+ * executes trusted repository code — it never runs a fork's code.
+ *
+ * Run in CI as: `bun .github/scripts/contribution-gate.ts`.
  * The pure `evaluateGate` decision and the `evaluateAllOpenPrs` orchestrator
  * (I/O injected) are unit-tested in `contribution-gate.test.ts`; `main()` wires
  * up the real GitHub I/O.
@@ -304,31 +308,78 @@ async function fetchOpenPullRequests(
   return prs;
 }
 
-async function main(): Promise<void> {
-  const token = requireEnv("GITHUB_TOKEN");
-  const repository = requireEnv("GITHUB_REPOSITORY");
-  const [owner, repo] = repository.split("/");
-  const dryRun = /^(1|true)$/i.test(process.env.DRY_RUN ?? "");
+/**
+ * Build the "comment then close" action for a repo. In dry-run mode it logs the
+ * intended action instead of mutating the PR.
+ */
+function makeCloser(
+  token: string,
+  base: string,
+  dryRun: boolean,
+): (prNumber: number, message: string) => Promise<void> {
+  return async (prNumber, message) => {
+    if (dryRun) {
+      console.log(`[dry-run] would comment on and close PR #${prNumber}`);
+      return;
+    }
+    await githubFetch(`${base}/issues/${prNumber}/comments`, token, {
+      method: "POST",
+      body: JSON.stringify({ body: message }),
+    });
+    await githubFetch(`${base}/issues/${prNumber}`, token, {
+      method: "PATCH",
+      body: JSON.stringify({ state: "closed", state_reason: "not_planned" }),
+    });
+  };
+}
+
+/** Single-PR mode: react to the PR carried by a `pull_request_target` event. */
+async function runSinglePr(
+  token: string,
+  owner: string,
+  repo: string,
+  repository: string,
+): Promise<void> {
+  const prNumber = Number(requireEnv("PR_NUMBER"));
+  const authorAssociation = process.env.PR_AUTHOR_ASSOCIATION ?? "NONE";
+  const isBot = (process.env.PR_AUTHOR_TYPE ?? "User") === "Bot";
+
+  const linkedIssues = await fetchLinkedIssues(token, owner, repo, prNumber);
+  const result = evaluateGate({
+    repository,
+    authorAssociation,
+    isBot,
+    linkedIssues,
+  });
+
+  console.log(
+    `Contribution gate for PR #${prNumber}: pass=${result.pass} reason=${result.reason} ` +
+      `(author_association=${authorAssociation}, bot=${isBot}, linked_issues=${linkedIssues.length})`,
+  );
+
+  if (result.pass || !result.message) {
+    return;
+  }
 
   const base = `https://api.github.com/repos/${owner}/${repo}`;
+  await makeCloser(token, base, false)(prNumber, result.message);
+  console.log(`Closed PR #${prNumber} (reason=${result.reason}).`);
+}
+
+/** All-PRs mode: sweep every open PR, for on-demand `workflow_dispatch` runs. */
+async function runSweep(
+  token: string,
+  owner: string,
+  repo: string,
+  repository: string,
+  dryRun: boolean,
+): Promise<void> {
+  const base = `https://api.github.com/repos/${owner}/${repo}`;
   const io: GateIo = {
-    listOpenPrs: () => fetchOpenPullRequests(token, owner!, repo!),
+    listOpenPrs: () => fetchOpenPullRequests(token, owner, repo),
     fetchLinkedIssues: (prNumber) =>
-      fetchLinkedIssues(token, owner!, repo!, prNumber),
-    closePr: async (prNumber, message) => {
-      if (dryRun) {
-        console.log(`[dry-run] would comment on and close PR #${prNumber}`);
-        return;
-      }
-      await githubFetch(`${base}/issues/${prNumber}/comments`, token, {
-        method: "POST",
-        body: JSON.stringify({ body: message }),
-      });
-      await githubFetch(`${base}/issues/${prNumber}`, token, {
-        method: "PATCH",
-        body: JSON.stringify({ state: "closed", state_reason: "not_planned" }),
-      });
-    },
+      fetchLinkedIssues(token, owner, repo, prNumber),
+    closePr: makeCloser(token, base, dryRun),
   };
 
   const entries = await evaluateAllOpenPrs(io, repository);
@@ -341,6 +392,21 @@ async function main(): Promise<void> {
     console.log(
       `  PR #${entry.number}: pass=${entry.result.pass} reason=${entry.result.reason}`,
     );
+  }
+}
+
+async function main(): Promise<void> {
+  const token = requireEnv("GITHUB_TOKEN");
+  const repository = requireEnv("GITHUB_REPOSITORY");
+  const [owner, repo] = repository.split("/");
+
+  const allMode =
+    process.env.GATE_MODE === "all" || process.argv.includes("--all");
+  if (allMode) {
+    const dryRun = /^(1|true)$/i.test(process.env.DRY_RUN ?? "");
+    await runSweep(token, owner!, repo!, repository, dryRun);
+  } else {
+    await runSinglePr(token, owner!, repo!, repository);
   }
 }
 
