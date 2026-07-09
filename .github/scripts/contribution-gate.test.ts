@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { evaluateGate, GATE_LABEL } from "./contribution-gate.ts";
+import {
+  evaluateAllOpenPrs,
+  evaluateGate,
+  GATE_LABEL,
+  type GateIo,
+  type LinkedIssue,
+  type OpenPr,
+} from "./contribution-gate.ts";
 
 const REPO = "supabase/pg-toolbelt";
 
@@ -138,5 +145,75 @@ describe("evaluateGate", () => {
     });
     expect(result.pass).toBe(true);
     expect(result.reason).toBe("ok");
+  });
+});
+
+describe("evaluateAllOpenPrs", () => {
+  function makeIo(
+    openPrs: OpenPr[],
+    linkedByPr: Record<number, LinkedIssue[]>,
+  ): { io: GateIo; closed: Array<{ number: number; message: string }> } {
+    const closed: Array<{ number: number; message: string }> = [];
+    const io: GateIo = {
+      listOpenPrs: () => Promise.resolve(openPrs),
+      fetchLinkedIssues: (prNumber) =>
+        Promise.resolve(linkedByPr[prNumber] ?? []),
+      closePr: (prNumber, message) => {
+        closed.push({ number: prNumber, message });
+        return Promise.resolve();
+      },
+    };
+    return { io, closed };
+  }
+
+  test("closes only non-conforming external PRs and leaves the rest", async () => {
+    const { io, closed } = makeIo(
+      [
+        { number: 1, authorAssociation: "NONE", isBot: false }, // no issue -> close
+        { number: 2, authorAssociation: "MEMBER", isBot: false }, // internal -> skip
+        { number: 3, authorAssociation: "NONE", isBot: true }, // bot -> skip
+        { number: 4, authorAssociation: "CONTRIBUTOR", isBot: false }, // conforming -> keep
+        { number: 5, authorAssociation: "NONE", isBot: false }, // missing label -> close
+      ],
+      {
+        4: [
+          { repository: REPO, number: 40, state: "OPEN", labels: [GATE_LABEL] },
+        ],
+        5: [
+          { repository: REPO, number: 50, state: "OPEN", labels: ["🐛 Bug"] },
+        ],
+      },
+    );
+
+    const entries = await evaluateAllOpenPrs(io, REPO);
+
+    expect(closed.map((c) => c.number).sort((a, b) => a - b)).toEqual([1, 5]);
+    const byNumber = Object.fromEntries(
+      entries.map((entry) => [entry.number, entry.result]),
+    );
+    expect(byNumber[1]?.reason).toBe("no-linked-issue");
+    expect(byNumber[2]?.pass).toBe(true);
+    expect(byNumber[2]?.reason).toBe("internal");
+    expect(byNumber[3]?.reason).toBe("bot");
+    expect(byNumber[4]?.pass).toBe(true);
+    expect(byNumber[5]?.reason).toBe("missing-label");
+    expect(closed.find((c) => c.number === 1)?.message).toContain(GATE_LABEL);
+  });
+
+  test("returns an entry per PR and closes none when all conform", async () => {
+    const { io, closed } = makeIo(
+      [{ number: 9, authorAssociation: "NONE", isBot: false }],
+      {
+        9: [
+          { repository: REPO, number: 90, state: "OPEN", labels: [GATE_LABEL] },
+        ],
+      },
+    );
+
+    const entries = await evaluateAllOpenPrs(io, REPO);
+
+    expect(entries).toHaveLength(1);
+    expect(closed).toHaveLength(0);
+    expect(entries[0]?.result.pass).toBe(true);
   });
 });
