@@ -52,6 +52,42 @@ describe("lowercase coverage formatting", () => {
     );
   });
 
+  test("a QUOTED object name does not shield the following keyword from casing", () => {
+    // quoted identifiers produce no scanner token, so the object-name
+    // heuristic used to mark the NEXT word (ENABLE / ON) as the "name" and
+    // protect it from casing — the middleware dogfood surfaced this on every
+    // quoted-relation ALTER and CREATE POLICY.
+    const formatted = formatSqlStatements(
+      [
+        `ALTER TABLE "public"."users" ENABLE ROW LEVEL SECURITY;`,
+        `CREATE POLICY "p_sel" ON "public"."users" FOR SELECT TO "authenticated" USING (true);`,
+      ],
+      { keywordCase: "lower" },
+    );
+    const normalized = formatted.map((v) => v.replace(/\s+/g, " ").trim());
+    expect(normalized[0]).toBe(
+      `alter table "public"."users" enable row level security`,
+    );
+    expect(normalized[1]).toBe(
+      `create policy "p_sel" on "public"."users" for select to "authenticated" using (true)`,
+    );
+  });
+
+  test("privilege + index-ordering vocabulary lower-cases (MAINTAIN, TRUNCATE, DESC, NULLS LAST)", () => {
+    const formatted = formatSqlStatements(
+      [
+        `GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."t" TO "r";`,
+        `CREATE INDEX t_a_idx ON public.t USING btree (a DESC NULLS LAST);`,
+      ],
+      { keywordCase: "lower" },
+    );
+    const normalized = formatted.map((v) => v.replace(/\s+/g, " ").trim());
+    expect(normalized[0]).toContain(
+      "grant delete, insert, maintain, references, select, trigger, truncate, update",
+    );
+    expect(normalized[1]).toContain("(a desc nulls last)");
+  });
+
   test("lowercases all ALTER DEFAULT PRIVILEGES object-type keywords", () => {
     const statements = [
       "ALTER DEFAULT PRIVILEGES FOR ROLE app_user IN SCHEMA public GRANT ALL ON TABLES TO app_reader;",
