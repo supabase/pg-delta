@@ -11,6 +11,10 @@
  * Docker required (extracts + reloads against a real database).
  */
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { cmdSchemaExport } from "../src/cli/commands/schema.ts";
 import { extract } from "../src/extract/extract.ts";
 import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
 import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
@@ -50,6 +54,42 @@ describe("export: SQL formatting", () => {
       await src.drop();
     }
   }, 60_000);
+
+  // CLI contract: `schema export` is a HUMAN-FACING artifact, so it formats by
+  // default (lowercase keywords, formatter defaults otherwise). --format-options
+  // still overrides any knob; --no-format restores the raw renderer output.
+  test("schema export CLI formats by default (lowercase); --no-format opts out", async () => {
+    const cluster = await sharedCluster();
+    const src = await cluster.createDb("expfmt_cli");
+    try {
+      await src.pool.query(SCHEMA_SQL);
+
+      const defaultDir = join(mkdtempSync(join(tmpdir(), "expfmt-")), "d");
+      await cmdSchemaExport(["--source", src.uri, "--out-dir", defaultDir]);
+      const formatted = readFileSync(
+        join(defaultDir, "schemas/app/tables/users.sql"),
+        "utf8",
+      );
+      expect(formatted).toContain("create table");
+      expect(formatted).not.toContain("CREATE TABLE");
+
+      const rawDir = join(mkdtempSync(join(tmpdir(), "expfmt-")), "r");
+      await cmdSchemaExport([
+        "--source",
+        src.uri,
+        "--out-dir",
+        rawDir,
+        "--no-format",
+      ]);
+      const raw = readFileSync(
+        join(rawDir, "schemas/app/tables/users.sql"),
+        "utf8",
+      );
+      expect(raw).toContain("CREATE TABLE");
+    } finally {
+      await src.drop();
+    }
+  }, 120_000);
 
   test("load(export(fb, { format })) is hash-identical (fidelity gate)", async () => {
     const cluster = await sharedCluster();
