@@ -174,25 +174,25 @@ ALTER TABLE "auth"."webauthn_credentials" OWNER TO "supabase_auth_admin";
 
 CREATE TABLE "realtime"."messages" ("binary_payload" bytea, "event" text, "extension" text NOT NULL, "id" uuid NOT NULL, "inserted_at" timestamp without time zone NOT NULL, "payload" jsonb, "private" boolean, "topic" text NOT NULL, "updated_at" timestamp without time zone NOT NULL) PARTITION BY RANGE (inserted_at);
 
-CREATE TABLE "realtime"."messages_2026_07_02" PARTITION OF "realtime"."messages" FOR VALUES FROM ('2026-07-02 00:00:00') TO ('2026-07-03 00:00:00');
+CREATE TABLE "realtime"."messages_2026_07_08" PARTITION OF "realtime"."messages" FOR VALUES FROM ('2026-07-08 00:00:00') TO ('2026-07-09 00:00:00');
 
-ALTER TABLE "realtime"."messages_2026_07_02" OWNER TO "supabase_realtime_admin";
+ALTER TABLE "realtime"."messages_2026_07_08" OWNER TO "supabase_realtime_admin";
 
-CREATE TABLE "realtime"."messages_2026_07_03" PARTITION OF "realtime"."messages" FOR VALUES FROM ('2026-07-03 00:00:00') TO ('2026-07-04 00:00:00');
+CREATE TABLE "realtime"."messages_2026_07_09" PARTITION OF "realtime"."messages" FOR VALUES FROM ('2026-07-09 00:00:00') TO ('2026-07-10 00:00:00');
 
-ALTER TABLE "realtime"."messages_2026_07_03" OWNER TO "supabase_realtime_admin";
+ALTER TABLE "realtime"."messages_2026_07_09" OWNER TO "supabase_realtime_admin";
 
-CREATE TABLE "realtime"."messages_2026_07_04" PARTITION OF "realtime"."messages" FOR VALUES FROM ('2026-07-04 00:00:00') TO ('2026-07-05 00:00:00');
+CREATE TABLE "realtime"."messages_2026_07_10" PARTITION OF "realtime"."messages" FOR VALUES FROM ('2026-07-10 00:00:00') TO ('2026-07-11 00:00:00');
 
-ALTER TABLE "realtime"."messages_2026_07_04" OWNER TO "supabase_realtime_admin";
+ALTER TABLE "realtime"."messages_2026_07_10" OWNER TO "supabase_realtime_admin";
 
-CREATE TABLE "realtime"."messages_2026_07_05" PARTITION OF "realtime"."messages" FOR VALUES FROM ('2026-07-05 00:00:00') TO ('2026-07-06 00:00:00');
+CREATE TABLE "realtime"."messages_2026_07_11" PARTITION OF "realtime"."messages" FOR VALUES FROM ('2026-07-11 00:00:00') TO ('2026-07-12 00:00:00');
 
-ALTER TABLE "realtime"."messages_2026_07_05" OWNER TO "supabase_realtime_admin";
+ALTER TABLE "realtime"."messages_2026_07_11" OWNER TO "supabase_realtime_admin";
 
-CREATE TABLE "realtime"."messages_2026_07_06" PARTITION OF "realtime"."messages" FOR VALUES FROM ('2026-07-06 00:00:00') TO ('2026-07-07 00:00:00');
+CREATE TABLE "realtime"."messages_2026_07_12" PARTITION OF "realtime"."messages" FOR VALUES FROM ('2026-07-12 00:00:00') TO ('2026-07-13 00:00:00');
 
-ALTER TABLE "realtime"."messages_2026_07_06" OWNER TO "supabase_realtime_admin";
+ALTER TABLE "realtime"."messages_2026_07_12" OWNER TO "supabase_realtime_admin";
 
 ALTER TABLE "realtime"."messages" ENABLE ROW LEVEL SECURITY;
 
@@ -396,11 +396,11 @@ ALTER TABLE "realtime"."subscription" ADD COLUMN "filters" realtime.user_defined
 
 ALTER TYPE "realtime"."user_defined_filter" OWNER TO "supabase_admin";
 
-CREATE TYPE "realtime"."wal_column" AS ("is_pkey" boolean, "is_selectable" boolean, "name" text, "type_name" text, "type_oid" oid, "value" jsonb);
+CREATE TYPE "realtime"."wal_column" AS ("name" text, "type_name" text, "type_oid" oid, "value" jsonb, "is_pkey" boolean, "is_selectable" boolean);
 
 ALTER TYPE "realtime"."wal_column" OWNER TO "supabase_admin";
 
-CREATE TYPE "realtime"."wal_rls" AS ("errors" text[], "is_rls_enabled" boolean, "subscription_ids" uuid[], "wal" jsonb);
+CREATE TYPE "realtime"."wal_rls" AS ("wal" jsonb, "is_rls_enabled" boolean, "subscription_ids" uuid[], "errors" text[]);
 
 ALTER TYPE "realtime"."wal_rls" OWNER TO "supabase_admin";
 
@@ -3326,45 +3326,45 @@ REVOKE ALL ON TABLE "realtime"."messages" FROM "supabase_realtime_admin";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages" TO "supabase_realtime_admin";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_02" TO "dashboard_user";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_08" TO "dashboard_user";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_02" TO "postgres";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_08" TO "postgres";
 
-REVOKE ALL ON TABLE "realtime"."messages_2026_07_02" FROM "supabase_realtime_admin";
+REVOKE ALL ON TABLE "realtime"."messages_2026_07_08" FROM "supabase_realtime_admin";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_02" TO "supabase_realtime_admin";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_08" TO "supabase_realtime_admin";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_03" TO "dashboard_user";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_09" TO "dashboard_user";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_03" TO "postgres";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_09" TO "postgres";
 
-REVOKE ALL ON TABLE "realtime"."messages_2026_07_03" FROM "supabase_realtime_admin";
+REVOKE ALL ON TABLE "realtime"."messages_2026_07_09" FROM "supabase_realtime_admin";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_03" TO "supabase_realtime_admin";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_09" TO "supabase_realtime_admin";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_04" TO "dashboard_user";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_10" TO "dashboard_user";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_04" TO "postgres";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_10" TO "postgres";
 
-REVOKE ALL ON TABLE "realtime"."messages_2026_07_04" FROM "supabase_realtime_admin";
+REVOKE ALL ON TABLE "realtime"."messages_2026_07_10" FROM "supabase_realtime_admin";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_04" TO "supabase_realtime_admin";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_10" TO "supabase_realtime_admin";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_05" TO "dashboard_user";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_11" TO "dashboard_user";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_05" TO "postgres";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_11" TO "postgres";
 
-REVOKE ALL ON TABLE "realtime"."messages_2026_07_05" FROM "supabase_realtime_admin";
+REVOKE ALL ON TABLE "realtime"."messages_2026_07_11" FROM "supabase_realtime_admin";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_05" TO "supabase_realtime_admin";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_11" TO "supabase_realtime_admin";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_06" TO "dashboard_user";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_12" TO "dashboard_user";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_06" TO "postgres";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_12" TO "postgres";
 
-REVOKE ALL ON TABLE "realtime"."messages_2026_07_06" FROM "supabase_realtime_admin";
+REVOKE ALL ON TABLE "realtime"."messages_2026_07_12" FROM "supabase_realtime_admin";
 
-GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_06" TO "supabase_realtime_admin";
+GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "realtime"."messages_2026_07_12" TO "supabase_realtime_admin";
 
 GRANT SELECT ON TABLE "realtime"."schema_migrations" TO "anon";
 
