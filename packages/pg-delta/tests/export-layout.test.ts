@@ -17,12 +17,14 @@
  * inline in their table's file for readability; the loader's bounded retry
  * orders them. Still no `foreign_keys/` directory.
  *
- * Deliberate v2 invariant (the old tests asserted the opposite — recorded as
- * not-ported in the porting ledger, pinned here as v2 behavior): v2 keeps ONE
- * object category per file in every layout, so
- *   - indexes get their OWN file under schemas/<s>/indexes/<name>.sql
- *     (old engine co-located them in the table / matview file), and
- *   - materialized views live under materialized_views/ (old: matviews/).
+ * Restored old-engine behaviors (readability, by user decision — the earlier
+ * v2 one-category-per-file rule was reversed):
+ *   - indexes CO-LOCATE with their table / matview file (no indexes/ dir);
+ *   - satellites of a VIEW (INSTEAD OF triggers, policies) file with the view,
+ *     not under tables/ (relation-kind-aware routing);
+ *   - ACL/comment satellites on EXTENSION MEMBERS file with their extension.
+ * Still deliberate v2 delta: materialized views live under
+ * materialized_views/ (old: matviews/).
  *
  * Layout-dependent (second test): a partition child is its OWN tables/<child>.sql
  * file in the by-object layout, but the v1-parity "grouped" layout co-locates it
@@ -80,6 +82,10 @@ describe("export: by-object file mapping (v2 contract)", () => {
         -- an ACL on an extension MEMBER (satellite-on-member routing)
         CREATE EXTENSION pgcrypto;
         REVOKE ALL ON FUNCTION public.gen_salt(text) FROM PUBLIC;
+        -- a VIEW with an INSTEAD OF trigger (relation-kind-aware routing)
+        CREATE VIEW test_schema.v_users AS SELECT id, name FROM test_schema.users;
+        CREATE TRIGGER v_users_ins INSTEAD OF INSERT ON test_schema.v_users
+          FOR EACH ROW EXECUTE FUNCTION test_schema.trigger_fn();
       `);
       const fb = (await extract(src.pool)).factBase;
       const files = exportSqlFiles(fb);
@@ -126,21 +132,22 @@ describe("export: by-object file mapping (v2 contract)", () => {
       expect(has("triggers/")).toBe(false);
       expect(has("policies/")).toBe(false);
 
-      // --- deliberate v2 deltas vs the old engine ---
-      // indexes get their OWN file (old engine put them in the table file)
+      // indexes CO-LOCATE with their table (readability: the old engine did
+      // this too; the earlier v2 one-category-per-file rule was reversed by
+      // user decision) — no indexes/ directory at all.
+      expect(usersFile).toContain("users_name_idx");
+      expect(has("indexes/")).toBe(false);
+      // matviews under materialized_views/ (old engine used matviews/), and a
+      // matview's index co-locates with the matview file
       expect(
-        byName.get("schemas/test_schema/indexes/users_name_idx.sql"),
-      ).toContain("users_name_idx");
-      expect(usersFile).not.toContain("users_name_idx");
-      // matviews under materialized_views/ (old engine used matviews/)
-      expect(
-        has("schemas/test_schema/materialized_views/user_summary.sql"),
-      ).toBe(true);
-      expect(has("matviews/")).toBe(false);
-      // a matview's index is also its own file under indexes/
-      expect(
-        byName.get("schemas/test_schema/indexes/user_summary_idx.sql"),
+        byName.get("schemas/test_schema/materialized_views/user_summary.sql"),
       ).toContain("user_summary_idx");
+      expect(has("matviews/")).toBe(false);
+      // a trigger on a VIEW files with the view, not under tables/
+      expect(byName.get("schemas/test_schema/views/v_users.sql")).toContain(
+        "v_users_ins",
+      );
+      expect(has("tables/v_users")).toBe(false);
       // a partition child is its OWN table file (old engine grouped it)
       expect(has("schemas/test_schema/tables/measurements.sql")).toBe(true);
       expect(has("schemas/test_schema/tables/measurements_2024.sql")).toBe(
@@ -155,7 +162,7 @@ describe("export: by-object file mapping (v2 contract)", () => {
     }
   }, 120_000);
 
-  test("grouped layout (v1 parity) co-locates partition children with the parent; indexes stay one-category-per-file", async () => {
+  test("grouped layout (v1 parity) co-locates partition children with the parent and indexes with their relation", async () => {
     const cluster = await sharedCluster();
     const src = await cluster.createDb("explayout_grouped");
     try {
@@ -186,22 +193,15 @@ describe("export: by-object file mapping (v2 contract)", () => {
       ).toContain("measurements_2024");
       expect(has("tables/measurements_2024.sql")).toBe(false);
 
-      // the one-category-per-file invariant holds in EVERY layout, grouped
-      // included: an index is always its own file and is never folded into the
-      // table/matview file (the old engine did fold them — a deliberate v2
-      // departure, recorded as not-ported in the porting ledger).
-      expect(
-        byName.get("schemas/test_schema/indexes/users_name_idx.sql"),
-      ).toContain("users_name_idx");
-      expect(byName.get("schemas/test_schema/tables/users.sql")).not.toContain(
+      // indexes co-locate with their table / matview file in grouped too
+      // (old-engine behavior, restored by user decision) — no indexes/ dir.
+      expect(byName.get("schemas/test_schema/tables/users.sql")).toContain(
         "users_name_idx",
       );
       expect(
-        byName.get("schemas/test_schema/indexes/user_summary_idx.sql"),
+        byName.get("schemas/test_schema/materialized_views/user_summary.sql"),
       ).toContain("user_summary_idx");
-      expect(
-        has("schemas/test_schema/materialized_views/user_summary.sql"),
-      ).toBe(true);
+      expect(has("indexes/")).toBe(false);
       expect(has("matviews/")).toBe(false);
     } finally {
       await src.drop();
