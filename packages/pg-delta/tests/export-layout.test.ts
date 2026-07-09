@@ -77,6 +77,9 @@ describe("export: by-object file mapping (v2 contract)", () => {
           ADD CONSTRAINT m1_m2_fk FOREIGN KEY (m2_id) REFERENCES test_schema.m2(id);
         ALTER TABLE test_schema.m2
           ADD CONSTRAINT m2_m1_fk FOREIGN KEY (m1_id) REFERENCES test_schema.m1(id);
+        -- an ACL on an extension MEMBER (satellite-on-member routing)
+        CREATE EXTENSION pgcrypto;
+        REVOKE ALL ON FUNCTION public.gen_salt(text) FROM PUBLIC;
       `);
       const fb = (await extract(src.pool)).factBase;
       const files = exportSqlFiles(fb);
@@ -106,6 +109,15 @@ describe("export: by-object file mapping (v2 contract)", () => {
       expect(byName.get("schemas/test_schema/tables/m1.sql")).not.toContain(
         "REFERENCES",
       );
+
+      // a satellite whose TARGET is an extension MEMBER (an ACL on a pgcrypto
+      // function) files into the owning extension's file, next to its CREATE
+      // EXTENSION — NOT into schemas/<s>/functions/ (a real DB with pgTAP would
+      // otherwise sprout hundreds of REVOKE-only function files).
+      const pgcryptoFile = byName.get("cluster/extensions/pgcrypto.sql");
+      expect(pgcryptoFile).toContain("CREATE EXTENSION");
+      expect(pgcryptoFile).toContain("gen_salt");
+      expect(has("functions/gen_salt")).toBe(false);
       // trigger + RLS policy in the table file, no separate dirs
       expect(usersFile).toContain("CREATE TRIGGER");
       expect(usersFile).toContain("users_trigger");

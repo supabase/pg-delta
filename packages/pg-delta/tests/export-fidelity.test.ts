@@ -203,6 +203,40 @@ describe("export: round-trip fidelity (all layouts)", () => {
     }
   }, 120_000);
 
+  // Satellite-on-extension-member routing must survive grouped/flat regrouping
+  // (like the .fk.sql guard) AND round-trip: an ACL on a pgcrypto member files
+  // into cluster/extensions/pgcrypto.sql, never back into schemas/public/….
+  test("member ACLs route to the extension file and round-trip (grouped + flat)", async () => {
+    const cluster = await sharedCluster();
+    const src = await cluster.createDb("fid_membacl_src");
+    const shadow = await cluster.createDb("fid_membacl_shadow");
+    try {
+      await src.pool.query(`
+        CREATE EXTENSION pgcrypto;
+        REVOKE ALL ON FUNCTION public.gen_salt(text) FROM PUBLIC;
+      `);
+      const fb = (await extract(src.pool)).factBase;
+      const files = forLoad(
+        exportSqlFiles(fb, {
+          layout: "grouped",
+          grouping: { flatSchemas: ["public"] },
+        }),
+      );
+      const extFile = files.find(
+        (f) => f.name === "cluster/extensions/pgcrypto.sql",
+      );
+      expect(extFile?.sql).toContain("gen_salt");
+      // no member ACL leaks back into a public functions file (the public
+      // schema's OWN schema.sql — its comment/grants — legitimately remains)
+      expect(files.some((f) => f.name.includes("functions"))).toBe(false);
+      expect(files.some((f) => f.sql.includes("gen_salt"))).toBe(true);
+      const loaded = await loadSqlFiles(files, shadow.pool);
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+    } finally {
+      await Promise.all([src.drop(), shadow.drop()]);
+    }
+  }, 120_000);
+
   // ADP `FOR ROLE` and `WITH GRANT OPTION` rendering fidelity (Fable checklist
   // items 3 + 5). These need a named (non-PUBLIC) role, so the fixture creates
   // one; it is cluster-global and dropped in `finally`. by-object layout only —
