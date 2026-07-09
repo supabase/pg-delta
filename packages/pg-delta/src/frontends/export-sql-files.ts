@@ -567,16 +567,6 @@ function pathFor(id: StableId, ctx: PathContext): string {
     // materialized view — file those with their actual relation.
     const relationDir =
       ctx.relationDir.get(nameKey(t.schema, t.table)) ?? "tables";
-    if (kind === "trigger")
-      console.error(
-        "DBG trigger",
-        JSON.stringify({
-          key: `${t.schema} ${t.table}`,
-          hit: ctx.relationDir.get(nameKey(t.schema, t.table)),
-          mapSize: ctx.relationDir.size,
-          keys: [...ctx.relationDir.keys()],
-        }),
-      );
     return `schemas/${seg(t.schema)}/${relationDir}/${seg(t.table)}.sql`;
   }
   if (kind === "index") {

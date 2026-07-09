@@ -104,9 +104,20 @@ export const typeRules: Record<string, KindRules> = {
         // attributes are sub-facts (granularity is one): inline them on the
         // fresh CREATE (delta-set, like partitioned-table columns) and
         // register them as produced so their standalone creates are skipped
+        // Attribute ORDER is row-layout state: render in declared position
+        // (`_position`, captured at extract time), NOT the encoded-id (name)
+        // order childrenOf() yields — else composite columns silently reorder.
+        // Fall back to the incoming (name) order when `_position` is absent
+        // (legacy fact bases / snapshots) so the sort stays stable and total.
         const attrFacts = view
           .childrenOf(fact.id)
           .filter((c) => c.id.kind === "typeAttribute");
+        const positioned = attrFacts.every((a) => p(a, "_position") != null);
+        if (positioned) {
+          attrFacts.sort(
+            (a, b) => Number(p(a, "_position")) - Number(p(b, "_position")),
+          );
+        }
         const attrs = attrFacts.map((a) => typeAttributeClause(a));
         for (const a of attrFacts) alsoProduces.push(a.id);
         sql = `CREATE TYPE ${relName} AS (${attrs.join(", ")})`;

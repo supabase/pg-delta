@@ -132,6 +132,7 @@ export async function extractTypes(ctx: ExtractContext): Promise<void> {
     SELECT n.nspname AS schema, t.typname AS name, r.rolname AS owner,
            (SELECT json_agg(json_build_object(
               'name', a.attname,
+              'position', a.attnum,
               'type', format_type(a.atttypid, a.atttypmod),
               'collation', CASE WHEN a.attcollation <> at.typcollation THEN (
                 SELECT quote_ident(cn.nspname) || '.' || quote_ident(co.collname)
@@ -168,10 +169,17 @@ export async function extractTypes(ctx: ExtractContext): Promise<void> {
     pushOwnerEdge(typeId, row["owner"]);
     // each attribute is its own fact (granularity is one, §3.1) — enables
     // attribute-grain diffs and ALTER TYPE … RENAME ATTRIBUTE rename
-    // detection. Positional order is not desired state (mirrors columns).
+    // detection. Positional IDENTITY is not desired state (attributes are
+    // name-keyed, like columns), but render ORDER is — carried below as
+    // `_position` (see the payload comment).
     const attrs =
       (row["attrs"] as
-        | { name: string; type: string; collation: string | null }[]
+        | {
+            name: string;
+            position: number;
+            type: string;
+            collation: string | null;
+          }[]
         | null) ?? [];
     for (const a of attrs) {
       facts.push({
@@ -182,7 +190,17 @@ export async function extractTypes(ctx: ExtractContext): Promise<void> {
           name: a.name,
         },
         parent: typeId,
-        payload: { type: a.type, collation: a.collation ?? null },
+        // `_position` is the declared attribute position (pg_attribute.attnum).
+        // Row layout — hence render order — is desired state, but positional
+        // identity is not (attributes are name-keyed sub-facts, like columns),
+        // so the `_`-prefix excludes it from the hash and diff (core/hash.ts,
+        // core/diff.ts) while the composite CREATE TYPE rule still renders
+        // attributes in this order (plan/rules/types.ts).
+        payload: {
+          type: a.type,
+          collation: a.collation ?? null,
+          _position: a.position,
+        },
       });
     }
   }
