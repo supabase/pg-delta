@@ -70,7 +70,8 @@ describe("profile-declared baseline (end-to-end)", () => {
         join(outDir, "schemas/app/schema.sql"),
         "utf8",
       );
-      expect(appFile).toContain(`CREATE SCHEMA "app"`);
+      // the CLI formats by default (lowercase keywords)
+      expect(appFile).toContain(`create schema "app"`);
       expect(() =>
         readFileSync(join(outDir, "schemas/plat/schema.sql"), "utf8"),
       ).toThrow(); // plat was subtracted by the baseline → no file
