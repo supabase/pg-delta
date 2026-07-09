@@ -203,6 +203,56 @@ describe("export: round-trip fidelity (all layouts)", () => {
     }
   }, 120_000);
 
+  // Export-only constraint folding: validated table constraints render INLINE
+  // inside their CREATE TABLE parens (`CONSTRAINT name <def>`), like
+  // hand-written SQL — instead of a trail of ALTER TABLE ADD CONSTRAINT.
+  // NOT VALID constraints cannot inline (inline constraints always validate)
+  // and stay as ALTERs; cyclic FKs keep the .fk.sql split (covered above).
+  test("validated constraints fold inline into CREATE TABLE; NOT VALID stays an ALTER", async () => {
+    const cluster = await sharedCluster();
+    const src = await cluster.createDb("fid_fold_src");
+    const shadow = await cluster.createDb("fid_fold_shadow");
+    try {
+      await src.pool.query(`
+        CREATE SCHEMA f;
+        CREATE TABLE f.customers (id integer PRIMARY KEY);
+        CREATE TABLE f.orders (
+          id integer,
+          customer_id integer,
+          qty integer,
+          email text,
+          CONSTRAINT orders_pk PRIMARY KEY (id),
+          CONSTRAINT orders_qty_ck CHECK (qty > 0),
+          CONSTRAINT orders_email_uq UNIQUE (email),
+          CONSTRAINT orders_cust_fk FOREIGN KEY (customer_id)
+            REFERENCES f.customers (id)
+        );
+        ALTER TABLE f.orders
+          ADD CONSTRAINT orders_qty_big CHECK (qty < 1000) NOT VALID;
+      `);
+      const fb = (await extract(src.pool)).factBase;
+      const files = forLoad(exportSqlFiles(fb));
+      const orders = files.find(
+        (f) => f.name === "schemas/f/tables/orders.sql",
+      )?.sql;
+      expect(orders).toBeDefined();
+      // all four validated constraints inline, names preserved
+      expect(orders).toContain(`CONSTRAINT "orders_pk" PRIMARY KEY`);
+      expect(orders).toContain(`CONSTRAINT "orders_qty_ck" CHECK`);
+      expect(orders).toContain(`CONSTRAINT "orders_email_uq" UNIQUE`);
+      expect(orders).toContain(`CONSTRAINT "orders_cust_fk" FOREIGN KEY`);
+      // the ONLY remaining ADD CONSTRAINT is the NOT VALID one
+      const addConstraints = orders!.match(/ADD CONSTRAINT/g) ?? [];
+      expect(addConstraints).toHaveLength(1);
+      expect(orders).toContain("NOT VALID");
+
+      const loaded = await loadSqlFiles(files, shadow.pool);
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+    } finally {
+      await Promise.all([src.drop(), shadow.drop()]);
+    }
+  }, 120_000);
+
   // Satellite-on-extension-member routing must survive grouped/flat regrouping
   // (like the .fk.sql guard) AND round-trip: an ACL on a pgcrypto member files
   // into cluster/extensions/pgcrypto.sql, never back into schemas/public/….
