@@ -290,6 +290,28 @@ function seg(name: string): string {
   );
 }
 
+/** Precomputed routing context threaded through {@link pathFor}: the cyclic-FK
+ *  split set and the extension-member map. Built once per export. */
+interface PathContext {
+  /** Encoded ids of cycle-participating FK constraints (→ `.fk.sql`). */
+  readonly cyclicFks: ReadonlySet<string>;
+  /** Encoded extension-member object id → owning extension name. Satellites
+   *  (acl/comment) targeting a member route to the extension's own file. */
+  readonly memberExt: ReadonlyMap<string, string>;
+}
+
+/** Encoded member object id → owning extension name, from the
+ *  `memberOfExtension` edges extraction records. */
+function extensionMembersByEncoded(fb: FactBase): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const edge of fb.edges) {
+    if (edge.kind !== "memberOfExtension") continue;
+    if (edge.to.kind !== "extension") continue;
+    map.set(encodeId(edge.from), (edge.to as { name: string }).name);
+  }
+  return map;
+}
+
 /** Explanatory header prepended to every split `.fk.sql` file. */
 const FK_SPLIT_HEADER =
   "-- Foreign keys in a cross-table reference cycle are split out of their\n" +
@@ -435,9 +457,19 @@ function cyclicForeignKeys(fb: FactBase): Set<string> {
   return cyclic;
 }
 
-function pathFor(id: StableId, cyclicFks: ReadonlySet<string>): string {
+function pathFor(id: StableId, ctx: PathContext): string {
   const target = fileTarget(id);
   const kind = target.kind;
+  // A satellite (acl/comment, unwrapped by fileTarget) whose target is an
+  // EXTENSION MEMBER files into the owning extension's file, next to its
+  // CREATE EXTENSION. Member objects themselves never yield actions
+  // (reference-only), so only satellites reach this branch. Keeps a real DB
+  // with e.g. pgTAP from sprouting hundreds of REVOKE-only function files —
+  // the state stays fully managed, only its file placement changes.
+  const memberExtension = ctx.memberExt.get(encodeId(target));
+  if (memberExtension !== undefined) {
+    return `cluster/extensions/${seg(memberExtension)}.sql`;
+  }
   // A schema-scoped ALTER DEFAULT PRIVILEGES depends on its schema, so it must
   // NOT share the atomic cluster/roles.sql file with CREATE ROLE: with reorder
   // disabled (any ADP present) the raw loader would roll the role back when the
@@ -469,7 +501,7 @@ function pathFor(id: StableId, cyclicFks: ReadonlySet<string>): string {
     // exist (pg_dump's post-data precedent). ACYCLIC FKs (the common case)
     // stay INLINE for readability — the loader's bounded retry orders their
     // files. `cyclicFks` is precomputed by {@link cyclicForeignKeys}.
-    if (target.kind === "constraint" && cyclicFks.has(encodeId(target))) {
+    if (target.kind === "constraint" && ctx.cyclicFks.has(encodeId(target))) {
       return `schemas/${seg(t.schema)}/tables/${seg(t.table)}.fk.sql`;
     }
     return `schemas/${seg(t.schema)}/tables/${seg(t.table)}.sql`;
@@ -546,12 +578,16 @@ export function exportSqlFiles(
       : {}),
   });
 
-  // FKs inside a cross-table reference cycle move to a sibling `.fk.sql`
-  // (see cyclicForeignKeys); computed once per export, empty for ~all schemas.
-  const cyclicFks = cyclicForeignKeys(fb);
+  // Routing context, computed once per export: the cyclic-FK split set (empty
+  // for ~all schemas) and the extension-member map (satellites on members file
+  // with their extension).
+  const pathContext: PathContext = {
+    cyclicFks: cyclicForeignKeys(fb),
+    memberExt: extensionMembersByEncoded(fb),
+  };
 
   if (layout === "grouped") {
-    return exportGrouped(rendered.actions, fb, options, cyclicFks);
+    return exportGrouped(rendered.actions, fb, options, pathContext);
   }
 
   // group statements by file, preserving plan order within AND across
@@ -561,7 +597,9 @@ export function exportSqlFiles(
   rendered.actions.forEach((action, position) => {
     const subject = subjectOf(action);
     const path =
-      subject === undefined ? "cluster/misc.sql" : pathFor(subject, cyclicFks);
+      subject === undefined
+        ? "cluster/misc.sql"
+        : pathFor(subject, pathContext);
     const entry = files.get(path) ?? { firstAt: position, statements: [] };
     entry.statements.push(action.sql);
     files.set(path, entry);
@@ -578,7 +616,7 @@ export function exportSqlFiles(
       const path =
         subject === undefined
           ? "cluster/misc.sql"
-          : pathFor(subject, cyclicFks);
+          : pathFor(subject, pathContext);
       const last = runs[runs.length - 1];
       if (last !== undefined && last.path === path) {
         last.statements.push(action.sql);
@@ -635,7 +673,7 @@ function exportGrouped(
   actions: Action[],
   fb: FactBase,
   options: ExportOptions,
-  cyclicFks: ReadonlySet<string>,
+  pathContext: PathContext,
 ): SqlFile[] {
   const grouping = options.grouping ?? {};
   const mode = grouping.mode ?? "subdirectory";
@@ -647,7 +685,7 @@ function exportGrouped(
   );
 
   const groupedPath = (id: StableId): string => {
-    const base = pathFor(id, cyclicFks);
+    const base = pathFor(id, pathContext);
     // Cycle-participating FKs keep their sibling `<table>.fk.sql` path in EVERY
     // grouping mode: the flat-schema / name-pattern regrouping below would
     // otherwise fold them back into an atomic per-schema file, re-introducing
@@ -655,6 +693,10 @@ function exportGrouped(
     // referencing each other). pathFor routes only cyclic FKs to `.fk.sql`, so
     // the suffix uniquely identifies them.
     if (base.endsWith(".fk.sql")) return base;
+    // Satellites routed to an extension's file stay there: their TARGET has a
+    // schema (e.g. a pgcrypto function in `public`), so the flat/pattern
+    // regrouping below would otherwise pull them back into `schemas/<s>/…`.
+    if (base.startsWith("cluster/extensions/")) return base;
     const { schema, objectName } = schemaAndName(id);
     // cluster-level objects (no schema) are never regrouped
     if (schema === undefined) return base;
