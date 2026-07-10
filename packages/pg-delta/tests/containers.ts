@@ -263,6 +263,10 @@ export async function supabaseCluster(): Promise<Cluster> {
  *  `supabase_admin`, matching the committed base-init fixture. */
 export interface StartedStandaloneSupabase {
   connectionUri(db?: string): string;
+  /** Real Supabase projects hand users a `postgres`-role connection, never
+   *  `supabase_admin` (that's Supabase's internal platform-admin role). Use
+   *  this for anything meant to simulate real `--target` usage. */
+  postgresConnectionUri(db?: string): string;
   stop(): Promise<void>;
 }
 
@@ -278,9 +282,53 @@ export async function startStandaloneSupabase(): Promise<StartedStandaloneSupaba
     .withStartupTimeout(180_000)
     .withTmpFs({ "/var/lib/postgresql/data": "rw,noexec,nosuid,size=512m" })
     .start();
+  const host = container.getHost();
+  const port = container.getMappedPort(5432);
+
+  // Make `postgres` connectable exactly the way real Supabase Cloud exposes it:
+  // a NON-superuser member of `supabase_privileged_role`. The image's `supautils`
+  // (session-preloaded, `supautils.privileged_role = 'supabase_privileged_role'`)
+  // elevates that role just enough — session-level GUCs in
+  // `privileged_role_allowed_configs` (e.g. `log_min_messages`), and CREATE EVENT
+  // TRIGGER via a switch-to-`supautils.superuser`-then-reassign-owner path, so
+  // objects a privileged-role member creates are owned by that member
+  // (`postgres`), matching Cloud. Granting real SUPERUSER instead would be
+  // unfaithful: superuser-created event triggers take supautils' genuine-superuser
+  // path, which coerces ownership to `supabase_admin`, so user event triggers
+  // (e.g. Studio's `ensure_rls`) drift owner and the Supabase profile then
+  // excludes them from export.
+  //
+  // The role + grant mirror the image's own migration
+  // `20260211120934_supabase_privileged_role.sql` (newer tags ship it; the pinned
+  // tag predates it) — idempotent, a no-op once the image includes it.
+  // The co-located-shadow seed replays as this non-superuser role since the
+  // seed hardening in seed-assumed-schemas.ts (SUSET SET clauses stripped,
+  // platform ADP entries omitted).
+  const adminPool = new pg.Pool({
+    connectionString: `postgres://supabase_admin:postgres@${host}:${port}/postgres`,
+    max: 1,
+  });
+  adminPool.on("error", () => {});
+  try {
+    await adminPool.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'supabase_privileged_role') THEN
+          CREATE ROLE supabase_privileged_role;
+        END IF;
+      END $$;`);
+    await adminPool.query("GRANT supabase_privileged_role TO postgres");
+    await adminPool.query(
+      "ALTER ROLE postgres WITH LOGIN NOSUPERUSER PASSWORD 'postgres'",
+    );
+  } finally {
+    await adminPool.end();
+  }
+
   return {
     connectionUri: (db = "postgres") =>
-      `postgres://supabase_admin:postgres@${container.getHost()}:${container.getMappedPort(5432)}/${db}`,
+      `postgres://supabase_admin:postgres@${host}:${port}/${db}`,
+    postgresConnectionUri: (db = "postgres") =>
+      `postgres://postgres:postgres@${host}:${port}/${db}`,
     stop: async () => {
       await container.stop();
     },
