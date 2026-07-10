@@ -8,7 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
-import { flattenPolicy } from "../policy/policy.ts";
+import { flattenPolicy, type Policy } from "../policy/policy.ts";
 import { supabasePolicy } from "../policy/supabase.ts";
 import { deriveAssumedSchemaSeed } from "./seed-assumed-schemas.ts";
 
@@ -104,6 +104,175 @@ describe("deriveAssumedSchemaSeed", () => {
       assumedRoles: [],
     });
     expect(seed).toEqual({ sql: "", facts: 0, schemas: [] });
+  });
+
+  // Unit C: a seeded routine carrying a superuser-only `SET` clause cannot be
+  // CREATEd by a non-superuser applier at all (SQLSTATE 42501 at CREATE time),
+  // and platform ADP entries fail the same way. The routine's `SET` clause lives
+  // inside its semantic `def` payload; the parallel `_configGucs` key is a
+  // NON-semantic structured duplicate of the SET GUC NAMES (populated from
+  // `pg_proc.proconfig` at extract time, `_`-prefixed ⇒ dropped from hash + diff)
+  // that lets the seed DECIDE which routines to skip WITHOUT reading SQL text. A
+  // custom profile that assumes `platform` marks its facts reference-only, so
+  // they land in the seed.
+  const platformPolicy: Policy = {
+    id: "test-platform",
+    filter: [
+      {
+        match: { any: [{ schema: "platform" }, { name: "platform" }] },
+        action: "exclude",
+      },
+    ],
+    assumedSchemas: ["platform"],
+  };
+  const schemaPlatform: StableId = { kind: "schema", name: "platform" };
+  const noisyFn: StableId = {
+    kind: "function",
+    schema: "platform",
+    name: "noisy",
+    args: [],
+  };
+  const tidyFn: StableId = {
+    kind: "function",
+    schema: "platform",
+    name: "tidy",
+    args: [],
+  };
+  // Mirrors pg_get_functiondef output: SET clauses are header lines before `AS`.
+  const noisyDef =
+    `CREATE OR REPLACE FUNCTION platform.noisy()\n` +
+    ` RETURNS integer\n` +
+    ` LANGUAGE sql\n` +
+    ` SET search_path TO 'public'\n` +
+    ` SET log_min_messages TO 'fatal'\n` +
+    `AS $function$SELECT 1$function$`;
+  const tidyDef =
+    `CREATE OR REPLACE FUNCTION platform.tidy()\n` +
+    ` RETURNS integer\n` +
+    ` LANGUAGE sql\n` +
+    ` SET search_path TO 'public'\n` +
+    `AS $function$SELECT 1$function$`;
+  const routinePayload = (
+    def: string,
+    configGucs: string[],
+  ): Fact["payload"] => ({
+    def,
+    returnType: "integer",
+    argSignature: "",
+    language: "sql",
+    isWindow: false,
+    // Structured GUC names from proconfig; `_`-prefixed ⇒ non-semantic (excluded
+    // from hash + diff), used only for the seed skip decision.
+    _configGucs: configGucs,
+  });
+  const adpFact: Fact = {
+    id: {
+      kind: "defaultPrivilege",
+      role: "admin",
+      schema: "platform",
+      objtype: "r",
+      grantee: "reader",
+    },
+    payload: { privileges: ["SELECT"], grantable: [] },
+  };
+  // Snapshot target: a single routine + ADP, so the no-option path can be pinned
+  // byte-identical (routine def rendered verbatim, ADP omitted).
+  const platformTarget = () =>
+    buildFactBase(
+      [
+        f(schemaPlatform),
+        f(
+          noisyFn,
+          routinePayload(noisyDef, ["search_path", "log_min_messages"]),
+        ),
+        adpFact,
+      ],
+      [],
+    );
+
+  test("susetGucs excludes the whole offending routine (not a stripped copy); a search_path-only routine is seeded intact; ADP omitted", () => {
+    const target = buildFactBase(
+      [
+        f(schemaPlatform),
+        f(
+          noisyFn,
+          routinePayload(noisyDef, ["search_path", "log_min_messages"]),
+        ),
+        f(tidyFn, routinePayload(tidyDef, ["search_path"])),
+        adpFact,
+      ],
+      [],
+    );
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: platformPolicy,
+      assumedSchemas: ["platform"],
+      assumedRoles: ["admin", "reader"],
+      susetGucs: new Set(["log_min_messages"]),
+    });
+    // the WHOLE offending routine is absent — no trace of a stripped version.
+    expect(seed.sql).not.toContain("noisy");
+    expect(seed.sql).not.toContain("log_min_messages");
+    // a routine whose only proconfig GUC is user-context (search_path) is kept.
+    expect(seed.sql).toContain("platform.tidy()");
+    expect(seed.sql).toContain("SET search_path TO 'public'");
+    // ADP is unconditionally omitted (no member-of-role at replay).
+    expect(seed.sql).not.toContain("ALTER DEFAULT PRIVILEGES");
+  });
+
+  test("a fact depending on the excluded routine is excluded transitively", () => {
+    const dependentFn: StableId = {
+      kind: "function",
+      schema: "platform",
+      name: "dependent",
+      args: [],
+    };
+    const dependentDef =
+      `CREATE OR REPLACE FUNCTION platform.dependent()\n` +
+      ` RETURNS integer\n` +
+      ` LANGUAGE sql\n` +
+      `AS $function$SELECT platform.noisy()$function$`;
+    const target = buildFactBase(
+      [
+        f(schemaPlatform),
+        f(
+          noisyFn,
+          routinePayload(noisyDef, ["search_path", "log_min_messages"]),
+        ),
+        f(dependentFn, routinePayload(dependentDef, [])),
+      ],
+      [{ from: dependentFn, to: noisyFn, kind: "depends" }],
+    );
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: platformPolicy,
+      assumedSchemas: ["platform"],
+      assumedRoles: [],
+      susetGucs: new Set(["log_min_messages"]),
+    });
+    // the excluded routine AND its dependent are both gone; the schema remains.
+    expect(seed.sql).not.toContain("noisy");
+    expect(seed.sql).not.toContain("dependent");
+    expect(seed.sql).toContain('CREATE SCHEMA "platform"');
+  });
+
+  test("without susetGucs: routine def retained verbatim (byte-identical), ADP still omitted", () => {
+    const seed = deriveAssumedSchemaSeed(platformTarget(), {
+      policy: platformPolicy,
+      assumedSchemas: ["platform"],
+      assumedRoles: ["admin", "reader"],
+    });
+    expect(seed.sql).toMatchInlineSnapshot(`
+      "SET check_function_bodies = off;
+
+      CREATE SCHEMA "platform";
+
+      CREATE OR REPLACE FUNCTION platform.noisy()
+       RETURNS integer
+       LANGUAGE sql
+       SET search_path TO 'public'
+       SET log_min_messages TO 'fatal'
+      AS $function$SELECT 1$function$;
+      "
+    `);
   });
 
   test("no policy → nothing is reference-only → seeds nothing", () => {
