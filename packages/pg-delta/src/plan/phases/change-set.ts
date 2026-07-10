@@ -18,6 +18,7 @@ import {
   resolveView,
   validatePolicy,
 } from "../../policy/policy.ts";
+import { projectManagementScope } from "../../policy/view.ts";
 import type { PlanOptions } from "../plan.ts";
 import type { RulesForId } from "../rules.ts";
 import { projectTarget } from "../project.ts";
@@ -96,17 +97,25 @@ export function buildChangeSet(
   // the FACT level on BOTH sides, so the proof stays honest by construction.
   // `verb` rules remain for the delta-level filter below. With no policy/baseline
   // and no member edges this is the identity projection, so the corpus is unchanged.
-  const source = resolveView(
-    rawSource,
-    options?.policy,
-    options?.capability,
-    options?.baseline,
+  //
+  // The management-scope projection runs AFTER resolveView, never before: a
+  // policy owner-exclusion rule (Supabase Rule 6) reads the `owner` edge, and
+  // `projectManagementScope("database")` prunes role facts together with those
+  // owner edges — so projecting scope first would strip the edge the policy
+  // needs and wrongly plan a DROP of a platform object owned by a system role
+  // (e.g. an event trigger). This is the SAME order `schema export` uses, and it
+  // is done HERE (the single managed-view-under-scope definition) so plan, the
+  // apply fingerprint gate, and the proof loop all reconstruct the identical
+  // view — `plan == prove == run`. `scope` defaults to "cluster", which is the
+  // identity projection, so direct library callers / the corpus are unchanged.
+  const scope = options?.scope ?? "cluster";
+  const source = projectManagementScope(
+    resolveView(rawSource, options?.policy, options?.capability, options?.baseline),
+    scope,
   );
-  const desired = resolveView(
-    rawDesired,
-    options?.policy,
-    options?.capability,
-    options?.baseline,
+  const desired = projectManagementScope(
+    resolveView(rawDesired, options?.policy, options?.capability, options?.baseline),
+    scope,
   );
 
   const allDeltas = diff(source, desired);

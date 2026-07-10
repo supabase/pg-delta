@@ -8,6 +8,7 @@ import type { FactBase } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
 import { flattenPolicy, type Policy } from "../policy/policy.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
+import type { ManagementScope } from "../policy/view.ts";
 import { emitActions } from "./phases/action-emitter.ts";
 import { finalizeActions } from "./phases/action-graph.ts";
 import { buildChangeSet } from "./phases/change-set.ts";
@@ -101,6 +102,12 @@ export interface Plan {
    *  mismatch, so a swapped or edited baseline can't silently diff a different
    *  view. Absent when no baseline was in effect. */
   baseline?: { digest: string };
+  /** the management scope the plan's managed view was projected to (§scope),
+   *  stamped whenever it is not the default cluster scope. `apply`/`prove`
+   *  reconstruct the fingerprint/proof view with `projectManagementScope(...,
+   *  scope)` applied AFTER `resolveView`, so plan == prove == run holds under a
+   *  database-scoped profile. Absent (⇒ "cluster") on direct library plans. */
+  scope?: ManagementScope;
   /** every rename candidate found, applied or not — "prompt" mode renders
    *  these as questions; near-misses explain why they degraded (§4.1) */
   renameCandidates: RenameCandidate[];
@@ -171,6 +178,13 @@ export interface PlanOptions {
    *  onto the artifact so `apply`/`prove` reconstruct the fingerprint identically
    *  (see `Plan.redactSecrets`). Omit on direct library plans. */
   redactSecrets?: boolean;
+  /** management scope of the managed view (§scope): "database" (the declarative
+   *  default) removes cluster-global role/membership facts and their owner edges
+   *  from BOTH diff sides AFTER `resolveView`, so a policy owner-exclusion rule
+   *  still sees the owner edges it matches on. "cluster" (the default here when
+   *  omitted) is the identity projection — direct library callers / the corpus
+   *  are unaffected. Set by the CLI's `schema apply`. */
+  scope?: ManagementScope;
   /** intent-rule index for stateful-extension intent facts (`extensionIntent`
    *  kind — pg_cron jobs, …). Supplied by the resolved profile
    *  (`resolveProfile` builds it from the profile's handlers' `intentKinds`);
@@ -334,6 +348,11 @@ export function plan(
     ...(options?.capability ? { capability: options.capability } : {}),
     ...(options?.profile ? { profile: options.profile } : {}),
     ...(options?.baselineMeta ? { baseline: options.baselineMeta } : {}),
+    // stamp scope only when it is not the default cluster projection, so corpus
+    // / direct-library plan artifacts stay byte-identical.
+    ...(options?.scope !== undefined && options.scope !== "cluster"
+      ? { scope: options.scope }
+      : {}),
     ...(options?.redactSecrets !== undefined
       ? { redactSecrets: options.redactSecrets }
       : {}),

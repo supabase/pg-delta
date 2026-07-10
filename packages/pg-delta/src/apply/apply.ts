@@ -16,6 +16,7 @@ import type { FactBase } from "../core/fact.ts";
 import { extract } from "../extract/extract.ts";
 import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
 import { resolveView } from "../policy/policy.ts";
+import { projectManagementScope } from "../policy/view.ts";
 
 export type ActionStatus = "applied" | "unapplied" | "inDoubt";
 
@@ -142,11 +143,18 @@ export async function apply(
       );
     }
     const current = await (options?.reextract ?? extract)(target);
-    const view = resolveView(
-      current.factBase,
-      thePlan.policy,
-      thePlan.capability,
-      options?.baseline,
+    // reconstruct the SAME managed-view-under-scope the plan fingerprinted:
+    // resolveView FIRST, then the scope projection (change-set.ts) — the reverse
+    // order would strip owner edges a policy rule reads. `scope` defaults to the
+    // identity "cluster" projection, so unscoped plans are unchanged.
+    const view = projectManagementScope(
+      resolveView(
+        current.factBase,
+        thePlan.policy,
+        thePlan.capability,
+        options?.baseline,
+      ),
+      thePlan.scope ?? "cluster",
     );
     // KNOWN PITFALL (acknowledged, by design): the fingerprint folds the WHOLE
     // resolved view, INCLUDING `referenceOnly` assumed-schema facts (e.g.

@@ -1037,11 +1037,17 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     });
 
     // targetResult + assumedTargetRoles were computed before the seed (above).
-    const sourceFb = projectManagementScope(targetResult.factBase, scope);
-    const desiredFb = projectManagementScope(loadResult.factBase, scope);
+    // Pass the RAW fact bases and the scope: plan() resolves the policy managed
+    // view FIRST and projects the scope out SECOND (change-set.ts), the same
+    // proven-correct order `schema export` uses. Projecting scope here (before
+    // plan's resolveView) would strip the owner edges a policy owner-exclusion
+    // rule reads and wrongly plan a DROP of a system-owned platform object.
+    const sourceFb = targetResult.factBase;
+    const desiredFb = loadResult.factBase;
 
     const planOptions = {
       renames,
+      scope,
       ...(acceptRenames.length > 0 ? { acceptRenames } : {}),
       ...ctx.planOptions, // policy, capability, baseline (from the profile)
       ...(assumedTargetRoles.length > 0
@@ -1097,15 +1103,14 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     const report = await apply(thePlan, tgt.pool, {
       ...ctx.applyOptions, // baseline + handler-aware re-extract (from the profile)
       // the fingerprint gate re-extracts the target and compares to the plan
-      // source; that source used `redactSecrets` AND the scope projection, so the
-      // re-extract must apply both — otherwise --unsafe-show-secrets trips the
-      // gate against unredacted credentials, or database scope trips it against
-      // the target's ambient roles (review P2 / §scope).
-      reextract: (p) =>
-        ctx.extract(p, { redactSecrets }).then((r) => ({
-          ...r,
-          factBase: projectManagementScope(r.factBase, scope),
-        })),
+      // source; that source used `redactSecrets`, so the re-extract must too —
+      // otherwise --unsafe-show-secrets trips the gate against unredacted
+      // credentials. The scope projection is NOT applied here: apply() runs it
+      // AFTER resolveView (reading the plan's stamped scope), matching plan's
+      // managed-view-under-scope order — projecting scope here would strip the
+      // owner edges a policy rule reads and trip the gate against a different
+      // view than the plan fingerprinted (§scope).
+      reextract: (p) => ctx.extract(p, { redactSecrets }),
       fingerprintGate: !force,
     });
 
