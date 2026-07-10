@@ -110,11 +110,21 @@ export function buildChangeSet(
   // identity projection, so direct library callers / the corpus are unchanged.
   const scope = options?.scope ?? "cluster";
   const source = projectManagementScope(
-    resolveView(rawSource, options?.policy, options?.capability, options?.baseline),
+    resolveView(
+      rawSource,
+      options?.policy,
+      options?.capability,
+      options?.baseline,
+    ),
     scope,
   );
   const desired = projectManagementScope(
-    resolveView(rawDesired, options?.policy, options?.capability, options?.baseline),
+    resolveView(
+      rawDesired,
+      options?.policy,
+      options?.capability,
+      options?.baseline,
+    ),
     scope,
   );
 

@@ -19,7 +19,13 @@ const schema = (name: string): Fact => ({
 });
 
 const defaultPrivilege = (role: string, grantee: string): Fact => ({
-  id: { kind: "defaultPrivilege", role, schema: "public", objtype: "r", grantee },
+  id: {
+    kind: "defaultPrivilege",
+    role,
+    schema: "public",
+    objtype: "r",
+    grantee,
+  },
   payload: { privileges: ["SELECT"], grantable: [] },
 });
 

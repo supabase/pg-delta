@@ -11,7 +11,10 @@
  * the diagnostic must name the failing routine (`schema.name: ...`).
  */
 import { describe, expect, test } from "bun:test";
-import { loadSqlFiles, ShadowLoadError } from "../src/frontends/load-sql-files.ts";
+import {
+  loadSqlFiles,
+  ShadowLoadError,
+} from "../src/frontends/load-sql-files.ts";
 import { createTestDb } from "./containers.ts";
 
 async function captureError(promise: Promise<unknown>): Promise<unknown> {
