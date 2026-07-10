@@ -710,11 +710,23 @@ export async function loadSqlFiles(
       }
     }
 
-    // body validation: re-run routine definitions with checks ON
+    // body validation: re-run routine definitions with checks ON.
+    // `check_function_bodies` only validates sql/plpgsql bodies — per the
+    // Postgres docs, it "has no effect on ... functions written in languages
+    // other than SQL and PL/pgSQL, whose bodies are not checked". Re-running a
+    // non-sql/plpgsql routine (internal/c, or any other procedural language)
+    // therefore adds no coverage, and can actively break the load: e.g.
+    // `CREATE TYPE ... AS RANGE (...)` auto-creates `LANGUAGE internal`
+    // constructor/support functions, and re-running those as
+    // `CREATE OR REPLACE FUNCTION ... LANGUAGE internal` fails with
+    // "permission denied for language internal" for a non-superuser role.
     const defs = await client.query(`
       SELECT n.nspname AS nspname, p.proname AS proname, pg_get_functiondef(p.oid) AS def
-      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      JOIN pg_language l ON l.oid = p.prolang
       WHERE p.prokind IN ('f', 'p')
+        AND l.lanname IN ('sql', 'plpgsql')
         AND n.nspname NOT IN ('pg_catalog', 'information_schema')
         AND NOT EXISTS (
           SELECT 1 FROM pg_depend d
