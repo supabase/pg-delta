@@ -30,8 +30,29 @@
  * co-located apply of a user dir referencing those objects could not load. The
  * profile's baseline is still accepted in `opts` so callers pass their resolved
  * options uniformly, but it is intentionally ignored for seed derivation.
+ *
+ * Non-superuser replay (Unit C): real Supabase Cloud hands users a privileged
+ * NON-superuser `postgres`, so the seed must CREATE cleanly as a non-superuser.
+ * Two fact classes cannot and are SKIPPED WHOLE (the engine never edits SQL text
+ * — the fact is omitted, not rewritten):
+ *   - `defaultPrivilege` (ADP): `ALTER DEFAULT PRIVILEGES FOR ROLE <r>` requires
+ *     membership in <r>, which the applier lacks; an ADP entry only governs
+ *     FUTURE creation by <r> so nothing a user file creates can depend on it.
+ *   - a routine whose proconfig SETs a SUSET (superuser-context) GUC (e.g.
+ *     `SET log_min_messages TO 'fatal'`): Postgres validates proconfig at CREATE
+ *     time, so a non-superuser cannot create it AT ALL (SQLSTATE 42501). Detected
+ *     via `susetGucs` ∩ the routine's structured `_configGucs` (from
+ *     `pg_proc.proconfig`) — never by parsing the `def`. The one real occurrence
+ *     on the Supabase surface is `realtime.list_changes`.
+ * A seeded fact is reference-only on both sides, so its absence is symmetric and
+ * cancels in the diff. If a user file genuinely references a skipped routine the
+ * load fails LOUDLY at file:line with a precise missing-object error — acceptable
+ * (user code essentially never calls these internal platform RPCs, and a clear
+ * error beats rewritten SQL). `susetGucs` absent ⇒ nothing is skipped for this
+ * reason (byte-identical behavior). Any fact that DEPENDS on a skipped routine is
+ * transitively skipped too (it could not replay against a missing dependency).
  */
-import { buildFactBase, type FactBase } from "../core/fact.ts";
+import { buildFactBase, type Fact, type FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { plan } from "../plan/plan.ts";
 import { renderPlanSql } from "../plan/render-sql.ts";
@@ -60,6 +81,17 @@ function assumedSchemaOf(id: StableId): string | undefined {
   return (id as { schema?: string }).schema;
 }
 
+/** GUC names a routine's proconfig SETs, from the non-semantic `_configGucs`
+ *  payload key (populated at extract time from `pg_proc.proconfig`). Empty when
+ *  the routine SETs nothing. Read for the seed skip decision only — never used
+ *  in the hash or diff (the key is `_`-prefixed). */
+function configGucsOf(fact: Fact): string[] {
+  const v = fact.payload["_configGucs"];
+  return Array.isArray(v)
+    ? v.filter((x): x is string => typeof x === "string")
+    : [];
+}
+
 export function deriveAssumedSchemaSeed(
   targetFb: FactBase,
   opts: {
@@ -73,6 +105,15 @@ export function deriveAssumedSchemaSeed(
     /** Policy assumed roles PLUS the target's own role names — same cluster, so
      *  every owner/grant role reference in the seed is present at replay. */
     assumedRoles: string[];
+    /** Names of GUCs whose `pg_settings.context` requires superuser (queried from
+     *  the TARGET, which shares the co-located shadow's cluster). A seeded routine
+     *  whose structured `_configGucs` intersects this set carries a SET header
+     *  clause that a non-superuser applier cannot CREATE (42501), so the whole
+     *  routine fact — and anything depending on it — is OMITTED from the seed (see
+     *  the module doc). Membership is CONTEXT-driven, not name-driven, so a
+     *  user-context GUC like `search_path` is structurally absent and never
+     *  triggers a skip. Absent ⇒ nothing skipped for this reason. */
+    susetGucs?: ReadonlySet<string>;
   },
 ): AssumedSchemaSeed {
   // raw profile (no assumed schemas): nothing is platform-external, no seed.
@@ -88,9 +129,60 @@ export function deriveAssumedSchemaSeed(
   );
   if (seedIds.size === 0) return EMPTY;
 
-  const seedFacts = view.facts().filter((f) => seedIds.has(encodeId(f.id)));
+  // Omit default-privilege (ADP) facts entirely: `ALTER DEFAULT PRIVILEGES FOR
+  // ROLE <r>` needs membership in <r>, which a non-superuser applier lacks, and
+  // an ADP entry has no possible dependents (see the module doc). Applies to ALL
+  // roles — even an applier-owned ADP is unnecessary for elaboration.
+  const keptFacts = view
+    .facts()
+    .filter(
+      (f) => seedIds.has(encodeId(f.id)) && f.id.kind !== "defaultPrivilege",
+    );
+  const keptIds = new Set(keptFacts.map((f) => encodeId(f.id)));
+
+  // Skip whole routines that carry a superuser-only SET header clause (they can't
+  // be CREATEd by a non-superuser), decided from structured `_configGucs` — never
+  // by editing the `def` SQL text. Then transitively skip any kept fact that
+  // DEPENDS on a skipped one (it can't replay against a missing dependency).
+  const excluded = new Set<string>();
+  const suset = opts.susetGucs;
+  if (suset && suset.size > 0) {
+    for (const fct of keptFacts) {
+      if (
+        (fct.id.kind === "function" || fct.id.kind === "procedure") &&
+        configGucsOf(fct).some((g) => suset.has(g))
+      ) {
+        excluded.add(encodeId(fct.id));
+      }
+    }
+    if (excluded.size > 0) {
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const e of view.edges) {
+          if (e.kind !== "depends") continue;
+          const from = encodeId(e.from);
+          if (
+            keptIds.has(from) &&
+            !excluded.has(from) &&
+            excluded.has(encodeId(e.to))
+          ) {
+            excluded.add(from);
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+
+  const seedFacts =
+    excluded.size > 0
+      ? keptFacts.filter((f) => !excluded.has(encodeId(f.id)))
+      : keptFacts;
+  if (seedFacts.length === 0) return EMPTY;
+  const finalIds = new Set(seedFacts.map((f) => encodeId(f.id)));
   const seedEdges = [...view.edges].filter(
-    (e) => seedIds.has(encodeId(e.from)) && seedIds.has(encodeId(e.to)),
+    (e) => finalIds.has(encodeId(e.from)) && finalIds.has(encodeId(e.to)),
   );
 
   // CRITICAL (Fable review Q6b): the seed plan must NOT re-project.

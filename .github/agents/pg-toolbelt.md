@@ -71,6 +71,12 @@ generic (`src/core/diff.ts`) — there are **no per-object-type change classes**
   it comes from `pg_depend`, sourced at **extract time** in `src/extract/**` and
   carried on the fact as a dependency edge — never re-derived by parsing
   `pg_get_expr()` output while diffing.
+- **Never edit or regex-transform SQL text anywhere in the engine** — including
+  `pg_get_functiondef` / `pg_get_expr` output, and including non-diffing paths
+  like the seed and export frontends. If a statement cannot be replayed verbatim
+  in some context, skip the fact with a clear diagnostic or source structured
+  data from the catalog (e.g. `pg_proc.proconfig`) to decide — never rewrite the
+  DDL.
 - `@supabase/pg-topo` is an **optional peer** used only by the dev-experience
   frontends (`src/frontends/sql-order.ts`, `schema lint`) — importing the core
   never pulls it in. `canReorder()` probes availability; absence throws

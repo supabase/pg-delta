@@ -21,6 +21,11 @@ export async function extractRoutines(ctx: ExtractContext): Promise<void> {
            pg_get_functiondef(p.oid) AS def,
            pg_get_function_result(p.oid) AS return_type,
            pg_get_function_arguments(p.oid) AS arg_signature,
+           -- proconfig GUC NAMES only (name=value split in POSTGRES, never in
+           -- TS): a structured, non-semantic duplicate of the routine's SET
+           -- header clauses used purely for the seed replayability decision.
+           (SELECT array_agg(split_part(c, '=', 1))
+              FROM unnest(p.proconfig) AS c) AS config_gucs,
            l.lanname AS language,
            obj_description(p.oid, 'pg_proc') AS comment,
            ${aclJsonMemberAware("p.proacl", "f", "p.proowner", "pg_proc", "p.oid")} AS acl,
@@ -36,6 +41,18 @@ export async function extractRoutines(ctx: ExtractContext): Promise<void> {
           AND idep.deptype = 'i')
     ORDER BY n.nspname, p.proname`)) {
     const args = (row["identity_args"] as string[]).map(String);
+    // GUC names this routine's proconfig SETs (from `config_gucs`, split in SQL).
+    // Carried as the `_`-prefixed `_configGucs` so it is NON-SEMANTIC: dropped
+    // from the hash and diff (core/hash.ts), exactly like `_position` on type
+    // attributes. It exists ONLY so the co-located shadow seed can DECIDE whether
+    // a routine is replayable by a non-superuser (a SUSET-context GUC in the SET
+    // header makes CREATE fail 42501) WITHOUT parsing the `def` SQL text — the SET
+    // clauses are already semantic inside `def`; this is a structured duplicate
+    // for that decision alone. Omitted when empty so it never appears in payloads
+    // that have no proconfig.
+    const configGucs = ((row["config_gucs"] as string[] | null) ?? []).map(
+      String,
+    );
     // prokind distinguishes procedures ('p') from functions ('f'/'w'); the kind
     // lives in the id (not the payload) so satellite renderers address the
     // routine with the correct DDL keyword (FUNCTION vs PROCEDURE). Window
@@ -71,6 +88,7 @@ export async function extractRoutines(ctx: ExtractContext): Promise<void> {
           argSignature: String(row["arg_signature"]),
           language: String(row["language"]),
           isWindow: String(row["prokind"]) === "w",
+          ...(configGucs.length > 0 ? { _configGucs: configGucs } : {}),
         },
       },
       row,
