@@ -193,6 +193,25 @@ async function main(): Promise<void> {
     process.stderr.write(
       `Error: ${error instanceof Error ? error.message : String(error)}\n`,
     );
+    // Duck-type check: ShadowLoadError (and any similarly-shaped error) carries
+    // per-item `details` (Diagnostic[]) that named the actual failures — surface
+    // them instead of leaving the operator with only the summary line.
+    const details = (error as { details?: unknown } | null | undefined)
+      ?.details;
+    if (Array.isArray(details)) {
+      for (const detail of details) {
+        if (
+          detail !== null &&
+          typeof detail === "object" &&
+          typeof (detail as { code?: unknown }).code === "string" &&
+          typeof (detail as { message?: unknown }).message === "string"
+        ) {
+          process.stderr.write(
+            `  - ${(detail as { code: string; message: string }).code}: ${(detail as { code: string; message: string }).message}\n`,
+          );
+        }
+      }
+    }
     process.exit(1);
   }
 }

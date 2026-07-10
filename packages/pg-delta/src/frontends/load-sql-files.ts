@@ -544,6 +544,9 @@ export async function loadSqlFiles(
   // bounded retry rounds at file granularity (fail-safe ordering)
   let pending = [...files].sort((a, b) => (a.name < b.name ? -1 : 1));
   let rounds = 0;
+  // body-validation warnings for SEEDED-schema routines (populated below,
+  // outside the try/finally so the final result can merge them in).
+  let seededBodyWarnings: Diagnostic[] = [];
   // the most recent round's per-file failures, retained so a budget-exhaustion
   // error can report WHY each still-pending file failed (review P1 #2).
   let lastFailures: Array<{ file: SqlFile; message: string }> = [];
@@ -709,7 +712,7 @@ export async function loadSqlFiles(
 
     // body validation: re-run routine definitions with checks ON
     const defs = await client.query(`
-      SELECT pg_get_functiondef(p.oid) AS def
+      SELECT n.nspname AS nspname, p.proname AS proname, pg_get_functiondef(p.oid) AS def
       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
       WHERE p.prokind IN ('f', 'p')
         AND n.nspname NOT IN ('pg_catalog', 'information_schema')
@@ -718,15 +721,35 @@ export async function loadSqlFiles(
           WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')`);
     await client.query(`SET check_function_bodies = on`);
     const bodyErrors: Diagnostic[] = [];
-    for (const row of defs.rows as { def: string }[]) {
+    const bodyWarnings: Diagnostic[] = [];
+    for (const row of defs.rows as {
+      nspname: string;
+      proname: string;
+      def: string;
+    }[]) {
       try {
         await client.query(row.def);
       } catch (error) {
-        bodyErrors.push({
-          code: "invalid_routine_body",
-          severity: "error",
-          message: error instanceof Error ? error.message : String(error),
-        });
+        const message = `${row.nspname}.${row.proname}: ${error instanceof Error ? error.message : String(error)}`;
+        // Seeded platform routines (Phase 2b assumed schemas) are reference-only
+        // on both sides of the diff — they cancel, so a wonky seeded body cannot
+        // corrupt the plan — and they are not the user's code to fail their
+        // apply on. Still surface it as a warning rather than swallowing it: a
+        // seeded-routine validation failure has previously exposed a real
+        // engine bug in platform-code reconstruction.
+        if (seededSchemas.includes(row.nspname)) {
+          bodyWarnings.push({
+            code: "invalid_routine_body",
+            severity: "warning",
+            message,
+          });
+        } else {
+          bodyErrors.push({
+            code: "invalid_routine_body",
+            severity: "error",
+            message,
+          });
+        }
       }
     }
     if (bodyErrors.length > 0) {
@@ -735,6 +758,7 @@ export async function loadSqlFiles(
         bodyErrors,
       );
     }
+    seededBodyWarnings = bodyWarnings;
 
     // DML rejection by observation: any MANAGED USER table with rows fails.
     // "User table" must mean the SAME thing the diff path manages, so reuse the
@@ -782,7 +806,7 @@ export async function loadSqlFiles(
   return {
     factBase: result.factBase,
     pgVersion: result.pgVersion,
-    diagnostics: result.diagnostics,
+    diagnostics: [...result.diagnostics, ...seededBodyWarnings],
     rounds,
   };
 }
