@@ -387,16 +387,34 @@ export function compactColumnFolds(
     if (!acceptsFolds[targetOrig] || foldedPos.has(targetPos)) continue;
     const target = orderedActions[targetPos] as Action;
     if (target.verb !== "create" || target.newSegmentBefore) continue;
-    // Under loader semantics a constraint fold may cross edges (an FK's
-    // referenced table can be created by a LATER file — the loader's bounded
-    // retry orders files); the executor-safety crossing guard applies only to
-    // column folds.
-    const crossesEdge =
-      !isConstraintFold &&
-      (predecessorsOf.get(origIndex) ?? []).some((p) => {
-        const pPos = effectivePosOf.get(p) ?? (positionOf[p] as number);
-        return pPos > targetPos;
-      });
+    // Column folds: ANY predecessor landing after the target vetoes the fold
+    // (apply-executor safety — no edge may cross the merge).
+    //
+    // Constraint folds are loaded by the retry/reorder loader, not the apply
+    // executor, so a crossing to another RELATION is tolerated: a VALIDATED FK's
+    // referenced table (or a backing index / type on some other relation) may be
+    // created by a LATER file and the loader reorders files to satisfy it. The
+    // one crossing a constraint fold must NOT tolerate is a SAME-TABLE column of
+    // its own fold target that was deferred to a later `ADD COLUMN` (its column
+    // fold crossed a domain-type edge, or it is a generated column that never
+    // hints) — folding the constraint inline would reference a column the CREATE
+    // TABLE does not yet declare, and no file reordering can repair that. An
+    // inlined column shares the target's effective position, so it never counts
+    // as "after" and passes naturally.
+    const foldTarget = hint.foldInto;
+    const crossesEdge = (predecessorsOf.get(origIndex) ?? []).some((p) => {
+      const pPos = effectivePosOf.get(p) ?? (positionOf[p] as number);
+      if (pPos <= targetPos) return false;
+      if (!isConstraintFold) return true;
+      const predAction = orderedActions[positionOf[p] as number] as Action;
+      return predAction.produces.some(
+        (id) =>
+          id.kind === "column" &&
+          foldTarget.kind === "table" &&
+          id.schema === foldTarget.schema &&
+          id.table === foldTarget.name,
+      );
+    });
     if (crossesEdge) continue;
     // fold: splice the clause into the CREATE's column list
     target.sql = target.sql.endsWith("()")
