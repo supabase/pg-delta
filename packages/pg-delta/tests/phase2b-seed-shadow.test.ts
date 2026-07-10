@@ -42,10 +42,22 @@ describe.skipIf(!runSupabaseBareTests)(
       const cluster = await supabaseCluster();
       const target = await cluster.createDb("phase2b_seed_tgt");
       dbs.push(target);
+      // Real Supabase projects are owned by the non-superuser `postgres` role
+      // (so `pg_database_owner` → `postgres` owns `public`). Mirror that so the
+      // `postgres`-role apply can create the user function in `public`; our
+      // synthetic createDb otherwise leaves the db owned by `supabase_admin`.
+      await cluster.adminPool.query(
+        `ALTER DATABASE "${target.name}" OWNER TO postgres`,
+      );
       // stand-in platform table: reference-only under the supabase policy.
+      // Created as supabase_admin — auth.users IS a platform object. Grant the
+      // faithful `postgres` role rights on it (Supabase grants postgres access
+      // to the auth tables — the `on_auth_user_created` trigger is a documented
+      // pattern); the grant lives on a reference-only object so it never drifts.
       await target.pool.query(
         `CREATE SCHEMA auth;\n` +
-          `CREATE TABLE auth.users (id uuid PRIMARY KEY, email text);\n`,
+          `CREATE TABLE auth.users (id uuid PRIMARY KEY, email text);\n` +
+          `GRANT ALL ON TABLE auth.users TO postgres;\n`,
       );
 
       // user declarative dir: a public function + a trigger on the PLATFORM
@@ -71,8 +83,11 @@ describe.skipIf(!runSupabaseBareTests)(
       await cmdSchemaApply([
         "--dir",
         dir,
+        // faithful non-superuser `postgres` target: the shadow load creates the
+        // user function OWNED BY `postgres`, so the supabase profile's owner
+        // exclusion (platform = owned by `supabase_admin`) does not drop it.
         "--target",
-        target.uri,
+        target.postgresUri!,
         "--renames",
         "off",
         "--profile",
@@ -102,9 +117,15 @@ describe.skipIf(!runSupabaseBareTests)(
       const cluster = await supabaseCluster();
       const target = await cluster.createDb("phase2b_seed_ext_tgt");
       dbs.push(target);
+      // See the first test: own the db by `postgres` for faithful public-schema
+      // create rights under the non-superuser apply.
+      await cluster.adminPool.query(
+        `ALTER DATABASE "${target.name}" OWNER TO postgres`,
+      );
       await target.pool.query(
         `CREATE SCHEMA auth;\n` +
           `CREATE TABLE auth.users (id uuid PRIMARY KEY, email text);\n` +
+          `GRANT ALL ON TABLE auth.users TO postgres;\n` +
           `CREATE EXTENSION IF NOT EXISTS pg_graphql;\n`,
       );
 
@@ -125,8 +146,9 @@ describe.skipIf(!runSupabaseBareTests)(
       await cmdSchemaApply([
         "--dir",
         dir,
+        // faithful non-superuser `postgres` target (see the first test).
         "--target",
-        target.uri,
+        target.postgresUri!,
         "--renames",
         "off",
         "--profile",
