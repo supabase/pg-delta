@@ -324,6 +324,24 @@ export const supabasePolicy: Policy = {
       action: "exclude",
     },
 
+    // Rule 6b (this session): exclude default-privilege entries DECLARED FOR a
+    // system role (`ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin …`). Same
+    // provenance judgment as Rule 6, but ADP facts carry no owner edge/payload —
+    // the FOR-role is in the id (`id.role`). A non-superuser `postgres` can never
+    // execute an ADP for a reserved system role, so these are platform-managed,
+    // never the user's to manage. (Grantee-side, e.g. FOR ROLE postgres GRANT …
+    // TO anon, is intentionally NOT matched — that is the user-owned API-role
+    // default.)
+    {
+      match: {
+        all: [
+          { kind: "defaultPrivilege" },
+          { idField: { field: "role", glob: [...SUPABASE_SYSTEM_ROLES] } },
+        ],
+      },
+      action: "exclude",
+    },
+
     // Rule 7 (old rule): exclude role objects whose name is a system role.
     // The `owner` predicate reads payload["owner"], not the role's own name.
     {
