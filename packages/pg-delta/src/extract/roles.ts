@@ -76,7 +76,23 @@ export async function extractRolesAndGrants(
   //   • a grantee that HAS a built-in default but is ABSENT from the stored acl
   //     (the default was revoked, e.g. `REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`)
   //     → an empty marker carrying `revoked_default` so the diff can plan the
-  //     REVOKE and, in reverse, restore the default with a GRANT.
+  //     REVOKE and, in reverse, restore the default with a GRANT —
+  //     EXCEPT when the absent grantee IS the grantor (its own defaclrole). A row
+  //     built purely from grants to OTHER roles never materializes the grantor's
+  //     self-entry (e.g. `{r2=r/r}`, no `r=…`), whereas an explicit `GRANT … TO
+  //     <owner>` does (`{r=arwdDxtm/r,r2=r/r}`). These two rows are BEHAVIORALLY
+  //     IDENTICAL: at object-creation time Postgres re-adds the owner's
+  //     acldefault entry to the new object's ACL regardless of whether the stored
+  //     default-ACL row carried a self-entry (verified: a table created by the
+  //     owner gets `{owner=arwdDxtm/owner,…}` and `has_table_privilege(owner,…)`
+  //     is true either way). So a "revoked" owner self-entry is a behavioral
+  //     no-op, and emitting a marker for it would make owner-present-at-default
+  //     and owner-absent rows extract DIFFERENTLY — breaking round-trip when a
+  //     replayed DB (rebuilt from grants-to-others) drops the self-entry.
+  //     Canonicalize by never emitting the grantor's own revoked-default marker.
+  //     (A grantor self-entry that DIFFERS from acldefault — a partial
+  //     self-reduction — is still present in the row and handled by the first
+  //     branch above, so it is not lost.)
   // The built-in default is derived from acldefault() (kind/version-robust);
   // `defaclobjtype` uses 'S' for sequences where acldefault() wants 's'.
   const defaclCode = `CASE d.defaclobjtype WHEN 'S' THEN 's' ELSE d.defaclobjtype END`;
@@ -111,12 +127,16 @@ export async function extractRolesAndGrants(
       WHERE s.privileges IS DISTINCT FROM dd.privileges
          OR s.grantable IS NOT NULL
       UNION ALL
-      -- grantees that HAVE a built-in default but are ABSENT (revoked)
+      -- grantees that HAVE a built-in default but are ABSENT (revoked) — except
+      -- the grantor's own self-entry, whose absence is a behavioral no-op
+      -- (Postgres re-adds the owner's acldefault entry at object-creation time),
+      -- so canonicalize by never emitting a marker for it.
       SELECT CASE WHEN dd.grantee_oid = 0 THEN 'PUBLIC'
                   ELSE (SELECT rolname FROM pg_roles WHERE oid = dd.grantee_oid) END,
              ARRAY[]::text[], NULL::text[], dd.privileges
       FROM def dd
       WHERE NOT EXISTS (SELECT 1 FROM stored s WHERE s.grantee_oid = dd.grantee_oid)
+        AND dd.grantee_oid <> d.defaclrole
     ) acl
     ORDER BY 1, 2, 3, 4`)) {
     const revokedDefault = (row["revoked_default"] as string[] | null) ?? null;
