@@ -103,6 +103,14 @@ export interface ResolvedProfile {
   readonly planOptions: PlanOptions;
   readonly proveOptions: ProveOptions;
   readonly applyOptions: ApplyOptions;
+  /** Superuser-context (`pg_settings.context = 'superuser'`) GUC names, probed
+   *  from the live connection. Present ONLY when the profile's policy declares
+   *  `assumedSchemas` AND the connected role is NOT a superuser; consumed by
+   *  `deriveAssumedSchemaSeed`'s `susetGucs` option to skip a co-located-shadow
+   *  seed routine whose `SET <suset-guc>` header clause a non-superuser applier
+   *  cannot REPLAY (Postgres validates proconfig at CREATE time against the
+   *  creating role, SQLSTATE 42501). A superuser applier needs no stripping. */
+  readonly susetGucs?: ReadonlySet<string>;
 }
 
 async function probePgMajor(pool: Pool): Promise<number> {
@@ -129,6 +137,34 @@ export async function resolveProfile(
   const capability = options.restrictToApplier
     ? await probeApplierCapability(pool)
     : undefined;
+
+  // Superuser-context (SUSET) GUCs: a real Supabase-Cloud `postgres` is a
+  // privileged NON-superuser, so a seeded routine's `SET <suset-guc> TO …`
+  // header clause (e.g. realtime.list_changes' `SET log_min_messages`) fails to
+  // REPLAY (42501) when the co-located shadow's seed (`deriveAssumedSchemaSeed`)
+  // is played back by that role — Postgres validates proconfig at CREATE time
+  // against the creating role. The clause is never semantically compared (the
+  // seeded routine re-extracts reference-only and cancels in the diff), so it is
+  // safe to strip from the seed. Only relevant when the profile's policy
+  // actually declares `assumedSchemas` (nothing to seed otherwise), and only
+  // when the applier is NOT a superuser (a superuser needs no stripping — the
+  // seed's routine replays as-is). Reuses the capability probed above when
+  // `restrictToApplier` was requested; otherwise probes locally without
+  // threading that probe into `planOptions`/`capability` (those stay governed
+  // strictly by `restrictToApplier`). The `pool` this resolves against is the
+  // same connection `schema apply` extracts the target from, which shares the
+  // co-located shadow's cluster + role, so its GUC catalog and role are
+  // authoritative for the shadow.
+  let susetGucs: ReadonlySet<string> | undefined;
+  if ((policy?.assumedSchemas?.length ?? 0) > 0) {
+    const applier = capability ?? (await probeApplierCapability(pool));
+    if (!applier.isSuperuser) {
+      const susetRows = await pool.query<{ name: string }>(
+        `SELECT name FROM pg_settings WHERE context = 'superuser'`,
+      );
+      susetGucs = new Set(susetRows.rows.map((r) => r.name));
+    }
+  }
 
   // Baseline precedence: an explicit pre-loaded override (options.baseline) wins,
   // then a profile-declared file (baselinePath), then a policy-declared NAME
@@ -213,6 +249,7 @@ export async function resolveProfile(
     handlers,
     extract: profileExtract,
     ...(baselineMeta !== undefined ? { baseline: baselineMeta } : {}),
+    ...(susetGucs !== undefined ? { susetGucs } : {}),
     // stamp the profile id on planOptions so plan() records it on the artifact;
     // apply/prove then reconstruct this view without the operator repeating
     // --profile (P2 follow-up). baselineMeta stamps the baseline DIGEST on the

@@ -806,17 +806,6 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         : undefined;
       const profileAssumedSchemas = flatProfile?.assumedSchemas ?? [];
       if (profileAssumedSchemas.length > 0) {
-        // Superuser-context GUCs: a real Supabase-Cloud `postgres` is a
-        // privileged NON-superuser, so a seeded routine's `SET <suser-guc> TO …`
-        // header clause (e.g. realtime.list_changes' `SET log_min_messages`)
-        // fails to REPLAY (42501). The clause is never semantically compared (the
-        // seeded routine re-extracts reference-only and cancels), so it is safe to
-        // strip from the seed DDL. The target shares the co-located shadow's
-        // cluster, so the target's GUC catalog is authoritative for the shadow.
-        const susetRows = await tgt.pool.query<{ name: string }>(
-          `SELECT name FROM pg_settings WHERE context = 'superuser'`,
-        );
-        const susetGucs = new Set(susetRows.rows.map((r) => r.name));
         const seed = deriveAssumedSchemaSeed(targetResult.factBase, {
           ...(ctx.planOptions.policy ? { policy: ctx.planOptions.policy } : {}),
           ...(ctx.planOptions.capability
@@ -832,7 +821,11 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
             ...(flatProfile?.assumedRoles ?? []),
             ...assumedTargetRoles,
           ],
-          susetGucs,
+          // SUSET (superuser-context) GUCs to strip from the seed: probed by
+          // resolveProfile (src/integrations/profile.ts), gated on the target
+          // connection's role actually being a non-superuser — see
+          // `ResolvedProfile.susetGucs`'s doc comment for why.
+          ...(ctx.susetGucs !== undefined ? { susetGucs: ctx.susetGucs } : {}),
         });
         if (seed.sql !== "") {
           process.stderr.write(
