@@ -1,0 +1,5 @@
+---
+"@supabase/pg-delta": patch
+---
+
+Extract a GLOBAL (cluster-wide) default-privilege owner self-revoke as a real `revoked_default` marker instead of silently dropping it. The previous canonicalization suppressed the grantor's own revoked-default marker unconditionally, which is only correct for per-schema rows (Postgres always re-merges the owner's `acldefault` entry at object creation) and for a bare global self-revoke with an empty stored ACL (the created object's relacl degenerates to NULL and the owner keeps its privileges). On a GLOBAL row that still carries other grantees (e.g. `alter default privileges for role alice revoke all on tables from alice; ... grant select on tables to bob` → `{bob=r/alice}`), Postgres uses the stored ACL verbatim at creation, so the owner really loses its own privileges — a genuine customization that must survive export/apply/reverse. The suppression is now conditional (per-schema and bare-empty-global stay no-ops; global-with-other-grantees emits the owner marker so the `revoke`/`grant` round-trips).

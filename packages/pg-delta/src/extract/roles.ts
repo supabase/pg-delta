@@ -77,19 +77,26 @@ export async function extractRolesAndGrants(
   //     (the default was revoked, e.g. `REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`)
   //     → an empty marker carrying `revoked_default` so the diff can plan the
   //     REVOKE and, in reverse, restore the default with a GRANT —
-  //     EXCEPT when the absent grantee IS the grantor (its own defaclrole). A row
-  //     built purely from grants to OTHER roles never materializes the grantor's
-  //     self-entry (e.g. `{r2=r/r}`, no `r=…`), whereas an explicit `GRANT … TO
-  //     <owner>` does (`{r=arwdDxtm/r,r2=r/r}`). These two rows are BEHAVIORALLY
-  //     IDENTICAL: at object-creation time Postgres re-adds the owner's
-  //     acldefault entry to the new object's ACL regardless of whether the stored
-  //     default-ACL row carried a self-entry (verified: a table created by the
-  //     owner gets `{owner=arwdDxtm/owner,…}` and `has_table_privilege(owner,…)`
-  //     is true either way). So a "revoked" owner self-entry is a behavioral
-  //     no-op, and emitting a marker for it would make owner-present-at-default
-  //     and owner-absent rows extract DIFFERENTLY — breaking round-trip when a
-  //     replayed DB (rebuilt from grants-to-others) drops the self-entry.
-  //     Canonicalize by never emitting the grantor's own revoked-default marker.
+  //     with a conditional carve-out for the grantor's OWN self-entry, whose
+  //     absence is a behavioral no-op in some shapes but a real revoke in others.
+  //     The key distinction is PER-SCHEMA vs GLOBAL:
+  //       • PER-SCHEMA (defaclnamespace <> 0): at object-creation time Postgres
+  //         ALWAYS re-adds the owner's acldefault entry to the new object's ACL
+  //         regardless of whether the stored row carried a self-entry (a table
+  //         created by the owner gets `{owner=arwdDxtm/owner,…}` either way). A
+  //         row built from grants to OTHER roles never materializes the owner
+  //         self-entry (`{r2=r/r}`), so a "revoked" owner self-entry here is a
+  //         no-op — never emit a marker for it, or owner-present and owner-absent
+  //         rows would extract DIFFERENTLY and break round-trip.
+  //       • GLOBAL (defaclnamespace = 0): a grant to another role DOES
+  //         materialize the owner self-entry (`{owner=arwdDxtm/owner,r2=r/owner}`),
+  //         and Postgres uses the stored acl VERBATIM at creation. So if the
+  //         owner is revoked while OTHER grantees remain (`{r2=r/owner}`), a table
+  //         made by the owner really lacks the owner's own privileges — a genuine
+  //         customization → EMIT the marker. The one exception is a BARE global
+  //         self-revoke with nothing else granted: the stored row is EMPTY, the
+  //         created table's relacl degenerates to NULL and the owner keeps its
+  //         privileges → no-op → no marker. (Verified on postgres:17.)
   //     (A grantor self-entry that DIFFERS from acldefault — a partial
   //     self-reduction — is still present in the row and handled by the first
   //     branch above, so it is not lost.)
@@ -127,16 +134,32 @@ export async function extractRolesAndGrants(
       WHERE s.privileges IS DISTINCT FROM dd.privileges
          OR s.grantable IS NOT NULL
       UNION ALL
-      -- grantees that HAVE a built-in default but are ABSENT (revoked) — except
-      -- the grantor's own self-entry, whose absence is a behavioral no-op
-      -- (Postgres re-adds the owner's acldefault entry at object-creation time),
-      -- so canonicalize by never emitting a marker for it.
+      -- grantees that HAVE a built-in default but are ABSENT (revoked). The
+      -- grantor's OWN self-entry is a special case: its absence is a behavioral
+      -- no-op in two shapes (canonicalize by never emitting a marker), but a
+      -- REAL revoke in a third (emit the marker):
+      --   • PER-SCHEMA row (defaclnamespace <> 0): Postgres ALWAYS re-adds the
+      --     owner's acldefault entry at object-creation time → no-op.
+      --   • BARE GLOBAL row with an EMPTY stored acl (the owner-revoke is the
+      --     only customization): the created table's relacl degenerates to NULL
+      --     and the owner keeps its privileges → no-op.
+      --   • GLOBAL row that still carries OTHER grantees: Postgres uses the
+      --     stored acl VERBATIM at creation, so an object made by the owner
+      --     really lacks the owner's own privileges → a genuine customization
+      --     that must round-trip → emit the marker.
       SELECT CASE WHEN dd.grantee_oid = 0 THEN 'PUBLIC'
                   ELSE (SELECT rolname FROM pg_roles WHERE oid = dd.grantee_oid) END,
              ARRAY[]::text[], NULL::text[], dd.privileges
       FROM def dd
       WHERE NOT EXISTS (SELECT 1 FROM stored s WHERE s.grantee_oid = dd.grantee_oid)
-        AND dd.grantee_oid <> d.defaclrole
+        AND (
+          -- a non-owner absentee is always a real revoke
+          dd.grantee_oid <> d.defaclrole
+          -- the owner's OWN absence is a real revoke ONLY on a GLOBAL row that
+          -- still carries other grantees (per-schema → owner re-merged at CREATE;
+          -- bare empty global row → owner keeps privileges — both no-ops)
+          OR (d.defaclnamespace = 0 AND EXISTS (SELECT 1 FROM stored s2))
+        )
     ) acl
     ORDER BY 1, 2, 3, 4`)) {
     const revokedDefault = (row["revoked_default"] as string[] | null) ?? null;
