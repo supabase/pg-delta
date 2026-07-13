@@ -254,6 +254,51 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.sql).toContain('CREATE SCHEMA "platform"');
   });
 
+  test("a container fact excluded via depends does not orphan its CHILD facts (structural cascade)", () => {
+    // A view depends (via `depends` edge) on the SUSET-GUC routine, so the
+    // depends-edge fixpoint excludes the view. Parent/child containment is NOT
+    // a `depends` edge (it's structural, via Fact.parent — see fact.ts), so
+    // without a structural cascade the view's column child survives the flat
+    // `keptFacts.filter` and buildFactBase throws "references missing parent"
+    // because its parent (the view) was excluded.
+    const reportsView: StableId = {
+      kind: "view",
+      schema: "platform",
+      name: "reports",
+    };
+    const reportsIdColumn: StableId = {
+      kind: "column",
+      schema: "platform",
+      table: "reports",
+      name: "id",
+    };
+    const target = buildFactBase(
+      [
+        f(schemaPlatform),
+        f(
+          noisyFn,
+          routinePayload(noisyDef, ["search_path", "log_min_messages"]),
+        ),
+        { id: reportsView, parent: schemaPlatform, payload: {} },
+        { id: reportsIdColumn, parent: reportsView, payload: {} },
+      ],
+      [{ from: reportsView, to: noisyFn, kind: "depends" }],
+    );
+    // Before the fix this call throws:
+    //   FactBase: fact column|platform|reports|id references missing parent view|platform|reports
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: platformPolicy,
+      assumedSchemas: ["platform"],
+      assumedRoles: [],
+      susetGucs: new Set(["log_min_messages"]),
+    });
+    // the excluded routine AND the dependent view AND its column child are all
+    // gone; the schema remains.
+    expect(seed.sql).not.toContain("noisy");
+    expect(seed.sql).not.toContain("reports");
+    expect(seed.sql).toContain('CREATE SCHEMA "platform"');
+  });
+
   test("without susetGucs: routine def retained verbatim (byte-identical), ADP still omitted", () => {
     const seed = deriveAssumedSchemaSeed(platformTarget(), {
       policy: platformPolicy,
