@@ -12,9 +12,10 @@
  *  - pg-delta/tests/integration/pgmq-declarative-roundtrip.test.ts
  */
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import pg from "pg";
 import { apply } from "../src/apply/apply.ts";
 import { cmdSchemaApply, cmdSchemaExport } from "../src/cli/commands/schema.ts";
 import { resolveCliProfile } from "../src/cli/profile.ts";
@@ -90,12 +91,37 @@ describe.skipIf(!runSupabaseBareTests)(
       const main = await cluster.createDb("supa_pgmq_main");
       const branch = await cluster.createDb("supa_pgmq_branch");
       const dbs: TestDb[] = [main, branch];
+      // Real Supabase projects are owned by the non-superuser `postgres` role
+      // (so `pg_database_owner` → `postgres` owns `public`). Mirror that on
+      // BOTH sides, and drive the user-owned objects (queue + wrapper
+      // functions) through a faithful `postgres` connection — otherwise they
+      // are `supabase_admin`-owned and the supabase profile's Rule 6
+      // owner-exclusion silently drops them from the managed view, making the
+      // convergence assertion below pass vacuously.
+      await cluster.adminPool.query(
+        `ALTER DATABASE "${main.name}" OWNER TO postgres`,
+      );
+      await cluster.adminPool.query(
+        `ALTER DATABASE "${branch.name}" OWNER TO postgres`,
+      );
+      const mainPg = new pg.Pool({
+        connectionString: main.postgresUri,
+        max: 5,
+      });
+      const branchPg = new pg.Pool({
+        connectionString: branch.postgresUri,
+        max: 5,
+      });
+      mainPg.on("error", () => {});
+      branchPg.on("error", () => {});
       try {
         // branch: pgmq extension, a queue, and the public SECURITY DEFINER
         // wrappers Supabase ships around pgmq.* (the user-managed objects that
         // must round-trip; pgmq's own schema objects are extension members the
-        // profile projects out).
-        await branch.pool.query(`
+        // profile projects out). All created as `postgres` — production
+        // Supabase grants the privileged role CREATE EXTENSION + pgmq.create()
+        // rights, so this is what a real project's setup script would run.
+        await branchPg.query(`
           CREATE EXTENSION pgmq;
           SELECT FROM pgmq.create('my_queue');
 
@@ -119,11 +145,11 @@ describe.skipIf(!runSupabaseBareTests)(
             $fn$;
         `);
 
-        const ctx = await resolveCliProfile(main.pool, "supabase");
+        const ctx = await resolveCliProfile(mainPg, "supabase");
         const extractFn = ctx.extract ?? extract;
         const [s, d] = await Promise.all([
-          extractFn(main.pool),
-          extractFn(branch.pool),
+          extractFn(mainPg),
+          extractFn(branchPg),
         ]);
 
         const thePlan = plan(s.factBase, d.factBase, {
@@ -131,8 +157,19 @@ describe.skipIf(!runSupabaseBareTests)(
           ...ctx.planOptions,
         });
         expect(thePlan.actions.length).toBeGreaterThan(0);
+        // anti-vacuity: the public wrapper must actually be IN the managed
+        // plan, or the convergence assertion below proves nothing (Rule 6
+        // would exclude it as owned by a system role).
+        expect(
+          thePlan.actions.some((a) =>
+            a.sql.includes("CREATE OR REPLACE FUNCTION public.pgmq_read"),
+          ),
+        ).toBe(true);
 
-        const report = await apply(thePlan, main.pool, {
+        // apply as `postgres` too, so the applied wrapper functions end up
+        // `postgres`-owned exactly like `branch`'s (production applies run as
+        // the non-superuser `postgres` role, never `supabase_admin`).
+        const report = await apply(thePlan, mainPg, {
           fingerprintGate: false,
           ...ctx.applyOptions,
         });
@@ -143,7 +180,7 @@ describe.skipIf(!runSupabaseBareTests)(
         }
 
         // converges: a profile-scoped re-plan against the branch is empty.
-        const after = await extractFn(main.pool);
+        const after = await extractFn(mainPg);
         const drift = plan(after.factBase, d.factBase, ctx.planOptions);
         if (drift.actions.length > 0) {
           throw new Error(
@@ -152,6 +189,7 @@ describe.skipIf(!runSupabaseBareTests)(
         }
         expect(drift.actions).toEqual([]);
       } finally {
+        await Promise.all([mainPg.end(), branchPg.end()]);
         await Promise.all(dbs.map((db) => db.drop()));
       }
     }, 240_000);
@@ -251,6 +289,25 @@ describe.skipIf(!runSupabaseBareTests)(
 
         const dir = join(work, "export");
         await cmdSchemaExport(["--source", source.uri, "--out-dir", dir]);
+
+        // anti-vacuity: the public wrapper must actually be IN the export, or
+        // the later convergence assertion proves nothing. This test uses the
+        // `raw` profile (no policy, see the comment above), so the supabase
+        // profile's Rule 6 owner-exclusion never applies here regardless of
+        // which role created these objects — confirmed by this assertion
+        // passing without any connection change.
+        const exportedFiles = readdirSync(dir, {
+          recursive: true,
+        }) as string[];
+        expect(
+          exportedFiles.some((f) => {
+            try {
+              return readFileSync(join(dir, f), "utf8").includes("read_queue");
+            } catch {
+              return false; // directory entry, not a file
+            }
+          }),
+        ).toBe(true);
 
         // apply the exported dir onto a fresh target (co-located shadow), then
         // confirm the re-plan of the applied target against the source is EMPTY
