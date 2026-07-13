@@ -142,8 +142,22 @@ export function deriveAssumedSchemaSeed(
 
   // Skip whole routines that carry a superuser-only SET header clause (they can't
   // be CREATEd by a non-superuser), decided from structured `_configGucs` — never
-  // by editing the `def` SQL text. Then transitively skip any kept fact that
-  // DEPENDS on a skipped one (it can't replay against a missing dependency).
+  // by editing the `def` SQL text. Then cascade exclusion to a fixpoint over TWO
+  // relations:
+  //   - `depends` edges: any kept fact DEPENDING on a skipped one (it can't
+  //     replay against a missing dependency);
+  //   - structural containment (`Fact.parent`): a container fact's CHILD facts
+  //     (e.g. a view's columns) are not linked by a `depends` edge at all — they
+  //     are linked by `Fact.parent` — so excluding the container without also
+  //     excluding its descendants would leave orphaned children in `seedFacts`;
+  //     the flat filter below would let them through and `buildFactBase` would
+  //     hard-throw "references missing parent".
+  // The two relations interact: `pg_depend` endpoints can resolve to a
+  // COLUMN-level id (src/extract/dependencies.ts's `resolved` CTE,
+  // `objsubid > 0`), so a `depends` edge can point AT a column. A column
+  // excluded structurally (because its parent view was excluded) can therefore
+  // be the very fact another kept fact `depends` on, which the edge pass must
+  // then pick up — hence a combined fixpoint, not one pass of each.
   const excluded = new Set<string>();
   const suset = opts.susetGucs;
   if (suset && suset.size > 0) {
@@ -156,6 +170,12 @@ export function deriveAssumedSchemaSeed(
       }
     }
     if (excluded.size > 0) {
+      const parentOf = new Map<string, string>();
+      for (const fct of keptFacts) {
+        if (fct.parent !== undefined) {
+          parentOf.set(encodeId(fct.id), encodeId(fct.parent));
+        }
+      }
       let changed = true;
       while (changed) {
         changed = false;
@@ -169,6 +189,19 @@ export function deriveAssumedSchemaSeed(
           ) {
             excluded.add(from);
             changed = true;
+          }
+        }
+        for (const fct of keptFacts) {
+          const encoded = encodeId(fct.id);
+          if (excluded.has(encoded)) continue;
+          let ancestor = parentOf.get(encoded);
+          while (ancestor !== undefined) {
+            if (excluded.has(ancestor)) {
+              excluded.add(encoded);
+              changed = true;
+              break;
+            }
+            ancestor = parentOf.get(ancestor);
           }
         }
       }
