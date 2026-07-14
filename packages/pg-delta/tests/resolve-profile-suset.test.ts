@@ -14,6 +14,10 @@
  *   2. same policy + a SUPERUSER connection → `susetGucs` is undefined.
  *   3. policy WITHOUT `assumedSchemas` (non-superuser connection) →
  *      `susetGucs` is undefined (the probe isn't even relevant).
+ *   4. policy with NO OWN `assumedSchemas` but `extends` a parent policy that
+ *      declares them (non-superuser connection) → `susetGucs` is still
+ *      defined (Codex PR #329 comment 3573666055: the probe used to gate on
+ *      the policy's own field, missing inherited `assumedSchemas`).
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import pg from "pg";
@@ -42,6 +46,20 @@ const profileWithoutAssumedSchemas: IntegrationProfile = {
   handlers: [],
   policy: {
     id: "test-no-assumed-schemas-policy",
+  },
+};
+
+const profileWithInheritedAssumedSchemas: IntegrationProfile = {
+  id: "test-inherited-assumed-schemas",
+  handlers: [],
+  policy: {
+    id: "test-inherited-assumed-schemas-policy",
+    extends: [
+      {
+        id: "test-inherited-assumed-schemas-parent-policy",
+        assumedSchemas: ["platform"],
+      },
+    ],
   },
 };
 
@@ -98,5 +116,19 @@ describe("resolveProfile: SUSET-GUC probe", () => {
     const resolved = await resolveProfile(pool, profileWithoutAssumedSchemas);
 
     expect(resolved.susetGucs).toBeUndefined();
+  }, 60_000);
+
+  test("inherited assumedSchemas (via extends) + non-superuser connection -> susetGucs is defined", async () => {
+    const db = await createTestDb("suset_inherited");
+    dbs.push(db);
+    const pool = await nonSuperuserPool(db);
+
+    const resolved = await resolveProfile(
+      pool,
+      profileWithInheritedAssumedSchemas,
+    );
+
+    expect(resolved.susetGucs).toBeDefined();
+    expect(resolved.susetGucs?.has("log_min_messages")).toBe(true);
   }, 60_000);
 });
