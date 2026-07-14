@@ -31,7 +31,7 @@ import {
   resolveBaseline,
 } from "../policy/baseline.ts";
 import { probeApplierCapability } from "../policy/capability.ts";
-import type { Policy } from "../policy/policy.ts";
+import { flattenPolicy, type Policy } from "../policy/policy.ts";
 
 /** Static, declarative profile: the handlers and policy that define a managed
  *  view. Pure data — no live connection. Compose your own, or use the presets
@@ -154,9 +154,12 @@ export async function resolveProfile(
   // strictly by `restrictToApplier`). The `pool` this resolves against is the
   // same connection `schema apply` extracts the target from, which shares the
   // co-located shadow's cluster + role, so its GUC catalog and role are
-  // authoritative for the shadow.
+  // authoritative for the shadow. Gated on the FLATTENED policy's
+  // `assumedSchemas` (not the policy's own field) — a policy can inherit
+  // `assumedSchemas` via `extends`, and `cmdSchemaApply` seeds from the
+  // flattened set, so the probe must be gated on the same aggregate.
   let susetGucs: ReadonlySet<string> | undefined;
-  if ((policy?.assumedSchemas?.length ?? 0) > 0) {
+  if (policy !== undefined && flattenPolicy(policy).assumedSchemas.length > 0) {
     const applier = capability ?? (await probeApplierCapability(pool));
     if (!applier.isSuperuser) {
       const susetRows = await pool.query<{ name: string }>(
