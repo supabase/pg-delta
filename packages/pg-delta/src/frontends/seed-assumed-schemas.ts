@@ -69,9 +69,25 @@ export interface AssumedSchemaSeed {
   /** Distinct assumed-schema names actually seeded. Passed to `loadSqlFiles` so
    *  its shadow-emptiness guard ignores exactly what we pre-populated. */
   schemas: string[];
+  /** Encoded stable ids of the routine facts the seed ACTUALLY created
+   *  (function / procedure / aggregate), mapped to each routine's seeded
+   *  `def` (the `pg_get_functiondef` text carried on the fact payload). Passed
+   *  to `loadSqlFiles` so its post-load body-validation pass can tell a seeded
+   *  platform routine (warn on a wonky reconstruction) from a USER-authored
+   *  routine that merely lives in a seeded schema NAME — the latter, including a
+   *  new overload or a CREATE OR REPLACE of a seeded routine, must fail loudly
+   *  (Codex #329). Scoping by full overload-safe identity (not schema name) is
+   *  why the encoded id is used; the def value guards against an OR-REPLACE that
+   *  keeps the identity but changes the body. */
+  seededRoutines: Map<string, string>;
 }
 
-const EMPTY: AssumedSchemaSeed = { sql: "", facts: 0, schemas: [] };
+const EMPTY: AssumedSchemaSeed = {
+  sql: "",
+  facts: 0,
+  schemas: [],
+  seededRoutines: new Map(),
+};
 
 /** Assumed-schema name a fact belongs to: a schema fact IS its own schema; any
  *  schema-qualified fact carries `schema`. (Satellites — `target`-shaped ids —
@@ -241,5 +257,24 @@ export function deriveAssumedSchemaSeed(
         .filter((s): s is string => s !== undefined),
     ),
   ];
-  return { sql: renderPlanSql(seedPlan), facts: seedFacts.length, schemas };
+  // Overload-safe identity map of the routines the seed actually created, keyed
+  // by encoded id → seeded `def`. Consumed by `loadSqlFiles`'s body-validation
+  // pass to scope leniency to genuinely-seeded routines (see the field doc).
+  const seededRoutines = new Map<string, string>();
+  for (const f of seedFacts) {
+    if (
+      f.id.kind === "function" ||
+      f.id.kind === "procedure" ||
+      f.id.kind === "aggregate"
+    ) {
+      const def = f.payload["def"];
+      seededRoutines.set(encodeId(f.id), typeof def === "string" ? def : "");
+    }
+  }
+  return {
+    sql: renderPlanSql(seedPlan),
+    facts: seedFacts.length,
+    schemas,
+    seededRoutines,
+  };
 }

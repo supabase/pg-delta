@@ -799,6 +799,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     // plan. An explicit --shadow keeps bring-your-own-bootstrap; the `raw`
     // profile has no assumedSchemas so `deriveAssumedSchemaSeed` returns nothing.
     let seededSchemas: string[] = [];
+    let seededRoutines = new Map<string, string>();
     let seedMs = 0;
     if (coLocated !== undefined) {
       const flatProfile = ctx.planOptions.policy
@@ -844,6 +845,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
           }
           seedMs = Date.now() - tSeed0;
           seededSchemas = seed.schemas;
+          seededRoutines = seed.seededRoutines;
           process.stderr.write(`  Seeded in ${seedMs}ms\n`);
         }
       }
@@ -982,8 +984,13 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       loadResult = await loadSqlFiles(loadInput, shadow.pool, {
         extract: (p, o) => ctx.extract(p, { ...o, redactSecrets }),
         // Phase 2b: exempt the pre-seeded assumed schemas from the shadow-
-        // emptiness guard (they were deliberately populated above).
-        ...(seededSchemas.length > 0 ? { seededSchemas } : {}),
+        // emptiness guard (they were deliberately populated above), and pass the
+        // seeded-routine identity map so body-validation leniency is scoped to
+        // routines the seed actually created — a user routine merely living in a
+        // seeded schema NAME must still fail loudly (Codex #329). Always pass the
+        // map (even empty) once we seeded, so the identity gating fully replaces
+        // the schema-name gating for the CLI path.
+        ...(seededSchemas.length > 0 ? { seededSchemas, seededRoutines } : {}),
         // A declarative dir that carries cluster-level role state (CREATE ROLE,
         // membership grants — e.g. `cluster/roles.sql`) trips the default
         // `databaseScratch` leak guard. `--isolated-shadow` asserts the shadow is
