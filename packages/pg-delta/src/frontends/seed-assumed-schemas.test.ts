@@ -103,7 +103,12 @@ describe("deriveAssumedSchemaSeed", () => {
       assumedSchemas: [],
       assumedRoles: [],
     });
-    expect(seed).toEqual({ sql: "", facts: 0, schemas: [] });
+    expect(seed).toEqual({
+      sql: "",
+      facts: 0,
+      schemas: [],
+      seededRoutines: new Map(),
+    });
   });
 
   // Unit C: a seeded routine carrying a superuser-only `SET` clause cannot be
