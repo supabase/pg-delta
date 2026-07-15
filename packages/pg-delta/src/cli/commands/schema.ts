@@ -752,6 +752,19 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
 
   const shadow = makePool(shadowUrl);
   const tgt = makePool(targetUrl);
+  // Close the pools and drop the co-located throwaway database. Shared by the
+  // normal `finally` AND the early-exit guards inside the try below: those call
+  // `process.exit`, which SKIPS the finally, so without releasing here first
+  // they would leak the co-located shadow database (`--keep-shadow` keeps it).
+  const releaseResources = async (): Promise<void> => {
+    await Promise.all([shadow.end(), tgt.end()]);
+    if (coLocated !== undefined) {
+      if (flags["keep-shadow"]) {
+        process.stderr.write(`  Kept shadow database ${coLocated.name}\n`);
+      }
+      await coLocated.cleanup();
+    }
+  };
   try {
     // Secret redaction applies to BOTH sides so the diff stays consistent. With
     // --unsafe-show-secrets the declarative SQL's real FDW/server credentials and
@@ -820,6 +833,9 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
               `    - re-export with --default-owner "${cu}", or\n` +
               `    - re-export with --default-owner none (emit every OWNER TO).\n`,
           );
+          // release first: process.exit skips the finally that drops the
+          // co-located shadow this apply already provisioned above.
+          await releaseResources();
           process.exit(2);
         }
         applyDefaultOwner = mdo;
@@ -1247,18 +1263,14 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         );
         process.stderr.write(`  sql: ${report.error.sql}\n`);
       }
+      // release first: process.exit skips the finally (co-located shadow leak).
+      await releaseResources();
       process.exit(1);
     }
   } finally {
-    await Promise.all([shadow.end(), tgt.end()]);
     // drop the co-located throwaway database (after our pools close so nothing
     // holds a connection to it); --keep-shadow makes cleanup a no-op.
-    if (coLocated !== undefined) {
-      if (flags["keep-shadow"]) {
-        process.stderr.write(`  Kept shadow database ${coLocated.name}\n`);
-      }
-      await coLocated.cleanup();
-    }
+    await releaseResources();
   }
 }
 

@@ -265,6 +265,15 @@ describe("schema export/apply: two-role ownership round-trip", () => {
     await cluster.adminPool
       .query(`ALTER DATABASE "${dst2.name}" OWNER TO own_c`)
       .catch(() => {});
+    // baseline the co-located shadow DBs BEFORE the diverged apply so the leak
+    // assertion is robust to shadows other (concurrent) test files hold.
+    const shadowNames = async (): Promise<string[]> =>
+      (
+        await cluster.adminPool.query<{ d: string }>(
+          `SELECT datname AS d FROM pg_database WHERE datname LIKE 'pgdelta_shadow_%'`,
+        )
+      ).rows.map((r) => r.d);
+    const shadowsBefore = new Set(await shadowNames());
     const diverged = await runCli([
       "schema",
       "apply",
@@ -278,6 +287,12 @@ describe("schema export/apply: two-role ownership round-trip", () => {
     expect(diverged.exitCode).toBe(2);
     expect(diverged.stderr).toMatch(/own_a/);
     expect(diverged.stderr).toMatch(/own_c/);
+    // NO LEAK: the diverged apply (no --shadow) provisions a co-located shadow
+    // BEFORE the owner guard fires; the guard's exit(2) must still drop it.
+    // Before the fix, process.exit skipped the cleanup finally → the shadow DB
+    // leaked on the target's cluster.
+    const leaked = (await shadowNames()).filter((d) => !shadowsBefore.has(d));
+    expect(leaked).toEqual([]);
 
     // VERBOSE: re-export --default-owner none; applying as own_c (member of both
     // own_a and own_exc) converges despite own_c ≠ own_a (every OWNER TO explicit).
