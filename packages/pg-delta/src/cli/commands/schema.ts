@@ -511,6 +511,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       profile: { type: "value" },
       "restrict-to-applier": { type: "boolean" },
       "strict-coverage": { type: "boolean" },
+      "strict-function-bodies": { type: "boolean" },
       "no-reorder": { type: "boolean" },
       "unsafe-show-secrets": { type: "boolean" },
       "isolated-shadow": { type: "boolean" },
@@ -523,7 +524,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       process.stderr.write(
         `${err.message}\nUsage: pgdelta schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
-          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow]\n` +
+          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow]\n` +
           `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.\n`,
       );
       process.exit(2);
@@ -991,6 +992,11 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         // map (even empty) once we seeded, so the identity gating fully replaces
         // the schema-name gating for the CLI path.
         ...(seededSchemas.length > 0 ? { seededSchemas, seededRoutines } : {}),
+        // `--strict-function-bodies` restores the fatal gate for a USER routine
+        // whose body fails the check-on re-validation. Default (flag absent) is
+        // lenient: such a failure is a loud warning and the load proceeds, since
+        // apply materialises exactly what was declared under check-off anyway.
+        strictFunctionBodies: flags["strict-function-bodies"] === true,
         // A declarative dir that carries cluster-level role state (CREATE ROLE,
         // membership grants — e.g. `cluster/roles.sql`) trips the default
         // `databaseScratch` leak guard. `--isolated-shadow` asserts the shadow is

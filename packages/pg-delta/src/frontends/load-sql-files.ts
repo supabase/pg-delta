@@ -483,6 +483,18 @@ export async function loadSqlFiles(
      *  callers), leniency falls back to the coarser `seededSchemas` name check
      *  for backward compatibility; the CLI always passes this once it seeds. */
     seededRoutines?: ReadonlyMap<string, string>;
+    /** Escalate a USER routine's post-load body-validation failure back to a
+     *  fatal error (default `false`). By default a user routine whose body fails
+     *  the `check_function_bodies = on` re-lint is reported as a loud WARNING and
+     *  the load proceeds: Postgres already accepted it under check-off (which
+     *  pg-delta's own apply executor emits in every plan preamble), so refusing
+     *  to read it back would be pg-delta imposing stricter validation than
+     *  Postgres and would block round-tripping any schema that relies on
+     *  check-off. Set to `true` (CLI `--strict-function-bodies`) to restore the
+     *  fatal gate for CI. Only class-3 (user-schema) failures honour this flag —
+     *  a routine in a seeded schema that is NOT an unchanged seed always throws
+     *  (Codex #329), and an unchanged seeded routine always warns. */
+    strictFunctionBodies?: boolean;
   } = {},
 ): Promise<LoadResult> {
   // Rounds scale with dependency DEPTH, not file count: each round resolves
@@ -504,6 +516,7 @@ export async function loadSqlFiles(
   // row when nothing was seeded, so the default (unseeded) path is unchanged.
   const seededSchemas = options.seededSchemas ?? [];
   const seededRoutines = options.seededRoutines;
+  const strictFunctionBodies = options.strictFunctionBodies ?? false;
   const preexisting = await shadow.query(
     `
     SELECT count(*)::int AS n FROM pg_class c
@@ -766,24 +779,34 @@ export async function loadSqlFiles(
         await client.query(row.def);
       } catch (error) {
         const message = `${row.nspname}.${row.proname}: ${error instanceof Error ? error.message : String(error)}`;
-        // Seeded platform routines (Phase 2b assumed schemas) are reference-only
-        // on both sides of the diff — they cancel, so a wonky seeded body cannot
-        // corrupt the plan — and they are not the user's code to fail their
-        // apply on. Still surface it as a warning rather than swallowing it: a
-        // seeded-routine validation failure has previously exposed a real
-        // engine bug in platform-code reconstruction.
+        // Three-way classification of a post-load body-validation failure:
         //
-        // Scope the leniency to routines the seed ACTUALLY created, by
-        // overload-safe identity AND unchanged body (Codex #329). A USER routine
-        // that merely lives in a seeded schema NAME — a new overload, or a
-        // CREATE OR REPLACE that changed the body — is the user's code: it must
-        // fail loudly, because assumed-schema facts are reference-only in the
-        // diff and it would otherwise be a silent no-op. When `seededRoutines`
-        // is omitted (direct library callers) fall back to the coarser
-        // schema-name check for backward compatibility.
-        const seedLenient =
+        // 1. SEEDED, UNCHANGED (identity + def byte-match a seed; or, when
+        //    `seededRoutines` is omitted by a direct library caller, any routine
+        //    whose schema NAME is seeded — the coarse legacy fallback): WARNING
+        //    with the distinct `invalid_seeded_routine_body` code. Seeded platform
+        //    routines are reference-only on both sides of the diff (they cancel,
+        //    so a wonky seeded body cannot corrupt the plan) and are not the
+        //    user's code to fail their apply on. Surfaced (not swallowed) because
+        //    such a failure has previously exposed a real engine bug in
+        //    platform-code reconstruction. NEVER escalated by strict mode.
+        //
+        // 2. SEEDED SCHEMA, NOT AN UNCHANGED SEED (a new overload, or a
+        //    CREATE OR REPLACE that changed the body): FATAL. Assumed-schema
+        //    facts are reference-only in the diff, so a declared change here would
+        //    be a silent no-op — failing loud is a coverage guarantee (Codex
+        //    #329). Ignores strict mode (always throws).
+        //
+        // 3. USER ROUTINE (schema NOT seeded): WARNING by default. Postgres
+        //    accepted it under check-off (which pg-delta's own apply executor
+        //    emits), so apply will faithfully materialise exactly what was
+        //    declared — refusing to read it back would be pg-delta imposing
+        //    stricter validation than Postgres. Escalated to FATAL only under
+        //    `strictFunctionBodies` (CLI `--strict-function-bodies`).
+        const inSeededSchema = seededSchemas.includes(row.nspname);
+        const isUnchangedSeed =
           seededRoutines === undefined
-            ? seededSchemas.includes(row.nspname)
+            ? inSeededSchema
             : ((): boolean => {
                 const id: StableId = {
                   kind: row.prokind === "p" ? "procedure" : "function",
@@ -794,16 +817,32 @@ export async function loadSqlFiles(
                 const seededDef = seededRoutines.get(encodeId(id));
                 return seededDef !== undefined && seededDef === row.def;
               })();
-        if (seedLenient) {
+        if (isUnchangedSeed) {
+          // class 1
           bodyWarnings.push({
-            code: "invalid_routine_body",
+            code: "invalid_seeded_routine_body",
             severity: "warning",
             message,
           });
-        } else {
+        } else if (inSeededSchema) {
+          // class 2 — always fatal (Codex #329)
           bodyErrors.push({
             code: "invalid_routine_body",
             severity: "error",
+            message,
+          });
+        } else if (strictFunctionBodies) {
+          // class 3 under strict opt-in — fatal
+          bodyErrors.push({
+            code: "invalid_routine_body",
+            severity: "error",
+            message,
+          });
+        } else {
+          // class 3 default — loud warning, load proceeds
+          bodyWarnings.push({
+            code: "invalid_routine_body",
+            severity: "warning",
             message,
           });
         }

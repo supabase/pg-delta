@@ -90,7 +90,11 @@ describe("loadSqlFiles — body validation is scoped to sql/plpgsql routines", (
     }
   }, 60_000);
 
-  test("a genuinely broken sql-language routine in the same non-superuser schema still throws", async () => {
+  // The point of this case is that sql/plpgsql routines ARE re-validated (unlike
+  // LANGUAGE internal above). Body-validation failures for a user routine are
+  // lenient by default now, so pin the "still validated" behavior via the
+  // `strictFunctionBodies` opt-in, which restores the fatal throw.
+  test("a genuinely broken sql-language routine in the same non-superuser schema still throws under strictFunctionBodies", async () => {
     const shadow = await createTestDb("langscope");
     let valtesterPool: pg.Pool | undefined;
     try {
@@ -116,7 +120,10 @@ describe("loadSqlFiles — body validation is scoped to sql/plpgsql routines", (
       ];
 
       const err = await captureError(
-        loadSqlFiles(files, valtesterPool, { extract: stubExtract }),
+        loadSqlFiles(files, valtesterPool, {
+          extract: stubExtract,
+          strictFunctionBodies: true,
+        }),
       );
       expect(err).toBeInstanceOf(ShadowLoadError);
       const shadowErr = err as ShadowLoadError;

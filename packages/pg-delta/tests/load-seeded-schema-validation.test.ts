@@ -110,7 +110,7 @@ describe("loadSqlFiles — seeded-routine body validation scoping", () => {
       );
 
       const warning = result.diagnostics.find(
-        (d) => d.code === "invalid_routine_body",
+        (d) => d.code === "invalid_seeded_routine_body",
       );
       expect(warning).toBeDefined();
       expect(warning?.severity).toBe("warning");
@@ -120,8 +120,36 @@ describe("loadSqlFiles — seeded-routine body validation scoping", () => {
     }
   }, 60_000);
 
-  test("a broken routine outside seeded schemas still throws, and the diagnostic names it", async () => {
+  // A broken USER routine outside any seeded schema is lenient by DEFAULT: the
+  // load proceeds and the failure surfaces as a loud warning (Postgres accepted
+  // it under check-off, which pg-delta's own apply executor uses). Under the
+  // `strictFunctionBodies` opt-in it goes back to a fatal throw.
+  test("a broken routine outside seeded schemas warns by default, and the diagnostic names it", async () => {
     const shadow = await createTestDb("seededbad");
+    try {
+      const result = await loadSqlFiles(
+        [
+          {
+            name: "01_fn.sql",
+            sql: "CREATE FUNCTION public.user_broken() RETURNS int LANGUAGE sql AS 'SELECT x FROM nonexistent';",
+          },
+        ],
+        shadow.pool,
+      );
+      const warning = result.diagnostics.find(
+        (d) => d.code === "invalid_routine_body",
+      );
+      expect(warning).toBeDefined();
+      expect(warning?.severity).toBe("warning");
+      expect(warning?.message).toContain("public.user_broken:");
+      expect(warning?.message).toContain("nonexistent");
+    } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+
+  test("a broken routine outside seeded schemas still throws under strictFunctionBodies", async () => {
+    const shadow = await createTestDb("seededbadstrict");
     try {
       const err = await captureError(
         loadSqlFiles(
@@ -132,6 +160,7 @@ describe("loadSqlFiles — seeded-routine body validation scoping", () => {
             },
           ],
           shadow.pool,
+          { strictFunctionBodies: true },
         ),
       );
       expect(err).toBeInstanceOf(ShadowLoadError);
@@ -140,6 +169,7 @@ describe("loadSqlFiles — seeded-routine body validation scoping", () => {
         (d) => d.code === "invalid_routine_body",
       );
       expect(detail).toBeDefined();
+      expect(detail?.severity).toBe("error");
       expect(detail?.message).toContain("public.user_broken:");
       expect(detail?.message).toContain("nonexistent");
     } finally {
