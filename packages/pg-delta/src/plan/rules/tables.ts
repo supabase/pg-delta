@@ -10,6 +10,7 @@ import {
   identityOptions,
   identityOptionsClause,
   identitySequenceId,
+  identitySequenceNameClause,
   p,
   reloptionsAlterSpecs,
   renameRule,
@@ -291,7 +292,7 @@ export const tableRules: Record<string, KindRules> = {
             // orders this after a DROP SEQUENCE freeing the name. Non-default
             // sequence parameters ride along inline.
             return {
-              sql: `${target} ADD ${phrase} AS IDENTITY${identityOptionsClause(identityOptions(to), columnType)}`,
+              sql: `${target} ADD ${phrase} AS IDENTITY${identityOptionsClause(identityOptions(to), columnType, identitySequenceNameClause(to, { schema, table, column }))}`,
               ...(toSeq == null ? {} : { alsoProduces: [toSeq] }),
             };
           }

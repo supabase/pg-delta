@@ -175,23 +175,55 @@ export function isDefaultIdentityOptions(
   );
 }
 
-/** ` (INCREMENT BY … MINVALUE … …)` for a non-default identity sequence, or ""
- *  when the parameters are the type defaults. */
+/** The name PostgreSQL auto-derives for an identity column's implicit backing
+ *  sequence: `<table>_<column>_seq` (in the table's own schema). */
+function defaultIdentitySequenceName(table: string, column: string): string {
+  return `${table}_${column}_seq`;
+}
+
+/** ` SEQUENCE NAME "<schema>"."<name>"` when the backing sequence's name (or
+ *  schema) differs from PostgreSQL's `<table>_<column>_seq` default — the
+ *  sequence was renamed or created via `SEQUENCE NAME`. Returns "" for the
+ *  ordinary default-named case so exports stay minimal. Truncation/collision
+ *  edge cases produce a name that never equals the naive default, so they
+ *  always emit the clause — verbose but always valid, never a wrong-name
+ *  round-trip. */
+export function identitySequenceNameClause(
+  value: PayloadValue,
+  ref: { schema: string; table: string; column: string },
+): string {
+  if (value == null) return "";
+  const sequence = (value as unknown as IdentityPayload).sequence;
+  if (sequence == null) return "";
+  const isDefault =
+    sequence.schema === ref.schema &&
+    sequence.name === defaultIdentitySequenceName(ref.table, ref.column);
+  return isDefault ? "" : `SEQUENCE NAME ${rel(sequence.schema, sequence.name)}`;
+}
+
+/** ` (SEQUENCE NAME … INCREMENT BY … MINVALUE … …)` for an identity sequence
+ *  with a non-default name and/or parameters, or "" when the name is the
+ *  `<table>_<column>_seq` default and the parameters are the type defaults.
+ *  `SEQUENCE NAME` is a valid identity option and PostgreSQL accepts it first
+ *  in the list (pg_dump renders it the same way). */
 export function identityOptionsClause(
   options: IdentityOptions | null,
   columnType: string,
+  sequenceNameClause = "",
 ): string {
-  if (options == null || isDefaultIdentityOptions(options, columnType))
-    return "";
-  const parts = [
-    `INCREMENT BY ${options.increment}`,
-    `MINVALUE ${options.minValue}`,
-    `MAXVALUE ${options.maxValue}`,
-    `START WITH ${options.start}`,
-    `CACHE ${options.cache}`,
-    options.cycle ? "CYCLE" : "NO CYCLE",
-  ];
-  return ` (${parts.join(" ")})`;
+  const parts: string[] = [];
+  if (sequenceNameClause) parts.push(sequenceNameClause);
+  if (options != null && !isDefaultIdentityOptions(options, columnType)) {
+    parts.push(
+      `INCREMENT BY ${options.increment}`,
+      `MINVALUE ${options.minValue}`,
+      `MAXVALUE ${options.maxValue}`,
+      `START WITH ${options.start}`,
+      `CACHE ${options.cache}`,
+      options.cycle ? "CYCLE" : "NO CYCLE",
+    );
+  }
+  return parts.length === 0 ? "" : ` (${parts.join(" ")})`;
 }
 
 /** in-place `ALTER COLUMN … SET <seq option>` specs for an identity sequence
@@ -240,7 +272,11 @@ export function columnClause(fact: Fact): string {
   const generation = identityGeneration(identity);
   if (generation === "a" || generation === "d") {
     sql += ` GENERATED ${generation === "a" ? "ALWAYS" : "BY DEFAULT"} AS IDENTITY`;
-    sql += identityOptionsClause(identityOptions(identity), type);
+    sql += identityOptionsClause(
+      identityOptions(identity),
+      type,
+      identitySequenceNameClause(identity, columnRef(fact)),
+    );
   }
   if (p(fact, "notNull")) sql += ` NOT NULL`;
   return sql;
