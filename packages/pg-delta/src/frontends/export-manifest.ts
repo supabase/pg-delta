@@ -36,6 +36,14 @@ export interface ExportManifest {
    *  baseline can't be applied under a profile that no longer subtracts the same
    *  baseline (which would read those platform objects as source-only drops). */
   baselineDigest?: string;
+  /** the DEFAULT OWNER the database-scope export kept implicit (its `ALTER …
+   *  OWNER TO` suppressed), so `schema apply` reconstructs the identical view and
+   *  can fail closed when the applier role differs. A role NAME → that role was
+   *  the default. `null` → verbose export (`--default-owner none`; every OWNER TO
+   *  emitted), no default. FIELD ABSENT → a pre-feature or hand-authored dir
+   *  (distinct from `null`): `schema apply` resolves the chain against the target
+   *  and warns. */
+  defaultOwner?: string | null;
 }
 
 export function writeExportManifest(
@@ -45,6 +53,7 @@ export function writeExportManifest(
     profile?: string;
     scope?: "database" | "cluster";
     baselineDigest?: string;
+    defaultOwner?: string | null;
   },
 ): void {
   writeFileSync(
@@ -94,6 +103,16 @@ export function readExportManifest(dir: string): ExportManifest | undefined {
   }
   if (typeof doc["baselineDigest"] === "string") {
     manifest.baselineDigest = doc["baselineDigest"];
+  }
+  // defaultOwner distinguishes three states: a role NAME, explicit `null`
+  // (verbose export), and ABSENT (pre-feature / hand-authored). `null` is a
+  // valid recorded value, so it must round-trip — only a wrong-typed value is
+  // dropped. Use `in` because `=== null` and "absent" are different fields.
+  if ("defaultOwner" in doc) {
+    const v = doc["defaultOwner"];
+    if (typeof v === "string" || v === null) {
+      manifest.defaultOwner = v;
+    }
   }
   return manifest;
 }

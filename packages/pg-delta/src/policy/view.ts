@@ -22,6 +22,7 @@ import {
   type EdgeKind,
   type Fact,
   type FactBase,
+  retainOwnerRoleDangling,
 } from "../core/fact.ts";
 import { encodeId, isSatelliteId, type StableId } from "../core/stable-id.ts";
 
@@ -59,9 +60,15 @@ export function excludeFactsAndDescendants(
 
   const keptFacts: Fact[] = fb.facts().filter((f) => !isRemoved(f));
   const survives = new Set(keptFacts.map((f) => encodeId(f.id)));
-  const keptEdges: DependencyEdge[] = fb.edges.filter(
-    (e) => survives.has(encodeId(e.from)) && survives.has(encodeId(e.to)),
-  );
+  const keptEdges: DependencyEdge[] = fb.edges.filter((e) => {
+    const fromSurvives = survives.has(encodeId(e.from));
+    if (fromSurvives && survives.has(encodeId(e.to))) return true;
+    // Ownership carve-out: retain a surviving object's owner→role edge even when
+    // the role endpoint was removed, so a view already carrying retained dangling
+    // owner edges (a scope projection re-run through this primitive) keeps
+    // serializing OWNER TO instead of silently dropping it.
+    return fromSurvives && retainOwnerRoleDangling(e);
+  });
   // Carry the reference-only set forward for surviving facts. Otherwise a scope
   // or provenance projection (which rebuilds the FactBase) silently drops the
   // reference-only marks resolveView() set, so extension members and
@@ -69,34 +76,77 @@ export function excludeFactsAndDescendants(
   const referenceOnly = new Set(
     [...fb.referenceOnly].filter((key) => survives.has(key)),
   );
-  return buildFactBase(keptFacts, keptEdges, fb.source, referenceOnly);
+  return buildFactBase(keptFacts, keptEdges, fb.source, referenceOnly, {
+    allowDangling: retainOwnerRoleDangling,
+  });
 }
 
 /** Management scope of a declarative apply (target-architecture §scope). */
 export type ManagementScope = "database" | "cluster";
 
 /**
+ * Encoded ids removed by excluding `rootIds` and their descendant subtrees (a
+ * fact is removed if it is a root or has a removed ancestor). Mirrors the
+ * removal walk in `excludeFactsAndDescendants`; used by `projectManagementScope`
+ * so it agrees on the removal closure while handling edges specially.
+ */
+function removedClosure(
+  fb: FactBase,
+  rootIds: ReadonlySet<string>,
+): Set<string> {
+  const removed = new Set<string>();
+  const isRemoved = (fact: Fact): boolean => {
+    const encoded = encodeId(fact.id);
+    if (removed.has(encoded)) return true;
+    if (rootIds.has(encoded)) {
+      removed.add(encoded);
+      return true;
+    }
+    let current = fact.parent;
+    while (current !== undefined) {
+      const key = encodeId(current);
+      if (rootIds.has(key) || removed.has(key)) {
+        removed.add(encoded);
+        return true;
+      }
+      current = fb.get(current)?.parent;
+    }
+    return false;
+  };
+  for (const fact of fb.facts()) isRemoved(fact);
+  return removed;
+}
+
+/**
  * Project a fact base to the given management scope.
  *
  * `"cluster"` returns `fb` unchanged (roles/memberships are managed state).
  *
- * `"database"` (the declarative default) removes `role` and `membership` facts —
- * and, via edge pruning, the `owner` edges that point at them. Roles are
- * cluster-global and shared across databases, so on a shared/co-located shadow
- * the extract carries roles the declarative files never declared; diffing them
- * would plan a spurious `CREATE ROLE` (shadow-only role) or a destructive
- * `DROP ROLE` (target-only role). In database scope the caller instead passes
- * the target's actual role names as `assumedRoles`, so a `GRANT … TO <role>`
- * resolves against a role that exists at apply time (and one that does NOT fails
- * loudly at plan time). Object ownership is therefore not managed in this scope;
- * use `"cluster"` (with an isolated shadow) to manage roles and ownership.
+ * `"database"` (the declarative default) removes `role` and `membership` facts.
+ * Roles are cluster-global and shared across databases, so on a shared/co-located
+ * shadow the extract carries roles the declarative files never declared; diffing
+ * them would plan a spurious `CREATE ROLE` (shadow-only role) or a destructive
+ * `DROP ROLE` (target-only role). The caller instead passes the target's actual
+ * role names as `assumedRoles`, so a `GRANT … TO <role>` (and, below, an
+ * `ALTER … OWNER TO <role>`) resolves against a role that exists at apply time
+ * (one that does NOT fails loudly at plan time).
  *
- * Symmetric by construction (same projection on both diff sides + the proof/
- * fingerprint re-extract), so `plan == prove == run` holds.
+ * OWNERSHIP is still serialized in database scope: an `owner` edge from a
+ * surviving object to a (removed) role is RETAINED as a dangling ASSUMED
+ * reference, so ownership round-trips as `ALTER … OWNER TO`. The one exception is
+ * the resolved `defaultOwner`: an owner edge to it is pruned, because that role
+ * is the implicit/applier owner and emitting `OWNER TO <defaultOwner>` for every
+ * object would be redundant noise. `defaultOwner` undefined (verbose /
+ * `--default-owner none`) keeps EVERY retained owner edge.
+ *
+ * Symmetric by construction (same projection — including the same `defaultOwner`
+ * — on both diff sides + the proof/fingerprint re-extract), so
+ * `plan == prove == run` holds.
  */
 export function projectManagementScope(
   fb: FactBase,
   scope: ManagementScope,
+  opts: { defaultOwner?: string } = {},
 ): FactBase {
   if (scope === "cluster") return fb;
   const roots = new Set<string>();
@@ -105,7 +155,43 @@ export function projectManagementScope(
       roots.add(encodeId(fact.id));
     }
   }
-  return excludeFactsAndDescendants(fb, roots);
+  if (roots.size === 0) return fb; // identity no-op (referential identity preserved)
+
+  const removed = removedClosure(fb, roots);
+  const keptFacts = fb.facts().filter((f) => !removed.has(encodeId(f.id)));
+  const survives = new Set(keptFacts.map((f) => encodeId(f.id)));
+
+  const { defaultOwner } = opts;
+  const keptEdges: DependencyEdge[] = [];
+  for (const e of fb.edges) {
+    const fromSurvives = survives.has(encodeId(e.from));
+    const toSurvives = survives.has(encodeId(e.to));
+    if (fromSurvives && toSurvives) {
+      keptEdges.push(e);
+      continue;
+    }
+    // deliberate carve-out (scoped to owner→role edges): retain the owner edge
+    // to a removed role as a dangling assumed reference so ownership serializes,
+    // EXCEPT the edge to the resolved defaultOwner (implicit/applier owner).
+    if (
+      e.kind === "owner" &&
+      fromSurvives &&
+      !toSurvives &&
+      e.to.kind === "role"
+    ) {
+      const roleName = (e.to as { kind: "role"; name: string }).name;
+      if (defaultOwner !== undefined && roleName === defaultOwner) continue;
+      keptEdges.push(e);
+    }
+    // every other dangling edge is pruned (as excludeFactsAndDescendants does).
+  }
+
+  const referenceOnly = new Set(
+    [...fb.referenceOnly].filter((key) => survives.has(key)),
+  );
+  return buildFactBase(keptFacts, keptEdges, fb.source, referenceOnly, {
+    allowDangling: retainOwnerRoleDangling,
+  });
 }
 
 /**

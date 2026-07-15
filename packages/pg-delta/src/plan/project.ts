@@ -19,6 +19,7 @@ import {
   type DependencyEdge,
   type Fact,
   type FactBase,
+  retainOwnerRoleDangling,
 } from "../core/fact.ts";
 import type { Payload } from "../core/hash.ts";
 import { encodeId } from "../core/stable-id.ts";
@@ -79,14 +80,24 @@ export function projectTarget(
     }
   }
   for (const [key, edge] of edges) {
-    if (!facts.has(encodeId(edge.from)) || !facts.has(encodeId(edge.to))) {
-      edges.delete(key);
-    }
+    const fromPresent = facts.has(encodeId(edge.from));
+    const toPresent = facts.has(encodeId(edge.to));
+    if (fromPresent && toPresent) continue;
+    // Ownership carve-out: a retained dangling owner→role edge (database scope)
+    // keeps its role endpoint absent by design — preserve it so the projected
+    // target (fingerprint + proof) still reflects the serialized OWNER TO, rather
+    // than pruning it and drifting from the applied result.
+    if (fromPresent && retainOwnerRoleDangling(edge)) continue;
+    edges.delete(key);
   }
 
   return buildFactBase(
     [...facts.values()],
     [...edges.values()],
     desired.source,
+    // referenceOnly is intentionally NOT carried forward here (unchanged from the
+    // original 3-arg call); the 4th arg is supplied only to reach `allowDangling`.
+    new Set(),
+    { allowDangling: retainOwnerRoleDangling },
   );
 }

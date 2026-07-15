@@ -155,6 +155,9 @@ export async function apply(
         options?.baseline,
       ),
       thePlan.scope ?? "cluster",
+      thePlan.defaultOwner !== undefined
+        ? { defaultOwner: thePlan.defaultOwner }
+        : {},
     );
     // KNOWN PITFALL (acknowledged, by design): the fingerprint folds the WHOLE
     // resolved view, INCLUDING `referenceOnly` assumed-schema facts (e.g.

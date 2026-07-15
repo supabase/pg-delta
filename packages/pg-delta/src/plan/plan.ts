@@ -108,6 +108,11 @@ export interface Plan {
    *  scope)` applied AFTER `resolveView`, so plan == prove == run holds under a
    *  database-scoped profile. Absent (⇒ "cluster") on direct library plans. */
   scope?: ManagementScope;
+  /** the resolved DEFAULT OWNER the database-scope projection kept implicit (its
+   *  `owner` edges pruned → no `ALTER … OWNER TO`), stamped so `apply`/`prove`
+   *  reconstruct the identical managed-view-under-scope. Absent ⇒ verbose (every
+   *  retained owner edge serializes) and on cluster/direct-library plans. */
+  defaultOwner?: string;
   /** every rename candidate found, applied or not — "prompt" mode renders
    *  these as questions; near-misses explain why they degraded (§4.1) */
   renameCandidates: RenameCandidate[];
@@ -185,6 +190,14 @@ export interface PlanOptions {
    *  omitted) is the identity projection — direct library callers / the corpus
    *  are unaffected. Set by the CLI's `schema apply`. */
   scope?: ManagementScope;
+  /** the DEFAULT OWNER for the database-scope projection: `owner` edges to this
+   *  role are pruned (kept implicit → no `ALTER … OWNER TO`); every other
+   *  surviving object's owner edge is retained as an assumed reference and
+   *  serializes. Undefined ⇒ verbose (keep every retained owner edge). Ignored
+   *  at cluster scope (roles are managed). Stamped onto the artifact so
+   *  `apply`/`prove` reconstruct the identical view. Set by `schema export` /
+   *  `schema apply` from the resolved default-owner chain. */
+  defaultOwner?: string;
   /** intent-rule index for stateful-extension intent facts (`extensionIntent`
    *  kind — pg_cron jobs, …). Supplied by the resolved profile
    *  (`resolveProfile` builds it from the profile's handlers' `intentKinds`);
@@ -260,6 +273,20 @@ export function plan(
     ...(options?.policy ? flattenPolicy(options.policy).assumedRoles : []),
     ...(options?.assumedRoles ?? []),
   ]);
+
+  // Database-scope projection RETAINS `owner` edges to scope-projected roles as
+  // dangling assumed references (view.ts), so a kept `ALTER … OWNER TO <role>`
+  // would otherwise strand the action-graph requirement guard (the role object
+  // was projected out but exists at apply time). Auto-add every such target role
+  // name (from BOTH resolved sides) to the assumed set — the exact analogue of a
+  // GRANT to an assumed role — so apply works without the caller re-threading it.
+  for (const fb of [source, desired]) {
+    for (const e of fb.edges) {
+      if (e.kind === "owner" && e.to.kind === "role" && !fb.has(e.to)) {
+        assumedRoleNames.add((e.to as { kind: "role"; name: string }).name);
+      }
+    }
+  }
 
   // schemas the policy assumes exist at apply time but does not manage (e.g.
   // Supabase's `extensions`). Threaded into the action-graph guard so a kept
@@ -352,6 +379,13 @@ export function plan(
     // / direct-library plan artifacts stay byte-identical.
     ...(options?.scope !== undefined && options.scope !== "cluster"
       ? { scope: options.scope }
+      : {}),
+    // stamp the resolved default owner so apply/prove reconstruct the identical
+    // database-scope view. Only meaningful (and only stamped) at database scope.
+    ...(options?.defaultOwner !== undefined &&
+    options?.scope !== undefined &&
+    options.scope !== "cluster"
+      ? { defaultOwner: options.defaultOwner }
       : {}),
     ...(options?.redactSecrets !== undefined
       ? { redactSecrets: options.redactSecrets }

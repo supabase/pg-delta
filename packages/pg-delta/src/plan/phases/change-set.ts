@@ -109,6 +109,13 @@ export function buildChangeSet(
   // view — `plan == prove == run`. `scope` defaults to "cluster", which is the
   // identity projection, so direct library callers / the corpus are unchanged.
   const scope = options?.scope ?? "cluster";
+  // the default owner whose ownership stays implicit under database scope (its
+  // owner edges pruned → no ALTER … OWNER TO). Symmetric on both sides so the
+  // fingerprint/proof reconstruct the same view; ignored at cluster scope.
+  const scopeOpts =
+    options?.defaultOwner !== undefined
+      ? { defaultOwner: options.defaultOwner }
+      : {};
   const source = projectManagementScope(
     resolveView(
       rawSource,
@@ -117,6 +124,7 @@ export function buildChangeSet(
       options?.baseline,
     ),
     scope,
+    scopeOpts,
   );
   const desired = projectManagementScope(
     resolveView(
@@ -126,6 +134,7 @@ export function buildChangeSet(
       options?.baseline,
     ),
     scope,
+    scopeOpts,
   );
 
   const allDeltas = diff(source, desired);

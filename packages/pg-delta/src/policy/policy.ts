@@ -54,7 +54,7 @@
 
 import type { Delta } from "../core/diff.ts";
 import type { DependencyEdge, EdgeKind, Fact, FactBase } from "../core/fact.ts";
-import { buildFactBase } from "../core/fact.ts";
+import { buildFactBase, retainOwnerRoleDangling } from "../core/fact.ts";
 import type { FactKind, StableId } from "../core/stable-id.ts";
 import { encodeId } from "../core/stable-id.ts";
 import { KNOWN_PARAMS, type PlanParams } from "../plan/rules.ts";
@@ -243,6 +243,15 @@ export interface Policy {
    * pg-delta and dbdev rely on) without re-admitting the schema into the diff.
    */
   assumedSchemas?: string[];
+  /**
+   * The role whose object ownership stays IMPLICIT in a database-scope export:
+   * `schema export` suppresses `ALTER … OWNER TO <defaultOwner>` (that role is the
+   * expected applier), while every object owned by another role serializes its
+   * owner. Consumed as the profile-declared tier of the `--default-owner` chain
+   * (flag > profile default > database `datdba`). Undefined → fall through to the
+   * database owner. Supabase sets this to `postgres`.
+   */
+  defaultOwner?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -595,6 +604,7 @@ export function flattenPolicy(policy: Policy): {
   assumedRoles: string[];
   assumedSchemas: string[];
   baseline?: string;
+  defaultOwner?: string;
 } {
   const visited = new Set<string>();
   return flattenInner(policy, visited);
@@ -610,6 +620,7 @@ function flattenInner(
   assumedRoles: string[];
   assumedSchemas: string[];
   baseline?: string;
+  defaultOwner?: string;
 } {
   if (visited.has(policy.id)) {
     throw new Error(
@@ -626,6 +637,9 @@ function flattenInner(
   const parentSerialize: SerializeRule[] = [];
   const parentAssumedRoles: string[] = [];
   const parentAssumedSchemas: string[] = [];
+  // defaultOwner is scalar: own value wins, else the first parent that declares
+  // one (own-before-extends, matching the rule-ordering convention).
+  let parentDefaultOwner: string | undefined;
 
   if (policy.extends) {
     for (const parent of policy.extends) {
@@ -638,6 +652,9 @@ function flattenInner(
       parentSerialize.push(...flat.serialize);
       parentAssumedRoles.push(...flat.assumedRoles);
       parentAssumedSchemas.push(...flat.assumedSchemas);
+      if (parentDefaultOwner === undefined && flat.defaultOwner !== undefined) {
+        parentDefaultOwner = flat.defaultOwner;
+      }
     }
   }
 
@@ -650,6 +667,7 @@ function flattenInner(
     assumedRoles: string[];
     assumedSchemas: string[];
     baseline?: string;
+    defaultOwner?: string;
   } = {
     id: policy.id,
     filter: [...ownFilter, ...parentFilter],
@@ -662,6 +680,10 @@ function flattenInner(
   };
   if (policy.baseline !== undefined) {
     result.baseline = policy.baseline;
+  }
+  const defaultOwner = policy.defaultOwner ?? parentDefaultOwner;
+  if (defaultOwner !== undefined) {
+    result.defaultOwner = defaultOwner;
   }
   return result;
 }
@@ -870,11 +892,19 @@ export function resolveView(
   for (const key of policyRefOnly)
     if (surviving.has(key)) referenceOnly.add(key);
   if (referenceOnly.size === 0) return pruned;
+  // Rebuild to attach the reference-only marks. This runs whenever the view has
+  // extension members / assumed-schema facts — including when `resolveView` is
+  // re-invoked (via `plan()`) on an ALREADY scope-projected view (the export
+  // path), which carries retained dangling owner→role edges. Propagate the
+  // ownership carve-out so the rebuild does not silently re-prune them (a
+  // public-only, extension-free view returns early above and never reaches here,
+  // which is why the regression hid until an extension forced this rebuild).
   return buildFactBase(
     pruned.facts(),
     [...pruned.edges],
     pruned.source,
     referenceOnly,
+    { allowDangling: retainOwnerRoleDangling },
   );
 }
 

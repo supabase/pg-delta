@@ -39,6 +39,37 @@ describe("export manifest", () => {
     });
   });
 
+  test("round-trips defaultOwner as a role name, null (verbose), or absent", () => {
+    writeExportManifest(dir, {
+      redactSecrets: true,
+      scope: "database",
+      defaultOwner: "postgres",
+    });
+    expect(readExportManifest(dir)).toEqual({
+      redactSecrets: true,
+      scope: "database",
+      defaultOwner: "postgres",
+    });
+
+    // null (verbose export) is a recorded value distinct from absent.
+    writeExportManifest(dir, {
+      redactSecrets: true,
+      scope: "database",
+      defaultOwner: null,
+    });
+    expect(readExportManifest(dir)).toEqual({
+      redactSecrets: true,
+      scope: "database",
+      defaultOwner: null,
+    });
+
+    // absent (pre-feature / cluster-scope export): field simply not present.
+    writeExportManifest(dir, { redactSecrets: true, scope: "cluster" });
+    const read = readExportManifest(dir);
+    expect(read).toEqual({ redactSecrets: true, scope: "cluster" });
+    expect("defaultOwner" in (read as object)).toBe(false);
+  });
+
   test("returns undefined when no manifest exists (older / hand-authored dir)", () => {
     expect(readExportManifest(dir)).toBeUndefined();
   });

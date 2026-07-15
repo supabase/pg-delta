@@ -37,6 +37,22 @@ export interface DependencyEdge {
   kind: EdgeKind;
 }
 
+/**
+ * The single `allowDangling` predicate for the ownership-serialization carve-out.
+ *
+ * `projectManagementScope("database")` removes cluster-global role facts but
+ * DELIBERATELY retains each surviving object's `owner` edge to a removed role as a
+ * dangling ASSUMED reference, so ownership still serializes as `ALTER … OWNER TO`.
+ * EVERY reconstruction that can carry such a view forward (`resolveView`'s
+ * reference-only rebuild, `excludeFactsAndDescendants`, `projectTarget`, the scope
+ * projection itself) must use THIS predicate, or the rebuild silently re-prunes
+ * the retained edge and the export emits zero `OWNER TO` (regression: extensions /
+ * assumed schemas force the rebuild that a public-only view never triggered).
+ * Centralized here so the rule cannot drift between call sites.
+ */
+export const retainOwnerRoleDangling = (edge: DependencyEdge): boolean =>
+  edge.kind === "owner" && edge.to.kind === "role";
+
 interface Entry {
   fact: Fact;
   encoded: string;
@@ -69,6 +85,15 @@ export class FactBase {
     edges: DependencyEdge[],
     source: FactSource = "liveDb",
     referenceOnly: ReadonlySet<string> = new Set(),
+    /** Opt-in allowance for a projection that DELIBERATELY retains an edge whose
+     *  endpoint it just removed — e.g. `projectManagementScope("database")` keeps
+     *  an `owner` edge to a scope-projected role as an ASSUMED reference so
+     *  ownership still serializes as `ALTER … OWNER TO`. When `allowDangling(edge)`
+     *  is true the edge is retained WITHOUT a `dangling_edge` diagnostic and
+     *  indexed only on whichever endpoint is present. Default: every dangling edge
+     *  is silently pruned (extraction relies on this for non-extracted system
+     *  owners), so this narrowly-scoped hook is the single exception. */
+    opts: { allowDangling?: (edge: DependencyEdge) => boolean } = {},
   ) {
     this.source = source;
     this.referenceOnly = referenceOnly;
@@ -102,11 +127,29 @@ export class FactBase {
     for (const edge of edges) {
       const fromKey = encodeId(edge.from);
       const toKey = encodeId(edge.to);
-      if (!this.#byId.has(fromKey) || !this.#byId.has(toKey)) {
+      const fromPresent = this.#byId.has(fromKey);
+      const toPresent = this.#byId.has(toKey);
+      if (!fromPresent || !toPresent) {
+        if (opts.allowDangling?.(edge)) {
+          // deliberately retained dangling edge (assumed reference): keep it and
+          // index only the present endpoint(s); no diagnostic.
+          this.#edges.push(edge);
+          if (fromPresent) {
+            const outList = this.#outgoing.get(fromKey) ?? [];
+            outList.push(edge);
+            this.#outgoing.set(fromKey, outList);
+          }
+          if (toPresent) {
+            const inList = this.#incoming.get(toKey) ?? [];
+            inList.push(edge);
+            this.#incoming.set(toKey, inList);
+          }
+          continue;
+        }
         this.diagnostics.push({
           code: "dangling_edge",
           severity: "warning",
-          subject: this.#byId.has(fromKey) ? edge.to : edge.from,
+          subject: fromPresent ? edge.to : edge.from,
           message: `edge ${fromKey} -[${edge.kind}]-> ${toKey} references a fact not in the base`,
         });
         continue;
@@ -253,6 +296,7 @@ export function buildFactBase(
   edges: DependencyEdge[],
   source: FactSource = "liveDb",
   referenceOnly: ReadonlySet<string> = new Set(),
+  opts: { allowDangling?: (edge: DependencyEdge) => boolean } = {},
 ): FactBase {
-  return new FactBase(facts, edges, source, referenceOnly);
+  return new FactBase(facts, edges, source, referenceOnly, opts);
 }

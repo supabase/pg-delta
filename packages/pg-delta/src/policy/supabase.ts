@@ -179,6 +179,14 @@ export const supabasePolicy: Policy = {
   // into the diff. Mirrors the system-schema exclusion list by construction.
   assumedSchemas: [...SUPABASE_SYSTEM_SCHEMAS],
 
+  // Default owner for database-scope exports: Supabase hands users the
+  // `postgres` role, so an object owned by `postgres` needs no `ALTER … OWNER
+  // TO` — its ownership is implicit. Objects owned by a system role are already
+  // projected out by Rule 6 (owner: SUPABASE_SYSTEM_ROLES), so this suppresses
+  // only redundant `owner to postgres` lines; a user object owned by a
+  // non-postgres user role still serializes its owner.
+  defaultOwner: "postgres",
+
   // baseline (intentionally UNSET in v1): a baseline names the snapshot that
   // represents "empty" on a Supabase instance; facts present-and-identical in
   // it are subtracted before diffing (resolveBaseline → plan options.baseline),

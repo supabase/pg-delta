@@ -441,9 +441,16 @@ export async function provePlan(
   // the policy runs) reappear as drift. `scope` defaults to the identity
   // "cluster" projection, so the corpus proof is unchanged.
   const scope = thePlan.scope ?? "cluster";
+  // same default owner the plan projected with (owner edges to it stay implicit),
+  // so the proven clone and the target reconstruct the identical view.
+  const scopeOpts =
+    thePlan.defaultOwner !== undefined
+      ? { defaultOwner: thePlan.defaultOwner }
+      : {};
   const provenFb = projectManagementScope(
     resolveView(proven.factBase, policy, capability, options.baseline),
     scope,
+    scopeOpts,
   );
   // target the PROJECTED desired: the plan only applies kept deltas, so it
   // converges to `desired` minus the policy-filtered changes (review #2).
@@ -455,6 +462,7 @@ export async function provePlan(
       options.baseline,
     ),
     scope,
+    scopeOpts,
   );
   const driftDeltas = diff(provenFb, target);
   const after = await tableStats(clonePool);

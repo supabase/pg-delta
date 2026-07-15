@@ -152,6 +152,7 @@ export function writeExportFiles(
     profile?: string;
     scope?: "database" | "cluster";
     baselineDigest?: string;
+    defaultOwner?: string | null;
   },
 ): string[] {
   mkdirSync(outRoot, { recursive: true });
@@ -190,12 +191,14 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       "format-options": { type: "value" },
       "no-format": { type: "boolean" },
       scope: { type: "value" },
+      "default-owner": { type: "value" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pgdelta schema export --source <pg-url> --out-dir <dir> ` +
           `[--layout by-object|ordered|grouped] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets] [--scope database|cluster]\n` +
+          `  [--default-owner <role|none>] (which owner stays implicit; default: profile default or the database owner; "none" emits every OWNER TO)\n` +
           `  [--format-options '{"keywordCase":"upper","maxWidth":180}'] [--no-format]\n` +
           `    (SQL is pretty-printed by default: lowercase keywords, width 180; any layout)\n` +
           `  Grouped-layout options (only with --layout grouped):\n` +
@@ -367,7 +370,55 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     // owner/REVOKE, so it must stay assumed — otherwise a profile-declared
     // baseline breaks the export's requirement guard (same pre-subtraction rule as
     // the assumed-schema seed).
-    const scopedView = projectManagementScope(view, exportScope);
+    // Resolve the DEFAULT OWNER whose ownership stays implicit in a database-scope
+    // export (no `ALTER … OWNER TO`): `--default-owner <role|none>` beats the
+    // profile-declared default, which beats the database owner (`datdba`). `none`
+    // is verbose (every owner serializes) and stamps a `null` manifest. `datdba`
+    // is queried at export time and never enters the fact model (it is
+    // export-command metadata). Only meaningful under database scope.
+    let resolvedDefaultOwner: string | null = null; // null ⇒ verbose / not applicable
+    if (exportScope === "database") {
+      const ownerFlag = flags["default-owner"];
+      if (ownerFlag === "none") {
+        resolvedDefaultOwner = null;
+      } else if (ownerFlag !== undefined && ownerFlag !== "") {
+        resolvedDefaultOwner = ownerFlag;
+      } else {
+        const profileDefault = assumed?.defaultOwner;
+        if (profileDefault !== undefined) {
+          resolvedDefaultOwner = profileDefault;
+        } else {
+          const r = await src.pool.query<{ owner: string }>(
+            `SELECT pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname = current_database()`,
+          );
+          resolvedDefaultOwner = r.rows[0]?.owner ?? null;
+        }
+      }
+      // Warn when the resolved default owner differs from the export connection
+      // role: objects it owns will have OWNER TO suppressed, so applying the dir
+      // as anyone else re-introduces ownership drift (and `schema apply` guards
+      // against it). Point at `--default-owner` to override.
+      if (resolvedDefaultOwner !== null) {
+        const cu = (
+          await src.pool.query<{ u: string }>(`SELECT current_user AS u`)
+        ).rows[0]?.u;
+        if (cu !== undefined && cu !== resolvedDefaultOwner) {
+          process.stderr.write(
+            `  WARNING: the resolved default owner "${resolvedDefaultOwner}" differs from the export ` +
+              `connection role "${cu}"; ownership of its objects will be left implicit (no OWNER TO). ` +
+              `Apply this directory connecting as "${resolvedDefaultOwner}", or re-export with ` +
+              `--default-owner "${cu}" / --default-owner none.\n`,
+          );
+        }
+      }
+    }
+    const scopedView = projectManagementScope(
+      view,
+      exportScope,
+      resolvedDefaultOwner !== null
+        ? { defaultOwner: resolvedDefaultOwner }
+        : {},
+    );
     const scopeAssumedRoles =
       exportScope === "database"
         ? factBase
@@ -411,6 +462,12 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       // objects this export omitted would read as source-only drops.
       ...(ctx.baseline !== undefined
         ? { baselineDigest: ctx.baseline.digest }
+        : {}),
+      // stamp the resolved default owner (database scope only) so `schema apply`
+      // reconstructs the identical view and guards a divergent applier. A role
+      // name or `null` (verbose); omitted at cluster scope (ownership managed).
+      ...(exportScope === "database"
+        ? { defaultOwner: resolvedDefaultOwner }
         : {}),
     });
     if (removed.length > 0) {
@@ -734,6 +791,59 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         ctx.baseline?.digest,
         "export manifest",
       );
+    }
+
+    // Resolve the DEFAULT OWNER the export kept implicit, so plan/apply/prove
+    // reconstruct the identical database-scope managed view. The manifest field
+    // is three-valued:
+    //   - a role NAME → use it, and GUARD: the target connection role MUST equal
+    //     it, or objects it left implicitly owned would reload owned by a
+    //     different role → spurious ownership drift. Fail closed (exit 2).
+    //   - null → verbose export (every OWNER TO explicit); no default, no guard.
+    //   - ABSENT (pre-feature / hand-authored dir) → resolve the chain against
+    //     the TARGET (profile default > target `datdba`) and WARN.
+    // Only applies under database scope (cluster scope manages ownership fully).
+    let applyDefaultOwner: string | undefined;
+    if (scope === "database") {
+      const mdo = manifest?.defaultOwner; // string | null | undefined
+      if (typeof mdo === "string") {
+        const cu = (
+          await tgt.pool.query<{ u: string }>(`SELECT current_user AS u`)
+        ).rows[0]?.u;
+        if (cu !== mdo) {
+          process.stderr.write(
+            `schema apply: the export's default owner "${mdo}" does not match the target ` +
+              `connection role "${cu}". Objects the export left implicitly owned by "${mdo}" ` +
+              `would reload owned by "${cu}", producing spurious ownership drift.\n` +
+              `  Resolve one of:\n` +
+              `    - connect as "${mdo}" (--target <url for ${mdo}>), or\n` +
+              `    - re-export with --default-owner "${cu}", or\n` +
+              `    - re-export with --default-owner none (emit every OWNER TO).\n`,
+          );
+          process.exit(2);
+        }
+        applyDefaultOwner = mdo;
+      } else if (mdo === null) {
+        applyDefaultOwner = undefined; // verbose export — no implicit default
+      } else {
+        // field absent: resolve chain against the target and warn.
+        const profileDefault = ctx.planOptions.policy
+          ? flattenPolicy(ctx.planOptions.policy).defaultOwner
+          : undefined;
+        if (profileDefault !== undefined) {
+          applyDefaultOwner = profileDefault;
+        } else {
+          const r = await tgt.pool.query<{ owner: string }>(
+            `SELECT pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname = current_database()`,
+          );
+          applyDefaultOwner = r.rows[0]?.owner;
+        }
+        process.stderr.write(
+          `  WARNING: the export directory records no default owner; resolving to ` +
+            `"${applyDefaultOwner ?? "(none)"}" (profile default or target datdba). Objects it ` +
+            `owns will not receive OWNER TO. Re-export with the current pg-delta to record it.\n`,
+        );
+      }
     }
 
     // Extension shadow precheck: some extensions (pg_cron) can only run their
@@ -1063,6 +1173,11 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
               ...assumedTargetRoles,
             ],
           }
+        : {}),
+      // the default owner the export kept implicit; plan stamps it so the apply
+      // fingerprint gate reconstructs the identical view.
+      ...(applyDefaultOwner !== undefined
+        ? { defaultOwner: applyDefaultOwner }
         : {}),
     };
     const tPlan0 = Date.now();
