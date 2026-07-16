@@ -838,26 +838,48 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
           await releaseResources();
           process.exit(2);
         }
+        // An explicit --shadow loads the omitted-`OWNER TO` objects as ITS OWN
+        // connection role. If that role differs from the stamped default, those
+        // objects reload owned by the shadow user and — since the projection
+        // prunes only owner edges to the default — the plan emits spurious
+        // `ALTER … OWNER TO <shadow user>` (or fails the requirement guard when
+        // that role is absent on the target). Guard it too. The co-located
+        // shadow needs no check: it reuses the same target credentials validated
+        // above.
+        if (shadowFlag !== undefined) {
+          const scu = (
+            await shadow.pool.query<{ u: string }>(`SELECT current_user AS u`)
+          ).rows[0]?.u;
+          if (scu !== mdo) {
+            process.stderr.write(
+              `schema apply: the export's default owner "${mdo}" does not match the --shadow ` +
+                `connection role "${scu}". Objects the export left implicitly owned by "${mdo}" ` +
+                `would load into the shadow owned by "${scu}", producing spurious ownership drift.\n` +
+                `  Resolve one of:\n` +
+                `    - point --shadow at a connection whose role is "${mdo}", or\n` +
+                `    - re-export with --default-owner none (emit every OWNER TO).\n`,
+            );
+            await releaseResources();
+            process.exit(2);
+          }
+        }
         applyDefaultOwner = mdo;
       } else if (mdo === null) {
         applyDefaultOwner = undefined; // verbose export — no implicit default
       } else {
-        // field absent: resolve chain against the target and warn.
-        const profileDefault = ctx.planOptions.policy
-          ? flattenPolicy(ctx.planOptions.policy).defaultOwner
-          : undefined;
-        if (profileDefault !== undefined) {
-          applyDefaultOwner = profileDefault;
-        } else {
-          const r = await tgt.pool.query<{ owner: string }>(
-            `SELECT pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname = current_database()`,
-          );
-          applyDefaultOwner = r.rows[0]?.owner;
-        }
+        // Manifest field ABSENT (pre-feature export / hand-authored dir): the
+        // directory never opted into default-owner suppression, so apply it
+        // VERBOSE — the files are the whole truth and every `OWNER TO` they
+        // contain is honored as written. Do NOT synthesize a default from the
+        // profile/datdba and prune owner edges to it: that silently drops an
+        // explicit `ALTER … OWNER TO <role>` when the target object is owned by
+        // a different role. Suppression is an export-time choice the manifest
+        // records; a manifest-less dir made no such choice.
+        applyDefaultOwner = undefined;
         process.stderr.write(
-          `  WARNING: the export directory records no default owner; resolving to ` +
-            `"${applyDefaultOwner ?? "(none)"}" (profile default or target datdba). Objects it ` +
-            `owns will not receive OWNER TO. Re-export with the current pg-delta to record it.\n`,
+          `  NOTE: the directory records no default owner, so it is applied verbose ` +
+            `(all ownership honored as written). Re-export with the current pg-delta to ` +
+            `record a default owner.\n`,
         );
       }
     }

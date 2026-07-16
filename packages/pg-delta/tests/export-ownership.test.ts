@@ -12,7 +12,7 @@
  * Docker required.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extract } from "../src/extract/extract.ts";
@@ -481,5 +481,153 @@ describe("schema export: ownership survives the seeding/member path", () => {
         )
       ).rows;
     expect(await owners(dst)).toEqual(await owners(src));
+  }, 300_000);
+});
+
+const uriAsRole = (db: TestDb, role: string, pw: string): string =>
+  db.uri.replace("test:test@", `${role}:${pw}@`);
+
+// FIX ⑤: an explicit --shadow whose connection role differs from the manifest's
+// stamped default owner loads the omitted-`OWNER TO` objects as the SHADOW's
+// current_user, so the projection (which prunes only edges to the default owner)
+// leaves a spurious `ALTER … OWNER TO <shadow user>` in the plan. The guard must
+// fire on the explicit-shadow path too, not just the target connection role.
+describe("schema apply: explicit --shadow owner guard", () => {
+  test("(g) fails closed when an explicit --shadow role differs from the stamped default owner", async () => {
+    const cluster = await sharedCluster();
+    await cluster.adminPool
+      .query(`CREATE ROLE own5_a SUPERUSER LOGIN PASSWORD 'a'`)
+      .catch(() => {});
+    await cluster.adminPool
+      .query(`CREATE ROLE own5_b SUPERUSER LOGIN PASSWORD 'b'`)
+      .catch(() => {});
+
+    const src = await cluster.createDb("expown5_src");
+    dbs.push(src);
+    await cluster.adminPool
+      .query(`ALTER DATABASE "${src.name}" OWNER TO own5_a`)
+      .catch(() => {});
+    await src.pool.query(`
+      CREATE SCHEMA s AUTHORIZATION own5_a;
+      CREATE TABLE s.t_a (id int);
+      ALTER TABLE s.t_a OWNER TO own5_a;
+    `);
+
+    // export as admin; datdba(src) === own5_a → manifest default owner own5_a.
+    const dir = mkdtempSync(join(tmpdir(), "expown5-"));
+    expect(
+      (
+        await runCli(["schema", "export", "--source", src.uri, "--out-dir", dir])
+      ).exitCode,
+    ).toBe(0);
+    expect(readManifest(dir).defaultOwner).toBe("own5_a");
+
+    // fresh target owned by own5_a, connecting AS own5_a → target guard passes.
+    const dst = await cluster.createDb("expown5_dst");
+    dbs.push(dst);
+    await cluster.adminPool
+      .query(`ALTER DATABASE "${dst.name}" OWNER TO own5_a`)
+      .catch(() => {});
+    // explicit --shadow database connecting as own5_b ≠ own5_a.
+    const shadowDb = await cluster.createDb("expown5_shadow");
+    dbs.push(shadowDb);
+
+    const res = await runCli([
+      "schema",
+      "apply",
+      "--dir",
+      dir,
+      "--target",
+      uriAsRole(dst, "own5_a", "a"),
+      "--shadow",
+      uriAsRole(shadowDb, "own5_b", "b"),
+      "--renames",
+      "off",
+    ]);
+    // GREEN: exit 2 BEFORE any shadow load; stderr names both the shadow role
+    // and the manifest default owner. RED (pre-fix): the omitted-`OWNER TO`
+    // objects load as own5_b, the plan emits `ALTER … OWNER TO own5_b`, apply
+    // exits 0 (spurious ownership drift) and s.t_a lands on the target.
+    expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+      code: 2,
+    });
+    expect(res.stderr).toMatch(/own5_b/);
+    expect(res.stderr).toMatch(/own5_a/);
+    expect(res.stderr).toMatch(/shadow/i);
+    // never loaded/applied: the target stayed empty.
+    const applied = await dst.pool.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM pg_class WHERE relname = 't_a' AND relkind = 'r'`,
+    );
+    expect(applied.rows[0]?.n).toBe("0");
+  }, 300_000);
+});
+
+// FIX ⑥: a directory with NO manifest never opted into default-owner
+// suppression, so it must be applied VERBOSE — every explicit `OWNER TO` in the
+// files is honored. The old behaviour synthesized a default from the target
+// profile/datdba and pruned desired owner edges to it, silently dropping an
+// explicit `ALTER … OWNER TO <role>` when the target object was owned by a
+// different role.
+describe("schema apply: manifest-absent directory is verbose", () => {
+  test("(h) honors an explicit OWNER TO in a manifest-less dir instead of pruning to a synthesized default", async () => {
+    const cluster = await sharedCluster();
+    await cluster.adminPool
+      .query(`CREATE ROLE own6_a SUPERUSER LOGIN PASSWORD 'a'`)
+      .catch(() => {});
+    await cluster.adminPool
+      .query(`CREATE ROLE own6_b NOLOGIN`)
+      .catch(() => {});
+    await cluster.adminPool.query(`GRANT own6_b TO own6_a`).catch(() => {});
+
+    // hand-authored dir: NO manifest file; explicit OWNER TO own6_a.
+    const work = mkdtempSync(join(tmpdir(), "expown6-"));
+    const dir = join(work, "schema");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "01_t.sql"),
+      `CREATE TABLE public.t (id int);\nALTER TABLE public.t OWNER TO own6_a;\n`,
+      "utf8",
+    );
+
+    // target owned by own6_a (so a synthesized datdba default WOULD be own6_a),
+    // with t already existing owned by own6_b (the divergent owner).
+    const dst = await cluster.createDb("expown6_dst");
+    dbs.push(dst);
+    await cluster.adminPool
+      .query(`ALTER DATABASE "${dst.name}" OWNER TO own6_a`)
+      .catch(() => {});
+    await dst.pool.query(`
+      CREATE TABLE public.t (id int);
+      ALTER TABLE public.t OWNER TO own6_b;
+    `);
+
+    const res = await runCli([
+      "schema",
+      "apply",
+      "--dir",
+      dir,
+      "--target",
+      uriAsRole(dst, "own6_a", "a"),
+      "--renames",
+      "off",
+    ]);
+    // GREEN: verbose NOTE prints, the old datdba WARNING is gone, and the
+    // explicit OWNER TO own6_a is honored → post-apply owner is own6_a. RED
+    // (pre-fix): applyDefaultOwner is synthesized to the target datdba (own6_a)
+    // and the desired owner edge to own6_a is pruned → owner-unlink only, no
+    // ALTER emitted → t stays owned by own6_b.
+    expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+      code: 0,
+    });
+    expect(res.stderr).toMatch(/NOTE:[\s\S]*no default owner/i);
+    expect(res.stderr).toMatch(/verbose/i);
+    expect(res.stderr).not.toMatch(
+      /WARNING: the export directory records no default owner/i,
+    );
+    const owner = await dst.pool.query<{ o: string }>(
+      `SELECT pg_get_userbyid(relowner) AS o FROM pg_class
+         WHERE relname = 't' AND relnamespace = 'public'::regnamespace`,
+    );
+    expect(owner.rows[0]?.o).toBe("own6_a");
   }, 300_000);
 });
