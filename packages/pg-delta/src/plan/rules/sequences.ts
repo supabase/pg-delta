@@ -114,7 +114,15 @@ export const sequenceRules: Record<string, KindRules> = {
         },
       },
       ownedBy: {
-        alter: (fact) => sequenceOwnedBySpecs(fact, { allowNone: true }),
+        alter: (fact, from) =>
+          sequenceOwnedBySpecs(fact, {
+            allowNone: true,
+            releaseOld: from as {
+              schema: string;
+              table: string;
+              column: string;
+            } | null,
+          }),
       },
     },
   },

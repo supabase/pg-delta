@@ -5,6 +5,7 @@ import type { ActionSpec, KindRules } from "../rules.ts";
 import {
   columnClause,
   columnRef,
+  dependencyConsumes,
   identityGeneration,
   identityOptionAlterSpecs,
   identityOptions,
@@ -221,7 +222,7 @@ export const tableRules: Record<string, KindRules> = {
       type: {
         // delta-set shape: defaults can't be cast through a type change, so
         // the change is sandwiched DROP DEFAULT → TYPE … USING → SET DEFAULT
-        alter: (fact, _from, to, view) => {
+        alter: (fact, _from, to, view, sourceView) => {
           const { schema, table, column } = columnRef(fact);
           const target = `ALTER TABLE ${rel(schema, table)} ALTER COLUMN ${qid(column)}`;
           // Foreign tables have no local storage, so PostgreSQL rejects the
@@ -229,14 +230,25 @@ export const tableRules: Record<string, KindRules> = {
           // rewrite. The plain TYPE change is metadata-only and carries no
           // rewrite risk. (Regular tables keep the USING cast + rewriteRisk.)
           const isForeign = fact.parent?.kind === "foreignTable";
+          // The retyped column depends on its NEW type via a column→type
+          // pg_depend edge; consume it so this TYPE change is ordered AFTER a
+          // same-plan CREATE of that type. Symmetrically, release the OLD type
+          // (the source-side edge) so the change runs BEFORE a same-plan DROP of
+          // it. Built-in types record no such edge (system-scoped endpoints are
+          // dropped in extract), so a plain widening leaves both sets empty.
+          const consumes = dependencyConsumes(view, fact.id);
+          const releases = dependencyConsumes(sourceView, fact.id);
+          const typeSpec: ActionSpec = isForeign
+            ? { sql: `${target} TYPE ${str(to)}` }
+            : {
+                sql: `${target} TYPE ${str(to)} USING ${qid(column)}::${str(to)}`,
+                rewriteRisk: true,
+              };
+          if (consumes.length > 0) typeSpec.consumes = consumes;
+          if (releases.length > 0) typeSpec.releases = releases;
           const specs: ActionSpec[] = [
             { sql: `${target} DROP DEFAULT` },
-            isForeign
-              ? { sql: `${target} TYPE ${str(to)}` }
-              : {
-                  sql: `${target} TYPE ${str(to)} USING ${qid(column)}::${str(to)}`,
-                  rewriteRisk: true,
-                },
+            typeSpec,
           ];
           const desiredDefault = view
             .childrenOf(fact.id)

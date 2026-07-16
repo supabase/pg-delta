@@ -46,13 +46,28 @@ export const policyRules: Record<string, KindRules> = {
       usingExpr: "replace",
       checkExpr: "replace",
       roles: {
-        alter: (fact, _from, to) => {
+        alter: (fact, from, to) => {
           const id = fact.id as { schema: string; table: string; name: string };
-          const roles = (to as string[]).map((r) =>
+          const fromRoles = from as string[];
+          const toRoles = to as string[];
+          const roles = toRoles.map((r) =>
             r === "PUBLIC" ? "PUBLIC" : qid(r),
           );
+          const roleId = (r: string): StableId => ({ kind: "role", name: r });
+          // Consume roles newly listed (ordered after a same-plan CREATE ROLE)
+          // and release roles removed (ordered before a same-plan DROP ROLE,
+          // which PostgreSQL refuses while the policy still references it).
+          // PUBLIC is not an object, so it never forms an edge.
+          const consumes = toRoles
+            .filter((r) => r !== "PUBLIC" && !fromRoles.includes(r))
+            .map(roleId);
+          const releases = fromRoles
+            .filter((r) => r !== "PUBLIC" && !toRoles.includes(r))
+            .map(roleId);
           return {
             sql: `ALTER POLICY ${qid(id.name)} ON ${rel(id.schema, id.table)} TO ${roles.join(", ")}`,
+            ...(consumes.length > 0 ? { consumes } : {}),
+            ...(releases.length > 0 ? { releases } : {}),
           };
         },
       },

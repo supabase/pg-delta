@@ -315,9 +315,28 @@ export function policySql(fact: Fact): string {
  */
 export function sequenceOwnedBySpecs(
   fact: Fact,
-  opts: { allowNone?: boolean } = {},
+  opts: {
+    allowNone?: boolean;
+    /** the previous owner (an ownedBy payload value) when this is an in-place
+     *  reassignment — released so the ALTER runs before a same-plan DROP of the
+     *  old owning column/table, which would otherwise cascade the sequence away
+     *  before it is re-owned. */
+    releaseOld?: { schema: string; table: string; column: string } | null;
+  } = {},
 ): ActionSpec[] {
   const id = fact.id as { schema: string; name: string };
+  const old = opts.releaseOld;
+  const releases: StableId[] =
+    old != null
+      ? [
+          {
+            kind: "column",
+            schema: old.schema,
+            table: old.table,
+            name: old.column,
+          },
+        ]
+      : [];
   const ownedBy = p(fact, "ownedBy") as {
     schema: string;
     table: string;
@@ -325,7 +344,12 @@ export function sequenceOwnedBySpecs(
   } | null;
   if (ownedBy == null) {
     return opts.allowNone
-      ? [{ sql: `ALTER SEQUENCE ${rel(id.schema, id.name)} OWNED BY NONE` }]
+      ? [
+          {
+            sql: `ALTER SEQUENCE ${rel(id.schema, id.name)} OWNED BY NONE`,
+            ...(releases.length > 0 ? { releases } : {}),
+          },
+        ]
       : [];
   }
   return [
@@ -339,6 +363,7 @@ export function sequenceOwnedBySpecs(
           name: ownedBy.column,
         },
       ],
+      ...(releases.length > 0 ? { releases } : {}),
     },
   ];
 }
