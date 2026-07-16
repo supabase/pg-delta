@@ -64,6 +64,12 @@ export function expandReplacements(
         replaceIds.add(key);
         continue;
       }
+      // a transition with no in-place ALTER grammar routes the whole fact to
+      // replace (drop + recreate) — its `alter` is never rendered.
+      if (attrRule.replaceWhen?.(s.from, s.to, fact)) {
+        replaceIds.add(key);
+        continue;
+      }
       const rebuild = attrRule.rebuildsDependents?.(s.from, s.to);
       if (rebuild === true) rebuildSeeds.set(key, null);
       else if (Array.isArray(rebuild)) rebuildSeeds.set(key, new Set(rebuild));

@@ -22,7 +22,7 @@ import { lockClassFor } from "../locks.ts";
 import type { Action } from "../plan.ts";
 import { grantTarget, qid } from "../render.ts";
 import { subtreeIds } from "../renames.ts";
-import { ruleFlag } from "../rule-flags.ts";
+import { cascadesToChildren, ruleFlag } from "../rule-flags.ts";
 import { ownerEdgeKey } from "../role-rename-carry.ts";
 import { type ActionSpec, type PlanParams, type RulesForId } from "../rules.ts";
 import type { ChangedRoleFact } from "./change-set.ts";
@@ -206,20 +206,37 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // the replacement is rendered from the PROJECTED plan target, so a filtered
     // attribute change or child fact is not baked into the recreated SQL (P1 #1)
     const newFact = projectedDesired.getByEncoded(key) as Fact;
-    // old descendants die with the drop
-    const oldDescendants: StableId[] = [oldFact.id];
-    const walkOld = (id: StableId): void => {
-      for (const child of source.childrenOf(id)) {
-        oldDescendants.push(child.id);
-        walkOld(child.id);
-      }
+    // The old subtree dies with the replace. A child folds into its parent's
+    // DROP only when that parent's DROP CASCADES to it (DROP TABLE → its
+    // columns); a child across a NON-cascading boundary (a foreign table or user
+    // mapping under a server, whose DROP SERVER is RESTRICT) needs its OWN drop
+    // action, which the graph's child-teardown rule orders before the parent's
+    // drop. Without this the bare DROP SERVER fails on its surviving dependents.
+    const emitReplaceDrop = (rootFact: Fact): void => {
+      const destroys: StableId[] = [rootFact.id];
+      const walk = (fact: Fact): void => {
+        for (const child of source.childrenOf(fact.id)) {
+          if (cascadesToChildren(fact.id.kind)) {
+            destroys.push(child.id);
+            walk(child);
+          } else {
+            emitReplaceDrop(child);
+          }
+        }
+      };
+      walk(rootFact);
+      // A non-root (boundary) child drop must NOT consume its parent: the parent
+      // is re-created in this same plan, so consuming it would order the child
+      // drop AFTER the parent's re-create. Its ordering before the parent drop
+      // comes from the child-teardown rule (source parent → parentDestroyer).
+      const isRoot = encodeId(rootFact.id) === key;
+      pushAction("drop", rulesForId(rootFact.id).drop(rootFact), {
+        consumes:
+          isRoot && rootFact.parent !== undefined ? [rootFact.parent] : [],
+        destroys,
+      });
     };
-    walkOld(oldFact.id);
-    const dropSpec = rulesForId(oldFact.id).drop(oldFact);
-    pushAction("drop", dropSpec, {
-      consumes: oldFact.parent !== undefined ? [oldFact.parent] : [],
-      destroys: oldDescendants,
-    });
+    emitReplaceDrop(oldFact);
     emitCreate(newFact, projectedDesired);
     // recreate surviving descendants from the PROJECTED plan target (satellites,
     // sub-facts). Descendants with their own attribute deltas are covered: the

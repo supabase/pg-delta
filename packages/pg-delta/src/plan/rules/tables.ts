@@ -46,6 +46,10 @@ export const tableRules: Record<string, KindRules> = {
       if (bound != null && parentT != null) {
         // a partition: columns are inherited, the bound carries the shape
         createSql = `CREATE ${unlogged}TABLE ${relName} PARTITION OF ${rel(parentT.schema, parentT.name)} ${str(bound)}`;
+        // a partition may itself be partitioned (multi-level partitioning): keep
+        // its own PARTITION BY so sub-partitions can attach — otherwise the
+        // middle layer is created as a plain table and its leaves fail to attach.
+        if (partKey != null) createSql += ` PARTITION BY ${str(partKey)}`;
         consumes.push({
           kind: "table",
           schema: parentT.schema,
