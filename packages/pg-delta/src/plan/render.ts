@@ -56,7 +56,10 @@ export function commentTarget(
     case "procedure":
       return `PROCEDURE ${routineSig(id)}`;
     case "aggregate":
-      return `AGGREGATE ${routineSig(id)}`;
+      // A zero-argument aggregate's signature is `(*)`, not `()` — PostgreSQL
+      // requires COMMENT ON / SECURITY LABEL ON AGGREGATE name(*). Ordered-set
+      // args (id.args non-empty) render as the plain list, like `aggSig`.
+      return `AGGREGATE ${rel(id.schema, id.name)}(${id.args.length > 0 ? id.args.join(", ") : "*"})`;
     case "extension":
       return `EXTENSION ${qid(id.name)}`;
     case "role":

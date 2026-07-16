@@ -68,6 +68,9 @@ export const foreignRules: Record<string, KindRules> = {
         alter: (fact, _from, to) => ({
           sql: `ALTER SERVER ${qid((fact.id as { name: string }).name)} VERSION ${lit(str(to))}`,
         }),
+        // PostgreSQL has no ALTER SERVER grammar to UNSET a version, so removing
+        // it (to == null) forces a drop + recreate of the server.
+        replaceWhen: (_from, to) => to == null,
       },
       options: {
         alter: (fact, from, to) => ({

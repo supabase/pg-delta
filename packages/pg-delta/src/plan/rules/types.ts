@@ -21,9 +21,34 @@ export const typeRules: Record<string, KindRules> = {
       const id = fact.id as { schema: string; name: string };
       return `ALTER DOMAIN ${rel(id.schema, id.name)}`;
     }),
-    create: (fact, view) => {
+    create: (fact, view, _params, sourceView) => {
       const id = fact.id as { schema: string; name: string };
-      let sql = `CREATE DOMAIN ${rel(id.schema, id.name)} AS ${str(p(fact, "baseType"))}`;
+      const relName = rel(id.schema, id.name);
+      // GUARD (baseType/collation replace): both attributes are "replace", so
+      // any change drops and recreates the domain. A table column is NOT a
+      // rebuildable kind, so if a SURVIVING user column depends on this domain
+      // PostgreSQL rejects the DROP at apply ("cannot drop type … other
+      // objects depend on it"). Fail loud at plan time — mirrors the in-use
+      // range-type guard above (§ type rule) and the in-use composite ALTER
+      // ATTRIBUTE guard below. Only a REPLACE (the domain is present in the
+      // source) can hit this; a fresh create brings its columns with it.
+      if (sourceView?.get(fact.id) !== undefined) {
+        const inUse = compositeUserColumns(view, fact.id).filter(
+          (colId) => sourceView.get(colId) !== undefined,
+        );
+        if (inUse.length > 0) {
+          const cols = inUse
+            .map((c) => {
+              const col = c as { schema: string; table: string; name: string };
+              return `${rel(col.schema, col.table)}.${qid(col.name)}`;
+            })
+            .join(", ");
+          throw new Error(
+            `domain ${relName}: cannot replace an in-use domain — column(s) ${cols} depend on it, and PostgreSQL forbids dropping a type while a column uses it. Replacing an in-use domain is not supported yet; drop the using column(s), or recreate the domain, first.`,
+          );
+        }
+      }
+      let sql = `CREATE DOMAIN ${relName} AS ${str(p(fact, "baseType"))}`;
       const collation = p(fact, "collation");
       if (collation != null) sql += ` COLLATE ${str(collation)}`;
       const def = p(fact, "default");
@@ -266,8 +291,25 @@ export const typeRules: Record<string, KindRules> = {
                 : 1,
             );
           for (const col of dependentColumns) {
+            // The column's declared type (format_type() output, captured
+            // verbatim at extract time — structured catalog data, not parsed
+            // SQL) tells whether it is an ARRAY of this enum: format_type
+            // renders an array type with a trailing `[]`. A scalar column
+            // casts through `text`; an array column must cast through
+            // `text[]` (element-wise) — `col::text` on an array has no
+            // built-in cast to the scalar enum and either errors
+            // ("invalid input value for enum ... {a,b}") or, worse, silently
+            // narrows the column to scalar.
+            const colFact = view.get(col);
+            const colType =
+              colFact !== undefined ? str(p(colFact, "type")) : "";
+            const isArray = colType.endsWith("[]");
+            const targetType = isArray ? `${relName}[]` : relName;
+            const usingCast = isArray
+              ? `${qid(col.name)}::text[]::${relName}[]`
+              : `${qid(col.name)}::text::${relName}`;
             specs.push({
-              sql: `ALTER TABLE ${rel(col.schema, col.table)} ALTER COLUMN ${qid(col.name)} TYPE ${relName} USING ${qid(col.name)}::text::${relName}`,
+              sql: `ALTER TABLE ${rel(col.schema, col.table)} ALTER COLUMN ${qid(col.name)} TYPE ${targetType} USING ${usingCast}`,
               // reference the rewritten column so the proof's rewrite
               // attribution maps this action to its table (the action's
               // primary subject is the type, not the table it rewrites)

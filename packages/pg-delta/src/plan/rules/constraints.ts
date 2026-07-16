@@ -62,10 +62,29 @@ export const constraintRules: Record<string, KindRules> = {
       validated: {
         alter: (fact, _from, to) => {
           const id = fact.id as { schema: string; table: string; name: string };
-          if (!to)
-            throw new Error("constraint cannot be de-validated in place");
+          const target = constraintTarget(fact);
+          if (!to) {
+            // VALIDATED → NOT VALID: PostgreSQL has no ALTER form to
+            // de-validate a constraint in place — only ADD CONSTRAINT …
+            // NOT VALID accepts it. Replace the constraint itself (drop +
+            // re-add), mirroring create()'s NOT VALID suffixing (defensive
+            // guard against a def that already carries the text).
+            const defText = str(p(fact, "def"));
+            const addSql = !defText.includes("NOT VALID")
+              ? `${defText} NOT VALID`
+              : defText;
+            return [
+              { sql: `${target} DROP CONSTRAINT ${qid(id.name)}` },
+              {
+                sql: `${target} ADD CONSTRAINT ${qid(id.name)} ${addSql}`,
+                ...(p(fact, "type") === "f"
+                  ? { lockClass: "shareRowExclusive" as const }
+                  : {}),
+              },
+            ];
+          }
           return {
-            sql: `${constraintTarget(fact)} VALIDATE CONSTRAINT ${qid(id.name)}`,
+            sql: `${target} VALIDATE CONSTRAINT ${qid(id.name)}`,
             lockClass: "shareUpdateExclusive",
           };
         },

@@ -84,6 +84,10 @@ export const schemaRules: Record<string, KindRules> = {
           consumes: [{ kind: "schema", name: str(to) }],
           releases: [{ kind: "schema", name: str(from) }],
         }),
+        // A non-relocatable extension rejects SET SCHEMA, so relocating it must
+        // be a drop + recreate in the new schema (its create rule emits the
+        // `SCHEMA <s>` clause). The relocatable flag is extracted per extension.
+        replaceWhen: (_from, _to, fact) => p(fact, "relocatable") === false,
       },
     },
   },

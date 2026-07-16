@@ -85,6 +85,16 @@ export type AttributeRule =
         from: PayloadValue,
         to: PayloadValue,
       ) => boolean | readonly string[];
+      /** When a specific transition has no in-place ALTER grammar, route the
+       *  WHOLE fact to replace (drop + recreate) instead of emitting `alter` —
+       *  e.g. unsetting a foreign server VERSION, or SET SCHEMA on a
+       *  non-relocatable extension. Evaluated during replacement classification;
+       *  the fact is then dropped + recreated (its `alter` never runs). */
+      replaceWhen?: (
+        from: PayloadValue,
+        to: PayloadValue,
+        fact: Fact,
+      ) => boolean;
     }
   | "replace";
 
