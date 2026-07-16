@@ -45,9 +45,12 @@ export const roleRules: Record<string, KindRules> = {
     },
     drop: (fact) => {
       const name = qid((fact.id as { name: string }).name);
-      // DROP OWNED clears residual default privileges / grants in this
-      // database; every wanted reassignment has already run (releases edges)
-      return { sql: `DROP OWNED BY ${name}; DROP ROLE ${name}` };
+      // No `DROP OWNED BY`: every managed grant, default ACL, and owned
+      // object has already been revoked/reassigned/dropped by its own plan
+      // action. `DROP OWNED BY` would also sweep up anything the role owns
+      // OUTSIDE the managed view, silently destroying unmanaged data — a
+      // plain `DROP ROLE` instead fails loud if unmanaged ownership remains.
+      return { sql: `DROP ROLE ${name}` };
     },
     attributes: {
       ...Object.fromEntries(
