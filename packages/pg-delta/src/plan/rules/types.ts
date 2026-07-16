@@ -291,8 +291,25 @@ export const typeRules: Record<string, KindRules> = {
                 : 1,
             );
           for (const col of dependentColumns) {
+            // The column's declared type (format_type() output, captured
+            // verbatim at extract time — structured catalog data, not parsed
+            // SQL) tells whether it is an ARRAY of this enum: format_type
+            // renders an array type with a trailing `[]`. A scalar column
+            // casts through `text`; an array column must cast through
+            // `text[]` (element-wise) — `col::text` on an array has no
+            // built-in cast to the scalar enum and either errors
+            // ("invalid input value for enum ... {a,b}") or, worse, silently
+            // narrows the column to scalar.
+            const colFact = view.get(col);
+            const colType =
+              colFact !== undefined ? str(p(colFact, "type")) : "";
+            const isArray = colType.endsWith("[]");
+            const targetType = isArray ? `${relName}[]` : relName;
+            const usingCast = isArray
+              ? `${qid(col.name)}::text[]::${relName}[]`
+              : `${qid(col.name)}::text::${relName}`;
             specs.push({
-              sql: `ALTER TABLE ${rel(col.schema, col.table)} ALTER COLUMN ${qid(col.name)} TYPE ${relName} USING ${qid(col.name)}::text::${relName}`,
+              sql: `ALTER TABLE ${rel(col.schema, col.table)} ALTER COLUMN ${qid(col.name)} TYPE ${targetType} USING ${usingCast}`,
               // reference the rewritten column so the proof's rewrite
               // attribution maps this action to its table (the action's
               // primary subject is the type, not the table it rewrites)
