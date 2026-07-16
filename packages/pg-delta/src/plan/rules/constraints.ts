@@ -70,10 +70,9 @@ export const constraintRules: Record<string, KindRules> = {
             // re-add), mirroring create()'s NOT VALID suffixing (defensive
             // guard against a def that already carries the text).
             const defText = str(p(fact, "def"));
-            const addSql =
-              !defText.includes("NOT VALID")
-                ? `${defText} NOT VALID`
-                : defText;
+            const addSql = !defText.includes("NOT VALID")
+              ? `${defText} NOT VALID`
+              : defText;
             return [
               { sql: `${target} DROP CONSTRAINT ${qid(id.name)}` },
               {

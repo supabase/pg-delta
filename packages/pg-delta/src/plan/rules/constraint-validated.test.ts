@@ -56,7 +56,9 @@ describe("constraint validated: true -> false", () => {
       throw new Error("validated must be an alter rule");
     const fact = conFact(false);
     const view = buildFactBase([schemaFact, tableFact, fact], []);
-    expect(() => validatedRule.alter(fact, true, false, view, view)).not.toThrow();
+    expect(() =>
+      validatedRule.alter(fact, true, false, view, view),
+    ).not.toThrow();
     const spec = validatedRule.alter(fact, true, false, view, view);
     const sql = Array.isArray(spec) ? spec.map((s) => s.sql) : [spec.sql];
     expect(sql).toEqual([
