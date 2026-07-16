@@ -101,6 +101,12 @@ export async function extractDependencyEdges(
       WHERE att.attnum > 0 AND NOT att.attisdropped
     ),
     proc AS (
+      -- prokind 'w' (window functions) is extracted as a function fact
+      -- (src/extract/routines.ts: only 'p' -> procedure, everything else ->
+      -- function), so it MUST be resolvable here -- otherwise a pg_depend edge
+      -- into a user window function resolves to NULL and is silently dropped,
+      -- and a view/rule that uses it is never rebuilt against it (issue #333).
+      -- The kind CASE already maps 'w' to 'function' via ELSE.
       SELECT pp.oid, json_build_object(
                'kind', CASE pp.prokind WHEN 'a' THEN 'aggregate' WHEN 'p' THEN 'procedure' ELSE 'function' END,
                'schema', pn.nspname, 'name', pp.proname,
@@ -108,7 +114,7 @@ export async function extractDependencyEdges(
                              FROM unnest(pp.proargtypes) WITH ORDINALITY AS t(t, ord)
                              ORDER BY t.ord)::text[]) AS id
       FROM pg_proc pp JOIN pg_namespace pn ON pn.oid = pp.pronamespace
-      WHERE pp.prokind IN ('f','p','a')
+      WHERE pp.prokind IN ('f','p','a','w')
     ),
     tcon AS (
       SELECT con.oid, json_build_object('kind','constraint','schema',cn.nspname,
@@ -233,13 +239,31 @@ export async function extractDependencyEdges(
       JOIN pg_attribute da ON da.attrelid = ad.adrelid AND da.attnum = ad.adnum
     ),
     rw AS (
-      SELECT r.oid, json_build_object(
-               'kind', CASE vc.relkind WHEN 'm' THEN 'materializedView' ELSE 'view' END,
-               'schema', vn.nspname, 'name', vc.relname) AS id
+      -- A pg_rewrite endpoint resolves two different ways (issue #333):
+      --  - the '_RETURN' rule of a view/matview IS the relation's definition,
+      --    so its deps are attributed to the owning view/matview -- rebuilding
+      --    the relation recreates the rule. Only views/matviews carry a
+      --    '_RETURN' rule, so the relkind CASE only ever sees 'v'/'m' here.
+      --  - ANY other (user-created) rule is its OWN rule fact
+      --    (src/extract/relations.ts extracts every rulename <> '_RETURN' on any
+      --    relkind), so its deps must be attributed to the RULE fact, not the
+      --    owning relation. This is what lets a rule on a PLAIN TABLE (relkind
+      --    'r'/'p') be rebuilt against a function it references before that
+      --    function is dropped. CONSTRAINT: a user rule ON A VIEW (not
+      --    '_RETURN') likewise resolves to the rule fact, exactly like a rule on
+      --    a table -- never folded into the view's '_RETURN' definition.
+      SELECT r.oid,
+        CASE WHEN r.rulename = '_RETURN'
+          THEN json_build_object(
+                 'kind', CASE vc.relkind WHEN 'm' THEN 'materializedView' ELSE 'view' END,
+                 'schema', vn.nspname, 'name', vc.relname)
+          ELSE json_build_object(
+                 'kind', 'rule', 'schema', vn.nspname,
+                 'table', vc.relname, 'name', r.rulename)
+        END AS id
       FROM pg_rewrite r
       JOIN pg_class vc ON vc.oid = r.ev_class
       JOIN pg_namespace vn ON vn.oid = vc.relnamespace
-      WHERE vc.relkind IN ('v','m')
     ),
     trg AS (
       SELECT tg.oid, json_build_object('kind','trigger','schema',tn.nspname,
