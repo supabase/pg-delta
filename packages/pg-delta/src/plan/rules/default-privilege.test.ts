@@ -33,6 +33,30 @@ const grant: Fact = {
   payload: { privileges: ["SELECT"], grantable: [] },
 };
 
+/** Large objects are never schema-scoped (PG rejects `IN SCHEMA` with `ON
+ *  LARGE OBJECTS`), so extraction never produces a non-null schema here. */
+const largeObjectGrant: Fact = {
+  id: {
+    kind: "defaultPrivilege",
+    role: "owner",
+    schema: null,
+    objtype: "L",
+    grantee: "reader",
+  },
+  payload: { privileges: ["SELECT"], grantable: [] },
+};
+
+const unknownObjtype: Fact = {
+  id: {
+    kind: "defaultPrivilege",
+    role: "owner",
+    schema: null,
+    objtype: "z",
+    grantee: "reader",
+  },
+  payload: { privileges: ["SELECT"], grantable: [] },
+};
+
 describe("default-privilege rendering", () => {
   test("revoked-default marker: CREATE revokes, DROP restores via GRANT", () => {
     expect(defaultPrivilegeCreateActions(marker).map((a) => a.sql)).toEqual([
@@ -50,5 +74,21 @@ describe("default-privilege rendering", () => {
     expect(defaultPrivilegeDropActions(grant).sql).toBe(
       `ALTER DEFAULT PRIVILEGES FOR ROLE "owner" IN SCHEMA "app" REVOKE ALL ON TABLES FROM "reader"`,
     );
+  });
+
+  test("large-object default privilege: renders ON LARGE OBJECTS, not TABLES", () => {
+    expect(
+      defaultPrivilegeCreateActions(largeObjectGrant).map((a) => a.sql),
+    ).toEqual([
+      `ALTER DEFAULT PRIVILEGES FOR ROLE "owner" GRANT SELECT ON LARGE OBJECTS TO "reader"`,
+    ]);
+    expect(defaultPrivilegeDropActions(largeObjectGrant).sql).toBe(
+      `ALTER DEFAULT PRIVILEGES FOR ROLE "owner" REVOKE ALL ON LARGE OBJECTS FROM "reader"`,
+    );
+  });
+
+  test("unknown objtype fails loud instead of silently rendering TABLES", () => {
+    expect(() => defaultPrivilegeCreateActions(unknownObjtype)).toThrow();
+    expect(() => defaultPrivilegeDropActions(unknownObjtype)).toThrow();
   });
 });
