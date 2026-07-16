@@ -88,6 +88,7 @@ export async function extractForeign(ctx: ExtractContext): Promise<void> {
     FROM pg_user_mapping u
     JOIN pg_foreign_server s ON s.oid = u.umserver
     LEFT JOIN pg_roles r ON r.oid = u.umuser
+    WHERE ${notExtensionMember("pg_foreign_server", "s.oid")}
     ORDER BY s.srvname, 2`)) {
     facts.push({
       id: {

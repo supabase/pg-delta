@@ -507,13 +507,28 @@ export function aggSig(fact: Fact): string {
   return args.length > 0 ? args.join(", ") : "*";
 }
 
-export const DEFACL_OBJTYPE: Record<string, string> = {
+const DEFACL_OBJTYPE: Record<string, string> = {
   r: "TABLES",
   S: "SEQUENCES",
   f: "FUNCTIONS",
   T: "TYPES",
   n: "SCHEMAS",
+  L: "LARGE OBJECTS",
 };
+
+/** Render a `pg_default_acl.defaclobjtype` code, or throw loud — an unmapped
+ *  code silently rendered as `TABLES` (the old `?? "TABLES"` fallback) would
+ *  emit the WRONG DDL for a future/unhandled objtype instead of surfacing the
+ *  gap. */
+function defaclObjType(objtype: string): string {
+  const rendered = DEFACL_OBJTYPE[objtype];
+  if (rendered === undefined) {
+    throw new Error(
+      `defaultPrivilege: unmapped pg_default_acl.defaclobjtype "${objtype}" — add it to DEFACL_OBJTYPE (helpers.ts)`,
+    );
+  }
+  return rendered;
+}
 
 export function defaultPrivPrefix(id: {
   role: string;
@@ -557,7 +572,7 @@ export function defaultPrivilegeCreateActions(fact: Fact): ActionSpec[] {
     grantee: string;
   };
   const grantee = id.grantee === "PUBLIC" ? "PUBLIC" : qid(id.grantee);
-  const objtype = DEFACL_OBJTYPE[id.objtype] ?? "TABLES";
+  const objtype = defaclObjType(id.objtype);
   const consumes = defaultPrivConsumes(id);
   if (isRevokedDefaultMarker(fact)) {
     return [
@@ -597,7 +612,7 @@ export function defaultPrivilegeDropActions(fact: Fact): ActionSpec {
     grantee: string;
   };
   const grantee = id.grantee === "PUBLIC" ? "PUBLIC" : qid(id.grantee);
-  const objtype = DEFACL_OBJTYPE[id.objtype] ?? "TABLES";
+  const objtype = defaclObjType(id.objtype);
   const consumes = defaultPrivConsumes(id);
   if (isRevokedDefaultMarker(fact)) {
     const restored = (p(fact, "_revokedDefault") as string[]) ?? [];

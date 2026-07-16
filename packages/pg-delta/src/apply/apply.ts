@@ -142,7 +142,15 @@ export async function apply(
           `gate with fingerprintGate:false if convergence was already proven.`,
       );
     }
-    const current = await (options?.reextract ?? extract)(target);
+    // re-extract the target with the SAME redaction mode the plan was
+    // fingerprinted with (Plan.redactSecrets, default true) — a custom
+    // `reextract` is trusted to already bake in the right mode (the CLI's
+    // profile-aware reextractors do); the bare default must be told
+    // explicitly, or a plan built from `extract({ redactSecrets: false })`
+    // state is spuriously rejected here (placeholder vs real secret hashes).
+    const current = await (options?.reextract
+      ? options.reextract(target)
+      : extract(target, { redactSecrets: thePlan.redactSecrets ?? true }));
     // reconstruct the SAME managed-view-under-scope the plan fingerprinted:
     // resolveView FIRST, then the scope projection (change-set.ts) — the reverse
     // order would strip owner edges a policy rule reads. `scope` defaults to the

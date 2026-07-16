@@ -133,10 +133,27 @@ export async function extractSubscriptions(ctx: ExtractContext): Promise<void> {
     major >= 15 ? `(s.subtwophasestate <> 'd')` : `NULL::boolean`;
   const runAsOwnerExpr = major >= 16 ? `s.subrunasowner` : `NULL::boolean`;
   const originExpr = major >= 16 ? `s.suborigin` : `NULL::text`;
+  // `subconninfo` is revoked from non-superusers by default (unlike every
+  // other pg_subscription column, which PUBLIC can read) — selecting it
+  // unconditionally makes the WHOLE query fail `permission denied for table
+  // pg_subscription` for such a caller. Postgres's column permission check is
+  // static (keyed on which columns the query TEXT references, independent of
+  // matched rows), so a runtime `CASE WHEN has_column_privilege(...) THEN
+  // s.subconninfo ELSE NULL END` does NOT work — the column reference alone
+  // still trips the check. Gate it the same way `major` gates version-specific
+  // columns above: probe once, then build the column reference conditionally.
+  const conninfoReadable = Boolean(
+    (
+      await q(
+        `SELECT has_column_privilege('pg_subscription', 'subconninfo', 'SELECT') AS ok`,
+      )
+    )[0]?.["ok"],
+  );
+  const conninfoExpr = conninfoReadable ? "s.subconninfo" : "NULL::text";
   // ── subscriptions (database-local rows only) ─────────────────────────
   for (const row of await q(`
     SELECT s.subname AS name, r.rolname AS owner, s.subenabled AS enabled,
-           s.subconninfo AS conninfo, s.subslotname AS slot_name,
+           ${conninfoExpr} AS conninfo, s.subslotname AS slot_name,
            s.subpublications::text[] AS publications,
            s.subbinary AS binary,
            ${streamingExpr} AS streaming,
@@ -159,10 +176,14 @@ export async function extractSubscriptions(ctx: ExtractContext): Promise<void> {
           enabled: Boolean(row["enabled"]),
           // conninfo is fully env-dependent and carries credentials — emit the
           // placeholder unless the caller explicitly opted out of redaction
-          // (see sensitive-options.ts).
-          conninfo: ctx.redactSecrets
-            ? SUBSCRIPTION_CONNINFO_PLACEHOLDER
-            : String(row["conninfo"]),
+          // (see sensitive-options.ts). `row["conninfo"]` is also null when
+          // this role lacks column privilege on subconninfo (conninfoExpr
+          // above) — the real value is unrecoverable either way, so that also
+          // falls back to the placeholder rather than the string "null".
+          conninfo:
+            ctx.redactSecrets || row["conninfo"] == null
+              ? SUBSCRIPTION_CONNINFO_PLACEHOLDER
+              : (row["conninfo"] as string),
           slotName:
             row["slot_name"] == null ? null : (row["slot_name"] as string),
           publications: (row["publications"] as string[]).map(String).sort(),

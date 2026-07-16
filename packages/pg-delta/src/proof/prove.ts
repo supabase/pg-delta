@@ -413,7 +413,15 @@ export async function provePlan(
       coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
     };
   }
-  const proven = await (options.reextract ?? extract)(clonePool);
+  // same redaction mode the plan was fingerprinted with (Plan.redactSecrets,
+  // default true) — otherwise the proven clone comes back placeholder-redacted
+  // while `desired` (passed in already extracted with redactSecrets:false)
+  // still carries real secrets, and the comparison below reports a spurious
+  // drift delta though nothing actually diverged. A custom `reextract` is
+  // trusted to already bake in the right mode.
+  const proven = await (options.reextract
+    ? options.reextract(clonePool)
+    : extract(clonePool, { redactSecrets: thePlan.redactSecrets ?? true }));
   // Compare the SAME managed view the plan diffed: resolveView projects out
   // extension members + the policy's scope rules at the fact level, on BOTH the
   // proven clone and the target — otherwise an extension's internals or a
