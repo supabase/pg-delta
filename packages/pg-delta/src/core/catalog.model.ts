@@ -64,6 +64,7 @@ import {
 import {
   extractSubscriptions,
   Subscription,
+  SUBSCRIPTION_CONNINFO_PLACEHOLDER,
 } from "./objects/subscription/subscription.model.ts";
 import { extractTables, type Table } from "./objects/table/table.model.ts";
 import {
@@ -77,9 +78,6 @@ import {
 import { type Enum, extractEnums } from "./objects/type/enum/enum.model.ts";
 import { extractRanges, type Range } from "./objects/type/range/range.model.ts";
 import { extractViews, type View } from "./objects/view/view.model.ts";
-
-const SUBSCRIPTION_CONNINFO_PLACEHOLDER =
-  "host=__CONN_HOST__ port=__CONN_PORT__ dbname=__CONN_DBNAME__ user=__CONN_USER__ password=__CONN_PASSWORD__";
 
 interface CatalogProps {
   aggregates: Record<string, Aggregate>;

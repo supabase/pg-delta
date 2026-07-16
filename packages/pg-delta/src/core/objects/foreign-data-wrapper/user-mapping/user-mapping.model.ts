@@ -64,13 +64,20 @@ export class UserMapping extends BasePgModel {
 }
 
 /**
- * Extract `pg_user_mapping` rows into `UserMapping` models.
+ * Extract user mappings into `UserMapping` models.
  *
- * The returned models carry option values **verbatim** from
- * `pg_user_mapping.umoptions`, which means cleartext secrets like
- * `password` are present in memory. Always route through
- * `extractCatalog` (which calls `normalizeCatalog`) before emitting
- * options to any output channel — see CLI-1467 and
+ * Reads from the world-readable `pg_catalog.pg_user_mappings` system view
+ * instead of the superuser-only `pg_catalog.pg_user_mapping` catalog, so
+ * non-superuser roles (e.g. the `postgres` role on Supabase hosted projects)
+ * can extract a catalog — see supabase/cli#5826 / CLI-1919. The view exposes
+ * `umoptions` only to privileged readers (superuser, the server owner, or the
+ * mapped user with USAGE on the server); for anyone else it returns NULL, which
+ * we deliberately degrade to an empty option list rather than erroring.
+ *
+ * When options **are** visible, the returned models carry them **verbatim**,
+ * which means cleartext secrets like `password` are present in memory. Always
+ * route through `extractCatalog` (which calls `normalizeCatalog`) before
+ * emitting options to any output channel — see CLI-1467 and
  * `packages/pg-delta/src/core/objects/foreign-data-wrapper/sensitive-options.ts`.
  */
 export async function extractUserMappings(pool: Pool): Promise<UserMapping[]> {
@@ -91,8 +98,8 @@ export async function extractUserMappings(pool: Pool): Promise<UserMapping[]> {
           else p_validator.pronamespace::regnamespace::text || '.' || quote_ident(p_validator.proname)
         end as wrapper_validator
       from
-        pg_catalog.pg_user_mapping um
-        inner join pg_catalog.pg_foreign_server srv on srv.oid = um.umserver
+        pg_catalog.pg_user_mappings um
+        inner join pg_catalog.pg_foreign_server srv on srv.oid = um.srvid
         inner join pg_catalog.pg_foreign_data_wrapper fdw on fdw.oid = srv.srvfdw
         left join pg_catalog.pg_proc p_handler on p_handler.oid = fdw.fdwhandler
         left join pg_catalog.pg_proc p_validator on p_validator.oid = fdw.fdwvalidator

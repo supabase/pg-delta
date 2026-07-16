@@ -802,13 +802,13 @@ export async function extractDepends(pool: Pool): Promise<PgDepend[]> {
 
     UNION ALL
     /* User Mappings */
-    SELECT 'pg_user_mapping'::regclass, um.oid, 0::int2,
+    SELECT 'pg_user_mapping'::regclass, um.umid, 0::int2,
           NULL::text,
           format('userMapping:%I:%s', srv.srvname, CASE WHEN um.umuser = 0 THEN 'PUBLIC' ELSE um.umuser::regrole::text END)
-    FROM pg_user_mapping um
-    JOIN pg_foreign_server srv ON srv.oid = um.umserver
+    FROM pg_user_mappings um
+    JOIN pg_foreign_server srv ON srv.oid = um.srvid
     JOIN pg_foreign_data_wrapper fdw ON fdw.oid = srv.srvfdw
-    JOIN ids i ON i.classid = 'pg_user_mapping'::regclass AND i.objid = um.oid AND COALESCE(i.objsubid,0) = 0
+    JOIN ids i ON i.classid = 'pg_user_mapping'::regclass AND i.objid = um.umid AND COALESCE(i.objsubid,0) = 0
     WHERE NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
   ),
   base AS (
@@ -1800,8 +1800,8 @@ export async function extractDepends(pool: Pool): Promise<PgDepend[]> {
       'n'::"char" AS deptype,
       NULL::text AS dep_schema,
       NULL::text AS ref_schema
-    FROM pg_user_mapping um
-    JOIN pg_foreign_server srv ON srv.oid = um.umserver
+    FROM pg_user_mappings um
+    JOIN pg_foreign_server srv ON srv.oid = um.srvid
     JOIN pg_foreign_data_wrapper fdw ON fdw.oid = srv.srvfdw
     WHERE NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
 

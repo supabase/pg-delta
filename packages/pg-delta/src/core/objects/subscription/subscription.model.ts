@@ -7,6 +7,22 @@ import {
   securityLabelPropsSchema,
 } from "../security-label.types.ts";
 
+/**
+ * Placeholder used in place of a subscription's real `subconninfo`.
+ *
+ * `normalizeCatalog` unconditionally replaces every subscription's conninfo
+ * with this value, so real connection strings (which carry credentials) never
+ * reach output. It is also substituted at extraction time when the connected
+ * role lacks SELECT on the superuser-only `pg_subscription.subconninfo`
+ * column, so non-superuser extraction does not fail — see supabase/cli#5826.
+ *
+ * Lives here (a leaf module) rather than in `catalog.model.ts` because
+ * `catalog.model.ts` imports from this file; importing the other direction
+ * would create a cycle.
+ */
+export const SUBSCRIPTION_CONNINFO_PLACEHOLDER =
+  "host=__CONN_HOST__ port=__CONN_PORT__ dbname=__CONN_DBNAME__ user=__CONN_USER__ password=__CONN_PASSWORD__";
+
 const subscriptionPropsSchema = z.object({
   name: z.string(),
   raw_name: z.string(),
@@ -135,6 +151,32 @@ export async function extractSubscriptions(
     ? "case s.suborigin when 'none' then 'none' else 'any' end"
     : "'any'";
 
+  // `subconninfo` has SELECT revoked from PUBLIC on every supported PG version,
+  // so a bare `select s.*` fails for non-superusers even with zero
+  // subscriptions. Select only the PUBLIC-granted columns explicitly.
+  const versionGatedColumns = [
+    isPostgres16OrGreater ? "s.subpasswordrequired" : null,
+    isPostgres17OrGreater ? "s.subrunasowner" : null,
+    isPostgres17_2OrGreater ? "s.subfailover" : null,
+    isPostgres17_3OrGreater ? "s.suborigin" : null,
+  ]
+    .filter((c): c is string => c !== null)
+    .map((c) => `        ${c},\n`)
+    .join("");
+
+  // Column privileges are checked at plan time for every column a query
+  // references, even inside a CASE branch that never executes — so we cannot
+  // guard `subconninfo` inline. Probe the privilege first and only reference
+  // the column when the reader can see it, otherwise substitute the redacted
+  // placeholder (which `normalizeCatalog` would apply anyway) so non-superuser
+  // extraction does not fail — see supabase/cli#5826.
+  const { rows: privRows } = await pool.query<{ has_conninfo: boolean }>(
+    "select has_column_privilege('pg_catalog.pg_subscription', 'subconninfo', 'SELECT') as has_conninfo",
+  );
+  const conninfoExpr = privRows[0]?.has_conninfo
+    ? "s.subconninfo"
+    : `'${SUBSCRIPTION_CONNINFO_PLACEHOLDER}'`;
+
   const queryText = `
       with extension_oids as (
         select objid
@@ -143,7 +185,20 @@ export async function extractSubscriptions(
           and d.classid = 'pg_subscription'::regclass
       ),
       scoped_subscriptions as (
-        select s.*
+        select
+          s.oid,
+          s.subdbid,
+          s.subname,
+          s.subowner,
+          s.subenabled,
+          s.subbinary,
+          s.substream,
+          s.subtwophasestate,
+          s.subdisableonerr,
+          s.subslotname,
+          s.subsynccommit,
+          s.subpublications,
+${versionGatedColumns}          ${conninfoExpr} as subconninfo
         from pg_subscription s
         where s.subdbid = (select oid from pg_database where datname = current_database())
       )
