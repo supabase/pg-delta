@@ -21,9 +21,34 @@ export const typeRules: Record<string, KindRules> = {
       const id = fact.id as { schema: string; name: string };
       return `ALTER DOMAIN ${rel(id.schema, id.name)}`;
     }),
-    create: (fact, view) => {
+    create: (fact, view, _params, sourceView) => {
       const id = fact.id as { schema: string; name: string };
-      let sql = `CREATE DOMAIN ${rel(id.schema, id.name)} AS ${str(p(fact, "baseType"))}`;
+      const relName = rel(id.schema, id.name);
+      // GUARD (baseType/collation replace): both attributes are "replace", so
+      // any change drops and recreates the domain. A table column is NOT a
+      // rebuildable kind, so if a SURVIVING user column depends on this domain
+      // PostgreSQL rejects the DROP at apply ("cannot drop type … other
+      // objects depend on it"). Fail loud at plan time — mirrors the in-use
+      // range-type guard above (§ type rule) and the in-use composite ALTER
+      // ATTRIBUTE guard below. Only a REPLACE (the domain is present in the
+      // source) can hit this; a fresh create brings its columns with it.
+      if (sourceView?.get(fact.id) !== undefined) {
+        const inUse = compositeUserColumns(view, fact.id).filter(
+          (colId) => sourceView.get(colId) !== undefined,
+        );
+        if (inUse.length > 0) {
+          const cols = inUse
+            .map((c) => {
+              const col = c as { schema: string; table: string; name: string };
+              return `${rel(col.schema, col.table)}.${qid(col.name)}`;
+            })
+            .join(", ");
+          throw new Error(
+            `domain ${relName}: cannot replace an in-use domain — column(s) ${cols} depend on it, and PostgreSQL forbids dropping a type while a column uses it. Replacing an in-use domain is not supported yet; drop the using column(s), or recreate the domain, first.`,
+          );
+        }
+      }
+      let sql = `CREATE DOMAIN ${relName} AS ${str(p(fact, "baseType"))}`;
       const collation = p(fact, "collation");
       if (collation != null) sql += ` COLLATE ${str(collation)}`;
       const def = p(fact, "default");
