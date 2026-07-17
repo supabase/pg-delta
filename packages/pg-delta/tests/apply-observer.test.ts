@@ -67,12 +67,23 @@ describe("apply() onEvent observer", () => {
         expect(e?.kind === "actionEnd" && e.ms).toBeGreaterThanOrEqual(0);
       }
 
-      // events interleave in the order apply() executes them: for every
-      // actionStart[i], its actionEnd[i] appears immediately after (modulo
-      // segment boundary events), never before the next actionStart.
-      const kinds = events.map((e) => e.kind);
-      const firstActionStartIdx = kinds.indexOf("actionStart");
-      expect(firstActionStartIdx).toBeGreaterThanOrEqual(0);
+      // events interleave in the order apply() executes them: every
+      // actionStart[i] is followed by its actionEnd[i] BEFORE the next
+      // actionStart[i+1] begins — a refactor that batches starts or ends
+      // would break the trace's statement-by-statement story.
+      const startPositions: number[] = [];
+      const endPositions: number[] = [];
+      events.forEach((e, pos) => {
+        if (e.kind === "actionStart") startPositions.push(pos);
+        else if (e.kind === "actionEnd") endPositions.push(pos);
+      });
+      expect(startPositions.length).toBe(endPositions.length);
+      for (let i = 0; i < startPositions.length; i++) {
+        expect(endPositions[i]!).toBeGreaterThan(startPositions[i]!);
+        if (i + 1 < startPositions.length) {
+          expect(endPositions[i]!).toBeLessThan(startPositions[i + 1]!);
+        }
+      }
     } finally {
       await Promise.all([target.drop(), desired.drop()]);
     }
@@ -194,6 +205,174 @@ describe("apply() onEvent observer", () => {
       // report semantics unchanged: the failing action and everything after
       // it in its (rolled-back) segment reports unapplied.
       expect(report.actionStatuses[failedIndex]).toBe("unapplied");
+    } finally {
+      await Promise.all([target.drop(), desired.drop()]);
+    }
+  }, 60_000);
+
+  // The non-transactional path (CREATE INDEX CONCURRENTLY under the
+  // `concurrentIndexes` param) is the one this trace exists to debug — a
+  // cancelled CIC leaves durable side effects — so its event ordering must
+  // mirror the wire exactly: preamble SETs before the action, actionEnd when
+  // the action settles (not after RESET ALL), segmentEnd terminal on every
+  // path.
+  test("non-transactional segment: preamble controls precede actionStart; actionEnd precedes RESET ALL; segmentEnd is terminal", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("apply_observer_ntx_tgt");
+    const desired = await cluster.createDb("apply_observer_ntx_desired");
+    try {
+      await target.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (id integer, x text);
+      `);
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (id integer, x text);
+        CREATE INDEX t_x_idx ON app.t (x);
+      `);
+      const [targetState, desiredState] = [
+        await extract(target.pool),
+        await extract(desired.pool),
+      ];
+      const thePlan = plan(targetState.factBase, desiredState.factBase, {
+        params: { concurrentIndexes: true },
+      });
+      // the whole plan is the one CREATE INDEX CONCURRENTLY action, so the
+      // event stream is exactly one non-transactional segment.
+      expect(thePlan.actions.length).toBe(1);
+      expect(thePlan.actions[0]?.transactionality).toBe("nonTransactional");
+
+      const events: ApplyEvent[] = [];
+      const report = await apply(thePlan, target.pool, {
+        fingerprintGate: false,
+        onEvent: (e) => events.push(e),
+      });
+      expect(report.status).toBe("applied");
+
+      const kinds = events.map((e) => e.kind);
+      const actionStartPos = kinds.indexOf("actionStart");
+      const actionEndPos = kinds.indexOf("actionEnd");
+      const resetPos = events.findIndex(
+        (e) => e.kind === "control" && e.sql === "RESET ALL",
+      );
+      expect(actionStartPos).toBeGreaterThanOrEqual(0);
+      expect(resetPos).toBeGreaterThanOrEqual(0);
+      // wire order: every session-level preamble SET goes out BEFORE the
+      // action statement …
+      let sawPreambleSet = false;
+      events.forEach((e, pos) => {
+        if (e.kind === "control" && e.sql.startsWith("SET ")) {
+          sawPreambleSet = true;
+          expect(pos).toBeLessThan(actionStartPos);
+        }
+      });
+      expect(sawPreambleSet).toBe(true); // plan.preamble is never empty
+      // … and actionEnd fires when the action settles, BEFORE the RESET ALL
+      // round-trip (so `ms` measures only the action itself) …
+      expect(actionEndPos).toBeGreaterThan(actionStartPos);
+      expect(resetPos).toBeGreaterThan(actionEndPos);
+      // … and segmentEnd is the segment's terminal event on the success path.
+      const last = events[events.length - 1]!;
+      expect(last.kind).toBe("segmentEnd");
+      expect(last.kind === "segmentEnd" && last.outcome).toBe("committed");
+    } finally {
+      await Promise.all([target.drop(), desired.drop()]);
+    }
+  }, 60_000);
+
+  test("non-transactional failure: actionEnd(ok:false), then RESET ALL, then segmentEnd(inDoubt) as the terminal event", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("apply_observer_ntx_fail_tgt");
+    const desired = await cluster.createDb("apply_observer_ntx_fail_desired");
+    try {
+      await target.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (id integer, x text);
+      `);
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (id integer, x text);
+        CREATE INDEX t_x_idx ON app.t (x);
+      `);
+      const [targetState, desiredState] = [
+        await extract(target.pool),
+        await extract(desired.pool),
+      ];
+      const thePlan = plan(targetState.factBase, desiredState.factBase, {
+        params: { concurrentIndexes: true },
+      });
+      expect(thePlan.actions.length).toBe(1);
+      expect(thePlan.actions[0]?.transactionality).toBe("nonTransactional");
+
+      // sabotage: pre-create the index name so CREATE INDEX CONCURRENTLY fails
+      await target.pool.query(`CREATE INDEX t_x_idx ON app.t (id)`);
+
+      const events: ApplyEvent[] = [];
+      const report = await apply(thePlan, target.pool, {
+        fingerprintGate: false,
+        onEvent: (e) => events.push(e),
+      });
+      expect(report.status).toBe("failed");
+      expect(report.actionStatuses[0]).toBe("inDoubt");
+
+      const actionEndPos = events.findIndex((e) => e.kind === "actionEnd");
+      const resetPos = events.findIndex(
+        (e) => e.kind === "control" && e.sql === "RESET ALL",
+      );
+      const failedEnd = events[actionEndPos];
+      expect(failedEnd?.kind === "actionEnd" && failedEnd.ok).toBe(false);
+      // RESET ALL still hits the wire after the failure, and segmentEnd stays
+      // the segment's terminal event — a `--verbose` trace must never print
+      // wire traffic after the segment's outcome line.
+      expect(resetPos).toBeGreaterThan(actionEndPos);
+      const last = events[events.length - 1]!;
+      expect(last.kind).toBe("segmentEnd");
+      expect(last.kind === "segmentEnd" && last.outcome).toBe("inDoubt");
+    } finally {
+      await Promise.all([target.drop(), desired.drop()]);
+    }
+  }, 60_000);
+
+  test("non-transactional preamble failure: no action events for an action that never reached the wire", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("apply_observer_ntx_pre_tgt");
+    const desired = await cluster.createDb("apply_observer_ntx_pre_desired");
+    try {
+      await target.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (id integer, x text);
+      `);
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (id integer, x text);
+        CREATE INDEX t_x_idx ON app.t (x);
+      `);
+      const [targetState, desiredState] = [
+        await extract(target.pool),
+        await extract(desired.pool),
+      ];
+      const thePlan = plan(targetState.factBase, desiredState.factBase, {
+        params: { concurrentIndexes: true },
+      });
+      expect(thePlan.actions[0]?.transactionality).toBe("nonTransactional");
+
+      // lock_timeout = -1 is outside Postgres's valid range, so the segment's
+      // FIRST preamble SET fails — the action itself never reaches the wire.
+      const events: ApplyEvent[] = [];
+      const report = await apply(thePlan, target.pool, {
+        fingerprintGate: false,
+        lockTimeoutMs: -1,
+        onEvent: (e) => events.push(e),
+      });
+      expect(report.status).toBe("failed");
+
+      // the trace must not claim an action executed and failed when it was
+      // the preamble that failed: no actionStart, no actionEnd.
+      expect(events.some((e) => e.kind === "actionStart")).toBe(false);
+      expect(events.some((e) => e.kind === "actionEnd")).toBe(false);
+      const last = events[events.length - 1]!;
+      expect(last.kind).toBe("segmentEnd");
+      expect(last.kind === "segmentEnd" && last.outcome).toBe("inDoubt");
     } finally {
       await Promise.all([target.drop(), desired.drop()]);
     }
