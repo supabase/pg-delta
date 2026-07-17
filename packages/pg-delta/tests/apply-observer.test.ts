@@ -10,7 +10,10 @@
  * production execution path, not a hand-rolled fixture.
  */
 import { describe, expect, test } from "bun:test";
-import { apply, type ApplyEvent } from "../src/apply/apply.ts";
+import { apply } from "../src/apply/apply.ts";
+// ApplyEvent is advertised as public library API (see the changeset), so pin
+// that it is exported from the package entry, not just the internal module.
+import type { ApplyEvent } from "../src/index.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
 import { sharedCluster } from "./containers.ts";

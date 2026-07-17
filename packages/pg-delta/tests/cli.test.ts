@@ -1819,4 +1819,58 @@ describe("CLI: schema apply debugging", () => {
       await Promise.all([shadow.drop(), target.drop()]);
     }
   }, 90_000);
+
+  test("--dry-run warns about unredacted credentials when the export MANIFEST recorded the unredacted mode (no flag re-passed)", async () => {
+    // The effective redaction mode is `manifest?.redactSecrets ?? !flag`: a
+    // dir exported with --unsafe-show-secrets stamps redactSecrets:false in
+    // its manifest and is re-applied unredacted WITHOUT the operator
+    // re-passing the flag. The dry-run script (and --out-plan artifact) then
+    // carry real credentials, so the warning must key on the effective mode,
+    // not on the flag.
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_apply_dryrun_unred_src");
+    const target = await cluster.createDb("cli_apply_dryrun_unred_tgt");
+    try {
+      await source.pool.query(
+        `CREATE SCHEMA app; CREATE TABLE app.t (id integer PRIMARY KEY);`,
+      );
+      const dir = join(tmpdir(), `pg-delta-next-dryrun-unred-${Date.now()}`);
+      const exported = await runCli([
+        "schema",
+        "export",
+        "--source",
+        source.uri,
+        "--out-dir",
+        dir,
+        "--unsafe-show-secrets",
+      ]);
+      expect(exported.exitCode).toBe(0);
+
+      const planPath = join(dir, "plan.json");
+      // NOTE: no --unsafe-show-secrets here — the manifest supplies the mode.
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+        "--dry-run",
+        "--out-plan",
+        planPath,
+      ]);
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 0,
+      });
+      // both unredacted output channels warn: the plan artifact and the script
+      const warnings = res.stderr
+        .split("\n")
+        .filter((l) => l.includes("UNREDACTED"));
+      expect(warnings.length).toBe(2);
+    } finally {
+      await Promise.all([source.drop(), target.drop()]);
+    }
+  }, 90_000);
 });
