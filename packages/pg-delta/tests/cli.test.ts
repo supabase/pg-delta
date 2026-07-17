@@ -54,6 +54,60 @@ describe("CLI: --help", () => {
   }, 30_000);
 });
 
+describe("CLI: --version", () => {
+  // No container needed — argv-only path.
+  const PKG_VERSION = (
+    JSON.parse(readFileSync(join(PKG_DIR, "package.json"), "utf8")) as {
+      version: string;
+    }
+  ).version;
+
+  test("--version prints the package version and exits 0", async () => {
+    const res = await runCli(["--version"]);
+    // RED before the fix: no version flag, so this fell through to the default
+    // branch — "Unknown command: --version" on stderr, exit 2.
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout.trim()).toBe(PKG_VERSION);
+    expect(res.stderr).not.toContain("Unknown command");
+  }, 30_000);
+
+  test("-v and version are aliases for --version", async () => {
+    for (const arg of ["-v", "version"]) {
+      const res = await runCli([arg]);
+      expect({ arg, code: res.exitCode }).toMatchObject({ code: 0 });
+      expect(res.stdout.trim()).toBe(PKG_VERSION);
+    }
+  }, 30_000);
+});
+
+describe("CLI: schema --help", () => {
+  // No container needed — argv-only path.
+  test("schema --help prints schema usage to stdout and exits 0", async () => {
+    const res = await runCli(["schema", "--help"]);
+    // RED before the fix: `schema --help` hit the unknown-subcommand branch,
+    // printing "Unknown schema subcommand: --help" on stderr and exiting 2.
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toContain("schema export");
+    expect(res.stdout).toContain("schema apply");
+    expect(res.stdout).toContain("schema lint");
+    expect(res.stderr).not.toContain("Unknown schema subcommand");
+  }, 30_000);
+
+  test("schema -h and schema help are aliases", async () => {
+    for (const arg of ["-h", "help"]) {
+      const res = await runCli(["schema", arg]);
+      expect({ arg, code: res.exitCode }).toMatchObject({ code: 0 });
+      expect(res.stdout).toContain("schema export");
+    }
+  }, 30_000);
+
+  test("an unknown schema subcommand still errors (exit 2)", async () => {
+    const res = await runCli(["schema", "bogus"]);
+    expect(res.exitCode).toBe(2);
+    expect(res.stderr).toContain("Unknown schema subcommand");
+  }, 30_000);
+});
+
 describe("CLI: prove redaction guard", () => {
   test("rejects a snapshot whose redaction mode differs from the plan (before touching the clone)", async () => {
     const cluster = await sharedCluster();
