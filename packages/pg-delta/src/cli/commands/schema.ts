@@ -1297,9 +1297,12 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     if (outPlanPath !== undefined) {
       writeFileSync(outPlanPath, serializePlan(thePlan), "utf8");
       process.stderr.write(`Plan artifact written to ${outPlanPath}\n`);
-      if (flags["unsafe-show-secrets"]) {
+      // key on the EFFECTIVE mode, not the flag: the export manifest can
+      // carry redactSecrets:false without the operator re-passing
+      // --unsafe-show-secrets (and a redacted manifest overrides the flag).
+      if (!redactSecrets) {
         process.stderr.write(
-          `  WARNING: --unsafe-show-secrets is set — the plan artifact contains UNREDACTED credentials.\n`,
+          `  WARNING: secrets are unredacted (--unsafe-show-secrets or the export manifest) — the plan artifact contains UNREDACTED credentials.\n`,
         );
       }
     }
@@ -1332,11 +1335,12 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       process.stderr.write(
         `Dry run: ${thePlan.actions.length} action(s) planned; nothing applied.\n`,
       );
-      if (flags["unsafe-show-secrets"]) {
+      if (!redactSecrets) {
         // the dry-run script is routinely redirected to a file, making it as
-        // persistent as the --out-plan artifact warned about above.
+        // persistent as the --out-plan artifact warned about above; same
+        // effective-mode (manifest-aware) gate as that warning.
         process.stderr.write(
-          `  WARNING: --unsafe-show-secrets is set — the dry-run script contains UNREDACTED credentials.\n`,
+          `  WARNING: secrets are unredacted (--unsafe-show-secrets or the export manifest) — the dry-run script contains UNREDACTED credentials.\n`,
         );
       }
       const destructiveCount =

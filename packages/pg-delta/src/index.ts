@@ -53,6 +53,7 @@ export {
   apply,
   type ApplyReport,
   type ApplyOptions,
+  type ApplyEvent,
   type ActionStatus,
 } from "./apply/apply.ts";
 
