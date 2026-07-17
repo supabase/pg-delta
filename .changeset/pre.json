@@ -64,6 +64,7 @@
     "many-bobcats-divide",
     "nasty-bears-explain",
     "nine-candles-sleep",
+    "non-superuser-extraction",
     "order-rls-policies-after-referenced-tables",
     "pg-delta-partition-check-constraint-inhcount",
     "pgmq-queue-trigger-fallback",
