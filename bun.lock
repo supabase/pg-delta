@@ -32,7 +32,7 @@
     },
     "packages/pg-delta": {
       "name": "@supabase/pg-delta",
-      "version": "1.0.0-alpha.31",
+      "version": "1.0.0-alpha.32",
       "bin": {
         "pgdelta": "./dist/cli/main.js",
       },
@@ -42,7 +42,7 @@
       },
       "devDependencies": {
         "@supabase/bun-istanbul-coverage": "workspace:*",
-        "@supabase/pg-topo": "^1.0.0-alpha.2",
+        "@supabase/pg-topo": "^1.0.0-alpha.3",
         "@types/bun": "^1.3.9",
         "@types/debug": "^4.1.12",
         "@types/node": "^24.10.4",
@@ -52,7 +52,7 @@
         "typescript": "^5.9.3",
       },
       "peerDependencies": {
-        "@supabase/pg-topo": "^1.0.0-alpha.2",
+        "@supabase/pg-topo": "^1.0.0-alpha.3",
       },
       "optionalPeers": [
         "@supabase/pg-topo",
