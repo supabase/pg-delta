@@ -1805,9 +1805,11 @@ describe("CLI: schema apply debugging", () => {
       expect(res.stderr).toContain("ok (");
       // --verbose is a COMPLETE record of the wire, not just plan actions: the
       // applied statements are planner-rendered atomic DDL, so the trace must
-      // also show the transaction framing actually sent (BEGIN/COMMIT).
-      expect(res.stderr).toContain("BEGIN");
-      expect(res.stderr).toContain("COMMIT");
+      // also show the transaction framing actually sent (BEGIN/COMMIT) — with
+      // the documented "  ; " control prefix that keeps those lines visually
+      // distinct from `[i/total] <action sql>` lines.
+      expect(res.stderr).toContain("  ; BEGIN");
+      expect(res.stderr).toContain("  ; COMMIT");
 
       const { rows } = await target.pool.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'app'`,

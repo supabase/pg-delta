@@ -276,30 +276,57 @@ export async function apply(
         // a lone non-transactional action; session-level settings, reset after
         const index = segment.start;
         const action = thePlan.actions[index]!;
-        const actionStartedAt = Date.now();
-        emit(onEvent, {
-          kind: "actionStart",
-          actionIndex: index,
-          sql: action.sql,
-        });
+        // the failure return is deferred past the finally so segmentEnd stays
+        // the segment's LAST event — after the RESET ALL control — on every
+        // path; a trace must never show wire traffic after the outcome line.
+        let failure: NonNullable<ApplyReport["error"]> | undefined;
         try {
+          // session-level preamble SETs hit the wire BEFORE the action; a
+          // preamble failure emits NO action events (the action never ran).
           for (const sql of preamble(false)) {
             emit(onEvent, { kind: "control", sql });
             await client.query(sql);
           }
-          await client.query(action.sql);
-        } catch (error) {
+          const actionStartedAt = Date.now();
           emit(onEvent, {
-            kind: "actionEnd",
+            kind: "actionStart",
             actionIndex: index,
-            ok: false,
-            ms: Date.now() - actionStartedAt,
+            sql: action.sql,
           });
+          try {
+            await client.query(action.sql);
+            // actionEnd fires as the action settles, so `ms` measures only the
+            // action's round-trip (not the RESET ALL below).
+            emit(onEvent, {
+              kind: "actionEnd",
+              actionIndex: index,
+              ok: true,
+              ms: Date.now() - actionStartedAt,
+            });
+          } catch (error) {
+            emit(onEvent, {
+              kind: "actionEnd",
+              actionIndex: index,
+              ok: false,
+              ms: Date.now() - actionStartedAt,
+            });
+            throw error;
+          }
+        } catch (error) {
           // a failed non-transactional DDL is NOT safely unapplied — it can
           // leave durable side effects (e.g. an INVALID index from a cancelled
           // CREATE INDEX CONCURRENTLY). Report it inDoubt so the caller knows
           // the database must be re-extracted before retry (review P1).
           statuses[index] = "inDoubt";
+          failure = errorEntry(index, action.sql, error);
+        } finally {
+          // ALWAYS restore session state before the client returns to the pool,
+          // on success or failure — RESET ALL must not be skipped on the
+          // failure path, and a reset failure must not flip the action's outcome.
+          emit(onEvent, { kind: "control", sql: "RESET ALL" });
+          await client.query("RESET ALL").catch(() => {});
+        }
+        if (failure !== undefined) {
           emit(onEvent, {
             kind: "segmentEnd",
             segmentIndex: segIdx,
@@ -309,21 +336,9 @@ export async function apply(
             status: "failed",
             appliedActions,
             actionStatuses: statuses,
-            error: errorEntry(index, action.sql, error),
+            error: failure,
           };
-        } finally {
-          // ALWAYS restore session state before the client returns to the pool,
-          // on success or failure — RESET ALL must not be skipped by the catch's
-          // early return, and a reset failure must not flip the action's outcome.
-          emit(onEvent, { kind: "control", sql: "RESET ALL" });
-          await client.query("RESET ALL").catch(() => {});
         }
-        emit(onEvent, {
-          kind: "actionEnd",
-          actionIndex: index,
-          ok: true,
-          ms: Date.now() - actionStartedAt,
-        });
         statuses[index] = "applied";
         appliedActions += 1;
         emit(onEvent, {

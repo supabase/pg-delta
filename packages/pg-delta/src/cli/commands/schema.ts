@@ -46,15 +46,19 @@
  *   between the shadow (desired) and target (current) states. --verbose shows
  *   every statement actually executed on the target connection — including
  *   transaction framing (BEGIN/COMMIT/ROLLBACK) and session SETs — never the
- *   authored files; --dry-run prints that exact script without applying it.
+ *   authored files; --dry-run prints the same statements, split on the same
+ *   segment boundaries, without applying them (transaction framing and
+ *   RESET ALL are shown by --verbose only; the preamble appears as plain
+ *   session `set`s repeated per segment).
  *
  *   --dry-run
- *     Plan as usual, then print the exact executable script (reusing the
- *     `render` command's renderer, so it mirrors execution segment-for-segment)
- *     to STDOUT instead of calling apply() — no fingerprint gate runs, nothing
- *     is applied. A stderr summary reports the action count and flags any
- *     destructive actions. Composes with --out-plan; --force is a no-op since
- *     the gate never runs.
+ *     Plan as usual, then print the executable script (reusing the `render`
+ *     command's renderer, so it splits on the same segment boundaries apply()
+ *     executes) to STDOUT instead of calling apply() — no fingerprint gate
+ *     runs, nothing is applied. A stderr summary reports the action count and
+ *     flags any destructive actions. Composes with --out-plan; --force is a
+ *     no-op since the gate never runs, and --verbose has no effect (nothing
+ *     executes, so there is no trace).
  *   --verbose
  *     During the real apply, stream a segment/action-level progress trace to
  *     STDERR: segment start/end (with outcome), every planner-rendered action
@@ -118,7 +122,7 @@ import {
   projectManagementScope,
 } from "../../policy/view.ts";
 import { apply, type ApplyEvent } from "../../apply/apply.ts";
-import { renderPlan } from "../render.ts";
+import { isDestructiveAction, renderPlan } from "../render.ts";
 import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
@@ -1328,9 +1332,15 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       process.stderr.write(
         `Dry run: ${thePlan.actions.length} action(s) planned; nothing applied.\n`,
       );
-      const destructiveCount = thePlan.actions.filter(
-        (a) => a.verb === "drop" || a.dataLoss === "destructive",
-      ).length;
+      if (flags["unsafe-show-secrets"]) {
+        // the dry-run script is routinely redirected to a file, making it as
+        // persistent as the --out-plan artifact warned about above.
+        process.stderr.write(
+          `  WARNING: --unsafe-show-secrets is set — the dry-run script contains UNREDACTED credentials.\n`,
+        );
+      }
+      const destructiveCount =
+        thePlan.actions.filter(isDestructiveAction).length;
       if (destructiveCount > 0) {
         process.stderr.write(
           `WARNING: plan contains ${destructiveCount} destructive action(s).\n`,

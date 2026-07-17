@@ -120,13 +120,15 @@ Notes:
     the authored declarative SQL (the planner re-derives them from the
     catalog diff between the shadow and target states). --verbose shows every
     statement actually executed on the target connection, including
-    transaction framing and session SETs; --dry-run prints that exact script
-    without applying it.
-  --dry-run (schema apply): plan as usual, then print the exact executable
-    script to stdout (reusing "render"'s segment splitter, so it mirrors
-    execution statement-for-statement) instead of applying — no fingerprint
-    gate runs, nothing is applied. A stderr summary reports the action count
-    and flags destructive actions. Composes with --out-plan.
+    transaction framing and session SETs; --dry-run prints the same
+    statements, split on the same segment boundaries, without applying them
+    (transaction framing is shown by --verbose only).
+  --dry-run (schema apply): plan as usual, then print the executable script
+    to stdout (reusing "render"'s segment splitter, so it splits on the same
+    boundaries apply() executes) instead of applying — no fingerprint gate
+    runs, nothing is applied. A stderr summary reports the action count and
+    flags destructive actions. Composes with --out-plan; --verbose has no
+    effect under --dry-run (nothing executes, so there is no trace).
   --verbose (schema apply): during the real apply, stream a segment/action
     progress trace to stderr — segment start/end (with outcome), every
     planner-rendered action (the SQL about to run and whether it succeeded,
