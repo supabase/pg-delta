@@ -34,10 +34,9 @@ export async function cmdSnapshot(args: string[]): Promise<void> {
     });
   } catch (err) {
     if (err instanceof UsageError) {
-      process.stderr.write(
-        `${err.message}\nUsage: pgdelta snapshot --source <pg-url> --out <file> [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets]\n`,
+      throw new UsageError(
+        `${err.message}\nUsage: pgdelta snapshot --source <pg-url> --out <file> [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets]`,
       );
-      process.exit(2);
     }
     throw err;
   }

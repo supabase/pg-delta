@@ -109,6 +109,81 @@ describe("profile-declared baseline (end-to-end)", () => {
     }
   }, 120_000);
 
+  test("apply of a baselined export under the MATCHING profile passes the baseline gate (happy path)", async () => {
+    // The mirror of the mismatch case above: exporting and applying with the
+    // SAME profile file (same declared baseline) must reconcile cleanly —
+    // snapshot digest → export-stamped digest → apply-resolved digest are equal
+    // end-to-end, so NO "baseline mismatch" is raised and the app schema applies.
+    const cluster = await sharedCluster();
+    const db = await cluster.createDb("profbase_ok_src");
+    const target = await cluster.createDb("profbase_ok_tgt");
+    const work = mkdtempSync(join(tmpdir(), "pgdelta-profbase-ok-"));
+    try {
+      // 1. platform baseline present on BOTH source and target
+      await db.pool.query(
+        `CREATE SCHEMA plat; CREATE TABLE plat.t (id integer);`,
+      );
+      await target.pool.query(
+        `CREATE SCHEMA plat; CREATE TABLE plat.t (id integer);`,
+      );
+      const baselinePath = join(work, "base.json");
+      await cmdSnapshot(["--source", db.uri, "--out", baselinePath]);
+
+      // 2. user schema on top of the baseline, on the source only
+      await db.pool.query(
+        `CREATE SCHEMA app; CREATE TABLE app.u (id integer);`,
+      );
+
+      // 3. profile declaring the baseline; export (app only, baseline stamped)
+      const profilePath = join(work, "pgdelta-profile.json");
+      writeFileSync(
+        profilePath,
+        JSON.stringify({ id: "mw", handlers: [], baseline: "./base.json" }),
+        "utf8",
+      );
+      const outDir = join(work, "export");
+      await cmdSchemaExport([
+        "--source",
+        db.uri,
+        "--out-dir",
+        outDir,
+        "--profile",
+        profilePath,
+      ]);
+      expect(readExportManifest(outDir)?.baselineDigest).toBeDefined();
+
+      // 4. apply under the SAME profile → baseline digests match → no mismatch.
+      let applyError: unknown;
+      try {
+        await cmdSchemaApply([
+          "--dir",
+          outDir,
+          "--target",
+          target.uri,
+          "--renames",
+          "off",
+          "--profile",
+          profilePath,
+        ]);
+      } catch (e) {
+        applyError = e;
+      }
+      // The gate this pins: apply must NOT reject on a baseline mismatch.
+      if (applyError !== undefined) {
+        expect((applyError as Error).message).not.toMatch(/baseline mismatch/);
+      }
+      expect(applyError).toBeUndefined();
+
+      // the user schema is now present on the target
+      const { rowCount } = await target.pool.query(
+        `SELECT 1 FROM information_schema.schemata WHERE schema_name = 'app'`,
+      );
+      expect(rowCount).toBe(1);
+    } finally {
+      await Promise.all([db.drop(), target.drop()]);
+    }
+  }, 120_000);
+
   test("snapshot --profile can CAPTURE the baseline its profile declares (chicken-and-egg)", async () => {
     const cluster = await sharedCluster();
     const db = await cluster.createDb("profbase_capture");

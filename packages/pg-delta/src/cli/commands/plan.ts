@@ -49,8 +49,7 @@ export async function cmdPlan(args: string[]): Promise<void> {
     });
   } catch (err) {
     if (err instanceof UsageError) {
-      process.stderr.write(`${err.message}\n${USAGE}`);
-      process.exit(2);
+      throw new UsageError(`${err.message}\n${USAGE.trimEnd()}`);
     }
     throw err;
   }
@@ -67,10 +66,9 @@ export async function cmdPlan(args: string[]): Promise<void> {
   if (flags["renames"] !== undefined) {
     const v = flags["renames"];
     if (v !== "auto" && v !== "prompt" && v !== "off") {
-      process.stderr.write(
-        `--renames must be auto, prompt, or off (got: ${v})\n`,
+      throw new UsageError(
+        `--renames must be auto, prompt, or off (got: ${v})`,
       );
-      process.exit(2);
     }
     renames = v;
   }
@@ -80,20 +78,18 @@ export async function cmdPlan(args: string[]): Promise<void> {
   for (const entry of acceptRenameRaw) {
     const eqIdx = entry.indexOf("=");
     if (eqIdx === -1) {
-      process.stderr.write(
-        `--accept-rename value must be in <from>=<to> form (got: ${entry})\n`,
+      throw new UsageError(
+        `--accept-rename value must be in <from>=<to> form (got: ${entry})`,
       );
-      process.exit(2);
     }
     const fromStr = entry.slice(0, eqIdx);
     const toStr = entry.slice(eqIdx + 1);
     try {
       acceptRenames.push({ from: parseId(fromStr), to: parseId(toStr) });
     } catch (e) {
-      process.stderr.write(
-        `--accept-rename: invalid stable-id in "${entry}": ${e instanceof Error ? e.message : String(e)}\n`,
+      throw new UsageError(
+        `--accept-rename: invalid stable-id in "${entry}": ${e instanceof Error ? e.message : String(e)}`,
       );
-      process.exit(2);
     }
   }
 

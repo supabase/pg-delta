@@ -73,6 +73,42 @@ export {
 } from "./frontends/export-sql-files.ts";
 export { saveSnapshot, loadSnapshot } from "./frontends/snapshot-file.ts";
 export {
+  EXPORT_MANIFEST_FILE,
+  readExportManifest,
+  writeExportManifest,
+  type ExportManifest,
+} from "./frontends/export-manifest.ts";
+export {
+  buildSchemaExport,
+  type BuildSchemaExportOptions,
+  type SchemaExportResult,
+  type ManagementScope,
+} from "./frontends/schema-export.ts";
+export {
+  planSchemaFiles,
+  prepareSchemaFiles,
+  reconcileSchemaManifest,
+  SchemaFrontendError,
+  type PlanSchemaFilesOptions,
+  type PlanSchemaFilesResult,
+  type PreparedSchemaFiles,
+} from "./frontends/schema-plan.ts";
+export {
+  renderPlanFiles,
+  isDestructiveAction,
+  type RenderPlanFilesOptions,
+  type RenderPlanFilesResult,
+  type RenderedPlanFile,
+} from "./frontends/render-plan-files.ts";
+export {
+  provisionCoLocatedShadow,
+  ShadowProvisionError,
+  isShadowProvisionError,
+  withDatabaseName,
+  type CoLocatedShadow,
+  type ProvisionCoLocatedShadowOptions,
+} from "./frontends/shadow.ts";
+export {
   factMatches,
   deltaMatches,
   filterDeltas,

@@ -42,6 +42,25 @@ describe("relabelRoleNames", () => {
     });
   });
 
+  test("preserves the column field of a COLUMN-level acl", () => {
+    // regression: a COLUMN-level grant's `column` field must survive relabeling
+    // (only the grantee/role changes). Dropping it makes the relabeled key miss
+    // its desired counterpart, so a pure role rename spuriously REVOKE/GRANTs
+    // the column grant instead of letting PostgreSQL carry it by OID.
+    const id: StableId = {
+      kind: "acl",
+      target: { kind: "table", schema: "app", name: "t" },
+      grantee: "r1",
+      column: "col1",
+    };
+    expect(relabelRoleNames(id, rename)).toEqual({
+      kind: "acl",
+      target: { kind: "table", schema: "app", name: "t" },
+      grantee: "r2",
+      column: "col1",
+    });
+  });
+
   test("remaps both ends of a membership", () => {
     const id: StableId = { kind: "membership", role: "r1", member: "r1" };
     expect(relabelRoleNames(id, rename)).toEqual({
@@ -151,6 +170,36 @@ describe("computeRoleRenameCarry", () => {
     const { carriedFactKeys } = computeRoleRenameCarry(deltas, rename);
     expect(carriedFactKeys.has(encodeId(dp("r1")))).toBe(true);
     expect(carriedFactKeys.has(encodeId(dp("r2")))).toBe(true);
+  });
+
+  test("carries an identical COLUMN-level acl remove/add pair", () => {
+    // regression: the carry must recognise a column-qualified grant across a
+    // pure role rename (identity differs only by grantee), preserving `column`.
+    const colAcl = (grantee: string): StableId => ({
+      kind: "acl",
+      target: table,
+      grantee,
+      column: "col1",
+    });
+    const deltas: Delta[] = [
+      {
+        verb: "remove",
+        fact: {
+          id: colAcl("r1"),
+          payload: { privileges: ["SELECT"], grantable: [] },
+        },
+      },
+      {
+        verb: "add",
+        fact: {
+          id: colAcl("r2"),
+          payload: { privileges: ["SELECT"], grantable: [] },
+        },
+      },
+    ];
+    const { carriedFactKeys } = computeRoleRenameCarry(deltas, rename);
+    expect(carriedFactKeys.has(encodeId(colAcl("r1")))).toBe(true);
+    expect(carriedFactKeys.has(encodeId(colAcl("r2")))).toBe(true);
   });
 
   test("does NOT carry a pair whose payload also changed", () => {

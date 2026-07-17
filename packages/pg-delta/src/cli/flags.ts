@@ -25,6 +25,24 @@ export class UsageError extends Error {
   }
 }
 
+/**
+ * Request a specific process exit code from `main()` without a generic
+ * "Error:" banner. Command handlers use this for operation-result exits
+ * (apply failed → 1, drift detected → 1, render no-op → 3, blocking
+ * diagnostics → 3, …) so command bodies NEVER call `process.exit` directly —
+ * `main()` is the sole exiter. A command writes its own human output to
+ * stdout/stderr first, then throws `CliExit(code)`; `main()` just maps the
+ * code. Keeping command bodies exit-free is what makes them safe to call
+ * in-process (tests, embedders): a stray `process.exit` inside a command would
+ * otherwise tear down the whole host process (e.g. the bun test runner).
+ */
+export class CliExit extends Error {
+  constructor(readonly code: number) {
+    super(`process exit ${code}`);
+    this.name = "CliExit";
+  }
+}
+
 export type FlagSpec =
   | { type: "value"; required?: boolean }
   | { type: "boolean" }

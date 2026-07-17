@@ -12,7 +12,7 @@ import { loadSnapshot } from "../../frontends/snapshot-file.ts";
 import { encodeId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
-import { parseFlags, UsageError } from "../flags.ts";
+import { CliExit, parseFlags, UsageError } from "../flags.ts";
 import {
   effectiveProfileId,
   PROFILE_IDS,
@@ -91,10 +91,9 @@ export async function cmdProve(args: string[]): Promise<void> {
     });
   } catch (err) {
     if (err instanceof UsageError) {
-      process.stderr.write(
-        `${err.message}\nUsage: pgdelta prove --plan <plan.json> --clone <pg-url> --desired-snapshot <file> [--profile ${PROFILE_IDS}]\n`,
+      throw new UsageError(
+        `${err.message}\nUsage: pgdelta prove --plan <plan.json> --clone <pg-url> --desired-snapshot <file> [--profile ${PROFILE_IDS}]`,
       );
-      process.exit(2);
     }
     throw err;
   }
@@ -134,11 +133,10 @@ export async function cmdProve(args: string[]): Promise<void> {
   const planRedactSecrets = thePlan.redactSecrets ?? true;
   const snapRedactSecrets = snapshotRedactSecrets ?? true;
   if (snapRedactSecrets !== planRedactSecrets) {
-    process.stderr.write(
+    throw new UsageError(
       `prove: the desired snapshot's redaction mode (redactSecrets=${snapRedactSecrets}) does not match the plan's (redactSecrets=${planRedactSecrets}). ` +
-        `Re-generate both with the same --unsafe-show-secrets setting; a mismatch would compare placeholder-vs-real secrets and fail the proof spuriously.\n`,
+        `Re-generate both with the same --unsafe-show-secrets setting; a mismatch would compare placeholder-vs-real secrets and fail the proof spuriously.`,
     );
-    process.exit(2);
   }
 
   // The profile MUST match the one used to plan: it supplies the handler-aware
@@ -146,16 +144,12 @@ export async function cmdProve(args: string[]): Promise<void> {
   // diffed (otherwise operational children reappear as drift). Default to the
   // plan's stamped profile; reject a contradicting --profile before opening the
   // clone. Policy and capability fall back to the plan artifact inside provePlan.
-  let profileId: string | undefined;
-  try {
-    profileId = effectiveProfileId(flags["profile"], thePlan.profile?.id);
-  } catch (err) {
-    if (err instanceof UsageError) {
-      process.stderr.write(`${err.message}\n`);
-      process.exit(2);
-    }
-    throw err;
-  }
+  // effectiveProfileId throws UsageError on a --profile that contradicts the
+  // plan artifact; it propagates to main() (→ message + exit 2).
+  const profileId: string | undefined = effectiveProfileId(
+    flags["profile"],
+    thePlan.profile?.id,
+  );
 
   const clone = makePool(cloneUrl);
   try {
@@ -191,7 +185,8 @@ export async function cmdProve(args: string[]): Promise<void> {
     } else {
       process.stderr.write("Proof FAILED.\n");
       process.stderr.write(formatProofFailure(verdict));
-      process.exit(1);
+      // main() maps CliExit(1) → exit 1; the finally still closes the pool.
+      throw new CliExit(1);
     }
   } finally {
     await clone.end();

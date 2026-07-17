@@ -44,6 +44,43 @@ const SCHEMA_SQL = `
   CREATE INDEX items_name_idx ON clitest.items (name);
 `;
 
+describe("CLI: error → exit-code mapping (main is the sole exiter)", () => {
+  test("a post-parse usage error maps to exit 2 with its message on stderr", async () => {
+    // `--no-format` + `--format-options` is a post-parse guard in cmdSchemaExport
+    // that used to `process.stderr.write(...) + process.exit(2)`. It now throws
+    // UsageError, which main() maps to exit 2 while writing the message. The
+    // guard runs before any DB connection, so the bogus --source is never dialed.
+    const res = await runCli([
+      "schema",
+      "export",
+      "--source",
+      "postgres://unused.invalid:5432/nope",
+      "--out-dir",
+      join(tmpdir(), `pgdn-exitmap-${Date.now()}`),
+      "--no-format",
+      "--format-options",
+      "{}",
+    ]);
+    expect(res.exitCode).toBe(2);
+    expect(res.stderr).toMatch(/mutually exclusive/);
+  });
+
+  test("an unknown flag (parse-time usage error) maps to exit 2", async () => {
+    const res = await runCli([
+      "snapshot",
+      "--source",
+      "postgres://unused.invalid:5432/nope",
+      "--out",
+      join(tmpdir(), `pgdn-exitmap-${Date.now()}.json`),
+      "--totally-unknown-flag",
+    ]);
+    expect(res.exitCode).toBe(2);
+    expect(res.stderr).toMatch(/Unknown flag/);
+    // the command-specific usage hint still rides along on the same message
+    expect(res.stderr).toMatch(/Usage: pgdelta snapshot/);
+  });
+});
+
 describe("CLI: --help", () => {
   test("does not recommend apply --force for unsafe plans", async () => {
     const res = await runCli(["--help"]);
@@ -52,6 +89,60 @@ describe("CLI: --help", () => {
     // apply/prove now re-extract with the plan's stamped redaction mode.
     expect(res.stdout).not.toMatch(/requires\s+"?apply --force/i);
     expect(res.stdout).toContain("re-extract");
+  }, 30_000);
+});
+
+describe("CLI: --version", () => {
+  // No container needed — argv-only path.
+  const PKG_VERSION = (
+    JSON.parse(readFileSync(join(PKG_DIR, "package.json"), "utf8")) as {
+      version: string;
+    }
+  ).version;
+
+  test("--version prints the package version and exits 0", async () => {
+    const res = await runCli(["--version"]);
+    // RED before the fix: no version flag, so this fell through to the default
+    // branch — "Unknown command: --version" on stderr, exit 2.
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout.trim()).toBe(PKG_VERSION);
+    expect(res.stderr).not.toContain("Unknown command");
+  }, 30_000);
+
+  test("-v and version are aliases for --version", async () => {
+    for (const arg of ["-v", "version"]) {
+      const res = await runCli([arg]);
+      expect({ arg, code: res.exitCode }).toMatchObject({ code: 0 });
+      expect(res.stdout.trim()).toBe(PKG_VERSION);
+    }
+  }, 30_000);
+});
+
+describe("CLI: schema --help", () => {
+  // No container needed — argv-only path.
+  test("schema --help prints schema usage to stdout and exits 0", async () => {
+    const res = await runCli(["schema", "--help"]);
+    // RED before the fix: `schema --help` hit the unknown-subcommand branch,
+    // printing "Unknown schema subcommand: --help" on stderr and exiting 2.
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toContain("schema export");
+    expect(res.stdout).toContain("schema apply");
+    expect(res.stdout).toContain("schema lint");
+    expect(res.stderr).not.toContain("Unknown schema subcommand");
+  }, 30_000);
+
+  test("schema -h and schema help are aliases", async () => {
+    for (const arg of ["-h", "help"]) {
+      const res = await runCli(["schema", arg]);
+      expect({ arg, code: res.exitCode }).toMatchObject({ code: 0 });
+      expect(res.stdout).toContain("schema export");
+    }
+  }, 30_000);
+
+  test("an unknown schema subcommand still errors (exit 2)", async () => {
+    const res = await runCli(["schema", "bogus"]);
+    expect(res.exitCode).toBe(2);
+    expect(res.stderr).toContain("Unknown schema subcommand");
   }, 30_000);
 });
 

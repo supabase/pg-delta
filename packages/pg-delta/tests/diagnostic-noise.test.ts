@@ -45,4 +45,19 @@ describe("extraction diagnostic noise (P1)", () => {
     // the view depends on the table's columns; that edge must survive
     expect(depends.length).toBeGreaterThan(0);
   });
+
+  test("no dangling_edge diagnostics for built-in (pg_*) owner roles", () => {
+    // The `public` schema is owned by the built-in role `pg_database_owner`
+    // (PG14+), which extraction never emits as a role fact — so an owner edge
+    // to it would always dangle. pushOwnerEdge now skips built-in owners
+    // (isBuiltinRoleName), killing the recurring `role:pg_database_owner`
+    // dangling_edge warning.
+    const builtinRoleDangling = result.diagnostics.filter(
+      (d) =>
+        d.code === "dangling_edge" &&
+        ((d.subject?.kind === "role" && d.subject.name.startsWith("pg_")) ||
+          /-\[owner\]-> role:pg_/.test(d.message)),
+    );
+    expect(builtinRoleDangling).toHaveLength(0);
+  });
 });

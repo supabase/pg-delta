@@ -72,39 +72,30 @@ export function relabelRoleNames(
   rename: ReadonlyMap<string, string>,
 ): StableId {
   const remap = (name: string): string => rename.get(name) ?? name;
+  // Each case SPREADS the original id and overrides ONLY the role-bearing
+  // field(s) (and recurses into `target`). Reconstructing an id field-by-field
+  // silently drops any field not re-listed — that regressed the `column` field
+  // of a COLUMN-level acl, making a pure role rename spuriously REVOKE/GRANT
+  // the column grant. Spreading keeps future id-field additions carried.
   switch (id.kind) {
     case "role":
-      return { kind: "role", name: remap(id.name) };
+      return { ...id, name: remap(id.name) };
     case "membership":
-      return {
-        kind: "membership",
-        role: remap(id.role),
-        member: remap(id.member),
-      };
+      return { ...id, role: remap(id.role), member: remap(id.member) };
     case "userMapping":
-      return { kind: "userMapping", server: id.server, role: remap(id.role) };
+      return { ...id, role: remap(id.role) };
     case "defaultPrivilege":
-      return {
-        kind: "defaultPrivilege",
-        role: remap(id.role),
-        schema: id.schema,
-        objtype: id.objtype,
-        grantee: remap(id.grantee),
-      };
+      return { ...id, role: remap(id.role), grantee: remap(id.grantee) };
     case "acl":
       return {
-        kind: "acl",
+        ...id,
         target: relabelRoleNames(id.target, rename),
         grantee: remap(id.grantee),
       };
     case "comment":
-      return { kind: "comment", target: relabelRoleNames(id.target, rename) };
+      return { ...id, target: relabelRoleNames(id.target, rename) };
     case "securityLabel":
-      return {
-        kind: "securityLabel",
-        target: relabelRoleNames(id.target, rename),
-        provider: id.provider,
-      };
+      return { ...id, target: relabelRoleNames(id.target, rename) };
     default:
       // object kinds (table, schema, function, …) embed no role name in their id
       return id;

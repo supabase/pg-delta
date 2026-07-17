@@ -9,7 +9,7 @@ import { encodeId } from "../../core/stable-id.ts";
 import { loadSnapshot } from "../../frontends/snapshot-file.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
-import { parseFlags, UsageError } from "../flags.ts";
+import { CliExit, parseFlags, UsageError } from "../flags.ts";
 import { PROFILE_IDS, resolveCliProfile } from "../profile.ts";
 
 export async function cmdDrift(args: string[]): Promise<void> {
@@ -24,10 +24,9 @@ export async function cmdDrift(args: string[]): Promise<void> {
     });
   } catch (err) {
     if (err instanceof UsageError) {
-      process.stderr.write(
-        `${err.message}\nUsage: pgdelta drift --env <pg-url> --snapshot <file> [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets]\n`,
+      throw new UsageError(
+        `${err.message}\nUsage: pgdelta drift --env <pg-url> --snapshot <file> [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets]`,
       );
-      process.exit(2);
     }
     throw err;
   }
@@ -99,7 +98,7 @@ export async function cmdDrift(args: string[]): Promise<void> {
 
     if (deltas.length === 0) {
       process.stdout.write("No drift detected.\n");
-      process.exit(0);
+      return; // no drift → normal completion (exit 0)
     }
 
     process.stdout.write(`Drift detected: ${deltas.length} delta(s)\n\n`);
@@ -124,7 +123,8 @@ export async function cmdDrift(args: string[]): Promise<void> {
       }
       process.stdout.write(`${line}\n`);
     }
-    process.exit(1);
+    // drift detected → exit 1 (main maps CliExit); the finally still closes the pool.
+    throw new CliExit(1);
   } finally {
     await env.end();
   }

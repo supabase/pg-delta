@@ -10,6 +10,7 @@
  */
 import type { Diagnostic } from "../core/diagnostic.ts";
 import { encodeId } from "../core/stable-id.ts";
+import { CliExit } from "./flags.ts";
 
 const SEVERITY_LABEL: Record<Diagnostic["severity"], string> = {
   error: "ERROR",
@@ -53,11 +54,12 @@ export function hasBlockingDiagnostics(
 }
 
 /**
- * Exit(3) if the (already-printed) diagnostics are blocking — the guard every
- * extracting CLI command applies after printing. Multi-source commands print
- * each source with {@link printDiagnostics} and pass the COMBINED set here so
- * the refusal message reflects the whole run. `action` names what is being
- * refused (e.g. "plan", "apply"). Never returns when blocking.
+ * Throw {@link CliExit}(3) if the (already-printed) diagnostics are blocking —
+ * the guard every extracting CLI command applies after printing. Multi-source
+ * commands print each source with {@link printDiagnostics} and pass the
+ * COMBINED set here so the refusal message reflects the whole run. `action`
+ * names what is being refused (e.g. "plan", "apply"). Never returns when
+ * blocking (the throw propagates to main(), which maps CliExit → exit 3).
  */
 export function exitIfBlocking(
   diagnostics: readonly Diagnostic[],
@@ -77,5 +79,5 @@ export function exitIfBlocking(
       `\nRefusing to ${action}: blocking diagnostics present (see above).\n`,
     );
   }
-  process.exit(3);
+  throw new CliExit(3);
 }

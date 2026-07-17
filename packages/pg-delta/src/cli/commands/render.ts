@@ -12,7 +12,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { parsePlan } from "../../plan/artifact.ts";
-import { parseFlags, UsageError } from "../flags.ts";
+import { CliExit, parseFlags, UsageError } from "../flags.ts";
 import { renderPlan } from "../render.ts";
 
 const USAGE =
@@ -34,8 +34,7 @@ export async function cmdRender(args: string[]): Promise<void> {
     });
   } catch (err) {
     if (err instanceof UsageError) {
-      process.stderr.write(`${err.message}\n${USAGE}`);
-      process.exit(2);
+      throw new UsageError(`${err.message}\n${USAGE.trimEnd()}`);
     }
     throw err;
   }
@@ -55,7 +54,7 @@ export async function cmdRender(args: string[]): Promise<void> {
     process.stderr.write(
       `Error: ${err instanceof Error ? err.message : String(err)}\n`,
     );
-    process.exit(1);
+    throw new CliExit(1);
   }
 
   if (!result.changes) {
@@ -63,7 +62,7 @@ export async function cmdRender(args: string[]): Promise<void> {
       "No changes: plan has no actions. Writing no files.\n",
     );
     process.stdout.write(`${JSON.stringify({ changes: false, files: [] })}\n`);
-    process.exit(3);
+    throw new CliExit(3);
   }
 
   const base = splitBase(outPath);

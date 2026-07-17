@@ -14,6 +14,20 @@ import { encodeId, type StableId } from "../core/stable-id.ts";
 const QUERY_CANCELED = "57014";
 
 /**
+ * Whether a role name is a built-in (reserved) Postgres role. These `pg_`-prefixed
+ * roles (`pg_database_owner`, `pg_read_all_data`, …) are never extracted as
+ * managed facts — role extraction filters them out with `rolname NOT LIKE 'pg\_%'`
+ * (see extractRolesAndGrants in ./roles.ts). This predicate is the TS mirror of
+ * that SQL filter, used to suppress owner edges pointing at a built-in role: such
+ * an edge would always be dangling (its target role fact is never emitted) and is
+ * pruned by buildFactBase anyway, so emitting it only produces spurious
+ * `dangling_edge` warnings.
+ */
+function isBuiltinRoleName(name: string): boolean {
+  return name.startsWith("pg_");
+}
+
+/**
  * A short, human-readable identifier for an extraction query: its first FROM
  * relation plus a head of the text. Used to name the query that blew the
  * statement-timeout budget so the failure is actionable, not opaque.
@@ -474,10 +488,18 @@ export function createExtractContext(
   };
 
   /** Emit an `owner` edge from `id` to its owning role when the owner value is
-   *  a non-empty string. buildFactBase prunes dangling edges silently (e.g. a
-   *  system-role owner not extracted) so out-of-view owners just get no edge. */
+   *  a non-empty, non-built-in role. buildFactBase prunes dangling edges silently
+   *  (e.g. a system-role owner not extracted) so out-of-view owners just get no
+   *  edge — but a built-in (`pg_`-prefixed) owner such as `pg_database_owner` is
+   *  NEVER extracted as a role fact, so its edge is always dangling; skipping it
+   *  here avoids the recurring `dangling_edge` warning without changing the fact
+   *  base (the edge would be pruned regardless). */
   const pushOwnerEdge = (id: StableId, owner: unknown): void => {
-    if (typeof owner === "string" && owner.length > 0) {
+    if (
+      typeof owner === "string" &&
+      owner.length > 0 &&
+      !isBuiltinRoleName(owner)
+    ) {
       edges.push({
         from: id,
         to: { kind: "role", name: owner },

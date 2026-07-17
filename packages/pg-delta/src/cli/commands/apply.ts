@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { parsePlan } from "../../plan/artifact.ts";
 import { apply } from "../../apply/apply.ts";
 import { makePool } from "../pool.ts";
-import { parseFlags, UsageError } from "../flags.ts";
+import { CliExit, parseFlags, UsageError } from "../flags.ts";
 import {
   effectiveProfileId,
   PROFILE_IDS,
@@ -28,10 +28,9 @@ export async function cmdApply(args: string[]): Promise<void> {
     });
   } catch (err) {
     if (err instanceof UsageError) {
-      process.stderr.write(
-        `${err.message}\nUsage: pgdelta apply --plan <plan.json> --target <pg-url> [--profile ${PROFILE_IDS}] [--force]\n`,
+      throw new UsageError(
+        `${err.message}\nUsage: pgdelta apply --plan <plan.json> --target <pg-url> [--profile ${PROFILE_IDS}] [--force]`,
       );
-      process.exit(2);
     }
     throw err;
   }
@@ -50,16 +49,12 @@ export async function cmdApply(args: string[]): Promise<void> {
   // Default to the profile stamped on the plan artifact; reject a contradicting
   // --profile up front (before opening a connection) rather than failing
   // indirectly through the gate.
-  let profileId: string | undefined;
-  try {
-    profileId = effectiveProfileId(flags["profile"], thePlan.profile?.id);
-  } catch (err) {
-    if (err instanceof UsageError) {
-      process.stderr.write(`${err.message}\n`);
-      process.exit(2);
-    }
-    throw err;
-  }
+  // effectiveProfileId throws UsageError on a --profile that contradicts the
+  // plan artifact; it propagates to main() (→ message + exit 2).
+  const profileId: string | undefined = effectiveProfileId(
+    flags["profile"],
+    thePlan.profile?.id,
+  );
 
   const tgt = makePool(targetUrl);
   try {
@@ -119,7 +114,8 @@ export async function cmdApply(args: string[]): Promise<void> {
       process.stderr.write(
         `  applied: ${applied}  unapplied: ${unapplied}  inDoubt: ${inDoubt}\n`,
       );
-      process.exit(1);
+      // main() maps CliExit(1) → exit 1; the finally still closes the pool.
+      throw new CliExit(1);
     }
   } finally {
     await tgt.end();

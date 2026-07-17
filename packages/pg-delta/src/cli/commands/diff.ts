@@ -49,10 +49,9 @@ export async function cmdDiff(args: string[]): Promise<void> {
     });
   } catch (err) {
     if (err instanceof UsageError) {
-      process.stderr.write(
-        `${err.message}\nUsage: pgdelta diff --source <pg-url> --desired <pg-url> [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets]\n`,
+      throw new UsageError(
+        `${err.message}\nUsage: pgdelta diff --source <pg-url> --desired <pg-url> [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets]`,
       );
-      process.exit(2);
     }
     throw err;
   }
