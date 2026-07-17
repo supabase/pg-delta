@@ -40,6 +40,7 @@
  *   Repeatable; each occurrence confirms one rename.  Available on: plan, schema apply.
  */
 
+import { readFileSync } from "node:fs";
 import { cmdPlan } from "./commands/plan.ts";
 import { cmdApply } from "./commands/apply.ts";
 import { cmdRender } from "./commands/render.ts";
@@ -131,6 +132,36 @@ Old → New mapping:
   declarative-export-> schema export
 `.trimStart();
 
+const SCHEMA_USAGE = `
+pgdelta schema <subcommand> [options]
+
+Subcommands:
+  schema export  --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
+                 [--format-options <json>]   (pretty-print SQL; any layout)
+                 grouped adds: [--grouping-mode single-file|subdirectory]
+                 [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
+  schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
+                 [--renames auto|prompt|off] [--force]
+                 [--accept-rename <from>=<to>] ... [--no-reorder]
+  schema lint    --dir <dir>
+                 Statically check the SQL files (pg-topo) for shadow-load
+                 cycles and other issues, without touching a database.
+
+Run 'pgdelta --help' for the full command reference and shared flags.
+`.trimStart();
+
+/** Package version, read from the bundled package.json at runtime. */
+function readVersion(): string {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+    ) as { version?: string };
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 async function main(): Promise<void> {
   // Bun populates process.argv as: ["bun", "main.ts", ...userArgs]
   const args = process.argv.slice(2);
@@ -169,6 +200,8 @@ async function main(): Promise<void> {
           await cmdSchemaApply(subArgs);
         } else if (sub === "lint") {
           await cmdSchemaLint(subArgs);
+        } else if (sub === "--help" || sub === "-h" || sub === "help") {
+          process.stdout.write(SCHEMA_USAGE);
         } else {
           process.stderr.write(
             `Unknown schema subcommand: ${sub ?? "(none)"}\n` +
@@ -178,6 +211,11 @@ async function main(): Promise<void> {
         }
         break;
       }
+      case "--version":
+      case "-v":
+      case "version":
+        process.stdout.write(`${readVersion()}\n`);
+        break;
       case "--help":
       case "-h":
       case "help":
