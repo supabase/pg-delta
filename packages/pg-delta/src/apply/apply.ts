@@ -153,7 +153,18 @@ function emit(
 ): void {
   if (onEvent === undefined) return;
   try {
-    onEvent(event);
+    // a `void`-typed callback may still be an async function (TypeScript
+    // allows it), whose rejection is invisible to this try/catch — consume a
+    // returned thenable so it cannot surface as an unhandled rejection and
+    // take down the process mid-apply.
+    const result = onEvent(event) as unknown;
+    if (
+      result !== null &&
+      (typeof result === "object" || typeof result === "function") &&
+      typeof (result as PromiseLike<unknown>).then === "function"
+    ) {
+      Promise.resolve(result as PromiseLike<unknown>).catch(() => {});
+    }
   } catch {
     // swallowed by design — see doc comment above
   }

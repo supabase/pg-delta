@@ -542,6 +542,12 @@ export async function planSchemaFiles(
     ...(applyDefaultOwner !== undefined
       ? { defaultOwner: applyDefaultOwner }
       : {}),
+    // stamp the redaction mode the extracts (and thus the fingerprint) were
+    // taken under, so a plan archived via `schema apply --out-plan` replays
+    // through `apply --plan` with the SAME re-extract mode — an unstamped
+    // unredacted plan would read as redacted and trip the fingerprint gate
+    // on an unchanged target.
+    redactSecrets,
   };
 
   const thePlan = plan(targetResult.factBase, loadResult.factBase, planOptions);
