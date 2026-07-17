@@ -21,6 +21,20 @@ export interface Diagnostic {
  *  (`plan()`) agree on the string without a cross-layer import. */
 export const INTENT_UNKEYED = "intent-unkeyed";
 
+/** Diagnostic code for a `pg_user_mapping` row whose options a non-superuser
+ *  extraction could not read (the `pg_user_mappings` fallback view NULLs
+ *  `umoptions` for a row the caller isn't authorized on — see
+ *  `src/extract/foreign.ts`). The mapping fact is SKIPPED rather than
+ *  recorded with fabricated empty options, so its true state is UNKNOWN on
+ *  that side. A warning at extraction time is not enough on its own: if the
+ *  OTHER side of a diff can see the mapping, the missing fact reads as an
+ *  intentional add/remove and `plan()` would emit a wrong CREATE/DROP USER
+ *  MAPPING. `plan()` escalates to fatal exactly when a delta actually touches
+ *  one of these subjects (mirrors `INTENT_UNKEYED` above). Shared here so the
+ *  emitter (`extractForeign`) and the gate (`plan()`) agree on the string
+ *  without a cross-layer import. */
+export const USER_MAPPING_UNREADABLE = "user-mapping-unreadable";
+
 /** Thrown by public API stubs for not-yet-implemented stages (stage 0). */
 export class NotImplementedError extends Error {
   constructor(feature: string) {

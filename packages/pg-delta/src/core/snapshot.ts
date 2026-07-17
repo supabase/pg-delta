@@ -3,6 +3,7 @@
  * base. Version-tagged; digest re-verified on load (a corrupted snapshot
  * must never silently plan).
  */
+import type { Diagnostic } from "./diagnostic.ts";
 import {
   buildFactBase,
   type DependencyEdge,
@@ -13,6 +14,14 @@ import type { Payload, PayloadValue } from "./hash.ts";
 import { encodeId, parseId } from "./stable-id.ts";
 
 const FORMAT_VERSION = 1;
+
+interface SnapshotDiagnostic {
+  code: string;
+  severity: Diagnostic["severity"];
+  subject?: string;
+  message: string;
+  context?: Record<string, unknown>;
+}
 
 interface SnapshotDoc {
   formatVersion: number;
@@ -28,6 +37,15 @@ interface SnapshotDoc {
   digest: string;
   facts: Array<{ id: string; parent?: string; payload: unknown }>;
   edges: Array<{ from: string; to: string; kind: EdgeKind }>;
+  /** `FactBase.diagnostics` — carried through so a `plan()` gate that reads
+   *  them (e.g. `USER_MAPPING_UNREADABLE`) still fires when one side of a
+   *  diff is a deserialized snapshot rather than a live extraction. Metadata
+   *  only, like `capturedAt`/`redactSecrets`: NEVER affects `digest`, which is
+   *  `fb.rootHash` — a pure fold over facts/edges (see fact.ts) that never
+   *  reads `.diagnostics`. Missing on an old-format snapshot (pre-dating this
+   *  field) → deserializes as an empty array, no error; such a snapshot is
+   *  simply ungated (matches its pre-existing behavior, never worse). */
+  diagnostics?: SnapshotDiagnostic[];
 }
 
 /** bigint-safe JSON: bigints encode as {"$bigint":"..."} */
@@ -87,6 +105,24 @@ export function serializeSnapshot(
       .sort((a, b) =>
         `${a.from}|${a.kind}|${a.to}` < `${b.from}|${b.kind}|${b.to}` ? -1 : 1,
       ),
+    // ALL diagnostics, not a code-specific subset (also closes the pre-existing
+    // INTENT_UNKEYED snapshot hole) — deterministically sorted so the document
+    // is stable regardless of extraction/accumulation order.
+    diagnostics: fb.diagnostics
+      .map((d) => ({
+        code: d.code,
+        severity: d.severity,
+        ...(d.subject !== undefined ? { subject: encodeId(d.subject) } : {}),
+        message: d.message,
+        ...(d.context !== undefined ? { context: d.context } : {}),
+      }))
+      .sort((a, b) => {
+        if (a.code !== b.code) return a.code < b.code ? -1 : 1;
+        const aSubject = a.subject ?? "";
+        const bSubject = b.subject ?? "";
+        if (aSubject !== bSubject) return aSubject < bSubject ? -1 : 1;
+        return a.message < b.message ? -1 : a.message > b.message ? 1 : 0;
+      }),
   };
   return JSON.stringify(doc, null, 2);
 }
@@ -118,6 +154,21 @@ export function deserializeSnapshot(json: string): {
       `snapshot digest mismatch — content is corrupt or was edited (expected ${doc.digest}, computed ${factBase.rootHash})`,
     );
   }
+  // Missing on an old-format snapshot (pre-dating this field) → `?? []`, no
+  // error; rides on the FactBase itself (the same seam handler / extraction
+  // diagnostics use) so a `plan()` gate that reads `FactBase.diagnostics`
+  // (e.g. USER_MAPPING_UNREADABLE) still fires across a deserialized snapshot.
+  factBase.diagnostics.push(
+    ...(doc.diagnostics ?? []).map(
+      (d): Diagnostic => ({
+        code: d.code,
+        severity: d.severity,
+        ...(d.subject !== undefined ? { subject: parseId(d.subject) } : {}),
+        message: d.message,
+        ...(d.context !== undefined ? { context: d.context } : {}),
+      }),
+    ),
+  );
   return {
     factBase,
     pgVersion: doc.pgVersion,

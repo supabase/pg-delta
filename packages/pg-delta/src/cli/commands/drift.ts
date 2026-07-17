@@ -46,6 +46,14 @@ export async function cmdDrift(args: string[]): Promise<void> {
     process.stderr.write(
       `Snapshot: ${snapshotFb.facts().length} facts (pg ${snapshotPgVersion})\n`,
     );
+    // The snapshot side carries its own diagnostics (Codex P2, PR #338) —
+    // e.g. a USER_MAPPING_UNREADABLE that plan()'s gate needs, or the
+    // pre-existing unmodeled_kind/INTENT_UNKEYED findings from whenever the
+    // snapshot was captured. Surfaced with the same labeled + combined-set
+    // gating pattern every multi-source command uses (plan.ts, diff.ts):
+    // print with a "snapshot" label, then include in the blocking check
+    // below alongside the live extraction's diagnostics.
+    printDiagnostics(snapshotFb.diagnostics, { label: "snapshot" });
 
     // Match the snapshot's redaction mode so a snapshot saved with
     // --unsafe-show-secrets is compared against an equally-unredacted live
@@ -73,7 +81,12 @@ export async function cmdDrift(args: string[]): Promise<void> {
       diagnostics,
     } = await ctx.extract(env.pool, { redactSecrets });
     printDiagnostics(diagnostics);
-    exitIfBlocking(diagnostics, {
+    // Combined set (snapshot + live), same as every other multi-source
+    // command — blocking semantics/exit codes are unchanged: this only
+    // widens WHICH diagnostics are considered, not what counts as blocking
+    // (hasBlockingDiagnostics still only blocks error severity / the
+    // strict-coverage unmodeled_kind case).
+    exitIfBlocking([...snapshotFb.diagnostics, ...diagnostics], {
       strictCoverage: flags["strict-coverage"],
       action: "report drift",
     });
