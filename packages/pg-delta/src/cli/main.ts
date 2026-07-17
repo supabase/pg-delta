@@ -29,6 +29,7 @@
  *   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
  *                  [--renames auto|prompt|off] [--force]
  *                  [--accept-rename <from>=<to>] ... [--no-reorder]
+ *                  [--dry-run] [--verbose] [--out-plan <plan.json>]
  *   schema lint    --dir <dir>
  *                  Statically check the SQL files (pg-topo) for shadow-load
  *                  cycles and other issues, without touching a database.
@@ -73,6 +74,7 @@ Commands:
   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
                  [--renames auto|prompt|off] [--force]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
+                 [--dry-run] [--verbose] [--out-plan <plan.json>]
   schema lint    --dir <dir>
 
 Notes:
@@ -114,6 +116,27 @@ Notes:
     raw files at file granularity. Reorder is on by default — it splits files
     into one-statement units and topologically pre-sorts them so authoring
     order within a file no longer matters.
+  schema apply: the applied statements are planner-rendered atomic DDL, not
+    the authored declarative SQL (the planner re-derives them from the
+    catalog diff between the shadow and target states). --verbose shows every
+    statement actually executed on the target connection, including
+    transaction framing and session SETs; --dry-run prints that exact script
+    without applying it.
+  --dry-run (schema apply): plan as usual, then print the exact executable
+    script to stdout (reusing "render"'s segment splitter, so it mirrors
+    execution statement-for-statement) instead of applying — no fingerprint
+    gate runs, nothing is applied. A stderr summary reports the action count
+    and flags destructive actions. Composes with --out-plan.
+  --verbose (schema apply): during the real apply, stream a segment/action
+    progress trace to stderr — segment start/end (with outcome), every
+    planner-rendered action (the SQL about to run and whether it succeeded,
+    with timing), and every other statement sent on the same connection
+    (BEGIN, preamble SET/SET LOCAL, COMMIT, ROLLBACK, RESET ALL), prefixed
+    "  ; " to stay distinct from action lines. Purely additive: never changes
+    what gets applied or the final report.
+  --out-plan <plan.json> (schema apply): write the plan artifact (same format
+    as "plan --out") to this path right after planning, before apply (or the
+    --dry-run script).
   --unsafe-show-secrets (plan, diff, drift, snapshot, schema export, schema apply):
     emit REAL foreign-data option values and subscription conninfo instead of
     redacted placeholders. Off by default; raises a loud warning when set.

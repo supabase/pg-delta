@@ -22,6 +22,7 @@
  * schema apply --dir <dir> --shadow <pg-url> --target <pg-url>
  *              [--renames auto|prompt|off] [--force]
  *              [--accept-rename <from>=<to>] (repeatable) [--no-reorder]
+ *              [--dry-run] [--verbose] [--out-plan <plan.json>]
  *   Read .sql files recursively (lexicographic), load into shadow, extract
  *   target, plan, apply.  Maps to old `declarative-apply` / `sync`.
  *
@@ -39,6 +40,34 @@
  *   --accept-rename <from>=<to>
  *     Confirm one rename candidate by the encoded stable-ids shown in a prior
  *     --renames prompt run.  Repeatable; each flag names one confirmed rename.
+ *
+ *   The statements actually applied to the target are NOT the authored
+ *   declarative SQL: the planner re-derives atomic DDL from the catalog diff
+ *   between the shadow (desired) and target (current) states. --verbose shows
+ *   every statement actually executed on the target connection — including
+ *   transaction framing (BEGIN/COMMIT/ROLLBACK) and session SETs — never the
+ *   authored files; --dry-run prints that exact script without applying it.
+ *
+ *   --dry-run
+ *     Plan as usual, then print the exact executable script (reusing the
+ *     `render` command's renderer, so it mirrors execution segment-for-segment)
+ *     to STDOUT instead of calling apply() — no fingerprint gate runs, nothing
+ *     is applied. A stderr summary reports the action count and flags any
+ *     destructive actions. Composes with --out-plan; --force is a no-op since
+ *     the gate never runs.
+ *   --verbose
+ *     During the real apply, stream a segment/action-level progress trace to
+ *     STDERR: segment start/end (with outcome), every planner-rendered action
+ *     (the SQL about to run and whether it succeeded, with wall-clock timing),
+ *     AND every other statement sent on the same connection — BEGIN, preamble
+ *     SET/SET LOCAL, COMMIT, ROLLBACK, RESET ALL — prefixed `  ; ` to stay
+ *     visually distinct from action lines. Wraps apply()'s `onEvent` observer
+ *     hook (src/apply/apply.ts) — purely additive, never changes what gets
+ *     applied or the final report.
+ *   --out-plan <plan.json>
+ *     Write the plan artifact (the same format `plan --out` produces) to this
+ *     path right after planning, before apply (or the --dry-run script). Useful
+ *     for inspecting/archiving the exact plan a `schema apply` run executed.
  */
 import {
   mkdirSync,
@@ -82,12 +111,14 @@ import {
   rewriteReorderedShadowError,
 } from "../reorder-display.ts";
 import { plan } from "../../plan/plan.ts";
+import { serializePlan } from "../../plan/artifact.ts";
 import { flattenPolicy, resolveView } from "../../policy/policy.ts";
 import {
   type ManagementScope,
   projectManagementScope,
 } from "../../policy/view.ts";
-import { apply } from "../../apply/apply.ts";
+import { apply, type ApplyEvent } from "../../apply/apply.ts";
+import { renderPlan } from "../render.ts";
 import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
@@ -484,7 +515,7 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
 }
 
 /** Discriminated result of {@link prepareApplyFiles}. */
-export type PreparedApplyFiles =
+type PreparedApplyFiles =
   | { ok: true; files: SqlFile[]; skipped: { file: string; stmt: string }[] }
   | { ok: false; message: string };
 
@@ -575,6 +606,9 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       scope: { type: "value" },
       "skip-cluster-ddl": { type: "boolean" },
       "keep-shadow": { type: "boolean" },
+      "dry-run": { type: "boolean" },
+      verbose: { type: "boolean" },
+      "out-plan": { type: "value" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
@@ -582,6 +616,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         `${err.message}\nUsage: pgdelta schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
           `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow]\n` +
+          `  [--dry-run] (print the executable script to stdout; apply nothing) [--verbose] (stream per-statement progress to stderr) [--out-plan <plan.json>] (write the plan artifact)\n` +
           `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.\n`,
       );
       process.exit(2);
@@ -595,6 +630,9 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   const targetUrl = flags["target"];
   const force = flags["force"];
   const acceptRenameRaw = flags["accept-rename"];
+  const dryRun = flags["dry-run"];
+  const verbose = flags["verbose"];
+  const outPlanPath = flags["out-plan"];
 
   // The export directory's manifest (redaction mode, profile, scope), consulted
   // once and reused. Absent for hand-authored dirs / older exports.
@@ -1250,14 +1288,104 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       process.stderr.write("\n");
     }
 
+    // --out-plan: archive the plan artifact right after planning, regardless
+    // of whether the run goes on to --dry-run's script or a real apply.
+    if (outPlanPath !== undefined) {
+      writeFileSync(outPlanPath, serializePlan(thePlan), "utf8");
+      process.stderr.write(`Plan artifact written to ${outPlanPath}\n`);
+      if (flags["unsafe-show-secrets"]) {
+        process.stderr.write(
+          `  WARNING: --unsafe-show-secrets is set — the plan artifact contains UNREDACTED credentials.\n`,
+        );
+      }
+    }
+
     if (thePlan.actions.length === 0) {
       process.stderr.write("Target is already up to date.\n");
+      return;
+    }
+
+    if (dryRun) {
+      // Reuse the `render` command's renderer so the printed script splits on
+      // the SAME segment boundaries apply() uses at execution time —
+      // faithfully mirroring what a real apply would run, statement for
+      // statement. allowDrops:true: --dry-run is inspection only, so the
+      // render-time destructive-action gate (meant for `render`'s file-writing
+      // path) does not apply here; destructiveness is instead surfaced in the
+      // summary below.
+      const rendered = renderPlan(thePlan, { allowDrops: true });
+      const multi = rendered.files.length > 1;
+      const script = rendered.files
+        .map((file, i) => {
+          if (!multi) return file.contents;
+          const header = `-- pg-delta segment ${i + 1}/${rendered.files.length} (${
+            file.transactional ? "transactional" : "non-transactional"
+          })\n`;
+          return `${header}${file.contents}`;
+        })
+        .join("\n");
+      process.stdout.write(script);
+      process.stderr.write(
+        `Dry run: ${thePlan.actions.length} action(s) planned; nothing applied.\n`,
+      );
+      const destructiveCount = thePlan.actions.filter(
+        (a) => a.verb === "drop" || a.dataLoss === "destructive",
+      ).length;
+      if (destructiveCount > 0) {
+        process.stderr.write(
+          `WARNING: plan contains ${destructiveCount} destructive action(s).\n`,
+        );
+      }
       return;
     }
 
     if (force) {
       process.stderr.write("WARNING: --force disables the fingerprint gate.\n");
     }
+
+    // --verbose: stream per-segment/per-action progress to stderr as apply()
+    // executes. Purely additive (apply.ts's `onEvent` is guarded against a
+    // throwing observer) — never changes what gets applied or the report.
+    // `segmentEnd` doesn't carry the segment count, so remember it from the
+    // most recent `segmentStart` (events for one apply() call arrive in order).
+    let lastSegmentCount = 1;
+    const onEvent = verbose
+      ? (event: ApplyEvent): void => {
+          switch (event.kind) {
+            case "segmentStart":
+              lastSegmentCount = event.segmentCount;
+              process.stderr.write(
+                `-- segment ${event.segmentIndex + 1}/${event.segmentCount} (${
+                  event.transactional ? "transactional" : "non-transactional"
+                }), ${event.end - event.start} action(s)\n`,
+              );
+              break;
+            case "actionStart":
+              process.stderr.write(
+                `[${event.actionIndex + 1}/${thePlan.actions.length}] ${event.sql}\n`,
+              );
+              break;
+            case "actionEnd":
+              process.stderr.write(
+                `[${event.actionIndex + 1}/${thePlan.actions.length}] ${
+                  event.ok ? `ok (${event.ms}ms)` : `FAILED (${event.ms}ms)`
+                }\n`,
+              );
+              break;
+            case "segmentEnd":
+              process.stderr.write(
+                `-- segment ${event.segmentIndex + 1}/${lastSegmentCount} ${event.outcome}\n`,
+              );
+              break;
+            case "control":
+              // every OTHER statement apply() sends on the wire — BEGIN,
+              // preamble SET/SET LOCAL, COMMIT, ROLLBACK, RESET ALL — prefixed
+              // to stay visually distinct from `[i/total] <action sql>` lines.
+              process.stderr.write(`  ; ${event.sql}\n`);
+              break;
+          }
+        }
+      : undefined;
 
     const report = await apply(thePlan, tgt.pool, {
       ...ctx.applyOptions, // baseline + handler-aware re-extract (from the profile)
@@ -1271,6 +1399,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       // view than the plan fingerprinted (§scope).
       reextract: (p) => ctx.extract(p, { redactSecrets }),
       fingerprintGate: !force,
+      ...(onEvent !== undefined ? { onEvent } : {}),
     });
 
     if (report.status === "applied") {

@@ -29,6 +29,35 @@ export interface ApplyReport {
   error?: { actionIndex: number; sql: string; message: string };
 }
 
+/** Observability events emitted during `apply()` (statement-level debugging
+ *  for `schema apply --verbose`). Purely additive — no event ever changes
+ *  what apply() does or reports; see the `onEvent` doc comment below.
+ *
+ *  The applied statements are planner-rendered atomic DDL, not the authored
+ *  declarative SQL, so `actionStart`/`actionEnd` alone are not a complete
+ *  record of the wire: `control` covers every OTHER statement apply() sends
+ *  on the same connection — `BEGIN`, each preamble `SET`/`SET LOCAL`, `COMMIT`,
+ *  `ROLLBACK` (including best-effort rollbacks on an error path), and
+ *  `RESET ALL` — so a `--verbose` trace shows exactly what ran, transaction
+ *  framing included. */
+export type ApplyEvent =
+  | {
+      kind: "segmentStart";
+      segmentIndex: number;
+      segmentCount: number;
+      start: number;
+      end: number;
+      transactional: boolean;
+    }
+  | { kind: "actionStart"; actionIndex: number; sql: string }
+  | { kind: "actionEnd"; actionIndex: number; ok: boolean; ms: number }
+  | {
+      kind: "segmentEnd";
+      segmentIndex: number;
+      outcome: "committed" | "rolledBack" | "inDoubt";
+    }
+  | { kind: "control"; sql: string };
+
 export interface ApplyOptions {
   /** re-extract the target and require its fingerprint to equal the
    *  plan's source fingerprint (stage 6 deliverable 3). Defaults to ON;
@@ -50,6 +79,10 @@ export interface ApplyOptions {
    *  plan was fingerprinted from; otherwise operationally-managed objects present
    *  on the real target read as drift and reject a valid managed plan. */
   reextract?: (pool: Pool) => Promise<{ factBase: FactBase }>;
+  /** observability hook (statement-level debugging): fired at segment/action
+   *  boundaries as apply() executes. Purely additive — see `emit` below for
+   *  the isolation guarantee. */
+  onEvent?: (event: ApplyEvent) => void;
 }
 
 interface Segment {
@@ -107,6 +140,23 @@ function errorEntry(
     sql,
     message: error instanceof Error ? error.message : String(error),
   };
+}
+
+/** Fire an observer event, swallowing anything it throws. `onEvent` is a
+ *  debugging hook (`schema apply --verbose`), never a semantics participant —
+ *  a throwing observer must NEVER change apply's control flow, action
+ *  statuses, or the returned report, so every emission is wrapped here rather
+ *  than left to each call site. */
+function emit(
+  onEvent: ((event: ApplyEvent) => void) | undefined,
+  event: ApplyEvent,
+): void {
+  if (onEvent === undefined) return;
+  try {
+    onEvent(event);
+  } catch {
+    // swallowed by design — see doc comment above
+  }
 }
 
 export async function apply(
@@ -208,20 +258,53 @@ export async function apply(
       ),
     ];
 
-    for (const segment of segments) {
+    const onEvent = options?.onEvent;
+    for (let segIdx = 0; segIdx < segments.length; segIdx++) {
+      const segment = segments[segIdx]!;
+      // segmentStart fires before the preamble/BEGIN for this segment, for
+      // BOTH transactional and non-transactional segments.
+      emit(onEvent, {
+        kind: "segmentStart",
+        segmentIndex: segIdx,
+        segmentCount: segments.length,
+        start: segment.start,
+        end: segment.end,
+        transactional: segment.transactional,
+      });
+
       if (!segment.transactional) {
         // a lone non-transactional action; session-level settings, reset after
         const index = segment.start;
         const action = thePlan.actions[index]!;
+        const actionStartedAt = Date.now();
+        emit(onEvent, {
+          kind: "actionStart",
+          actionIndex: index,
+          sql: action.sql,
+        });
         try {
-          for (const sql of preamble(false)) await client.query(sql);
+          for (const sql of preamble(false)) {
+            emit(onEvent, { kind: "control", sql });
+            await client.query(sql);
+          }
           await client.query(action.sql);
         } catch (error) {
+          emit(onEvent, {
+            kind: "actionEnd",
+            actionIndex: index,
+            ok: false,
+            ms: Date.now() - actionStartedAt,
+          });
           // a failed non-transactional DDL is NOT safely unapplied — it can
           // leave durable side effects (e.g. an INVALID index from a cancelled
           // CREATE INDEX CONCURRENTLY). Report it inDoubt so the caller knows
           // the database must be re-extracted before retry (review P1).
           statuses[index] = "inDoubt";
+          emit(onEvent, {
+            kind: "segmentEnd",
+            segmentIndex: segIdx,
+            outcome: "inDoubt",
+          });
           return {
             status: "failed",
             appliedActions,
@@ -232,18 +315,40 @@ export async function apply(
           // ALWAYS restore session state before the client returns to the pool,
           // on success or failure — RESET ALL must not be skipped by the catch's
           // early return, and a reset failure must not flip the action's outcome.
+          emit(onEvent, { kind: "control", sql: "RESET ALL" });
           await client.query("RESET ALL").catch(() => {});
         }
+        emit(onEvent, {
+          kind: "actionEnd",
+          actionIndex: index,
+          ok: true,
+          ms: Date.now() - actionStartedAt,
+        });
         statuses[index] = "applied";
         appliedActions += 1;
+        emit(onEvent, {
+          kind: "segmentEnd",
+          segmentIndex: segIdx,
+          outcome: "committed",
+        });
         continue;
       }
 
       try {
+        emit(onEvent, { kind: "control", sql: "BEGIN" });
         await client.query("BEGIN");
-        for (const sql of preamble(true)) await client.query(sql);
+        for (const sql of preamble(true)) {
+          emit(onEvent, { kind: "control", sql });
+          await client.query(sql);
+        }
       } catch (error) {
+        emit(onEvent, { kind: "control", sql: "ROLLBACK" });
         await client.query("ROLLBACK").catch(() => {});
+        emit(onEvent, {
+          kind: "segmentEnd",
+          segmentIndex: segIdx,
+          outcome: "rolledBack",
+        });
         return {
           status: "failed",
           appliedActions,
@@ -253,10 +358,24 @@ export async function apply(
       }
       for (let i = segment.start; i < segment.end; i++) {
         const action = thePlan.actions[i]!;
+        const actionStartedAt = Date.now();
+        emit(onEvent, { kind: "actionStart", actionIndex: i, sql: action.sql });
         try {
           await client.query(action.sql);
         } catch (error) {
+          emit(onEvent, {
+            kind: "actionEnd",
+            actionIndex: i,
+            ok: false,
+            ms: Date.now() - actionStartedAt,
+          });
+          emit(onEvent, { kind: "control", sql: "ROLLBACK" });
           await client.query("ROLLBACK").catch(() => {});
+          emit(onEvent, {
+            kind: "segmentEnd",
+            segmentIndex: segIdx,
+            outcome: "rolledBack",
+          });
           return {
             status: "failed",
             appliedActions,
@@ -264,14 +383,27 @@ export async function apply(
             error: errorEntry(i, action.sql, error),
           };
         }
+        emit(onEvent, {
+          kind: "actionEnd",
+          actionIndex: i,
+          ok: true,
+          ms: Date.now() - actionStartedAt,
+        });
       }
       try {
+        emit(onEvent, { kind: "control", sql: "COMMIT" });
         await client.query("COMMIT");
       } catch (error) {
         // the commit itself failed: the segment's fate is unknown
         for (let i = segment.start; i < segment.end; i++)
           statuses[i] = "inDoubt";
+        emit(onEvent, { kind: "control", sql: "ROLLBACK" });
         await client.query("ROLLBACK").catch(() => {});
+        emit(onEvent, {
+          kind: "segmentEnd",
+          segmentIndex: segIdx,
+          outcome: "inDoubt",
+        });
         return {
           status: "failed",
           appliedActions,
@@ -281,6 +413,11 @@ export async function apply(
       }
       for (let i = segment.start; i < segment.end; i++) statuses[i] = "applied";
       appliedActions += segment.end - segment.start;
+      emit(onEvent, {
+        kind: "segmentEnd",
+        segmentIndex: segIdx,
+        outcome: "committed",
+      });
     }
   } finally {
     client.release();

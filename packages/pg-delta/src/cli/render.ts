@@ -12,7 +12,7 @@
 import { segmentActions } from "../apply/apply.ts";
 import type { Plan } from "../plan/plan.ts";
 
-export interface RenderOptions {
+interface RenderOptions {
   /** allow destructive actions to be rendered. Off by default: rendering a
    *  plan that drops or rewrites data without acknowledging it is a common way
    *  to ship a destructive migration by accident. Gates BOTH `drop`-verb actions
@@ -22,7 +22,7 @@ export interface RenderOptions {
   allowDrops: boolean;
 }
 
-export interface RenderedFile {
+interface RenderedFile {
   /** null for a single-segment plan (`<base>.sql`); "_1", "_2", … in
    *  execution order when the plan splits into multiple segments. */
   suffix: string | null;
@@ -31,7 +31,7 @@ export interface RenderedFile {
   actionCount: number;
 }
 
-export interface RenderResult {
+interface RenderResult {
   /** false only when the plan has zero actions. */
   changes: boolean;
   files: RenderedFile[];
