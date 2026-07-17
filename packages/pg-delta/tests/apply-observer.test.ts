@@ -381,6 +381,49 @@ describe("apply() onEvent observer", () => {
     }
   }, 60_000);
 
+  test("an ASYNC observer that rejects never surfaces an unhandled rejection or changes the outcome", async () => {
+    // TypeScript allows an async function wherever a `void` callback is
+    // expected, so a library caller can pass `onEvent: async () => {...}`.
+    // A rejection from it is invisible to emit()'s synchronous try/catch —
+    // it must be consumed, or it escapes as an unhandled rejection and can
+    // take down the process mid-apply.
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("apply_observer_async_tgt");
+    const desired = await cluster.createDb("apply_observer_async_desired");
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown): void => {
+      rejections.push(reason);
+    };
+    process.on("unhandledRejection", onRejection);
+    try {
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (id integer PRIMARY KEY);
+      `);
+      const [targetState, desiredState] = [
+        await extract(target.pool),
+        await extract(desired.pool),
+      ];
+      const thePlan = plan(targetState.factBase, desiredState.factBase);
+      expect(thePlan.actions.length).toBeGreaterThan(0);
+
+      const report = await apply(thePlan, target.pool, {
+        fingerprintGate: false,
+        onEvent: async () => {
+          throw new Error("async observer boom");
+        },
+      });
+      expect(report.status).toBe("applied");
+
+      // give any escaped rejection a macrotask to reach the process handler
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+      await Promise.all([target.drop(), desired.drop()]);
+    }
+  }, 60_000);
+
   test("an observer that always throws never changes apply()'s outcome", async () => {
     const cluster = await sharedCluster();
     const targetA = await cluster.createDb("apply_observer_safe_a");

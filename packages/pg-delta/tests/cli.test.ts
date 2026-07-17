@@ -1853,6 +1853,10 @@ describe("CLI: schema apply debugging", () => {
 
       const parsed = parsePlan(readFileSync(planPath, "utf8"));
       expect(parsed.actions.length).toBeGreaterThan(0);
+      // the artifact records the redaction mode it was fingerprinted under, so
+      // a later `pgdelta apply --plan` re-extracts in the SAME mode instead of
+      // defaulting to redacted and tripping the fingerprint gate.
+      expect(parsed.redactSecrets).toBe(true);
 
       // still nothing applied
       const { rows } = await target.pool.query<{ n: number }>(
@@ -1960,6 +1964,13 @@ describe("CLI: schema apply debugging", () => {
         .split("\n")
         .filter((l) => l.includes("UNREDACTED"));
       expect(warnings.length).toBe(2);
+
+      // and the artifact STAMPS the unredacted mode: its fingerprint was taken
+      // from unredacted extracts, so `pgdelta apply --plan` must re-extract
+      // unredacted too — an absent field reads as redacted and the gate would
+      // spuriously reject an unchanged target.
+      const parsed = parsePlan(readFileSync(planPath, "utf8"));
+      expect(parsed.redactSecrets).toBe(false);
     } finally {
       await Promise.all([source.drop(), target.drop()]);
     }
