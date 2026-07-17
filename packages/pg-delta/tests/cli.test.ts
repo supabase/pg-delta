@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { loadSnapshot } from "../src/frontends/snapshot-file.ts";
+import { parsePlan } from "../src/plan/artifact.ts";
 import { isolatedClusterPair, sharedCluster } from "./containers.ts";
 
 const PKG_DIR = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
@@ -1684,4 +1685,136 @@ describe("CLI: schema export --layout grouped", () => {
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("--format-options");
   });
+});
+
+describe("CLI: schema apply debugging", () => {
+  test("--dry-run prints the executable script to stdout and applies nothing", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("cli_apply_dryrun_tgt");
+    try {
+      const dir = join(tmpdir(), `pg-delta-next-dryrun-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "01_schema.sql"),
+        `CREATE SCHEMA app;\nCREATE TABLE app.t (id integer PRIMARY KEY);\n`,
+      );
+
+      // no --shadow: co-located shadow on the target's own cluster
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+        "--dry-run",
+      ]);
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 0,
+      });
+      expect(res.stdout).toContain("CREATE TABLE");
+      expect(res.stdout).toContain('"app"."t"');
+      expect(res.stderr).toMatch(
+        /Dry run: \d+ action\(s\) planned; nothing applied\./,
+      );
+
+      // the target must be UNCHANGED — nothing was applied
+      const { rows } = await target.pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'app'`,
+      );
+      expect(rows[0]?.n).toBe(0);
+    } finally {
+      await target.drop();
+    }
+  }, 90_000);
+
+  test("--dry-run --out-plan writes a plan artifact that parses with actions", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("cli_apply_dryrun_outplan_tgt");
+    try {
+      const dir = join(tmpdir(), `pg-delta-next-dryrun-outplan-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "01_schema.sql"),
+        `CREATE SCHEMA app;\nCREATE TABLE app.t (id integer PRIMARY KEY);\n`,
+      );
+      const planPath = join(dir, "plan.json");
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+        "--dry-run",
+        "--out-plan",
+        planPath,
+      ]);
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 0,
+      });
+      expect(res.stderr).toContain(`Plan artifact written to ${planPath}`);
+
+      const parsed = parsePlan(readFileSync(planPath, "utf8"));
+      expect(parsed.actions.length).toBeGreaterThan(0);
+
+      // still nothing applied
+      const { rows } = await target.pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'app'`,
+      );
+      expect(rows[0]?.n).toBe(0);
+    } finally {
+      await target.drop();
+    }
+  }, 90_000);
+
+  test("--verbose logs per-statement progress to stderr during a real apply", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_apply_verbose_shadow");
+    const target = await cluster.createDb("cli_apply_verbose_tgt");
+    try {
+      const dir = join(tmpdir(), `pg-delta-next-verbose-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "01_schema.sql"),
+        `CREATE SCHEMA app;\nCREATE TABLE app.t (id integer PRIMARY KEY);\n`,
+      );
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+        "--verbose",
+      ]);
+      expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
+        code: 0,
+      });
+      expect(res.stderr).toContain("[1/");
+      expect(res.stderr).toContain("ok (");
+      // --verbose is a COMPLETE record of the wire, not just plan actions: the
+      // applied statements are planner-rendered atomic DDL, so the trace must
+      // also show the transaction framing actually sent (BEGIN/COMMIT).
+      expect(res.stderr).toContain("BEGIN");
+      expect(res.stderr).toContain("COMMIT");
+
+      const { rows } = await target.pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'app'`,
+      );
+      expect(rows[0]?.n).toBe(1);
+    } finally {
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 90_000);
 });
