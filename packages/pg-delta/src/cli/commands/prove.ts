@@ -10,6 +10,7 @@ import { rel } from "../../plan/render.ts";
 import { provePlan, type ProofVerdict } from "../../proof/prove.ts";
 import { loadSnapshot } from "../../frontends/snapshot-file.ts";
 import { encodeId } from "../../core/stable-id.ts";
+import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
 import { parseFlags, UsageError } from "../flags.ts";
 import {
@@ -65,6 +66,20 @@ export function formatProofFailure(verdict: ProofVerdict): string {
   return lines.length > 0 ? `${lines.join("\n")}\n` : "";
 }
 
+/**
+ * The suffix appended to the "Proof passed" line when the desired snapshot
+ * carried diagnostics (e.g. a skipped-as-unreadable user-mapping fact) — an
+ * honest caveat that a syntactically-clean proof doesn't mean the desired
+ * state was fully known (drift parity with the `prove`/`drift` diagnostics
+ * fix, PR #338 comment 3603601155). Pure + exported so it's testable without
+ * a database, alongside {@link formatProofFailure}. Empty when there's
+ * nothing to caveat.
+ */
+export function formatProofPassCaveat(diagnosticsCount: number): string {
+  if (diagnosticsCount === 0) return "";
+  return ` (${diagnosticsCount} diagnostic${diagnosticsCount === 1 ? "" : "s"} on the desired snapshot — see above)`;
+}
+
 export async function cmdProve(args: string[]): Promise<void> {
   let parsed;
   try {
@@ -97,6 +112,15 @@ export async function cmdProve(args: string[]): Promise<void> {
   const thePlan = parsePlan(json);
   const { factBase: desiredFb, redactSecrets: snapshotRedactSecrets } =
     loadSnapshot(snapshotPath);
+  // Drift parity (PR #338 comment 3603601155): `drift` already surfaces its
+  // snapshot's diagnostics (src/cli/commands/drift.ts) — `prove`'s desired
+  // snapshot can carry the same kind (e.g. a skipped-as-unreadable user
+  // mapping) and previously went unread. Blocking stays error-severity only:
+  // a USER_MAPPING_UNREADABLE warning must NOT become fatal here (declined —
+  // see plan.ts's gate for where that variant actually matters); it prints
+  // and the proof proceeds, with a caveat appended if it later passes.
+  printDiagnostics(desiredFb.diagnostics, { label: "desired snapshot" });
+  exitIfBlocking(desiredFb.diagnostics, { action: "prove" });
 
   // The proof re-extracts the (mutated) clone with the PLAN's redaction mode and
   // compares it to the desired snapshot. If the snapshot was captured with a
@@ -161,7 +185,8 @@ export async function cmdProve(args: string[]): Promise<void> {
 
     if (verdict.ok) {
       process.stderr.write(
-        "Proof passed: state and data preservation verified.\n",
+        `Proof passed: state and data preservation verified.` +
+          `${formatProofPassCaveat(desiredFb.diagnostics.length)}\n`,
       );
     } else {
       process.stderr.write("Proof FAILED.\n");

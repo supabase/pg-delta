@@ -225,6 +225,19 @@ async function extractOnClient(
     factBase.diagnostics.push(...extraDiagnostics);
   }
 
+  // Diagnostics a query-family builder flagged as needing to ride on the
+  // FactBase itself (e.g. a skipped user-mapping fact `plan()` must gate
+  // against — see ExtractContext.factDiagnostics). MUST be pushed AFTER the
+  // handler block above, not before: when a handler contributes facts/edges,
+  // `factBase` is REASSIGNED to a fresh instance with an empty `.diagnostics`
+  // array (buildFactBase never carries diagnostics over), so pushing here
+  // first would silently orphan them for exactly the integration-profile
+  // (Supabase / handler-bearing) callers plan()'s gate most needs to protect.
+  // A handler's capture() therefore sees the PRE-rebuild base without these —
+  // harmless today since no handler inspects diagnostics. Folded into
+  // `ctx.diagnostics` by the copy below, same as handler diagnostics.
+  factBase.diagnostics.push(...ctx.factDiagnostics);
+
   // dangling edges (e.g. references to unextracted kinds) become diagnostics
   ctx.diagnostics.push(...factBase.diagnostics);
   // catalog completeness: user objects in kinds we don't model are reported,

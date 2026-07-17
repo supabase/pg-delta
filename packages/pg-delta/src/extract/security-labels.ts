@@ -188,11 +188,15 @@ export async function extractSecurityLabels(
       String(row["label"]),
     );
   }
-  // roles (shared catalog)
+  // roles (shared catalog). `pg_roles` (not `pg_authid`) so a non-superuser
+  // caller can read it — `pg_authid` itself is superuser-only and would throw
+  // `permission denied for table pg_authid`; `pg_roles` exposes the same oid
+  // + rolname surface this query needs (classoid stays `pg_authid`::regclass —
+  // that is the underlying catalog `pg_seclabel`/`pg_shseclabel` rows key on).
   for (const row of await q(`
       SELECT sl.provider, sl.label, r.rolname AS name
       FROM pg_shseclabel sl
-      JOIN pg_authid r ON r.oid = sl.objoid AND sl.classoid = 'pg_authid'::regclass
+      JOIN pg_roles r ON r.oid = sl.objoid AND sl.classoid = 'pg_authid'::regclass
       WHERE r.rolname NOT LIKE 'pg\\_%'
       ORDER BY 1, 3`)) {
     pushSeclabel(

@@ -2,10 +2,10 @@
  * The planner (target-architecture §3.4–3.6): deltas × rule table → atomic
  * actions → one mixed dependency graph → one deterministic sort.
  */
-import { INTENT_UNKEYED } from "../core/diagnostic.ts";
-import type { Delta } from "../core/diff.ts";
+import { INTENT_UNKEYED, USER_MAPPING_UNREADABLE } from "../core/diagnostic.ts";
+import { subjectOf, type Delta } from "../core/diff.ts";
 import type { FactBase } from "../core/fact.ts";
-import type { StableId } from "../core/stable-id.ts";
+import { encodeId, type StableId } from "../core/stable-id.ts";
 import { flattenPolicy, type Policy } from "../policy/policy.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
 import type { ManagementScope } from "../policy/view.ts";
@@ -249,6 +249,139 @@ export function plan(
     carriedOwnerLinks,
     changedRoleFacts,
   } = buildChangeSet(rawSource, rawDesired, options, rulesForId);
+
+  // A user-mapping row whose options were unreadable via pg_user_mappings on
+  // either side (extraction-time warning, USER_MAPPING_UNREADABLE — see
+  // src/extract/foreign.ts) has an UNKNOWN true state on that side. A warning
+  // alone doesn't protect anything here: if only one side's extraction could
+  // see the mapping, the other side's missing fact reads as an intentional
+  // add/remove and would otherwise plan a wrong CREATE/DROP USER MAPPING
+  // (Codex P1 on PR #338). Escalate to fatal exactly when a delta that would
+  // actually produce an action touches one of these subjects — checked
+  // against `deltas` (the KEPT, post-policy-filter list that actually drives
+  // actions; `filteredDeltas` is the policy-EXCLUDED complement — see
+  // buildChangeSet's `{ kept: deltas, filtered: filteredDeltas }`), so a
+  // policy that excludes user mappings entirely keeps planning legal. Hidden
+  // on BOTH sides means no delta ever touches the subject (nothing to diff),
+  // so planning proceeds.
+  //
+  // The same blind spot applies one level up (Codex P2s, PR #338): a DROP of
+  // the mapping's containing server, or of its (non-PUBLIC) mapped role,
+  // implicitly destroys the hidden mapping too — CASCADE-style — without any
+  // delta ever naming the mapping directly. So a `remove` delta on either is
+  // ALSO gated. Remove-verb ONLY: ALTERs / owner changes on the server or
+  // role don't destroy the mapping, so gating them would be pure
+  // over-blocking with no correctness benefit (zero-over-block property). A
+  // source-side unreadable diagnostic already PROVES the mapping exists, so a
+  // source-side DROP SERVER/ROLE is guaranteed to fail at apply regardless
+  // (FK-style: Postgres won't let you drop a server/role a mapping still
+  // references) — refusing in plan() just surfaces that earlier and louder.
+  //
+  // KNOWN LIMITATION (deliberately not handled here, tracked as a follow-up):
+  // a role RENAME combined with a one-side-hidden mapping. Rename-carry logic
+  // cancels the resulting remove/add pair into a single rename action before
+  // this gate runs on raw deltas from the ORIGINAL role name, so a renamed
+  // role is invisible to the `unreadableRoles` name-set built below in that
+  // case. In the realistic direction (the mapping is hidden on the SOURCE
+  // side), this still fails safely — apply cannot rename a role a hidden
+  // mapping references, for the same FK-style reason as a DROP. The only
+  // truly gap is a hidden mapping combined with a rename that requires an
+  // atypical desired-side privilege inversion, which is not addressed by a
+  // rename-aware translation here.
+  //
+  // KNOWN LIMITATION #2 (Codex P1, PR #338 comment 3603601149 — documented,
+  // NOT gated): a DESIRED-side unreadable mapping whose containing server (or
+  // FDW/role) doesn't exist on the SOURCE side at all. The resulting `add`
+  // deltas for the container (CREATE FDW / CREATE SERVER / CREATE ROLE) are
+  // NOT gated, so plan() proceeds and simply omits the un-creatable CREATE
+  // USER MAPPING (the mapping fact itself was never added to the desired
+  // FactBase — it was skipped as unreadable). This is deliberate: the gate
+  // family above protects PHYSICAL safety (destroying/failing-to-apply
+  // something that already exists); this case is a DESIRED-STATE FIDELITY
+  // problem instead — the delta belongs to the server/role, but the
+  // manageability question belongs to the mapping, so blocking the
+  // container's `add` here would be a policy-projection layering violation,
+  // not a safety fix. It's silent-but-visible: the extraction-time
+  // USER_MAPPING_UNREADABLE diagnostic already prints (and is a candidate for
+  // the #340 reporting channel to surface more prominently); nothing here
+  // fabricates or corrupts state. The SOURCE-side analogue is vacuous — a
+  // source-side unreadable diagnostic, by construction, means the container
+  // exists on source (extraction reached it to emit the diagnostic), so an
+  // `add` for it can never occur from that side.
+  const unreadableMappingSubjects = new Set<string>();
+  const unreadableServers = new Set<string>();
+  const unreadableRoles = new Set<string>();
+  for (const d of [...rawSource.diagnostics, ...rawDesired.diagnostics]) {
+    if (d.code !== USER_MAPPING_UNREADABLE || d.subject === undefined) {
+      continue;
+    }
+    const subject = d.subject as {
+      kind: "userMapping";
+      server: string;
+      role: string;
+    };
+    unreadableMappingSubjects.add(encodeId(subject));
+    unreadableServers.add(subject.server);
+    if (subject.role !== "PUBLIC") unreadableRoles.add(subject.role);
+  }
+  if (unreadableMappingSubjects.size > 0) {
+    const touched = new Map<string, { id: StableId; relation: string }>();
+    for (const delta of deltas) {
+      const id = subjectOf(delta);
+      const key = encodeId(id);
+      if (unreadableMappingSubjects.has(key)) {
+        touched.set(key, { id, relation: "mapping" });
+        continue;
+      }
+      if (delta.verb === "remove") {
+        if (id.kind === "server" && unreadableServers.has(id.name)) {
+          touched.set(key, {
+            id,
+            relation: "server of an unreadable mapping",
+          });
+        } else if (id.kind === "role" && unreadableRoles.has(id.name)) {
+          touched.set(key, { id, relation: "role of an unreadable mapping" });
+        }
+        continue;
+      }
+      // A "replace"-class attribute (server.type / server.fdw — see
+      // rules/foreign.ts) never in-place ALTERs: expandReplacements (below,
+      // after this gate) turns a `set` delta on one into DROP + CREATE,
+      // which destroys the hidden mapping exactly like an explicit DROP
+      // SERVER would (Codex P2, PR #338 comment 3602512706). Gate it the
+      // same way, using the SAME rule table the expander itself consults
+      // (`rulesForId`, built above) so the two can never drift. Non-replace
+      // attributes (version, options, owner) genuinely in-place ALTER and
+      // leave the mapping alone — must stay ungated (zero-over-block).
+      if (
+        delta.verb === "set" &&
+        id.kind === "server" &&
+        unreadableServers.has(id.name) &&
+        rulesForId(id).attributes[delta.attr] === "replace"
+      ) {
+        touched.set(key, {
+          id,
+          relation: "server of an unreadable mapping (replaced)",
+        });
+      }
+    }
+    if (touched.size > 0) {
+      const lines = [...touched.values()]
+        .map(({ id, relation }) => {
+          if (id.kind === "userMapping") {
+            const m = id as { server: string; role: string };
+            return `${m.server}/${m.role} (mapping)`;
+          }
+          const named = id as { name: string };
+          return `${named.name} (${relation})`;
+        })
+        .sort();
+      throw new Error(
+        `plan: the state of these user mappings is unknown on one side (options unreadable via pg_user_mappings) — refusing to plan changes touching them, their containing server, or their mapped role; extract with a role that can read pg_user_mapping:\n` +
+          lines.map((n) => `  - ${n}`).join("\n"),
+      );
+    }
+  }
 
   // serialize params are emission-time setup, independent of the change set.
   const params: PlanParams = options?.params ?? {};

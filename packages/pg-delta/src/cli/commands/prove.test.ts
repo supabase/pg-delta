@@ -8,7 +8,7 @@
  * formatter must surface every failure category, mirroring the corpus runner.
  */
 import { describe, expect, test } from "bun:test";
-import { formatProofFailure } from "./prove.ts";
+import { formatProofFailure, formatProofPassCaveat } from "./prove.ts";
 import type { ProofVerdict } from "../../proof/prove.ts";
 
 const baseVerdict = (): ProofVerdict => ({
@@ -41,5 +41,23 @@ describe("formatProofFailure (review P2)", () => {
     };
     // render.ts rel() must quote each part — not split a dotted string
     expect(formatProofFailure(verdict)).toContain(`"a.b"."c"`);
+  });
+});
+
+describe("formatProofPassCaveat (PR #338 comment 3603601155, drift parity)", () => {
+  test("no diagnostics on the desired snapshot — no suffix", () => {
+    expect(formatProofPassCaveat(0)).toBe("");
+  });
+
+  test("one diagnostic — singular, with count", () => {
+    expect(formatProofPassCaveat(1)).toBe(
+      " (1 diagnostic on the desired snapshot — see above)",
+    );
+  });
+
+  test("multiple diagnostics — plural, with count", () => {
+    expect(formatProofPassCaveat(3)).toBe(
+      " (3 diagnostics on the desired snapshot — see above)",
+    );
   });
 });
