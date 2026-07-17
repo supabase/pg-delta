@@ -344,6 +344,15 @@ export interface ExtractContext {
   facts: Fact[];
   edges: DependencyEdge[];
   diagnostics: Diagnostic[];
+  /** Diagnostics that must ALSO ride on the resulting `FactBase` (not just
+   *  `ExtractResult.diagnostics`), because `plan()` reads `FactBase.diagnostics`
+   *  to gate against a delta it cannot trust (mirrors how extension-handler
+   *  diagnostics are threaded — see extract.ts). Push here instead of
+   *  `diagnostics` when a downstream `plan()` gate needs to see it; the
+   *  orchestrator copies this onto `factBase.diagnostics` right after
+   *  construction, which the final step then folds into `diagnostics` too, so
+   *  every consumer still sees it exactly once. */
+  factDiagnostics: Diagnostic[];
   /** When false, sensitive option values and subscription conninfo are kept in
    *  cleartext in the fact base (and therefore in every downstream channel).
    *  Default true; see sensitive-options.ts and extract.ts. */
@@ -372,6 +381,7 @@ export function createExtractContext(
   const facts: Fact[] = [];
   const edges: DependencyEdge[] = [];
   const diagnostics: Diagnostic[] = [];
+  const factDiagnostics: Diagnostic[] = [];
 
   const q = async (sql: string): Promise<Row[]> => {
     try {
@@ -493,6 +503,7 @@ export function createExtractContext(
     facts,
     edges,
     diagnostics,
+    factDiagnostics,
     redactSecrets,
     pushWithMeta,
     pushMemberEdge,
