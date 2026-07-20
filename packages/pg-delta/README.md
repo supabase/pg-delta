@@ -122,7 +122,10 @@ The proof loop now verifies the two safety fields state-proof alone can't
 see (§3.7): **rewrite risk** is observed on the clone (a kept table whose
 `relfilenode` changed under no `rewriteRisk`-declaring action fails the
 proof) and **data preservation** can be sharpened with opt-in `autoSeed`
-(synthetic rows in empty kept tables). Per-kind graph policy
+(synthetic rows in empty kept tables), which now reports a per-table
+outcome on the verdict (`seedOutcomes`: `seeded` / class-23 `skipped` /
+`failed`) so an unseedable table is never confused with one that failed
+for a reason nobody saw. Per-kind graph policy
 (cascade/rebuild/suppression/defacl) lives entirely in the rule table as
 `KindRules` flags — the planner body holds no kind-name lists (guardrail 3).
 

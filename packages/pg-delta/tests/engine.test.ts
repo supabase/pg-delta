@@ -14,7 +14,8 @@ import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
 import { probeApplierCapability } from "../src/policy/capability.ts";
 import { rel } from "../src/plan/render.ts";
-import { provePlan } from "../src/proof/prove.ts";
+import { provePlan, type ProofVerdict } from "../src/proof/prove.ts";
+import { isSeedSkipAllowed } from "./autoseed-allowlist.ts";
 import { loadCorpus, type Scenario } from "./corpus.ts";
 import {
   isolatedClusterPair,
@@ -23,8 +24,70 @@ import {
 } from "./containers.ts";
 import { EXPECTED_RED } from "./expected-red.ts";
 
+/**
+ * Enforce the corpus auto-seed coverage contract on a proof verdict.
+ *  - a `failed` seed outcome (anything NOT class-23 — a raised exception,
+ *    connection/permission error, …) fails the scenario loudly; it is never
+ *    allowlistable.
+ *  - a class-23 `skipped` outcome is tolerated ONLY when its precise
+ *    { scenario, direction, table, reasonCode } key is in the checked-in
+ *    allowlist (tests/autoseed-allowlist.ts); an unlisted skip fails the
+ *    scenario so newly-lost data-preservation coverage can't slip in silently.
+ * A `SEED_AUDIT {json}` line is written to fd 2 before failing so a full corpus
+ * run yields ready-to-paste allowlist keys.
+ */
+function enforceSeedCoverage(
+  scenarioName: string,
+  direction: "forward" | "reverse",
+  label: string,
+  verdict: ProofVerdict,
+): void {
+  const outcomes = verdict.seedOutcomes ?? [];
+  if (outcomes.length === 0) return;
+  const coverageMode = (t: { schema: string; name: string }): string =>
+    verdict.coverage.perTable.find(
+      (p) => p.table.schema === t.schema && p.table.name === t.name,
+    )?.contentMode ?? "none";
+  const violations: string[] = [];
+  for (const o of outcomes) {
+    if (o.status === "seeded") continue;
+    if (o.status === "failed") {
+      writeSync(
+        2,
+        `SEED_AUDIT ${JSON.stringify({ status: "failed", scenario: scenarioName, direction, table: o.table, reasonCode: o.reasonCode ?? null })}\n`,
+      );
+      violations.push(
+        `  FAILED seed ${rel(o.table.schema, o.table.name)} ` +
+          `(coverage=${coverageMode(o.table)}, sqlstate=${o.reasonCode ?? "none"}): ${o.message}`,
+      );
+      continue;
+    }
+    // class-23 skip: tolerated only if declared in the allowlist
+    if (isSeedSkipAllowed(scenarioName, direction, o.table, o.reasonCode)) {
+      continue;
+    }
+    writeSync(
+      2,
+      `SEED_AUDIT ${JSON.stringify({ status: "skipped", scenario: scenarioName, direction, table: o.table, reasonCode: o.reasonCode })}\n`,
+    );
+    violations.push(
+      `  UNLISTED class-23 skip ${rel(o.table.schema, o.table.name)} ` +
+        `(coverage=${coverageMode(o.table)}, sqlstate=${o.reasonCode}) — ` +
+        `add to tests/autoseed-allowlist.ts if genuinely unseedable`,
+    );
+  }
+  if (violations.length > 0) {
+    throw new Error(
+      `[${label}] autoSeed coverage contract violated ` +
+        `(scenario=${scenarioName}, direction=${direction}):\n${violations.join("\n")}`,
+    );
+  }
+}
+
 async function proveOn(
   name: string,
+  scenarioName: string,
+  direction: "forward" | "reverse",
   clusterA: Cluster,
   clusterB: Cluster,
   fromSql: string,
@@ -74,7 +137,15 @@ async function proveOn(
         thePlan,
         clone.pool,
         desiredState.factBase,
+        {
+          // corpus-only flip (P3): the library default stays opt-in. Seeding every
+          // empty kept table gives the data-preservation proof teeth even for
+          // scenarios that ship no seed.sql; the coverage contract below then
+          // requires every non-seed to be an EXPECTED class-23 skip.
+          autoSeed: true,
+        },
       );
+      enforceSeedCoverage(scenarioName, direction, name, verdict);
       if (!verdict.ok) {
         const planText = thePlan.actions
           .map((a, i) => `  ${i}: ${a.sql}`)
@@ -138,7 +209,16 @@ async function runDirection(
       clusterB.listRoles(),
     ]);
     try {
-      await proveOn(label, clusterA, clusterB, fromSql, toSql, seed);
+      await proveOn(
+        label,
+        scenario.name,
+        direction,
+        clusterA,
+        clusterB,
+        fromSql,
+        toSql,
+        seed,
+      );
     } finally {
       await Promise.all([
         clusterA.dropRolesExcept(baseA),
@@ -152,7 +232,16 @@ async function runDirection(
   if (scenario.meta.minVersion !== undefined) {
     if ((await cluster.pgMajor()) < scenario.meta.minVersion) return;
   }
-  await proveOn(label, cluster, cluster, fromSql, toSql, seed);
+  await proveOn(
+    label,
+    scenario.name,
+    direction,
+    cluster,
+    cluster,
+    fromSql,
+    toSql,
+    seed,
+  );
 }
 
 async function runPinnedOrProve(

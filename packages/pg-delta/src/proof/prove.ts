@@ -29,6 +29,23 @@ export interface TableRef {
   name: string;
 }
 
+/** The result of best-effort auto-seeding one empty kept table (opt-in via
+ *  `ProveOptions.autoSeed`). Taxonomy is by SQLSTATE class, NOT string matching:
+ *  - `seeded` — a synthetic `DEFAULT VALUES` row landed; the table now has
+ *    content-fingerprint coverage in the data-preservation check.
+ *  - `skipped` — the insert hit a class-23 integrity-constraint violation
+ *    (`reasonCode` = the SQLSTATE: `23502` NOT NULL w/o default, `23503` FK,
+ *    `23505` unique, `23514` check, any `23xxx`). Genuinely unseedable with
+ *    defaults — expected, not a defect; the table keeps `contentMode: "none"`.
+ *  - `failed` — anything else (a raised exception, connection/syntax/permission
+ *    error, or a driver error with no code): a real problem the caller must see
+ *    rather than have swallowed. `reasonCode` is the SQLSTATE when the driver
+ *    supplied one, and `message` is the error text. */
+export type SeedOutcome =
+  | { table: TableRef; status: "seeded" }
+  | { table: TableRef; status: "skipped"; reasonCode: string }
+  | { table: TableRef; status: "failed"; reasonCode?: string; message: string };
+
 export interface ProofVerdict {
   ok: boolean;
   applyError?: { actionIndex: number; sql: string; message: string };
@@ -49,6 +66,12 @@ export interface ProofVerdict {
   /** what the proof actually verified, per table — honest coverage instead of
    *  a bare boolean (review #3). `ok` is backed by this. */
   coverage: ProofCoverage;
+  /** per-table auto-seed outcomes, present ONLY when `options.autoSeed` was set
+   *  (seeding runs before the plan is applied, so this is populated even on the
+   *  apply-failure early return). Lets a harness tell a genuinely-unseedable
+   *  table (`skipped`, class-23) apart from one that failed for a reason nobody
+   *  saw (`failed`) instead of both collapsing to `contentMode: "none"`. */
+  seedOutcomes?: SeedOutcome[];
 }
 
 export interface TableCoverage {
@@ -248,20 +271,38 @@ function tablesReferencedBy(action: Action): Set<string> {
 async function autoSeedEmptyTables(
   pool: Pool,
   candidates: Iterable<string>,
-): Promise<void> {
+): Promise<SeedOutcome[]> {
+  const outcomes: SeedOutcome[] = [];
   for (const table of candidates) {
     const [schema, name] = parseRelKey(table);
-    // best-effort: DEFAULT VALUES only succeeds when every column is
-    // nullable or defaulted; skip tables it can't satisfy (NOT NULL
-    // without default, etc.) rather than fabricating typed values
+    const ref: TableRef = { schema, name };
+    // best-effort: DEFAULT VALUES only succeeds when every column is nullable
+    // or defaulted. Classify the failure by SQLSTATE class, not string match:
+    // a class-23 integrity-constraint violation (NOT NULL w/o default, FK,
+    // unique, check) is an EXPECTED "unseedable" → `skipped`; anything else (a
+    // raised exception, connection/syntax/permission error, unknown) is a real
+    // problem → `failed`, so it can't hide behind `contentMode: "none"`.
     try {
       await pool.query(
         `INSERT INTO ${qte(schema)}.${qte(name)} DEFAULT VALUES`,
       );
-    } catch {
-      // not insertable with defaults — skip (recorded as no coverage)
+      outcomes.push({ table: ref, status: "seeded" });
+    } catch (err) {
+      const rawCode = (err as { code?: unknown }).code;
+      const code = typeof rawCode === "string" ? rawCode : undefined;
+      if (code !== undefined && code.startsWith("23")) {
+        outcomes.push({ table: ref, status: "skipped", reasonCode: code });
+      } else {
+        outcomes.push({
+          table: ref,
+          status: "failed",
+          ...(code !== undefined ? { reasonCode: code } : {}),
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
+  return outcomes;
 }
 
 /**
@@ -419,12 +460,15 @@ export async function provePlan(
   }
   for (const from of renamedTables.keys()) recreatedTables.delete(from);
 
+  // populated only when autoSeed ran, so it stays out of the verdict entirely
+  // on the default opt-out path (present ⇒ autoSeed was requested).
+  let seedOutcomes: SeedOutcome[] | undefined;
   if (options.autoSeed) {
     const present = await tableStats(clonePool);
     const empty = [...present]
       .filter(([t, s]) => s.rows === 0 && !recreatedTables.has(t))
       .map(([t]) => t);
-    await autoSeedEmptyTables(clonePool, empty);
+    seedOutcomes = await autoSeedEmptyTables(clonePool, empty);
   }
 
   const before = await tableStats(clonePool);
@@ -439,6 +483,9 @@ export async function provePlan(
       dataViolations: [],
       rewriteViolations: [],
       coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+      // seeding already happened before apply, so report it even on this
+      // early return (the caller's coverage gate still wants to see it).
+      ...(seedOutcomes !== undefined ? { seedOutcomes } : {}),
     };
   }
   // same redaction mode the plan was fingerprinted with (Plan.redactSecrets,
@@ -518,5 +565,6 @@ export async function provePlan(
     dataViolations,
     rewriteViolations,
     coverage,
+    ...(seedOutcomes !== undefined ? { seedOutcomes } : {}),
   };
 }
