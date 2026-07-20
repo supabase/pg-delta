@@ -1,5 +1,6 @@
 import type { Change } from "../change.types.ts";
 import { CreateSequence } from "../objects/sequence/changes/sequence.create.ts";
+import { DropSequence } from "../objects/sequence/changes/sequence.drop.ts";
 import { stableId } from "../objects/utils.ts";
 import { findConsumerIndexes } from "./graph-utils.ts";
 import type { Edge, GraphData } from "./types.ts";
@@ -87,19 +88,21 @@ function shouldFilterSequenceOwnershipDependency(
     graphData.changeIndexesByExplicitRequirementId,
   );
 
-  // Check if any CreateSequence change creates a sequence that is owned by
+  // Check if any CreateSequence/DropSequence change carries a sequence owned by
   // the referenced table/column. If so, filter this ownership dependency edge.
   for (const changeIndex of changesInvolvingSequence) {
     const change = phaseChanges[changeIndex];
 
-    // Only filter edges from CreateSequence changes, not AlterSequenceSetOwnedBy.
-    // AlterSequenceSetOwnedBy is a separate change that sets ownership after
-    // both the sequence and table exist, so it doesn't create the cycle.
-    if (!(change instanceof CreateSequence)) {
+    // Only filter edges from sequence lifecycle changes, not
+    // AlterSequenceSetOwnedBy. Ownership is set after both objects exist.
+    if (
+      !(change instanceof CreateSequence) &&
+      !(change instanceof DropSequence)
+    ) {
       continue;
     }
 
-    // Check if this CreateSequence creates a sequence owned by the referenced table/column
+    // Check if this change's sequence is owned by the referenced table/column.
     if (isSequenceOwnedBy(change.sequence, referencedStableId)) {
       return true; // Filter this edge to break the cycle
     }

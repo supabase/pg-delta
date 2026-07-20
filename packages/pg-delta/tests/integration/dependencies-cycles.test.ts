@@ -18,7 +18,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       "sequence owned by column cycle with table default",
       withDb(pgVersion, async (db) => {
         /**
-         * This test identifies the ONLY current cycle we have when sorting statements:
+         * This test covers the create-phase sequence ownership cycle:
          *
          * CYCLE DESCRIPTION:
          * - A sequence is owned by a table column (via OWNED BY)
@@ -84,6 +84,48 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               deptype: "a", // auto dependency for ownership
             },
           ] as PgDepend[],
+        });
+      }),
+    );
+
+    test(
+      "drop an owned sequence while rewriting its surviving column",
+      withDb(pgVersion, async (db) => {
+        /**
+         * CYCLE SCENARIO:
+         * The source sequence is owned by a column whose default references it.
+         * The target removes the sequence and default while changing the column
+         * type, so the main catalog contributes dependencies in both directions.
+         *
+         * HOW IT IS BROKEN:
+         * Filtering the ownership edge leaves the default dependency to order the
+         * column changes before the sequence drop.
+         */
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+            CREATE SCHEMA test_schema;
+            CREATE SEQUENCE test_schema.items_id_seq;
+            CREATE TABLE test_schema.items (
+              id bigint NOT NULL DEFAULT nextval('test_schema.items_id_seq')
+            );
+            ALTER SEQUENCE test_schema.items_id_seq OWNED BY test_schema.items.id;
+          `,
+          testSql: `
+            ALTER TABLE test_schema.items ALTER COLUMN id DROP DEFAULT;
+            DROP SEQUENCE test_schema.items_id_seq;
+            ALTER TABLE test_schema.items ALTER COLUMN id TYPE numeric USING id::numeric;
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toMatchInlineSnapshot(`
+              [
+                "ALTER TABLE test_schema.items ALTER COLUMN id DROP DEFAULT",
+                "ALTER TABLE test_schema.items ALTER COLUMN id TYPE numeric USING id::numeric",
+                "DROP SEQUENCE test_schema.items_id_seq CASCADE",
+              ]
+            `);
+          },
         });
       }),
     );

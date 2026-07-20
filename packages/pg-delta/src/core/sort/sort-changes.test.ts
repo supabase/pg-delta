@@ -4,6 +4,8 @@ import type { Change } from "../change.types.ts";
 import type { PgDepend } from "../depend.ts";
 import { AlterPublicationDropTables } from "../objects/publication/changes/publication.alter.ts";
 import { Publication } from "../objects/publication/publication.model.ts";
+import { DropSequence } from "../objects/sequence/changes/sequence.drop.ts";
+import { Sequence } from "../objects/sequence/sequence.model.ts";
 import {
   AlterTableAlterColumnType,
   AlterTableDropConstraint,
@@ -228,6 +230,67 @@ describe("sortChanges", () => {
       "DropView",
       "AlterTableAlterColumnType",
       "CreateView",
+    ]);
+  });
+
+  test("breaks the cycle between dropping an owned sequence and rewriting its column", async () => {
+    const branchTable = table("items");
+    const mainColumn = {
+      ...integerColumn("id", 1),
+      not_null: true,
+      data_type: "bigint",
+      data_type_str: "bigint",
+    };
+    const branchColumn = {
+      ...mainColumn,
+      data_type: "numeric",
+      data_type_str: "numeric",
+    };
+    const sequence = new Sequence({
+      schema: "public",
+      name: "items_id_seq",
+      data_type: "bigint",
+      start_value: 1,
+      minimum_value: 1n,
+      maximum_value: 9223372036854775807n,
+      increment: 1,
+      cycle_option: false,
+      cache_size: 1,
+      persistence: "p",
+      owned_by_schema: "public",
+      owned_by_table: "items",
+      owned_by_column: "id",
+      comment: null,
+      privileges: [],
+      owner: "postgres",
+    });
+    const changes: Change[] = [
+      new DropSequence({ sequence }),
+      new AlterTableAlterColumnType({
+        table: branchTable,
+        column: branchColumn,
+        previousColumn: mainColumn,
+      }),
+    ];
+    const mainCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: "column:public.items.id",
+        referenced_stable_id: "sequence:public.items_id_seq",
+        deptype: "n",
+      },
+      {
+        dependent_stable_id: "sequence:public.items_id_seq",
+        referenced_stable_id: "column:public.items.id",
+        deptype: "a",
+      },
+    ]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+
+    expect(sorted.map(changeLabel)).toEqual([
+      "AlterTableAlterColumnType",
+      "DropSequence",
     ]);
   });
 
