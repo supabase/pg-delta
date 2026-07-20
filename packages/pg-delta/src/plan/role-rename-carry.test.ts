@@ -4,6 +4,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { Delta } from "../core/diff.ts";
+import { buildFactBase, type Fact } from "../core/fact.ts";
 import {
   ALL_FACT_KINDS,
   encodeId,
@@ -18,8 +19,97 @@ import {
   ROLE_NAME_BEARING_KINDS,
   roleNamesIn,
 } from "./role-rename-carry.ts";
+import { plan } from "./plan.ts";
 
 const rename = new Map([["r1", "r2"]]);
+
+const rolePayload = () => ({
+  superuser: false,
+  inherit: true,
+  createRole: false,
+  createDb: false,
+  login: false,
+  replication: false,
+  bypassRls: false,
+  config: ["statement_timeout=42424ms"],
+});
+
+const schema: StableId = { kind: "schema", name: "app" };
+const table: StableId = { kind: "table", schema: "app", name: "docs" };
+const policy: StableId = {
+  kind: "policy",
+  schema: "app",
+  table: "docs",
+  name: "docs_read",
+};
+
+const policyFact = (role: string): Fact => ({
+  id: policy,
+  parent: table,
+  payload: {
+    cmd: "r",
+    permissive: true,
+    roles: [role],
+    usingExpr: "true",
+    checkExpr: null,
+  },
+});
+
+const rolePolicyBase = (role: string, includeRole = true) =>
+  buildFactBase(
+    [
+      ...(includeRole
+        ? [
+            {
+              id: { kind: "role", name: role } as StableId,
+              payload: rolePayload(),
+            },
+          ]
+        : []),
+      { id: schema, payload: {} },
+      { id: table, parent: schema, payload: { persistence: "p" } },
+      policyFact(role),
+    ],
+    [],
+  );
+
+describe("accepted role rename + policy role payload (B1)", () => {
+  test("orders the rename before ALTER POLICY without a dependency cycle", () => {
+    let thePlan!: ReturnType<typeof plan>;
+    expect(() => {
+      thePlan = plan(rolePolicyBase("role_a"), rolePolicyBase("role_b"), {
+        renames: "auto",
+        compact: false,
+      });
+    }).not.toThrow();
+
+    expect(thePlan.actions.map((action) => action.sql)).toMatchInlineSnapshot(`
+      [
+        "ALTER ROLE \"role_a\" RENAME TO \"role_b\"",
+        "ALTER POLICY \"docs_read\" ON \"app\".\"docs\" TO \"role_b\"",
+      ]
+    `);
+  });
+
+  test("still releases a genuinely dropped role before DROP ROLE", () => {
+    const source = rolePolicyBase("role_a");
+    const desired = rolePolicyBase("PUBLIC", false);
+    const thePlan = plan(source, desired, {
+      renames: "auto",
+      compact: false,
+    });
+
+    const alterPolicy = thePlan.actions.findIndex((action) =>
+      action.sql.startsWith('ALTER POLICY "docs_read"'),
+    );
+    const dropRole = thePlan.actions.findIndex((action) =>
+      action.sql.includes('DROP ROLE "role_a"'),
+    );
+    expect(alterPolicy).toBeGreaterThanOrEqual(0);
+    expect(dropRole).toBeGreaterThanOrEqual(0);
+    expect(alterPolicy).toBeLessThan(dropRole);
+  });
+});
 
 describe("relabelRoleNames", () => {
   test("remaps a bare role id", () => {
