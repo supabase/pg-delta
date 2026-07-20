@@ -30,9 +30,11 @@ day one rather than asserted after the fact.
 | 9 — renames & API | Rename detection over structural rollups, the reviewed public API, and the CLI. |
 | 10 — cutover | *Forward-looking* — the parity bar that gates switching consumers over (see [roadmap/post-v1.md](roadmap/post-v1.md)). |
 
-Result: **−79% source LOC, one rule table instead of ~100 change classes, and a
-correctness guarantee the old engine never had.** The numbers are in
-[overview.md](overview.md).
+Result (rewrite-era snapshot at first engine-complete cut): **−79% source LOC,
+one rule table instead of ~100 change classes, and a correctness guarantee the
+old engine never had.** Current measured size (three budgets + corpus count)
+lives in [overview.md](overview.md) §4 — do not treat the rewrite-era −79% as
+today’s package total.
 
 ---
 

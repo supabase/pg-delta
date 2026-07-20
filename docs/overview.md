@@ -7,13 +7,16 @@
 > works** before shipping it. `pg-delta` is a clean-room rebuild on a single
 > idea — *let PostgreSQL be the only thing that understands PostgreSQL* — and a
 > single safety net: **every migration is applied to a throwaway clone and
-> proven to converge, with your data intact, before you trust it.** The result is
-> **~11,500 lines (79% smaller)**, one rule table instead of ~100 hand-written
+> proven to converge, with your data intact, before you trust it.** At rewrite
+> cutover the engine was **~11,500 lines (79% smaller)** — a **rewrite-era
+> snapshot**. As of **2026-07-21** the published package is **~27.1k non-test
+> LOC / 107 files** (engine slice ~16.2k; product surface ~10.8k including
+> ~3.8k `sql-format`; see §4), with one rule table instead of ~100 hand-written
 > change classes, a correctness guarantee the old engine never had, and — as of
 > the first performance pass — **4.2× faster extraction**.
 
 - **Audience**: engineers, reviewers, and decision-makers evaluating the rewrite.
-- **Status**: engine code-complete and proven on a **210-scenario corpus (420
+- **Status**: engine code-complete and proven on a **316-scenario corpus (632
   cases, both directions)** across PostgreSQL 15/17/18 — all green; cutting v1 on
   correctness. See [roadmap/v1.md](roadmap/v1.md).
 - **Deep design**: [architecture/target-architecture.md](architecture/target-architecture.md)
@@ -93,8 +96,8 @@ pie title Old pg-delta source: 53,933 LOC across 341 files
 **The per-type object layer alone is 31,162 LOC across 256 files — 58% of the
 source, 75% of the files** — and roughly two-thirds of it is structurally
 identical create/alter/drop/privilege/comment/security-label handling, repeated
-once per object type. That single directory is **~2.7× the size of the entire
-new engine**.
+once per object type. That single directory is **~2.7× the rewrite-era new
+engine (~11.5k)** and still **~1.9× today's engine slice (~16.2k)**.
 
 ---
 
@@ -109,9 +112,13 @@ your `.sql` files). The engine never parses SQL to *understand* it. There is one
 semantic engine, not three. (Static analysis survives only as a dev-time
 convenience, never in the trusted path.)
 
-**P2 — PostgreSQL knowledge lives in exactly two forms:** (1) the **extraction
-queries** that turn a catalog into facts, and (2) the **rule table** that turns a
-fact-level change into DDL. Eight forms collapse to two.
+**P2 — On the trusted diff path, PostgreSQL knowledge lives in two forms:** (1)
+the **extraction queries** that turn a catalog into facts, and (2) the **rule
+table** that turns a fact-level change into DDL. Eight forms collapse to two
+*there* — generic diff is kind-free. The **planner phases** that consume the
+rule table remain per-kind orchestration (not a third semantic engine). Do not
+read this as a package-wide claim that all PostgreSQL knowledge lives in only
+those two forms.
 
 ---
 
@@ -155,16 +162,19 @@ exactly the plan you run.
 
 ## 4. Old vs new, by the numbers
 
-All figures verified against the working tree (`packages/pg-delta` vs
-`packages/pg-delta`), source files only (excluding `*.test.ts`).
+### Rewrite-era snapshot
 
-| Dimension | OLD engine | NEW engine (`pg-delta`) | Change |
+Figures at first engine-complete cut (source only, excluding `*.test.ts`). Keep
+these as the historical “79% smaller” claim — they are **not** today’s package
+size.
+
+| Dimension | OLD engine | NEW engine (rewrite-era) | Change |
 |---|---:|---:|---|
 | Source LOC (non-test) | 53,933 | 11,471 | **−79%** |
 | Source files | 341 | 46 | **−87%** |
 | `objects/` per-type code | 256 files / 31,162 LOC | one rule table / 2,183 LOC | **−93% LOC** |
 | Semantic engines | 3 (catalog + libpg-query + round-retry) | 1 (PostgreSQL itself) | **−2** |
-| Forms of PG knowledge | 8 | 2 | **−6** |
+| Forms of PG knowledge (diff path) | 8 | 2 (extract + rule table; planner phases remain) | **−6 on the diff path** |
 | Per-type diff functions | 21 | 0 (generic diff) | **eliminated** |
 | Hand-written change classes | ~100 | 0 (data-driven rules) | **eliminated** |
 | Cycle-breaker code | 3 hand-written breakers | 0 (cycles can't form) | **eliminated** |
@@ -173,6 +183,27 @@ All figures verified against the working tree (`packages/pg-delta` vs
 | Serialize escape-hatch params | many (`skipSchema`, `skipAuthorization`, …) | 1 (`concurrentIndexes`) | **collapsed** |
 | libpg-query / WASM in trusted path | yes (hard dependency) | no (dev-time only) | **removed** |
 | Extract latency (~12k-object catalog) | ~1.88 s | ~0.45 s | **−76% (4.2×)** |
+
+### Size today (measured 2026-07-21)
+
+Non-test `packages/pg-delta/src` (`find … ! -name '*.test.ts' | xargs wc -l`):
+
+| Budget | Scope | LOC |
+|---|---|---:|
+| **Engine slice** | `core` + `extract` + `plan` + `proof` + `apply` + `policy` + `integrations` | **16,186** |
+| **Product surface** | `frontends` + `cli` | **10,768** |
+| **Published package total** | all non-test `src/` (incl. root `index.ts`) | **27,095** / **107** files |
+
+**Engine LOC** excludes `frontends/sql-format` (**3,842** LOC), which sits in
+the product-surface budget. Boundary: `./sql-format` is a package subpath export
+(`package.json`); the root index re-exports no sql-format **symbols**, but root
+consumers **do** load the formatter transitively via `exportSqlFiles` →
+`formatSqlStatements`. Only focused-subpath consumers (`/core`, `/plan`, …)
+reliably avoid loading it — do not claim that root imports “never load the
+formatter.”
+
+**Corpus today:** **316** scenarios × 2 directions (**632** cases) under
+`packages/pg-delta/corpus`.
 
 ```mermaid
 flowchart LR
@@ -193,10 +224,10 @@ flowchart LR
 
 The old engine carried **~34,000 lines of tests** — largely per-type unit tests
 asserting exact SQL strings. The new engine proves correctness *behaviourally*
-instead, behaviourally: a **210-scenario corpus, run in both directions (build
-and teardown) under the full proof loop, on PostgreSQL 15, 17 and 18** (420
-cases per version — all green), plus a **differential harness** and
-a **generative soak** (below). Correctness is demonstrated by "apply it and
+instead: a **316-scenario corpus, run in both directions (build and teardown)
+under the full proof loop, on PostgreSQL 15, 17 and 18** (632 cases per version
+— all green; measured 2026-07-21), plus a **differential harness** and a
+**generative soak** (below). Correctness is demonstrated by "apply it and
 re-extract — does it match?", not by pinning byte strings.
 
 - **Differential harness** — runs the new and the old engine over the same corpus
