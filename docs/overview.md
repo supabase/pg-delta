@@ -17,8 +17,9 @@
 
 - **Audience**: engineers, reviewers, and decision-makers evaluating the rewrite.
 - **Status**: engine code-complete and proven on a **316-scenario corpus (632
-  cases, both directions)** across PostgreSQL 15/17/18 — all green; cutting v1 on
-  correctness. See [roadmap/v1.md](roadmap/v1.md).
+  cases, both directions)** across PostgreSQL 14–18 — all green (one
+  `EXPECTED_RED` pin on PG16+ for a known teardown); cutting v1 on correctness.
+  See [roadmap/v1.md](roadmap/v1.md).
 - **Deep design**: [architecture/target-architecture.md](architecture/target-architecture.md)
   (the north star) and [architecture/managed-view-architecture.md](architecture/managed-view-architecture.md).
 
@@ -225,10 +226,11 @@ flowchart LR
 The old engine carried **~34,000 lines of tests** — largely per-type unit tests
 asserting exact SQL strings. The new engine proves correctness *behaviourally*
 instead: a **316-scenario corpus, run in both directions (build and teardown)
-under the full proof loop, on PostgreSQL 15, 17 and 18** (632 cases per version
-— all green; measured 2026-07-21), plus a **differential harness** and a
-**generative soak** (below). Correctness is demonstrated by "apply it and
-re-extract — does it match?", not by pinning byte strings.
+under the full proof loop, on PostgreSQL 14–18** (632 cases per version —
+all green aside from one pinned `EXPECTED_RED` teardown on PG16+; measured
+2026-07-21), plus a **differential harness** and a **generative soak**
+(below). Correctness is demonstrated by "apply it and re-extract — does it
+match?", not by pinning byte strings.
 
 - **Differential harness** — runs the new and the old engine over the same corpus
   and treats any case where the new engine fails while the old one converges as a
@@ -300,7 +302,7 @@ dependency resolver — was 86% of extraction time**, because it ran a 160-line
 correlated `CASE` subquery twice for every dependency row. Rewriting it
 set-based (resolve each catalog once, hash-join to the dependency set) made it
 **7× faster**, and extraction **4.2× faster** overall, with byte-identical
-output (gated by an edge-set oracle + the full corpus on PG 15/17/18):
+output (gated by an edge-set oracle + the full corpus on PG 14–18):
 
 | Stage | Before | After | Speedup |
 |---|---:|---:|---:|

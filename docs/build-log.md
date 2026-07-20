@@ -134,7 +134,7 @@ Correctness was v1's gate, but profiling the extractor turned up a clean win: a
 single correlated `pg_depend` resolver query was **86% of extraction time**.
 Rewriting it set-based made the query **7× faster** and extraction **4.2× faster**
 overall, with byte-identical output (gated by an edge-set oracle + the full
-corpus on PG 15/17/18). Parallel snapshot extraction was *re-profiled and
+corpus on PG 14–18). Parallel snapshot extraction was *re-profiled and
 deferred* — the resolver is now one unsplittable query that caps the parallel
 ceiling below 2×. Details and the memory roadmap:
 [roadmap/post-v1.md](roadmap/post-v1.md).
