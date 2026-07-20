@@ -17,8 +17,8 @@ import type { StableId } from "../core/stable-id.ts";
 import { extract } from "../extract/extract.ts";
 import type { Action, Plan } from "../plan/plan.ts";
 import { projectTarget } from "../plan/project.ts";
-import { resolveView, type Policy } from "../policy/policy.ts";
-import { projectManagementScope } from "../policy/view.ts";
+import type { Policy } from "../policy/policy.ts";
+import { reconstructManagedView } from "../policy/reconstruct.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
 
 /** Structured table identity on the verdict: a collision-free { schema, name }
@@ -470,35 +470,21 @@ export async function provePlan(
         `as options.baseline so the proof compares the same view the plan diffed.`,
     );
   }
-  // reconstruct the SAME managed-view-under-scope the plan diffed: resolveView
-  // FIRST, then the scope projection (change-set.ts), on BOTH the proven clone
-  // and the target — otherwise cluster-global roles (or an owner-excluded
-  // platform object whose owner edge the scope projection would strip before
-  // the policy runs) reappear as drift. `scope` defaults to the identity
-  // "cluster" projection, so the corpus proof is unchanged.
-  const scope = thePlan.scope ?? "cluster";
-  // same default owner the plan projected with (owner edges to it stay implicit),
-  // so the proven clone and the target reconstruct the identical view.
-  const scopeOpts =
-    thePlan.defaultOwner !== undefined
-      ? { defaultOwner: thePlan.defaultOwner }
-      : {};
-  const provenFb = projectManagementScope(
-    resolveView(proven.factBase, policy, capability, options.baseline),
-    scope,
-    scopeOpts,
-  );
+  // reconstruct the SAME managed-view-under-scope the plan diffed on BOTH the
+  // proven clone and the target (`reconstructManagedView` seals order).
+  const viewOpts = {
+    policy,
+    capability,
+    baseline: options.baseline,
+    scope: thePlan.scope,
+    defaultOwner: thePlan.defaultOwner,
+  };
+  const provenFb = reconstructManagedView(proven.factBase, viewOpts);
   // target the PROJECTED desired: the plan only applies kept deltas, so it
   // converges to `desired` minus the policy-filtered changes (review #2).
-  const target = projectManagementScope(
-    resolveView(
-      projectTarget(desired, thePlan.filteredDeltas),
-      policy,
-      capability,
-      options.baseline,
-    ),
-    scope,
-    scopeOpts,
+  const target = reconstructManagedView(
+    projectTarget(desired, thePlan.filteredDeltas),
+    viewOpts,
   );
   const driftDeltas = diff(provenFb, target);
   const after = await tableStats(clonePool);

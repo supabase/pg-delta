@@ -10,11 +10,9 @@ import {
   resolveProfile,
   type ResolveProfileOptions,
 } from "../integrations/profile.ts";
-import { flattenPolicy, resolveView } from "../policy/policy.ts";
-import {
-  type ManagementScope,
-  projectManagementScope,
-} from "../policy/view.ts";
+import { flattenPolicy } from "../policy/policy.ts";
+import { reconstructManagedView } from "../policy/reconstruct.ts";
+import type { ManagementScope } from "../policy/view.ts";
 import { exportSqlFiles, type ExportGrouping } from "./export-sql-files.ts";
 import type { ExportManifest } from "./export-manifest.ts";
 import type { SqlFile } from "./load-sql-files.ts";
@@ -75,12 +73,6 @@ export async function buildSchemaExport(
 
   const { factBase, diagnostics } = await ctx.extract(pool, { redactSecrets });
 
-  const view = resolveView(
-    factBase,
-    ctx.planOptions.policy,
-    ctx.planOptions.capability,
-    ctx.planOptions.baseline,
-  );
   const assumed = ctx.planOptions.policy
     ? flattenPolicy(ctx.planOptions.policy)
     : undefined;
@@ -119,11 +111,15 @@ export async function buildSchemaExport(
     }
   }
 
-  const scopedView = projectManagementScope(
-    view,
-    exportScope,
-    resolvedDefaultOwner !== null ? { defaultOwner: resolvedDefaultOwner } : {},
-  );
+  const scopedView = reconstructManagedView(factBase, {
+    policy: ctx.planOptions.policy,
+    capability: ctx.planOptions.capability,
+    baseline: ctx.planOptions.baseline,
+    scope: exportScope,
+    ...(resolvedDefaultOwner !== null
+      ? { defaultOwner: resolvedDefaultOwner }
+      : {}),
+  });
   const scopeAssumedRoles =
     exportScope === "database"
       ? factBase
