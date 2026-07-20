@@ -85,8 +85,8 @@ describe("accepted role rename + policy role payload (B1)", () => {
 
     expect(thePlan.actions.map((action) => action.sql)).toMatchInlineSnapshot(`
       [
-        "ALTER ROLE \"role_a\" RENAME TO \"role_b\"",
-        "ALTER POLICY \"docs_read\" ON \"app\".\"docs\" TO \"role_b\"",
+        "ALTER ROLE "role_a" RENAME TO "role_b"",
+        "ALTER POLICY "docs_read" ON "app"."docs" TO "role_b"",
       ]
     `);
   });

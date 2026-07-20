@@ -76,8 +76,8 @@ describe("stage 9: renames", () => {
       expect(thePlan.actions.map((action) => action.sql))
         .toMatchInlineSnapshot(`
         [
-          "ALTER ROLE \"renpolicy_old\" RENAME TO \"renpolicy_new\"",
-          "ALTER POLICY \"docs_read\" ON \"app\".\"docs\" TO \"renpolicy_new\"",
+          "ALTER ROLE "renpolicy_old" RENAME TO "renpolicy_new"",
+          "ALTER POLICY "docs_read" ON "app"."docs" TO "renpolicy_new"",
         ]
       `);
       const verdict = await provePlan(
