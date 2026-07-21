@@ -25,10 +25,56 @@ import {
 } from "./containers.ts";
 import { EXPECTED_RED } from "./expected-red.ts";
 
+const COMPACT_MODES = [true, false] as const;
+type ModeRunner = (key: string, run: () => Promise<void>) => Promise<void>;
+
+function compactLabel(compact: boolean): string {
+  return compact ? "compact" : "uncompact";
+}
+
+function failureMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function withModeContext(
+  key: string,
+  run: () => Promise<void>,
+): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    if (error instanceof Error) {
+      if (!error.message.includes(`[${key}]`)) {
+        error.message = `[${key}] ${error.message}`;
+      }
+      throw error;
+    }
+    throw new Error(`[${key}] ${String(error)}`);
+  }
+}
+
+async function runCompactModes(
+  run: (compact: boolean) => Promise<void>,
+): Promise<void> {
+  const failures: unknown[] = [];
+  for (const compact of COMPACT_MODES) {
+    try {
+      await run(compact);
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, failures.map(failureMessage).join("\n"));
+  }
+}
+
 async function proveOn(
   name: string,
   scenarioName: string,
   direction: "forward" | "reverse",
+  compact: boolean,
   clusterA: Cluster,
   clusterB: Cluster,
   fromSql: string,
@@ -53,6 +99,7 @@ async function proveOn(
     const capability = await probeApplierCapability(source.pool);
     const thePlan = plan(sourceState.factBase, desiredState.factBase, {
       capability,
+      compact,
     });
 
     const clone = await source.clone();
@@ -132,13 +179,72 @@ async function proveOn(
 async function runDirection(
   scenario: Scenario,
   direction: "forward" | "reverse",
+  modeRunner: ModeRunner = async (_key, run) => run(),
 ): Promise<void> {
   const [fromSql, toSql, seed] =
     direction === "forward"
       ? [scenario.a, scenario.b, scenario.seed]
       : [scenario.b, scenario.a, scenario.seedB];
-  const label =
-    direction === "forward" ? scenario.name : `${scenario.name}:reverse`;
+  const label = `${scenario.name}:${direction}`;
+
+  const proveMode = async (
+    compact: boolean,
+    clusterA: Cluster,
+    clusterB: Cluster,
+    cleanup: () => Promise<unknown> = async () => {},
+  ): Promise<void> => {
+    const key = `${label} [${compactLabel(compact)}]`;
+    let modeFailed = false;
+    let modeError: unknown;
+    try {
+      await modeRunner(key, () =>
+        withModeContext(key, () =>
+          proveOn(
+            key,
+            scenario.name,
+            direction,
+            compact,
+            clusterA,
+            clusterB,
+            fromSql,
+            toSql,
+            seed,
+          ),
+        ),
+      );
+    } catch (error) {
+      modeFailed = true;
+      modeError = error;
+    }
+
+    // Cleanup is intentionally outside modeRunner: EXPECTED_RED classifies
+    // planner/proof failures only and must never swallow a broken teardown.
+    let cleanupFailed = false;
+    let cleanupError: unknown;
+    try {
+      await withModeContext(key, async () => {
+        await cleanup();
+      });
+    } catch (error) {
+      cleanupFailed = true;
+      cleanupError = error;
+    }
+
+    if (modeFailed && cleanupFailed) {
+      // Preserve the mode error's concrete type: SeedCoverageError must remain
+      // distinguishable so EXPECTED_RED can never swallow it.
+      if (modeError instanceof Error) {
+        modeError.message += `\ncleanup also failed: ${failureMessage(cleanupError)}`;
+        throw modeError;
+      }
+      throw new AggregateError(
+        [modeError, cleanupError],
+        `proof failed: ${failureMessage(modeError)}\ncleanup also failed: ${failureMessage(cleanupError)}`,
+      );
+    }
+    if (modeFailed) throw modeError;
+    if (cleanupFailed) throw cleanupError;
+  };
 
   if (scenario.meta.isolatedCluster) {
     const [clusterA, clusterB] = await isolatedClusterPair();
@@ -149,23 +255,16 @@ async function runDirection(
       clusterA.listRoles(),
       clusterB.listRoles(),
     ]);
-    try {
-      await proveOn(
-        label,
-        scenario.name,
-        direction,
-        clusterA,
-        clusterB,
-        fromSql,
-        toSql,
-        seed,
-      );
-    } finally {
-      await Promise.all([
-        clusterA.dropRolesExcept(baseA),
-        clusterB.dropRolesExcept(baseB),
-      ]);
-    }
+    await runCompactModes((compact) =>
+      proveMode(compact, clusterA, clusterB, async () => {
+        // proveOn drops every scenario database before returning. Only then is
+        // it safe to reset cluster-global roles for the next mode's replay.
+        await Promise.all([
+          clusterA.dropRolesExcept(baseA),
+          clusterB.dropRolesExcept(baseB),
+        ]);
+      }),
+    );
     return;
   }
 
@@ -173,16 +272,20 @@ async function runDirection(
   if (scenario.meta.minVersion !== undefined) {
     if ((await cluster.pgMajor()) < scenario.meta.minVersion) return;
   }
-  await proveOn(
-    label,
-    scenario.name,
-    direction,
-    cluster,
-    cluster,
-    fromSql,
-    toSql,
-    seed,
-  );
+
+  if (mustRunSerially(scenario)) {
+    const baselineRoles = await cluster.listRoles();
+    await runCompactModes((compact) =>
+      proveMode(compact, cluster, cluster, async () => {
+        // Database teardown lives inside proveOn and therefore completes before
+        // role cleanup. This ordering avoids DROP ROLE ownership/grant errors.
+        await cluster.dropRolesExcept(baselineRoles);
+      }),
+    );
+    return;
+  }
+
+  await runCompactModes((compact) => proveMode(compact, cluster, cluster));
 }
 
 async function runPinnedOrProve(
@@ -203,13 +306,14 @@ async function runPinnedOrProve(
     const cluster = await sharedCluster();
     if ((await cluster.pgMajor()) < pin.minMajor) pinned = false;
   }
-  if (!pinned) {
-    await runDirection(scenario, direction);
-    return;
-  }
-  // runPinnedDirection owns the pinned semantics (incl. the seed-coverage
-  // rethrow), so the guard is bound by seed-coverage.test.ts.
-  await runPinnedDirection(key, () => runDirection(scenario, direction));
+  const modeRunner = pinned
+    ? (modeKey: string, run: () => Promise<void>) =>
+        // runPinnedDirection owns the pinned semantics (incl. the seed-coverage
+        // rethrow), so the guard is bound by seed-coverage.test.ts. Applying it
+        // per mode ensures both artifacts run and each stale pin is detected.
+        runPinnedDirection(modeKey, run)
+    : undefined;
+  await runDirection(scenario, direction, modeRunner);
 }
 
 // Live progress (opt-in via PGDELTA_NEXT_PROGRESS=1). `bun test` buffers its
@@ -334,7 +438,7 @@ if (CONCURRENCY > 1) {
             corpusProgress(c.label, ok);
           }
         },
-        180_000,
+        360_000,
       );
     }
   });
