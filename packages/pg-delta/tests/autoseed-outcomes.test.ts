@@ -61,6 +61,17 @@ beforeAll(async () => {
       BEGIN DELETE FROM s.aaa_victim; RETURN NULL; END $$;
     CREATE TRIGGER delete_victim_after AFTER INSERT ON s.zzz_deleter
       FOR EACH ROW EXECUTE FUNCTION s.delete_victim();
+    -- PRE-EXISTING data must not become invisible just because autoSeed runs
+    -- before the proof baseline. This table starts populated, so it is not a
+    -- seed candidate; seeding the empty mutator below deletes its original row.
+    CREATE TABLE s.populated_victim (id integer);
+    INSERT INTO s.populated_victim VALUES (42);
+    CREATE TABLE s.seed_side_effect (id integer);
+    CREATE FUNCTION s.delete_populated_victim() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN DELETE FROM s.populated_victim; RETURN NULL; END $$;
+    CREATE TRIGGER delete_populated_victim_after
+      AFTER INSERT ON s.seed_side_effect
+      FOR EACH ROW EXECUTE FUNCTION s.delete_populated_victim();
   `);
 
   const { factBase } = await extract(db.pool);
@@ -146,5 +157,17 @@ describe("provePlan autoSeed seed-outcome reporting", () => {
       table: { schema: "s", name: "zzz_deleter" },
       status: "seeded",
     });
+  });
+
+  test("autoSeed side effects cannot erase pre-existing data before the proof baseline", () => {
+    // populated_victim is excluded from autoSeed because it starts with one row.
+    // Seeding seed_side_effect deletes that row; the proof must compare against
+    // the pre-seed snapshot and report the loss instead of baselining it away.
+    expect(verdict.dataViolations).toContainEqual({
+      table: { schema: "s", name: "populated_victim" },
+      before: 1,
+      after: 0,
+    });
+    expect(verdict.ok).toBe(false);
   });
 });
