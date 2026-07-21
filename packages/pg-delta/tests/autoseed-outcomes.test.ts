@@ -23,6 +23,8 @@ let schemaChangeDb: TestDb;
 let schemaChangeVerdict: ProofVerdict;
 let seedSchemaDb: TestDb;
 let seedSchemaVerdict: ProofVerdict;
+let emptySeedSchemaDb: TestDb;
+let emptySeedSchemaVerdict: ProofVerdict;
 
 beforeAll(async () => {
   db = await createTestDb("autoseed");
@@ -156,12 +158,49 @@ beforeAll(async () => {
     seedSchemaTarget,
     { autoSeed: true },
   );
+
+  emptySeedSchemaDb = await createTestDb("autoseed-empty-schema-change");
+  await emptySeedSchemaDb.pool.query(`
+    CREATE SCHEMA s;
+    CREATE TABLE s.aaa_seed_mutator (id integer);
+    CREATE TABLE s.zzz_empty_victim (value integer);
+    CREATE FUNCTION s.mutate_empty_schema() RETURNS trigger
+      LANGUAGE plpgsql AS $$
+      BEGIN
+        ALTER TABLE s.zzz_empty_victim ALTER COLUMN value TYPE bigint;
+        RETURN NULL;
+      END $$;
+    CREATE TRIGGER mutate_empty_schema_after
+      AFTER INSERT ON s.aaa_seed_mutator
+      FOR EACH ROW EXECUTE FUNCTION s.mutate_empty_schema();
+  `);
+
+  const { factBase: emptySeedSchemaSource } = await extract(
+    emptySeedSchemaDb.pool,
+  );
+  await emptySeedSchemaDb.pool.query(
+    "ALTER TABLE s.zzz_empty_victim ALTER COLUMN value TYPE bigint",
+  );
+  const { factBase: emptySeedSchemaTarget } = await extract(
+    emptySeedSchemaDb.pool,
+  );
+  await emptySeedSchemaDb.pool.query(
+    "ALTER TABLE s.zzz_empty_victim ALTER COLUMN value TYPE integer",
+  );
+
+  emptySeedSchemaVerdict = await provePlan(
+    plan(emptySeedSchemaSource, emptySeedSchemaTarget),
+    emptySeedSchemaDb.pool,
+    emptySeedSchemaTarget,
+    { autoSeed: true },
+  );
 }, 120_000);
 
 afterAll(async () => {
   await db.drop();
   await schemaChangeDb.drop();
   await seedSchemaDb.drop();
+  await emptySeedSchemaDb.drop();
 });
 
 describe("provePlan autoSeed seed-outcome reporting", () => {
@@ -271,6 +310,16 @@ describe("provePlan autoSeed seed-outcome reporting", () => {
     expect(seedSchemaVerdict.dataViolations).toContainEqual({
       table: { schema: "s", name: "populated_victim" },
       before: 1,
+      after: 1,
+      schemaChanged: true,
+    });
+  });
+
+  test("rejects schema changes on originally-empty tables before applying the plan", () => {
+    expect(emptySeedSchemaVerdict.ok).toBe(false);
+    expect(emptySeedSchemaVerdict.dataViolations).toContainEqual({
+      table: { schema: "s", name: "zzz_empty_victim" },
+      before: 0,
       after: 1,
       schemaChanged: true,
     });

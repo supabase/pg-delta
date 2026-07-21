@@ -101,6 +101,41 @@ describe("enforceSeedCoverage error typing", () => {
 });
 
 describe("runPinnedDirection (EXPECTED_RED wrapper)", () => {
+  test("autoSeed side effects are re-thrown instead of satisfying a red pin", async () => {
+    const verdict = {
+      ...verdictWith([
+        { table: { schema: "s", name: "mutator" }, status: "seeded" },
+      ]),
+      ok: false,
+      dataViolations: [
+        {
+          table: { schema: "s", name: "victim" },
+          before: 1,
+          after: 0,
+        },
+      ],
+      seedSideEffects: [
+        {
+          table: { schema: "s", name: "victim" },
+          before: 1,
+          after: 0,
+        },
+      ],
+    } as ProofVerdict;
+
+    let caught: unknown;
+    try {
+      await runPinnedDirection("k:forward", async () => {
+        enforceSeedCoverage("k", "forward", "k", verdict);
+        throw new Error("ordinary proof failure");
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(SeedCoverageError);
+  });
+
   test("a SeedCoverageError is re-thrown (never swallowed as red-as-pinned)", async () => {
     const boom = new SeedCoverageError("coverage violated");
     let caught: unknown;

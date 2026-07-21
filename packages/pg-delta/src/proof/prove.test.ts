@@ -389,6 +389,33 @@ describe("detectAutoSeedSideEffects — pre-plan data guard", () => {
     expect(detectAutoSeedSideEffects(preSeed, postSeed, new Set())).toEqual([]);
   });
 
+  test("rejects seed-time schema changes on originally-empty kept tables", () => {
+    const preSeed = m([
+      ["s", "empty", { rows: 0, relfilenode: "1", schemaSig: SIG }],
+    ]);
+    const postSeed = m([
+      [
+        "s",
+        "empty",
+        {
+          rows: 1,
+          relfilenode: "2",
+          schemaSig: `${SIG},note:25`,
+          content: "synthetic",
+        },
+      ],
+    ]);
+
+    expect(detectAutoSeedSideEffects(preSeed, postSeed, new Set())).toEqual([
+      {
+        table: { schema: "s", name: "empty" },
+        before: 0,
+        after: 1,
+        schemaChanged: true,
+      },
+    ]);
+  });
+
   test("ignores populated tables the plan intentionally recreates", () => {
     const table = relKey("s", "recreated");
     const preSeed = m([
