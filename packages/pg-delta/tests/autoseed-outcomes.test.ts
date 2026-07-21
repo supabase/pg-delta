@@ -44,13 +44,23 @@ beforeAll(async () => {
       FOR EACH ROW EXECUTE FUNCTION s.suppress();
     -- all columns defaulted/nullable, but an AFTER INSERT trigger DELETEs the
     -- just-inserted row: PostgreSQL reports INSERT 0 1 (rowCount 1) while the
-    -- table stays EMPTY — rowCount is the command tag, not persisted state, so
-    -- only a post-insert existence check catches this as no_row.
+    -- table stays EMPTY — rowCount is the command tag, not persisted state.
     CREATE TABLE s.trigger_undone (id integer);
     CREATE FUNCTION s.undo() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN DELETE FROM s.trigger_undone; RETURN NULL; END $$;
     CREATE TRIGGER undo_after AFTER INSERT ON s.trigger_undone
       FOR EACH ROW EXECUTE FUNCTION s.undo();
+    -- CROSS-TABLE undo: aaa_victim is seeded cleanly FIRST (tableStats orders
+    -- candidates by schema, name, so aaa_ precedes zzz_), then seeding
+    -- zzz_deleter fires an AFTER INSERT trigger that DELETEs aaa_victim's row.
+    -- A per-insert existence probe would still call aaa_victim seeded; only
+    -- reconciliation against the FINAL pre-apply snapshot catches it as no_row.
+    CREATE TABLE s.aaa_victim (id integer);
+    CREATE TABLE s.zzz_deleter (id integer);
+    CREATE FUNCTION s.delete_victim() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN DELETE FROM s.aaa_victim; RETURN NULL; END $$;
+    CREATE TRIGGER delete_victim_after AFTER INSERT ON s.zzz_deleter
+      FOR EACH ROW EXECUTE FUNCTION s.delete_victim();
   `);
 
   const { factBase } = await extract(db.pool);
@@ -114,11 +124,27 @@ describe("provePlan autoSeed seed-outcome reporting", () => {
 
   test("an AFTER INSERT trigger that DELETEs the row (rowCount 1, table empty) reports `skipped` with reasonCode `no_row`", () => {
     // rowCount is the command tag, not persisted state: `INSERT 0 1` but the
-    // row was undone. Only a post-insert existence check catches this.
+    // row was undone. Final-snapshot reconciliation catches this.
     expect(outcomeFor("trigger_undone")).toEqual({
       table: { schema: "s", name: "trigger_undone" },
       status: "skipped",
       reasonCode: "no_row",
+    });
+  });
+
+  test("a CROSS-TABLE undo reclassifies an earlier-seeded table to `no_row`", () => {
+    // aaa_victim seeded cleanly, then zzz_deleter's insert deletes its row: the
+    // final pre-apply snapshot has aaa_victim empty, so it must be `no_row`
+    // (a per-insert probe would have wrongly kept it `seeded`), while
+    // zzz_deleter — whose own row persists — stays `seeded`.
+    expect(outcomeFor("aaa_victim")).toEqual({
+      table: { schema: "s", name: "aaa_victim" },
+      status: "skipped",
+      reasonCode: "no_row",
+    });
+    expect(outcomeFor("zzz_deleter")).toEqual({
+      table: { schema: "s", name: "zzz_deleter" },
+      status: "seeded",
     });
   });
 });
