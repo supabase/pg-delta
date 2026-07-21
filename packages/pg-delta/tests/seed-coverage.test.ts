@@ -101,6 +101,31 @@ describe("enforceSeedCoverage error typing", () => {
 });
 
 describe("runPinnedDirection (EXPECTED_RED wrapper)", () => {
+  test("autoSeed state changes are re-thrown instead of satisfying a red pin", async () => {
+    const verdict = {
+      ...verdictWith([
+        { table: { schema: "s", name: "mutator" }, status: "seeded" },
+      ]),
+      ok: false,
+      seedStateViolation: {
+        expectedFingerprint: "expected",
+        actualFingerprint: "mutated",
+      },
+    } as ProofVerdict;
+
+    let caught: unknown;
+    try {
+      await runPinnedDirection("k:forward", async () => {
+        enforceSeedCoverage("k", "forward", "k", verdict);
+        throw new Error("ordinary proof failure");
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(SeedCoverageError);
+  });
+
   test("autoSeed side effects are re-thrown instead of satisfying a red pin", async () => {
     const verdict = {
       ...verdictWith([

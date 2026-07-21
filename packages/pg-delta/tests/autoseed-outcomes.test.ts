@@ -25,6 +25,9 @@ let seedSchemaDb: TestDb;
 let seedSchemaVerdict: ProofVerdict;
 let emptySeedSchemaDb: TestDb;
 let emptySeedSchemaVerdict: ProofVerdict;
+let seedStateDb: TestDb;
+let seedStateVerdict: ProofVerdict;
+let seedStateSourceFingerprint: string;
 
 beforeAll(async () => {
   db = await createTestDb("autoseed");
@@ -194,6 +197,39 @@ beforeAll(async () => {
     emptySeedSchemaTarget,
     { autoSeed: true },
   );
+
+  seedStateDb = await createTestDb("autoseed-full-state-change");
+  await seedStateDb.pool.query(`
+    CREATE SCHEMA s;
+    CREATE TABLE s.aaa_seed_mutator (id integer);
+    CREATE TABLE s.zzz_empty_victim (value integer);
+    CREATE FUNCTION s.enable_victim_rls() RETURNS trigger
+      LANGUAGE plpgsql AS $$
+      BEGIN
+        ALTER TABLE s.zzz_empty_victim ENABLE ROW LEVEL SECURITY;
+        RETURN NULL;
+      END $$;
+    CREATE TRIGGER enable_victim_rls_after
+      AFTER INSERT ON s.aaa_seed_mutator
+      FOR EACH ROW EXECUTE FUNCTION s.enable_victim_rls();
+  `);
+
+  const { factBase: seedStateSource } = await extract(seedStateDb.pool);
+  seedStateSourceFingerprint = seedStateSource.rootHash;
+  await seedStateDb.pool.query(
+    "ALTER TABLE s.zzz_empty_victim ENABLE ROW LEVEL SECURITY",
+  );
+  const { factBase: seedStateTarget } = await extract(seedStateDb.pool);
+  await seedStateDb.pool.query(
+    "ALTER TABLE s.zzz_empty_victim DISABLE ROW LEVEL SECURITY",
+  );
+
+  seedStateVerdict = await provePlan(
+    plan(seedStateSource, seedStateTarget),
+    seedStateDb.pool,
+    seedStateTarget,
+    { autoSeed: true },
+  );
 }, 120_000);
 
 afterAll(async () => {
@@ -201,6 +237,7 @@ afterAll(async () => {
   await schemaChangeDb.drop();
   await seedSchemaDb.drop();
   await emptySeedSchemaDb.drop();
+  await seedStateDb.drop();
 });
 
 describe("provePlan autoSeed seed-outcome reporting", () => {
@@ -322,6 +359,23 @@ describe("provePlan autoSeed seed-outcome reporting", () => {
       before: 0,
       after: 1,
       schemaChanged: true,
+    });
+  });
+
+  test("rejects non-column state changes performed by an autoSeed trigger", () => {
+    expect(seedStateVerdict.ok).toBe(false);
+    expect(
+      (
+        seedStateVerdict as ProofVerdict & {
+          seedStateViolation?: {
+            expectedFingerprint: string;
+            actualFingerprint: string;
+          };
+        }
+      ).seedStateViolation,
+    ).toMatchObject({
+      expectedFingerprint: seedStateSourceFingerprint,
+      actualFingerprint: expect.any(String),
     });
   });
 });
