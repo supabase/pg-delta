@@ -30,9 +30,11 @@ day one rather than asserted after the fact.
 | 9 — renames & API | Rename detection over structural rollups, the reviewed public API, and the CLI. |
 | 10 — cutover | *Forward-looking* — the parity bar that gates switching consumers over (see [roadmap/post-v1.md](roadmap/post-v1.md)). |
 
-Result: **−79% source LOC, one rule table instead of ~100 change classes, and a
-correctness guarantee the old engine never had.** The numbers are in
-[overview.md](overview.md).
+Result (rewrite-era snapshot at first engine-complete cut): **−79% source LOC,
+one rule table instead of ~100 change classes, and a correctness guarantee the
+old engine never had.** Current measured size (three budgets + corpus count)
+lives in [overview.md](overview.md) §4 — do not treat the rewrite-era −79% as
+today’s package total.
 
 ---
 
@@ -132,7 +134,7 @@ Correctness was v1's gate, but profiling the extractor turned up a clean win: a
 single correlated `pg_depend` resolver query was **86% of extraction time**.
 Rewriting it set-based made the query **7× faster** and extraction **4.2× faster**
 overall, with byte-identical output (gated by an edge-set oracle + the full
-corpus on PG 15/17/18). Parallel snapshot extraction was *re-profiled and
+corpus on PG 14–18). Parallel snapshot extraction was *re-profiled and
 deferred* — the resolver is now one unsplittable query that caps the parallel
 ceiling below 2×. Details and the memory roadmap:
 [roadmap/post-v1.md](roadmap/post-v1.md).

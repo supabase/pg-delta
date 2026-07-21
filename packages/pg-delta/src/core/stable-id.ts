@@ -4,6 +4,7 @@
  * The ONLY place the canonical string encoding exists (guardrail 1).
  * Extraction returns identity *parts*; this codec produces/parses strings,
  * which appear only in persisted artifacts, graph keys, and logs.
+ * Identity, rename, and ACL invariants: docs/architecture/identity-and-acl.md.
  */
 
 /** Kinds identified by a single name (cluster- or database-global). */

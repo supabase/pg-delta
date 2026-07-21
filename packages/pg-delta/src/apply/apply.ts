@@ -15,8 +15,7 @@ import type { Pool } from "pg";
 import type { FactBase } from "../core/fact.ts";
 import { extract } from "../extract/extract.ts";
 import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
-import { resolveView } from "../policy/policy.ts";
-import { projectManagementScope } from "../policy/view.ts";
+import { reconstructManagedView } from "../policy/reconstruct.ts";
 
 export type ActionStatus = "applied" | "unapplied" | "inDoubt";
 
@@ -151,22 +150,15 @@ export async function apply(
     const current = await (options?.reextract
       ? options.reextract(target)
       : extract(target, { redactSecrets: thePlan.redactSecrets ?? true }));
-    // reconstruct the SAME managed-view-under-scope the plan fingerprinted:
-    // resolveView FIRST, then the scope projection (change-set.ts) — the reverse
-    // order would strip owner edges a policy rule reads. `scope` defaults to the
-    // identity "cluster" projection, so unscoped plans are unchanged.
-    const view = projectManagementScope(
-      resolveView(
-        current.factBase,
-        thePlan.policy,
-        thePlan.capability,
-        options?.baseline,
-      ),
-      thePlan.scope ?? "cluster",
-      thePlan.defaultOwner !== undefined
-        ? { defaultOwner: thePlan.defaultOwner }
-        : {},
-    );
+    // reconstruct the SAME managed-view-under-scope the plan fingerprinted
+    // (`reconstructManagedView` seals resolveView → scope; defaults cluster).
+    const view = reconstructManagedView(current.factBase, {
+      policy: thePlan.policy,
+      capability: thePlan.capability,
+      baseline: options?.baseline,
+      scope: thePlan.scope,
+      defaultOwner: thePlan.defaultOwner,
+    });
     // KNOWN PITFALL (acknowledged, by design): the fingerprint folds the WHOLE
     // resolved view, INCLUDING `referenceOnly` assumed-schema facts (e.g.
     // `auth.users` kept so a managed dependent resolves its parent). Those facts

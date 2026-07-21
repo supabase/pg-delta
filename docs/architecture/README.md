@@ -93,8 +93,8 @@ This is the safety net the old engine never had. `provePlan()` applies the plan
 to a **throwaway clone**, re-extracts it, and checks two things:
 
 - **State proof** — the result's fact hashes equal the desired state (zero drift).
-- **Data preservation** — rows in kept tables survive (and a table rewritten
-  without declaring it fails the proof).
+- **Data preservation** — rows in kept ordinary heap tables survive (and a table
+  rewritten without declaring it fails the proof).
 
 Because re-extraction yields the same kind of facts, "did the migration work?"
 becomes a hash comparison, run automatically in CI — not a production incident.
@@ -109,9 +109,19 @@ run if the target drifted from what the plan was built against (the
 
 ---
 
-## The two cross-cutting ideas
+## The three cross-cutting ideas
 
-Two concerns don't belong to any single step — they shape the whole pipeline:
+Three concerns don't belong to any single step — they shape the whole pipeline:
+
+### Identity and ACLs — names are not OIDs
+
+`StableId` is a declarative, name-based address; PostgreSQL carries runtime
+references by OID. Role renames, ownership, memberships, grants, and
+non-semantic extraction hints all sit on that boundary. The identity/ACL
+invariants document separates today's post-diff carry from the planned
+canonical-normalization model and records what ACL equality actually means.
+
+→ [identity-and-acl.md](identity-and-acl.md)
 
 ### The managed view — "what do we even manage?"
 
@@ -142,6 +152,7 @@ per-extension special-casing in the core.
 | Document | What it covers |
 |---|---|
 | [target-architecture.md](target-architecture.md) | The north star: the five sub-problems, the two principles, the fact model, the rule table, the one graph, the proof loop — the full design and its guardrails. |
+| [identity-and-acl.md](identity-and-acl.md) | StableId addressability vs PostgreSQL OIDs, current and target rename flow, explicit per-grantee ACL equality, underscore metadata, and proof implications. |
 | [managed-view-architecture.md](managed-view-architecture.md) | How scope, ownership, and applier capability enter the engine through one `resolveView`, closed under the proof loop. |
 | [extension-intent.md](extension-intent.md) | How stateful extensions are diffed without destroying their data. |
 | [onboarding.md](onboarding.md) | The contributor map: which file holds each stage, and how to add a new object kind. |

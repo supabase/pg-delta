@@ -17,8 +17,8 @@ import type { StableId } from "../core/stable-id.ts";
 import { extract } from "../extract/extract.ts";
 import type { Action, Plan } from "../plan/plan.ts";
 import { projectTarget } from "../plan/project.ts";
-import { resolveView, type Policy } from "../policy/policy.ts";
-import { projectManagementScope } from "../policy/view.ts";
+import type { Policy } from "../policy/policy.ts";
+import { reconstructManagedView } from "../policy/reconstruct.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
 
 /** Structured table identity on the verdict: a collision-free { schema, name }
@@ -611,21 +611,19 @@ export async function provePlan(
         `as options.baseline so the proof compares the same view the plan diffed.`,
     );
   }
-  const scope = thePlan.scope ?? "cluster";
-  const scopeOpts =
-    thePlan.defaultOwner !== undefined
-      ? { defaultOwner: thePlan.defaultOwner }
-      : {};
+  const viewOpts = {
+    policy,
+    capability,
+    baseline: options.baseline,
+    scope: thePlan.scope,
+    defaultOwner: thePlan.defaultOwner,
+  };
   const reextractClone = (): Promise<{ factBase: FactBase }> =>
     options.reextract
       ? options.reextract(clonePool)
       : extract(clonePool, { redactSecrets: thePlan.redactSecrets ?? true });
   const managedView = (factBase: FactBase): FactBase =>
-    projectManagementScope(
-      resolveView(factBase, policy, capability, options.baseline),
-      scope,
-      scopeOpts,
-    );
+    reconstructManagedView(factBase, viewOpts);
 
   // populated only when autoSeed ran, so it stays out of the verdict entirely
   // on the default opt-out path (present ⇒ autoSeed was requested).
@@ -727,12 +725,7 @@ export async function provePlan(
   // policy + capability default to the values the plan was produced with (both
   // are inlined on the plan artifact), so a separate `prove` invocation recovers
   // the exact same view without the caller re-supplying them.
-  // reconstruct the SAME managed-view-under-scope the plan diffed: resolveView
-  // FIRST, then the scope projection (change-set.ts), on BOTH the proven clone
-  // and the target — otherwise cluster-global roles (or an owner-excluded
-  // platform object whose owner edge the scope projection would strip before
-  // the policy runs) reappear as drift. `scope` defaults to the identity
-  // "cluster" projection, so the corpus proof is unchanged.
+  // Reconstruct the same managed view on both sides through the shared helper.
   const provenFb = managedView(proven.factBase);
   // target the PROJECTED desired: the plan only applies kept deltas, so it
   // converges to `desired` minus the policy-filtered changes (review #2).

@@ -156,6 +156,10 @@ interface FactBase {
 }
 ```
 
+For the operational invariants behind StableId addressability, PostgreSQL OID
+carry, ACL equality, underscore metadata, and current-vs-target rename behavior,
+see [identity-and-acl.md](identity-and-acl.md).
+
 Six properties define it:
 
 - **Typed identity, structured end-to-end.** IDs are a discriminated union

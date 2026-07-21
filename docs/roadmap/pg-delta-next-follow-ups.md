@@ -467,11 +467,11 @@ CANONICAL, foreign-column `attfdwoptions` — with fresh comment_ids each pass).
 
 Replace / apply cascade:
 
-- **FDW server children rebuild on replace** — `src/plan/rules/foreign.ts:81` (comment
-  `3537910549`). When `type`/`fdw` changes on a server that still has foreign tables,
-  marking the server `replace` emits only the server drop/create; PostgreSQL rejects
-  `DROP SERVER` while dependent foreign tables/user mappings exist → apply fails.
-  Rebuild the dependents explicitly or use a cascade/recreate path.
+- **FDW server children rebuild on replace** — ✅ **resolved** by `da2d75c1`.
+  Replacement emission recursively drops children across non-cascading server
+  boundaries, recreates surviving descendants after the server, and is pinned in
+  both directions by `foreign-data-wrapper-operations--replace-server-with-children`.
+  The original finding was comment `3537910549`.
 
 Extract-completeness (invisible drift / wrong from-empty replay):
 

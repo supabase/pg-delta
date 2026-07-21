@@ -9,7 +9,11 @@ import { apply } from "../src/apply/apply.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
 import { provePlan } from "../src/proof/prove.ts";
-import { sharedCluster, type TestDb } from "./containers.ts";
+import {
+  isolatedClusterPair,
+  sharedCluster,
+  type TestDb,
+} from "./containers.ts";
 
 async function pair(
   prefix: string,
@@ -31,6 +35,67 @@ async function pair(
 }
 
 describe("stage 9: renames", () => {
+  test("role rename referenced by an RLS policy plans and proves without a cycle", async () => {
+    const [sourceCluster, desiredCluster] = await isolatedClusterPair();
+    const source = await sourceCluster.createDb("ren_policy_src");
+    const desired = await desiredCluster.createDb("ren_policy_dst");
+    try {
+      await sourceCluster.adminPool.query(`CREATE ROLE renpolicy_old NOLOGIN`);
+      await sourceCluster.adminPool.query(
+        `ALTER ROLE renpolicy_old SET statement_timeout = '42424ms'`,
+      );
+      await source.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.docs (id integer PRIMARY KEY);
+        ALTER TABLE app.docs ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY docs_read ON app.docs
+          FOR SELECT TO renpolicy_old USING (true);
+      `);
+
+      await desiredCluster.adminPool.query(`CREATE ROLE renpolicy_new NOLOGIN`);
+      await desiredCluster.adminPool.query(
+        `ALTER ROLE renpolicy_new SET statement_timeout = '42424ms'`,
+      );
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.docs (id integer PRIMARY KEY);
+        ALTER TABLE app.docs ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY docs_read ON app.docs
+          FOR SELECT TO renpolicy_new USING (true);
+      `);
+
+      const [sourceState, desiredState] = await Promise.all([
+        extract(source.pool),
+        extract(desired.pool),
+      ]);
+      const thePlan = plan(sourceState.factBase, desiredState.factBase, {
+        renames: "auto",
+        compact: false,
+      });
+
+      expect(thePlan.actions.map((action) => action.sql))
+        .toMatchInlineSnapshot(`
+        [
+          "ALTER ROLE "renpolicy_old" RENAME TO "renpolicy_new"",
+          "ALTER POLICY "docs_read" ON "app"."docs" TO "renpolicy_new"",
+        ]
+      `);
+      const verdict = await provePlan(
+        thePlan,
+        source.pool,
+        desiredState.factBase,
+      );
+      expect(verdict.applyError).toBeUndefined();
+      expect(verdict.driftDeltas).toEqual([]);
+      expect(verdict.ok).toBe(true);
+    } finally {
+      await Promise.all([
+        source.drop().catch(() => {}),
+        desired.drop().catch(() => {}),
+      ]);
+    }
+  }, 120_000);
+
   test("column leaf rename: emitted as RENAME COLUMN, values survive", async () => {
     const dbs = await pair(
       "ren_col",

@@ -13,12 +13,8 @@ import { diff, type Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
 import type { Payload } from "../../core/hash.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
-import {
-  filterDeltas,
-  resolveView,
-  validatePolicy,
-} from "../../policy/policy.ts";
-import { projectManagementScope } from "../../policy/view.ts";
+import { filterDeltas, validatePolicy } from "../../policy/policy.ts";
+import { reconstructManagedView } from "../../policy/reconstruct.ts";
 import type { PlanOptions } from "../plan.ts";
 import type { RulesForId } from "../rules.ts";
 import { projectTarget } from "../project.ts";
@@ -98,44 +94,24 @@ export function buildChangeSet(
   // `verb` rules remain for the delta-level filter below. With no policy/baseline
   // and no member edges this is the identity projection, so the corpus is unchanged.
   //
-  // The management-scope projection runs AFTER resolveView, never before: a
-  // policy owner-exclusion rule (Supabase Rule 6) reads the `owner` edge, and
-  // `projectManagementScope("database")` prunes role facts together with those
-  // owner edges — so projecting scope first would strip the edge the policy
-  // needs and wrongly plan a DROP of a platform object owned by a system role
-  // (e.g. an event trigger). This is the SAME order `schema export` uses, and it
-  // is done HERE (the single managed-view-under-scope definition) so plan, the
-  // apply fingerprint gate, and the proof loop all reconstruct the identical
-  // view — `plan == prove == run`. `scope` defaults to "cluster", which is the
-  // identity projection, so direct library callers / the corpus are unchanged.
-  const scope = options?.scope ?? "cluster";
-  // the default owner whose ownership stays implicit under database scope (its
-  // owner edges pruned → no ALTER … OWNER TO). Symmetric on both sides so the
-  // fingerprint/proof reconstruct the same view; ignored at cluster scope.
-  const scopeOpts =
-    options?.defaultOwner !== undefined
-      ? { defaultOwner: options.defaultOwner }
-      : {};
-  const source = projectManagementScope(
-    resolveView(
-      rawSource,
-      options?.policy,
-      options?.capability,
-      options?.baseline,
-    ),
-    scope,
-    scopeOpts,
-  );
-  const desired = projectManagementScope(
-    resolveView(
-      rawDesired,
-      options?.policy,
-      options?.capability,
-      options?.baseline,
-    ),
-    scope,
-    scopeOpts,
-  );
+  // Managed view under scope: `reconstructManagedView` seals resolveView THEN
+  // projectManagementScope (owner edges must survive for policy exclusion before
+  // database-scope role prune). Plan / apply / prove / export share that helper
+  // so `plan == prove == run`. `scope` defaults to "cluster" (identity).
+  const source = reconstructManagedView(rawSource, {
+    policy: options?.policy,
+    capability: options?.capability,
+    baseline: options?.baseline,
+    scope: options?.scope,
+    defaultOwner: options?.defaultOwner,
+  });
+  const desired = reconstructManagedView(rawDesired, {
+    policy: options?.policy,
+    capability: options?.capability,
+    baseline: options?.baseline,
+    scope: options?.scope,
+    defaultOwner: options?.defaultOwner,
+  });
 
   const allDeltas = diff(source, desired);
   const { kept: deltas, filtered: filteredDeltas } = options?.policy
