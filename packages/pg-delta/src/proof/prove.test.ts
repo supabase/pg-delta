@@ -10,6 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   composeAutoSeedBaseline,
+  detectAutoSeedSideEffects,
   detectViolations,
   reconcileSeedOutcomes,
   relKey,
@@ -343,5 +344,66 @@ describe("composeAutoSeedBaseline — preserve original data across seeding", ()
     const preSeed = stats([["s", "removed", 1]]);
     const baseline = composeAutoSeedBaseline(preSeed, stats([]));
     expect(baseline.get(relKey("s", "removed"))?.rows).toBe(1);
+  });
+});
+
+describe("detectAutoSeedSideEffects — pre-plan data guard", () => {
+  test("detects equal-row-count content changes on populated tables", () => {
+    const preSeed = m([
+      [
+        "s",
+        "populated",
+        { rows: 1, relfilenode: "1", schemaSig: SIG, content: "original" },
+      ],
+    ]);
+    const postSeed = m([
+      [
+        "s",
+        "populated",
+        { rows: 1, relfilenode: "1", schemaSig: SIG, content: "mutated" },
+      ],
+    ]);
+
+    expect(detectAutoSeedSideEffects(preSeed, postSeed, new Set())).toEqual([
+      {
+        table: { schema: "s", name: "populated" },
+        before: 1,
+        after: 1,
+        contentChanged: true,
+      },
+    ]);
+  });
+
+  test("ignores intentional synthetic rows in originally-empty tables", () => {
+    const preSeed = m([
+      ["s", "empty", { rows: 0, relfilenode: "1", schemaSig: SIG }],
+    ]);
+    const postSeed = m([
+      [
+        "s",
+        "empty",
+        { rows: 1, relfilenode: "1", schemaSig: SIG, content: "synthetic" },
+      ],
+    ]);
+
+    expect(detectAutoSeedSideEffects(preSeed, postSeed, new Set())).toEqual([]);
+  });
+
+  test("ignores populated tables the plan intentionally recreates", () => {
+    const table = relKey("s", "recreated");
+    const preSeed = m([
+      [
+        "s",
+        "recreated",
+        { rows: 1, relfilenode: "1", schemaSig: SIG, content: "original" },
+      ],
+    ]);
+    const postSeed = m([
+      ["s", "recreated", { rows: 0, relfilenode: "1", schemaSig: SIG }],
+    ]);
+
+    expect(
+      detectAutoSeedSideEffects(preSeed, postSeed, new Set([table])),
+    ).toEqual([]);
   });
 });

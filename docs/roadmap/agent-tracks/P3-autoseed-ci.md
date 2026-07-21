@@ -72,7 +72,9 @@ stronger path.
    Data on tables that were already populated stays anchored to the pre-seed
    snapshot; only originally-empty tables take their baseline from the final
    post-seed snapshot. This prevents seed-trigger side effects on existing data
-   from being silently accepted as the proof baseline.
+   from being silently accepted as the proof baseline. Populated kept tables are
+   also compared directly before and after seeding, before the plan runs, so a
+   later schema change cannot suppress detection of an equal-row-count mutation.
 
 ## RED → GREEN
 

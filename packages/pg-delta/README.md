@@ -130,7 +130,9 @@ or the synthetic `no_row` code (the insert resolved but a trigger/rule left
 the row absent from the final pre-apply snapshot — persistence is judged by
 reconciling against that snapshot, not the command tag). Tables that were
 already populated remain anchored to their pre-seed stats, so trigger side
-effects from synthetic inserts cannot be baselined away. Per-kind graph policy
+effects from synthetic inserts cannot be baselined away. Those tables are also
+compared immediately after seeding, before any plan action can make their
+fingerprints incomparable through a schema change. Per-kind graph policy
 (cascade/rebuild/suppression/defacl) lives entirely in the rule table as
 `KindRules` flags — the planner body holds no kind-name lists (guardrail 3).
 

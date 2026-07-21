@@ -59,7 +59,8 @@ export interface ProofVerdict {
   driftDeltas: Delta[];
   /** a kept table whose data changed: row count differs, OR (on a table the
    *  plan did NOT touch) content changed though the count held — drop+recreate
-   *  masquerading as preservation, or an undeclared destructive operation */
+   *  masquerading as preservation, an undeclared destructive operation, or an
+   *  autoSeed trigger mutating pre-existing data before the plan ran */
   dataViolations: Array<{
     table: TableRef;
     before: number;
@@ -365,6 +366,24 @@ export function composeAutoSeedBaseline(
 }
 
 /**
+ * Detect autoSeed side effects while pre/post fingerprints are directly
+ * comparable: no plan action has run between these snapshots. Only populated,
+ * kept tables are protected here; originally-empty tables are expected to gain
+ * synthetic rows, and recreated tables carry no data-preservation claim.
+ */
+export function detectAutoSeedSideEffects(
+  preSeed: Map<string, TableStat>,
+  postSeed: Map<string, TableStat>,
+  recreatedTables: Set<string>,
+): ProofVerdict["dataViolations"] {
+  const populated = new Map([...preSeed].filter(([, stat]) => stat.rows > 0));
+  return detectViolations(populated, postSeed, {
+    recreatedTables,
+    declaredRewriteTables: new Set(),
+  }).dataViolations;
+}
+
+/**
  * Pure verdict logic over before/after table stats (testable without a DB).
  *
  * For every table present before applying:
@@ -537,6 +556,24 @@ export async function provePlan(
   // trigger or rule (even cross-table) is downgraded to skipped("no_row").
   if (seedOutcomes !== undefined) {
     seedOutcomes = reconcileSeedOutcomes(seedOutcomes, postSeedStats);
+  }
+  const seedSideEffects =
+    preSeedStats === undefined
+      ? []
+      : detectAutoSeedSideEffects(preSeedStats, postSeedStats, recreatedTables);
+  // Do not apply a plan to a clone whose pre-existing data autoSeed already
+  // changed. Capturing the violation now, while schemas are still comparable,
+  // prevents a later legitimate schema change from suppressing the content
+  // comparison and producing a false-green proof.
+  if (seedSideEffects.length > 0) {
+    return {
+      ok: false,
+      driftDeltas: [],
+      dataViolations: seedSideEffects,
+      rewriteViolations: [],
+      coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+      ...(seedOutcomes !== undefined ? { seedOutcomes } : {}),
+    };
   }
   // Synthetic rows need the post-seed snapshot, but data that existed before
   // autoSeed must stay anchored to the pre-seed snapshot. Otherwise a trigger
