@@ -152,7 +152,7 @@ per-extension special-casing in the core.
 | Document | What it covers |
 |---|---|
 | [target-architecture.md](target-architecture.md) | The north star: the five sub-problems, the two principles, the fact model, the rule table, the one graph, the proof loop — the full design and its guardrails. |
-| [identity-and-acl.md](identity-and-acl.md) | StableId addressability vs PostgreSQL OIDs, current and target rename flow, effective ACL equality, underscore metadata, and proof implications. |
+| [identity-and-acl.md](identity-and-acl.md) | StableId addressability vs PostgreSQL OIDs, current and target rename flow, explicit per-grantee ACL equality, underscore metadata, and proof implications. |
 | [managed-view-architecture.md](managed-view-architecture.md) | How scope, ownership, and applier capability enter the engine through one `resolveView`, closed under the proof loop. |
 | [extension-intent.md](extension-intent.md) | How stateful extensions are diffed without destroying their data. |
 | [onboarding.md](onboarding.md) | The contributor map: which file holds each stage, and how to add a new object kind. |

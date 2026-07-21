@@ -19,7 +19,8 @@ carry and a narrow role-rename ordering carve-out.
 4. PostgreSQL carries OID references through a rename, but name-keyed facts do
    not follow automatically inside pg-delta.
 5. ACL identity is target + grantee + optional column. ACL payload is the
-   effective privilege set; grantor provenance is deliberately not modeled.
+   explicit per-grantee privilege set; grantor provenance is deliberately not
+   modeled.
 6. Payload keys beginning with `_` are operational hints. They may guide
    rendering, ordering, or safety, but never participate in equality.
 7. State proof compares post-apply declarative identities. Data proof remaps
@@ -147,16 +148,18 @@ the column fact. Keeping the optional column in the codec and every identity
 rewrite is essential—dropping it aliases a column grant with an object grant.
 
 The semantic payload contains sorted `privileges` and `grantable` sets.
-Extraction models the grantee's **effective privileges**, not which grantor
+Extraction models the grantee's **explicit ACL privileges**, not which grantor
 supplied them. `aclexplode()` can return the same privilege once per grantor;
 the extractor groups by grantee and de-duplicates privilege and grant-option
-values. Consequently:
+values. It does not resolve role memberships, owner-implied privileges, or
+access inherited through another role. Consequently:
 
-- two databases with the same effective grantee privileges compare equal even
-  if grantor provenance differs;
+- two databases with the same explicit ACL privileges for a grantee compare
+  equal even if grantor provenance differs;
 - removing one of several equivalent grantors is intentionally invisible while
-  the effective set remains;
-- export and replay preserve effective access, not exact GRANT provenance.
+  the explicit ACL set remains;
+- export and replay preserve explicit grantee ACL state, not exact GRANT
+  provenance or the complete authorization closure.
 
 Ordinary object ACL extraction normalizes a null ACL through `acldefault()` and
 synthesizes empty owner/PUBLIC entries when a built-in default was revoked. An
@@ -170,7 +173,7 @@ every object key beginning with `_`. Those fields therefore cannot change fact
 hashes, diff deltas, fingerprints, or state-proof equality.
 
 They are not dead data. They can guide a plan whose semantic need is already
-established by hashed state:
+established by hashed state. The current inventory is:
 
 | Field | Purpose and consumer |
 |---|---|
