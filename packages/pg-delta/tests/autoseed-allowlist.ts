@@ -8,13 +8,18 @@
  * table with a NOT NULL-without-default / FK / unique / check column cannot be
  * seeded that way and the driver returns a class-23 SQLSTATE.
  *
- * Those class-23 skips are legitimate and expected — but they must be declared
- * here, keyed precisely by `{ scenario, direction, table, reasonCode }`, so a
- * NEW unseedable table (or a skip that silently appears in an unexpected
- * scenario) fails the suite loudly instead of quietly losing data-preservation
- * coverage. Anything the seeder classifies as `failed` (a raised exception,
- * connection/permission error, etc. — NOT class 23) is never allowlistable and
- * always fails the scenario.
+ * A skip has one of two `reasonCode` shapes, both expected and both gated here:
+ *   - a class-23 SQLSTATE (`23502` NOT NULL w/o default, `23503` FK, `23505`
+ *     unique, `23514` check, …) — the insert was rejected; or
+ *   - the synthetic sentinel `"no_row"` (NOT a SQLSTATE) — the insert SUCCEEDED
+ *     but stored zero rows because a BEFORE INSERT trigger returned NULL / a
+ *     DO INSTEAD rule suppressed it, so nothing was actually seeded.
+ * Both must be declared here, keyed precisely by
+ * `{ scenario, direction, table, reasonCode }`, so a NEW unseedable table (or a
+ * skip that silently appears in an unexpected scenario) fails the suite loudly
+ * instead of quietly losing data-preservation coverage. Anything the seeder
+ * classifies as `failed` (a raised exception, connection/permission error,
+ * etc.) is never allowlistable and always fails the scenario.
  *
  * Maintenance: the harness prints a machine-readable `SEED_AUDIT {json}` line to
  * stderr for every non-allowlisted skip before failing. Add the reported
@@ -36,9 +41,10 @@ export interface SeedSkipKey {
 }
 
 export const AUTOSEED_SKIP_ALLOWLIST: readonly SeedSkipKey[] = [
-  // 169 entries — every one is a NOT NULL-without-default column (SQLSTATE
-  // 23502): the empty kept table cannot take INSERT ... DEFAULT VALUES. Sorted
-  // by scenario, then direction, then schema.name.
+  // 170 entries — 169 are a NOT NULL-without-default column (SQLSTATE 23502):
+  // the empty kept table cannot take INSERT ... DEFAULT VALUES; 1 is "no_row"
+  // (a BEFORE INSERT trigger that RETURNS NULL suppresses the row). Sorted by
+  // scenario, then direction, then schema.name.
   {
     scenario: "alter-column-type--blocked-by-policy",
     direction: "forward",
@@ -993,6 +999,14 @@ export const AUTOSEED_SKIP_ALLOWLIST: readonly SeedSkipKey[] = [
     direction: "reverse",
     table: { schema: "test_schema", name: "foo" },
     reasonCode: "23502",
+  },
+  {
+    // forward: an all-nullable table whose BEFORE INSERT trigger RETURNS NULL,
+    // so INSERT ... DEFAULT VALUES succeeds with zero rows (nothing seeded).
+    scenario: "trigger-operations--trigger-drop-before-function-drop",
+    direction: "forward",
+    table: { schema: "test_schema", name: "foo" },
+    reasonCode: "no_row",
   },
   {
     scenario: "trigger-operations--trigger-drop-before-function-drop",
