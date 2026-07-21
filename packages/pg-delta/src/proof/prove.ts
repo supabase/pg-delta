@@ -36,12 +36,14 @@ export interface TableRef {
  *  - `skipped` — no row persisted and that is expected, in two shapes:
  *    (a) the insert hit a class-23 integrity-constraint violation (`reasonCode`
  *    = the SQLSTATE: `23502` NOT NULL w/o default, `23503` FK, `23505` unique,
- *    `23514` check, any `23xxx`); or (b) the insert RESOLVED but left the table
- *    empty — a BEFORE INSERT trigger returned NULL, a DO INSTEAD rule suppressed
- *    it, or an AFTER INSERT trigger deleted the row (rowCount is only the command
- *    tag, so persistence is confirmed with an existence probe). This carries the
- *    synthetic sentinel `reasonCode` `"no_row"`, the one skip code that is NOT a
- *    SQLSTATE. Either way the table keeps `contentMode: "none"`.
+ *    `23514` check, any `23xxx`); or (b) the insert RESOLVED but the row is
+ *    absent from the FINAL pre-apply snapshot — a BEFORE INSERT trigger returned
+ *    NULL, a DO INSTEAD rule suppressed it, or an AFTER INSERT trigger deleted it
+ *    (possibly while seeding a LATER table). rowCount is only the command tag, so
+ *    persistence is judged once by reconciling against that snapshot, not per
+ *    insert. This carries the synthetic sentinel `reasonCode` `"no_row"`, the one
+ *    skip code that is NOT a SQLSTATE. Either way the table keeps
+ *    `contentMode: "none"`.
  *  - `failed` — anything else (a raised exception, connection/syntax/permission
  *    error, or a driver error with no code): a real problem the caller must see
  *    rather than have swallowed. `reasonCode` is the SQLSTATE when the driver
@@ -291,23 +293,14 @@ async function autoSeedEmptyTables(
       await pool.query(
         `INSERT INTO ${qte(schema)}.${qte(name)} DEFAULT VALUES`,
       );
-      // a resolved insert is NOT proof of a stored row, and rowCount is only the
-      // command tag — it lies here: an AFTER INSERT trigger that DELETEs the row
-      // still reports INSERT 0 1 (rowCount 1) on a now-empty table, and a BEFORE
-      // INSERT trigger returning NULL / a DO INSTEAD rule suppresses it with
-      // rowCount 0. Verify PERSISTED state with one existence probe (the table
-      // was empty pre-insert, so EXISTS is true iff the synthetic row survived).
-      // No surviving row → skipped (synthetic reasonCode "no_row", NOT a
-      // SQLSTATE) through the same allowlist gate, instead of a false `seeded`
-      // that leaves the table at contentMode "none" with no coverage.
-      const persisted = await pool.query<{ e: boolean }>(
-        `SELECT EXISTS(SELECT 1 FROM ${qte(schema)}.${qte(name)}) AS e`,
-      );
-      if (persisted.rows[0]?.e === true) {
-        outcomes.push({ table: ref, status: "seeded" });
-      } else {
-        outcomes.push({ table: ref, status: "skipped", reasonCode: "no_row" });
-      }
+      // PROVISIONAL: a resolved insert is NOT proof of a persisted row, and
+      // rowCount is only the command tag. Persistence is judged once, later, by
+      // reconcileSeedOutcomes against the single FINAL pre-apply snapshot — that
+      // catches same-table suppression (BEFORE trigger → NULL), same-table undo
+      // (AFTER trigger delete), AND cross-table undo (seeding a LATER table
+      // deletes THIS row), which no per-insert probe can see. A row that ends
+      // that snapshot gone is downgraded to skipped("no_row").
+      outcomes.push({ table: ref, status: "seeded" });
     } catch (err) {
       const rawCode = (err as { code?: unknown }).code;
       const code = typeof rawCode === "string" ? rawCode : undefined;
@@ -324,6 +317,28 @@ async function autoSeedEmptyTables(
     }
   }
   return outcomes;
+}
+
+/**
+ * Reconcile provisional `seeded` outcomes against the FINAL pre-apply table
+ * snapshot: a synthetic row that no longer exists there (a trigger/rule
+ * suppressed or deleted it — possibly while seeding a LATER table) was never
+ * really seeded, so downgrade it to `skipped("no_row")`. One source of truth
+ * for persistence; `skipped`/`failed` outcomes are already terminal and pass
+ * through unchanged. Pure (no DB) — unit-testable. (`no_row` is the one
+ * non-SQLSTATE skip reasonCode; see SeedOutcome.)
+ */
+export function reconcileSeedOutcomes(
+  outcomes: SeedOutcome[],
+  finalStats: Map<string, TableStat>,
+): SeedOutcome[] {
+  return outcomes.map((o) => {
+    if (o.status !== "seeded") return o;
+    const stat = finalStats.get(relKey(o.table.schema, o.table.name));
+    return stat !== undefined && stat.rows === 0
+      ? { table: o.table, status: "skipped", reasonCode: "no_row" }
+      : o;
+  });
 }
 
 /**
@@ -493,6 +508,12 @@ export async function provePlan(
   }
 
   const before = await tableStats(clonePool);
+  // reconcile provisional seeds against `before` — the single FINAL pre-apply
+  // snapshot (taken after ALL seeding), so a row later suppressed/undone by a
+  // trigger or rule (even cross-table) is downgraded to skipped("no_row").
+  if (seedOutcomes !== undefined) {
+    seedOutcomes = reconcileSeedOutcomes(seedOutcomes, before);
+  }
   // the proof re-extracts after applying anyway; the fingerprint gate's
   // extra extraction is redundant here (it has its own execution tests)
   const report = await apply(thePlan, clonePool, { fingerprintGate: false });

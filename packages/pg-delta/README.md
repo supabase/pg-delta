@@ -127,8 +127,8 @@ outcome on the verdict (`seedOutcomes`: `seeded` / `skipped` / `failed`)
 so an unseedable table is never confused with one that failed for a reason
 nobody saw. A `skipped` is either a class-23 integrity-constraint SQLSTATE
 or the synthetic `no_row` code (the insert resolved but a trigger/rule left
-the table empty — persistence is confirmed with an existence probe, not the
-command tag). Per-kind graph policy
+the row absent from the final pre-apply snapshot — persistence is judged by
+reconciling against that snapshot, not the command tag). Per-kind graph policy
 (cascade/rebuild/suppression/defacl) lives entirely in the rule table as
 `KindRules` flags — the planner body holds no kind-name lists (guardrail 3).
 

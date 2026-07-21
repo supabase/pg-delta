@@ -8,7 +8,12 @@
  * proof reports honest per-table coverage instead of a bare boolean.
  */
 import { describe, expect, test } from "bun:test";
-import { detectViolations, relKey } from "./prove.ts";
+import {
+  detectViolations,
+  reconcileSeedOutcomes,
+  relKey,
+  type SeedOutcome,
+} from "./prove.ts";
 
 // TableStat is module-internal; the tests only need its shape.
 type Stat = {
@@ -241,5 +246,70 @@ describe("detectViolations — content + coverage (review #3)", () => {
         reason: "recreated by the plan",
       },
     ]);
+  });
+});
+
+describe("reconcileSeedOutcomes — provisional seeds vs the final snapshot", () => {
+  const stats = (entries: Array<[string, string, number]>) =>
+    new Map(
+      entries.map(([s, n, rows]) => [
+        relKey(s, n),
+        { rows, relfilenode: "1", schemaSig: SIG },
+      ]),
+    );
+
+  test("a `seeded` row absent from the final snapshot is downgraded to no_row", () => {
+    const outcomes: SeedOutcome[] = [
+      { table: { schema: "s", name: "gone" }, status: "seeded" },
+    ];
+    expect(reconcileSeedOutcomes(outcomes, stats([["s", "gone", 0]]))).toEqual([
+      {
+        table: { schema: "s", name: "gone" },
+        status: "skipped",
+        reasonCode: "no_row",
+      },
+    ]);
+  });
+
+  test("a `seeded` row that persists stays seeded", () => {
+    const outcomes: SeedOutcome[] = [
+      { table: { schema: "s", name: "kept" }, status: "seeded" },
+    ];
+    expect(reconcileSeedOutcomes(outcomes, stats([["s", "kept", 1]]))).toEqual(
+      outcomes,
+    );
+  });
+
+  test("skipped / failed outcomes pass through unchanged", () => {
+    const outcomes: SeedOutcome[] = [
+      {
+        table: { schema: "s", name: "a" },
+        status: "skipped",
+        reasonCode: "23502",
+      },
+      {
+        table: { schema: "s", name: "b" },
+        status: "failed",
+        reasonCode: "P0001",
+        message: "boom",
+      },
+    ];
+    // present with rows 0, but they are already terminal — not reconciled
+    expect(
+      reconcileSeedOutcomes(
+        outcomes,
+        stats([
+          ["s", "a", 0],
+          ["s", "b", 0],
+        ]),
+      ),
+    ).toEqual(outcomes);
+  });
+
+  test("a `seeded` table missing from the snapshot is left seeded (defensive)", () => {
+    const outcomes: SeedOutcome[] = [
+      { table: { schema: "s", name: "orphan" }, status: "seeded" },
+    ];
+    expect(reconcileSeedOutcomes(outcomes, stats([]))).toEqual(outcomes);
   });
 });

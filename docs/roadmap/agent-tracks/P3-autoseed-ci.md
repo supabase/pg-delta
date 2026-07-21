@@ -57,11 +57,13 @@ stronger path.
    `skipped(reason=SQLSTATE)`. (Generated/identity `428C9` errors are
    unreachable via `DEFAULT VALUES` — do not allowlist what cannot occur.)
    **One documented exception to "SQLSTATE only":** a `DEFAULT VALUES` insert
-   can *resolve* yet persist no row — a BEFORE INSERT trigger returning NULL, a
-   DO INSTEAD rule, or an AFTER INSERT trigger deleting the row (rowCount is the
-   command tag, not persisted state, so persistence is confirmed with an
-   existence probe). That is also `skipped`, with the **synthetic sentinel
-   `reason=no_row`** — the one non-SQLSTATE skip code. Everything else
+   can *resolve* yet leave no row in the final pre-apply snapshot — a BEFORE
+   INSERT trigger returning NULL, a DO INSTEAD rule, or an AFTER INSERT trigger
+   deleting the row (possibly while seeding a later table). rowCount is the
+   command tag, not persisted state, so persistence is judged by reconciling
+   provisional seeds against that one snapshot, not a per-insert probe. That is
+   also `skipped`, with the **synthetic sentinel `reason=no_row`** — the one
+   non-SQLSTATE skip code. Everything else
    (connection, syntax, permission, raised exceptions, unknown states) →
    `failed(error)`; only class-23 and `no_row` are skips. The skip-allowlist is
    keyed by `{ scenario, direction, table, reasonCode }` — no bare table names.
