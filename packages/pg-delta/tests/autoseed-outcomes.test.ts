@@ -21,6 +21,8 @@ let db: TestDb;
 let verdict: ProofVerdict;
 let schemaChangeDb: TestDb;
 let schemaChangeVerdict: ProofVerdict;
+let seedSchemaDb: TestDb;
+let seedSchemaVerdict: ProofVerdict;
 
 beforeAll(async () => {
   db = await createTestDb("autoseed");
@@ -117,11 +119,49 @@ beforeAll(async () => {
     schemaChangeTarget,
     { autoSeed: true },
   );
+
+  seedSchemaDb = await createTestDb("autoseed-trigger-schema-change");
+  await seedSchemaDb.pool.query(`
+    CREATE SCHEMA s;
+    CREATE TABLE s.populated_victim (
+      id integer PRIMARY KEY,
+      value integer NOT NULL
+    );
+    INSERT INTO s.populated_victim VALUES (1, 10);
+    CREATE TABLE s.seed_mutator (id integer);
+    CREATE FUNCTION s.mutate_data_and_schema() RETURNS trigger
+      LANGUAGE plpgsql AS $$
+      BEGIN
+        UPDATE s.populated_victim SET value = 11;
+        ALTER TABLE s.populated_victim ALTER COLUMN value TYPE bigint;
+        RETURN NULL;
+      END $$;
+    CREATE TRIGGER mutate_data_and_schema_after
+      AFTER INSERT ON s.seed_mutator
+      FOR EACH ROW EXECUTE FUNCTION s.mutate_data_and_schema();
+  `);
+
+  const { factBase: seedSchemaSource } = await extract(seedSchemaDb.pool);
+  await seedSchemaDb.pool.query(
+    "ALTER TABLE s.populated_victim ALTER COLUMN value TYPE bigint",
+  );
+  const { factBase: seedSchemaTarget } = await extract(seedSchemaDb.pool);
+  await seedSchemaDb.pool.query(
+    "ALTER TABLE s.populated_victim ALTER COLUMN value TYPE integer",
+  );
+
+  seedSchemaVerdict = await provePlan(
+    plan(seedSchemaSource, seedSchemaTarget),
+    seedSchemaDb.pool,
+    seedSchemaTarget,
+    { autoSeed: true },
+  );
 }, 120_000);
 
 afterAll(async () => {
   await db.drop();
   await schemaChangeDb.drop();
+  await seedSchemaDb.drop();
 });
 
 describe("provePlan autoSeed seed-outcome reporting", () => {
@@ -221,5 +261,18 @@ describe("provePlan autoSeed seed-outcome reporting", () => {
       contentChanged: true,
     });
     expect(schemaChangeVerdict.ok).toBe(false);
+  });
+
+  test("rejects schema changes performed by an autoSeed trigger", () => {
+    // The trigger both mutates the existing row and performs the same type
+    // change as the plan. State still converges and row count stays stable, but
+    // the proof must fail because autoSeed changed a populated table's schema.
+    expect(seedSchemaVerdict.ok).toBe(false);
+    expect(seedSchemaVerdict.dataViolations).toContainEqual({
+      table: { schema: "s", name: "populated_victim" },
+      before: 1,
+      after: 1,
+      schemaChanged: true,
+    });
   });
 });

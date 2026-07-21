@@ -66,6 +66,20 @@ describe("enforceSeedCoverage error typing", () => {
       enforceSeedCoverage("scenario-y", "forward", "l", verdict),
     ).not.toThrow();
   });
+
+  test("an allowlist entry becoming seedable is rejected as stale", () => {
+    const verdict = verdictWith([
+      { table: { schema: "t", name: "cats" }, status: "seeded" },
+    ]);
+    expect(() =>
+      enforceSeedCoverage(
+        "alter-column-type--blocked-by-policy",
+        "forward",
+        "l",
+        verdict,
+      ),
+    ).toThrow(SeedCoverageError);
+  });
 });
 
 describe("runPinnedDirection (EXPECTED_RED wrapper)", () => {

@@ -406,4 +406,35 @@ describe("detectAutoSeedSideEffects — pre-plan data guard", () => {
       detectAutoSeedSideEffects(preSeed, postSeed, new Set([table])),
     ).toEqual([]);
   });
+
+  test("rejects seed-time schema changes on populated kept tables", () => {
+    const preSeed = m([
+      [
+        "s",
+        "populated",
+        { rows: 1, relfilenode: "1", schemaSig: SIG, content: "before" },
+      ],
+    ]);
+    const postSeed = m([
+      [
+        "s",
+        "populated",
+        {
+          rows: 1,
+          relfilenode: "2",
+          schemaSig: `${SIG},note:25`,
+          content: "after",
+        },
+      ],
+    ]);
+
+    expect(detectAutoSeedSideEffects(preSeed, postSeed, new Set())).toEqual([
+      {
+        table: { schema: "s", name: "populated" },
+        before: 1,
+        after: 1,
+        schemaChanged: true,
+      },
+    ]);
+  });
 });
