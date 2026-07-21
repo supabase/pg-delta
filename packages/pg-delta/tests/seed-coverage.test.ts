@@ -9,7 +9,11 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { ProofVerdict, SeedOutcome } from "../src/proof/prove.ts";
-import { enforceSeedCoverage, SeedCoverageError } from "./seed-coverage.ts";
+import {
+  enforceSeedCoverage,
+  runPinnedDirection,
+  SeedCoverageError,
+} from "./seed-coverage.ts";
 
 function verdictWith(seedOutcomes: SeedOutcome[]): ProofVerdict {
   return {
@@ -61,5 +65,35 @@ describe("enforceSeedCoverage error typing", () => {
     expect(() =>
       enforceSeedCoverage("scenario-y", "forward", "l", verdict),
     ).not.toThrow();
+  });
+});
+
+describe("runPinnedDirection (EXPECTED_RED wrapper)", () => {
+  test("a SeedCoverageError is re-thrown (never swallowed as red-as-pinned)", async () => {
+    const boom = new SeedCoverageError("coverage violated");
+    let caught: unknown;
+    try {
+      await runPinnedDirection("k:forward", async () => {
+        throw boom;
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(SeedCoverageError);
+    expect(caught).toBe(boom);
+  });
+
+  test("any other error resolves quietly (legitimately red as pinned)", async () => {
+    await expect(
+      runPinnedDirection("k:forward", async () => {
+        throw new Error("ordinary proof failure");
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  test("a passing run throws the pinned-but-now-passes error", async () => {
+    await expect(
+      runPinnedDirection("k:forward", async () => {}),
+    ).rejects.toThrow(/pinned in EXPECTED_RED but now PASSES/);
   });
 });

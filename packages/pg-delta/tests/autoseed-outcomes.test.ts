@@ -36,12 +36,21 @@ beforeAll(async () => {
       FOR EACH ROW EXECUTE FUNCTION s.boom();
     -- all columns defaulted/nullable, but a BEFORE INSERT trigger RETURNS NULL:
     -- the INSERT succeeds with rowCount 0, so NO row is stored — a false
-    -- "seeded" unless the outcome is classified by rowCount ("no_row").
+    -- "seeded" unless the outcome is classified by persisted state ("no_row").
     CREATE TABLE s.trigger_suppressed (id integer);
     CREATE FUNCTION s.suppress() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN RETURN NULL; END $$;
     CREATE TRIGGER suppress_before BEFORE INSERT ON s.trigger_suppressed
       FOR EACH ROW EXECUTE FUNCTION s.suppress();
+    -- all columns defaulted/nullable, but an AFTER INSERT trigger DELETEs the
+    -- just-inserted row: PostgreSQL reports INSERT 0 1 (rowCount 1) while the
+    -- table stays EMPTY — rowCount is the command tag, not persisted state, so
+    -- only a post-insert existence check catches this as no_row.
+    CREATE TABLE s.trigger_undone (id integer);
+    CREATE FUNCTION s.undo() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN DELETE FROM s.trigger_undone; RETURN NULL; END $$;
+    CREATE TRIGGER undo_after AFTER INSERT ON s.trigger_undone
+      FOR EACH ROW EXECUTE FUNCTION s.undo();
   `);
 
   const { factBase } = await extract(db.pool);
@@ -95,9 +104,19 @@ describe("provePlan autoSeed seed-outcome reporting", () => {
 
   test("a RETURNS NULL trigger (zero-row insert) reports `skipped` with reasonCode `no_row`", () => {
     // the INSERT succeeds but stores no row, so this is NOT `seeded` — classify
-    // by rowCount and route it through the same allowlist gate as class-23.
+    // by persisted state and route it through the same allowlist gate as class-23.
     expect(outcomeFor("trigger_suppressed")).toEqual({
       table: { schema: "s", name: "trigger_suppressed" },
+      status: "skipped",
+      reasonCode: "no_row",
+    });
+  });
+
+  test("an AFTER INSERT trigger that DELETEs the row (rowCount 1, table empty) reports `skipped` with reasonCode `no_row`", () => {
+    // rowCount is the command tag, not persisted state: `INSERT 0 1` but the
+    // row was undone. Only a post-insert existence check catches this.
+    expect(outcomeFor("trigger_undone")).toEqual({
+      table: { schema: "s", name: "trigger_undone" },
       status: "skipped",
       reasonCode: "no_row",
     });
