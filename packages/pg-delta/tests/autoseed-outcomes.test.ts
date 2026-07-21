@@ -19,6 +19,8 @@ import { createTestDb, type TestDb } from "./containers.ts";
 
 let db: TestDb;
 let verdict: ProofVerdict;
+let schemaChangeDb: TestDb;
+let schemaChangeVerdict: ProofVerdict;
 
 beforeAll(async () => {
   db = await createTestDb("autoseed");
@@ -79,10 +81,47 @@ beforeAll(async () => {
   // tables, and the no-op apply converges — the assertions are on seedOutcomes.
   const thePlan = plan(factBase, factBase);
   verdict = await provePlan(thePlan, db.pool, factBase, { autoSeed: true });
+
+  schemaChangeDb = await createTestDb("autoseed-schema-change");
+  await schemaChangeDb.pool.query(`
+    CREATE SCHEMA s;
+    CREATE TABLE s.populated_victim (
+      id integer PRIMARY KEY,
+      value text NOT NULL
+    );
+    INSERT INTO s.populated_victim VALUES (1, 'original');
+    CREATE TABLE s.seed_mutator (id integer);
+    CREATE FUNCTION s.mutate_populated_victim() RETURNS trigger
+      LANGUAGE plpgsql AS $$
+      BEGIN
+        UPDATE s.populated_victim SET value = 'mutated';
+        RETURN NULL;
+      END $$;
+    CREATE TRIGGER mutate_populated_victim_after
+      AFTER INSERT ON s.seed_mutator
+      FOR EACH ROW EXECUTE FUNCTION s.mutate_populated_victim();
+  `);
+
+  const { factBase: schemaChangeSource } = await extract(schemaChangeDb.pool);
+  await schemaChangeDb.pool.query(
+    "ALTER TABLE s.populated_victim ADD COLUMN note text",
+  );
+  const { factBase: schemaChangeTarget } = await extract(schemaChangeDb.pool);
+  await schemaChangeDb.pool.query(
+    "ALTER TABLE s.populated_victim DROP COLUMN note",
+  );
+
+  schemaChangeVerdict = await provePlan(
+    plan(schemaChangeSource, schemaChangeTarget),
+    schemaChangeDb.pool,
+    schemaChangeTarget,
+    { autoSeed: true },
+  );
 }, 120_000);
 
 afterAll(async () => {
   await db.drop();
+  await schemaChangeDb.drop();
 });
 
 describe("provePlan autoSeed seed-outcome reporting", () => {
@@ -169,5 +208,18 @@ describe("provePlan autoSeed seed-outcome reporting", () => {
       after: 0,
     });
     expect(verdict.ok).toBe(false);
+  });
+
+  test("detects equal-row-count autoSeed mutations before a schema-changing plan", () => {
+    // The seed trigger changes only row content, then the plan changes that
+    // table's schema. The final data-proof comparison cannot compare content
+    // across schemas, so the mutation must be captured before the plan runs.
+    expect(schemaChangeVerdict.dataViolations).toContainEqual({
+      table: { schema: "s", name: "populated_victim" },
+      before: 1,
+      after: 1,
+      contentChanged: true,
+    });
+    expect(schemaChangeVerdict.ok).toBe(false);
   });
 });
