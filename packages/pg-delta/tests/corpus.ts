@@ -15,6 +15,7 @@ export interface Scenario {
   a: string;
   b: string;
   seed?: string;
+  seedB?: string;
   meta: ScenarioMeta;
 }
 
@@ -55,12 +56,16 @@ export function loadCorpus(): Scenario[] {
   return selectScenarios(names).map((name) => {
     const dir = join(CORPUS_DIR, name);
     const seedPath = join(dir, "seed.sql");
+    const seedBPath = join(dir, "seed-b.sql");
     const metaPath = join(dir, "meta.json");
     return {
       name,
       a: readFileSync(join(dir, "a.sql"), "utf8"),
       b: readFileSync(join(dir, "b.sql"), "utf8"),
       ...(existsSync(seedPath) ? { seed: readFileSync(seedPath, "utf8") } : {}),
+      ...(existsSync(seedBPath)
+        ? { seedB: readFileSync(seedBPath, "utf8") }
+        : {}),
       meta: existsSync(metaPath)
         ? (JSON.parse(readFileSync(metaPath, "utf8")) as ScenarioMeta)
         : {},

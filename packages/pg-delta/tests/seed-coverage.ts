@@ -13,7 +13,10 @@
 import { writeSync } from "node:fs";
 import { rel } from "../src/plan/render.ts";
 import type { ProofVerdict } from "../src/proof/prove.ts";
-import { isSeedSkipAllowed } from "./autoseed-allowlist.ts";
+import {
+  isSeedSkipAllowed,
+  seedSkipAllowlistFor,
+} from "./autoseed-allowlist.ts";
 
 /** A seed-coverage contract violation. Never a legitimate "red as pinned": the
  *  EXPECTED_RED pinned catch re-throws this so it always fails the corpus. */
@@ -34,7 +37,8 @@ export class SeedCoverageError extends Error {
  *    precise { scenario, direction, table, reasonCode } key is in the
  *    checked-in allowlist (tests/autoseed-allowlist.ts); an unlisted skip fails
  *    the scenario so newly-lost data-preservation coverage can't slip in
- *    silently.
+ *    silently. Every declared skip for this scenario/direction must also be
+ *    observed; a dormant exemption is rejected as stale.
  * A `SEED_AUDIT {json}` line is written to fd 2 before failing so a full corpus
  * run yields ready-to-paste allowlist keys.
  */
@@ -45,12 +49,16 @@ export function enforceSeedCoverage(
   verdict: ProofVerdict,
 ): void {
   const outcomes = verdict.seedOutcomes ?? [];
-  if (outcomes.length === 0) return;
   const coverageMode = (t: { schema: string; name: string }): string =>
     verdict.coverage.perTable.find(
       (p) => p.table.schema === t.schema && p.table.name === t.name,
     )?.contentMode ?? "none";
   const violations: string[] = [];
+  const observedSkips = new Set<string>();
+  const skipKey = (
+    table: { schema: string; name: string },
+    reasonCode: string,
+  ): string => JSON.stringify([table.schema, table.name, reasonCode]);
   for (const o of outcomes) {
     if (o.status === "seeded") continue;
     if (o.status === "failed") {
@@ -65,6 +73,7 @@ export function enforceSeedCoverage(
       continue;
     }
     // skip (class-23 SQLSTATE or no_row): tolerated only if allowlisted
+    observedSkips.add(skipKey(o.table, o.reasonCode));
     if (isSeedSkipAllowed(scenarioName, direction, o.table, o.reasonCode)) {
       continue;
     }
@@ -76,6 +85,19 @@ export function enforceSeedCoverage(
       `  UNLISTED skip ${rel(o.table.schema, o.table.name)} ` +
         `(coverage=${coverageMode(o.table)}, reason=${o.reasonCode}) — ` +
         `add to tests/autoseed-allowlist.ts if genuinely unseedable`,
+    );
+  }
+  for (const expected of seedSkipAllowlistFor(scenarioName, direction)) {
+    if (observedSkips.has(skipKey(expected.table, expected.reasonCode))) {
+      continue;
+    }
+    writeSync(
+      2,
+      `SEED_AUDIT ${JSON.stringify({ status: "stale", scenario: scenarioName, direction, table: expected.table, reasonCode: expected.reasonCode })}\n`,
+    );
+    violations.push(
+      `  STALE skip ${rel(expected.table.schema, expected.table.name)} ` +
+        `(reason=${expected.reasonCode}) — remove from tests/autoseed-allowlist.ts`,
     );
   }
   if (violations.length > 0) {

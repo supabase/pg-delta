@@ -35,7 +35,9 @@
  * reported `{ scenario, direction, table, reasonCode }` here (keep the list
  * sorted by scenario, then direction, then schema.name) only after confirming
  * the table is genuinely unseedable-with-defaults — never to paper over a
- * `failed` outcome or a real data-preservation hazard.
+ * `failed` outcome or a real data-preservation hazard. Every entry must be
+ * observed when its scenario/direction runs; a now-seedable table makes the
+ * exemption stale and fails the coverage gate until the entry is removed.
  */
 
 /** A precise identity for one tolerated class-23 skip. `reasonCode` is the
@@ -1107,4 +1109,16 @@ export function isSeedSkipAllowed(
   reasonCode: string,
 ): boolean {
   return ALLOWED.has(keyOf({ scenario, direction, table, reasonCode }));
+}
+
+/** Declared skips for one executed corpus direction. The coverage gate uses
+ *  this to reject exemptions that are no longer observed, so a future loss of
+ *  coverage cannot silently reuse a dormant allowlist entry. */
+export function seedSkipAllowlistFor(
+  scenario: string,
+  direction: "forward" | "reverse",
+): readonly SeedSkipKey[] {
+  return AUTOSEED_SKIP_ALLOWLIST.filter(
+    (entry) => entry.scenario === scenario && entry.direction === direction,
+  );
 }

@@ -67,6 +67,9 @@ export interface ProofVerdict {
     after: number;
     /** count held but row CONTENT changed on an untouched table (review #3) */
     contentChanged?: boolean;
+    /** autoSeed changed the table's schema before the plan ran, so its
+     *  pre-existing row content can no longer be compared safely */
+    schemaChanged?: boolean;
   }>;
   /** a kept table that was physically rewritten (relfilenode changed)
    *  under no action declaring rewriteRisk — the rule under-declared */
@@ -376,11 +379,41 @@ export function detectAutoSeedSideEffects(
   postSeed: Map<string, TableStat>,
   recreatedTables: Set<string>,
 ): ProofVerdict["dataViolations"] {
-  const populated = new Map([...preSeed].filter(([, stat]) => stat.rows > 0));
-  return detectViolations(populated, postSeed, {
-    recreatedTables,
-    declaredRewriteTables: new Set(),
-  }).dataViolations;
+  const violations: ProofVerdict["dataViolations"] = [];
+  for (const [table, before] of preSeed) {
+    if (before.rows === 0 || recreatedTables.has(table)) continue;
+    const [schema, name] = parseRelKey(table);
+    const ref: TableRef = { schema, name };
+    const after = postSeed.get(table);
+    if (after === undefined || after.rows !== before.rows) {
+      violations.push({
+        table: ref,
+        before: before.rows,
+        after: after?.rows ?? 0,
+      });
+    } else if (after.schemaSig !== before.schemaSig) {
+      // No plan action has run yet: unlike the final proof comparison, there is
+      // no legitimate schema transition to tolerate between these snapshots.
+      violations.push({
+        table: ref,
+        before: before.rows,
+        after: after.rows,
+        schemaChanged: true,
+      });
+    } else if (
+      before.content !== undefined &&
+      after.content !== undefined &&
+      before.content !== after.content
+    ) {
+      violations.push({
+        table: ref,
+        before: before.rows,
+        after: after.rows,
+        contentChanged: true,
+      });
+    }
+  }
+  return violations;
 }
 
 /**

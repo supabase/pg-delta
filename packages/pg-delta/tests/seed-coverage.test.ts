@@ -80,6 +80,24 @@ describe("enforceSeedCoverage error typing", () => {
       ),
     ).toThrow(SeedCoverageError);
   });
+
+  test("an observed allowlisted skip remains accepted", () => {
+    const verdict = verdictWith([
+      {
+        table: { schema: "t", name: "cats" },
+        status: "skipped",
+        reasonCode: "23502",
+      },
+    ]);
+    expect(() =>
+      enforceSeedCoverage(
+        "alter-column-type--blocked-by-policy",
+        "forward",
+        "l",
+        verdict,
+      ),
+    ).not.toThrow();
+  });
 });
 
 describe("runPinnedDirection (EXPECTED_RED wrapper)", () => {

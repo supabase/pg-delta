@@ -132,7 +132,8 @@ reconciling against that snapshot, not the command tag). Tables that were
 already populated remain anchored to their pre-seed stats, so trigger side
 effects from synthetic inserts cannot be baselined away. Those tables are also
 compared immediately after seeding, before any plan action can make their
-fingerprints incomparable through a schema change. Per-kind graph policy
+fingerprints incomparable through a schema change; any schema change caused by
+seeding itself also fails the proof before the plan runs. Per-kind graph policy
 (cascade/rebuild/suppression/defacl) lives entirely in the rule table as
 `KindRules` flags — the planner body holds no kind-name lists (guardrail 3).
 

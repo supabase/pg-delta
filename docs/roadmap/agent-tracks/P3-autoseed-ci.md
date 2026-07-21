@@ -75,6 +75,9 @@ stronger path.
    from being silently accepted as the proof baseline. Populated kept tables are
    also compared directly before and after seeding, before the plan runs, so a
    later schema change cannot suppress detection of an equal-row-count mutation.
+   A schema-signature change caused by seeding itself fails the proof immediately.
+   Allowlist entries are checked in both directions: new skips fail, and declared
+   skips that are no longer observed fail as stale exemptions that must be removed.
 
 ## RED → GREEN
 

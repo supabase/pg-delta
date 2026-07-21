@@ -135,7 +135,7 @@ async function runDirection(
   const [fromSql, toSql, seed] =
     direction === "forward"
       ? [scenario.a, scenario.b, scenario.seed]
-      : [scenario.b, scenario.a, undefined];
+      : [scenario.b, scenario.a, scenario.seedB];
   const label =
     direction === "forward" ? scenario.name : `${scenario.name}:reverse`;
 
