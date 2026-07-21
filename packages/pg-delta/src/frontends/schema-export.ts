@@ -97,20 +97,11 @@ export async function buildSchemaExport(
         resolvedDefaultOwner = r.rows[0]?.owner ?? null;
       }
     }
-    if (resolvedDefaultOwner !== null) {
-      const cu = (await pool.query<{ u: string }>(`SELECT current_user AS u`))
-        .rows[0]?.u;
-      if (cu !== undefined && cu !== resolvedDefaultOwner) {
-        options.onWarning?.(
-          `the resolved default owner "${resolvedDefaultOwner}" differs from the export ` +
-            `connection role "${cu}"; ownership of its objects will be left implicit (no OWNER TO). ` +
-            `Apply this directory connecting as "${resolvedDefaultOwner}", or re-export with ` +
-            `defaultOwner "${cu}" / defaultOwner null (verbose).`,
-        );
-      }
-    }
   }
 
+  // reconstruct BEFORE onWarning: resolveProfile keeps the caller-owned policy
+  // by reference, so a warning callback that mutates filters must not run until
+  // the managed view is already sealed (pre-V1 order: resolveView then warn).
   const scopedView = reconstructManagedView(factBase, {
     policy: ctx.planOptions.policy,
     capability: ctx.planOptions.capability,
@@ -120,6 +111,18 @@ export async function buildSchemaExport(
       ? { defaultOwner: resolvedDefaultOwner }
       : {}),
   });
+  if (exportScope === "database" && resolvedDefaultOwner !== null) {
+    const cu = (await pool.query<{ u: string }>(`SELECT current_user AS u`))
+      .rows[0]?.u;
+    if (cu !== undefined && cu !== resolvedDefaultOwner) {
+      options.onWarning?.(
+        `the resolved default owner "${resolvedDefaultOwner}" differs from the export ` +
+          `connection role "${cu}"; ownership of its objects will be left implicit (no OWNER TO). ` +
+          `Apply this directory connecting as "${resolvedDefaultOwner}", or re-export with ` +
+          `defaultOwner "${cu}" / defaultOwner null (verbose).`,
+      );
+    }
+  }
   const scopeAssumedRoles =
     exportScope === "database"
       ? factBase
