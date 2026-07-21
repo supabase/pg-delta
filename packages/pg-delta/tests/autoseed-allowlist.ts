@@ -52,28 +52,14 @@ export interface SeedSkipKey {
 }
 
 export const AUTOSEED_SKIP_ALLOWLIST: readonly SeedSkipKey[] = [
-  // 3 entries — every other formerly-allowlisted table is now hand-seeded via a
-  // corpus seed.sql / seed-b.sql (see the module header). The two SQLSTATE-23502
-  // entries below are `test_schema.calculations` (both directions), left empty on
-  // purpose: its `computed` GENERATED column keeps the same column shape but
-  // changes expression across the diff (value_a + value_b <-> value_a * value_b),
-  // so a seeded row's stored generated value legitimately recomputes — which the
-  // data-preservation fingerprint reports as a content change. Seeding the sibling
-  // `test_schema.users` still gives that scenario real coverage. The 1 "no_row"
-  // entry is a BEFORE INSERT trigger that RETURNS NULL, suppressing the row.
+  // 1 entry — every formerly-allowlisted class-23 (23502) table is now hand-seeded
+  // via a corpus seed.sql / seed-b.sql (see the module header), including
+  // `alter-table--generated-column`'s `test_schema.calculations`, which is seeded
+  // at the (2, 2) fixed point of both generation expressions (2 + 2 = 2 * 2 = 4) so
+  // the stored generated value is byte-identical across the expression swap and the
+  // content fingerprint holds. The sole remaining entry is a "no_row" case: a
+  // BEFORE INSERT trigger that RETURNS NULL, suppressing the row.
   // Sorted by scenario, then direction, then schema.name.
-  {
-    scenario: "alter-table--generated-column",
-    direction: "forward",
-    table: { schema: "test_schema", name: "calculations" },
-    reasonCode: "23502",
-  },
-  {
-    scenario: "alter-table--generated-column",
-    direction: "reverse",
-    table: { schema: "test_schema", name: "calculations" },
-    reasonCode: "23502",
-  },
   {
     scenario: "trigger-operations--trigger-drop-before-function-drop",
     direction: "forward",
