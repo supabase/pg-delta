@@ -20,10 +20,14 @@ export function saveSnapshot(
   pgVersion: string,
   path: string,
   redactSecrets?: boolean,
+  /** the profile the snapshot was captured under: a declared id, `null`
+   *  (captured raw), or omitted (leave the field ABSENT — legacy). */
+  profile?: string | null,
 ): void {
   const json = serializeSnapshot(fb, {
     pgVersion,
     ...(redactSecrets !== undefined ? { redactSecrets } : {}),
+    ...(profile !== undefined ? { profile } : {}),
   });
   writeFileSync(path, json, "utf8");
 }
@@ -37,6 +41,7 @@ export function loadSnapshot(path: string): {
   factBase: FactBase;
   pgVersion: string;
   redactSecrets?: boolean;
+  profile?: string | null;
 } {
   const json = readFileSync(path, "utf8");
   return deserializeSnapshot(json);

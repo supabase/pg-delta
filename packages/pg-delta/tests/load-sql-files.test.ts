@@ -317,7 +317,7 @@ describe("loadSqlFiles (shadow frontend)", () => {
     }
   }, 60_000);
 
-  test("isolatedCluster mode: same role-creating file FAILS in databaseScratch mode", async () => {
+  test("isolatedCluster mode: same role-creating file FAILS in databaseScratch mode and leaks no role", async () => {
     const shadow = await createTestDb("shadow_scratch");
     try {
       const error = await captureError(
@@ -334,9 +334,72 @@ describe("loadSqlFiles (shadow frontend)", () => {
       );
       expect(error).toBeInstanceOf(ShadowLoadError);
       expect(String(error)).toMatch(/cluster-level/);
+      // the role must NOT survive on the shared cluster after the failed load
+      const present = await shadow.pool.query(
+        "SELECT 1 FROM pg_roles WHERE rolname = 'scratch_role_leak_test'",
+      );
+      expect(present.rows.length).toBe(0);
     } finally {
       await shadow.pool
         .query("DROP ROLE IF EXISTS scratch_role_leak_test")
+        .catch(() => {});
+      await shadow.drop();
+    }
+  }, 60_000);
+
+  test("databaseScratch mode: role file + non-converging file FAILS and leaks no role", async () => {
+    const shadow = await createTestDb("shadow_scratch_multi");
+    try {
+      const error = await captureError(
+        loadSqlFiles(
+          [
+            { name: "roles.sql", sql: "CREATE ROLE leak_x NOLOGIN;" },
+            {
+              name: "broken.sql",
+              sql: "CREATE TABLE public.t (c integer REFERENCES public.does_not_exist);",
+            },
+          ],
+          shadow.pool,
+          { mode: "databaseScratch" },
+        ),
+      );
+      expect(error).toBeInstanceOf(ShadowLoadError);
+      // the role must NOT survive on the shared cluster after the failed load
+      const present = await shadow.pool.query(
+        "SELECT 1 FROM pg_roles WHERE rolname = 'leak_x'",
+      );
+      expect(present.rows.length).toBe(0);
+    } finally {
+      await shadow.pool.query("DROP ROLE IF EXISTS leak_x").catch(() => {});
+      await shadow.drop();
+    }
+  }, 60_000);
+
+  test("databaseScratch mode: DO-block CREATE ROLE evades preflight but the leaked role is restored", async () => {
+    const shadow = await createTestDb("shadow_scratch_doblock");
+    try {
+      const error = await captureError(
+        loadSqlFiles(
+          [
+            {
+              name: "doblock.sql",
+              sql: "DO $$ BEGIN EXECUTE 'CREATE ROLE do_block_leak NOLOGIN'; END $$;",
+            },
+          ],
+          shadow.pool,
+          { mode: "databaseScratch" },
+        ),
+      );
+      expect(error).toBeInstanceOf(ShadowLoadError);
+      expect(String(error)).toMatch(/cluster-level/);
+      // the DO-block committed the role; the restore net must have dropped it
+      const present = await shadow.pool.query(
+        "SELECT 1 FROM pg_roles WHERE rolname = 'do_block_leak'",
+      );
+      expect(present.rows.length).toBe(0);
+    } finally {
+      await shadow.pool
+        .query("DROP ROLE IF EXISTS do_block_leak")
         .catch(() => {});
       await shadow.drop();
     }

@@ -10,7 +10,8 @@
  * Exit codes: 0 = files written, 1 = error (no files written), 2 = usage
  * error, 3 = plan has no actions (no files written, not an error).
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { parsePlan } from "../../plan/artifact.ts";
 import { CliExit, parseFlags, UsageError } from "../flags.ts";
 import { renderPlan } from "../render.ts";
@@ -22,6 +23,40 @@ const USAGE =
  *  ".sql" if present; otherwise treats the whole value as the base. */
 function splitBase(outPath: string): string {
   return outPath.endsWith(".sql") ? outPath.slice(0, -".sql".length) : outPath;
+}
+
+/** True when `fileName` is a render-owned segment file for `baseName`:
+ *  `<baseName>.sql` or `<baseName>_<n>.sql` (n = one or more digits). The
+ *  naming scheme is the ownership ledger — anything else in the directory
+ *  (hand-authored `<baseName>_notes.sql`, unrelated files) is NOT matched and
+ *  is never touched. */
+function isOwnedSegmentFile(fileName: string, baseName: string): boolean {
+  if (fileName === `${baseName}.sql`) return true;
+  const prefix = `${baseName}_`;
+  if (!fileName.startsWith(prefix) || !fileName.endsWith(".sql")) return false;
+  const middle = fileName.slice(prefix.length, -".sql".length);
+  return middle.length > 0 && /^\d+$/.test(middle);
+}
+
+/** Remove segment files from a previous render to `base` that this render's
+ *  file set (`keep`) no longer produces, so a runner scanning the directory
+ *  never replays an obsolete (possibly destructive) segment. Only files
+ *  matching the `<base>.sql` / `<base>_<n>.sql` pattern are candidates — the
+ *  scheme guarantees render owns them; foreign files are left in place. */
+function pruneStaleSegments(base: string, keep: ReadonlySet<string>): void {
+  const dir = dirname(base);
+  const baseName = basename(base);
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return; // directory does not exist yet — nothing to prune
+  }
+  for (const entry of entries) {
+    if (!isOwnedSegmentFile(entry, baseName)) continue;
+    const full = join(dir, entry);
+    if (!keep.has(full)) rmSync(full, { force: true });
+  }
 }
 
 export async function cmdRender(args: string[]): Promise<void> {
@@ -66,6 +101,12 @@ export async function cmdRender(args: string[]): Promise<void> {
   }
 
   const base = splitBase(outPath);
+  // Prune segment files a previous render to this base left behind but this
+  // render no longer produces (the naming scheme is the ownership ledger).
+  const keep = new Set(
+    result.files.map((file) => `${base}${file.suffix ?? ""}.sql`),
+  );
+  pruneStaleSegments(base, keep);
   const writtenFiles: {
     path: string;
     transactional: boolean;

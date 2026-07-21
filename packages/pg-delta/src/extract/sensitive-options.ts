@@ -98,6 +98,18 @@ const SAFE_OPTION_KEYS = new Set<string>([
   "escape",
   "encoding",
   "compression",
+  // file_fdw's remaining non-secret COPY-shaped options.
+  //   https://www.postgresql.org/docs/current/file-fdw.html
+  //   `filename`/`program` name the data source (a path / shell command, not a
+  //   credential); `null`/`force_not_null`/`force_null` are COPY formatting
+  //   knobs. Redacting `filename` in particular makes a default-redacted export
+  //   create a foreign table pointing at the literal `__OPTION_FILENAME__`,
+  //   which converges while every query fails.
+  "filename",
+  "program",
+  "null",
+  "force_not_null",
+  "force_null",
   // Cloud / Supabase Wrappers non-credential shape.
   //   https://github.com/supabase/wrappers
   "region",

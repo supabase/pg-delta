@@ -16,6 +16,7 @@ const subId: StableId = { kind: "subscription", name: "s" };
 const subFact = (extra: Record<string, unknown>): Fact => ({
   id: subId,
   payload: {
+    _serverMajor: 18,
     enabled: false,
     conninfo: "host=localhost dbname=postgres",
     slotName: null,
@@ -104,13 +105,16 @@ describe("subscription option rendering", () => {
     expect(sql).toContain(`ALTER SUBSCRIPTION "s" SET (origin = 'none')`);
   });
 
-  test("a two_phase change recreates the subscription (no in-place ALTER)", () => {
+  test("a two_phase change alters in place on PG18+ (no destructive recreate)", () => {
+    // Recreating drops the publisher's replication slot; the PG18+ in-place
+    // ALTER SET (two_phase) preserves it (see rules/publications.ts and the
+    // subscription-two-phase integration test).
     const sql = plan(
       base([subFact({ twoPhase: false })]),
       base([subFact({ twoPhase: true })]),
     ).actions.map((a) => a.sql);
-    expect(sql.some((s) => s.startsWith("DROP SUBSCRIPTION"))).toBe(true);
-    expect(sql.some((s) => s.startsWith("CREATE SUBSCRIPTION"))).toBe(true);
-    expect(sql.some((s) => s.includes("SET (two_phase"))).toBe(false);
+    expect(sql.some((s) => s.startsWith("DROP SUBSCRIPTION"))).toBe(false);
+    expect(sql.some((s) => s.startsWith("CREATE SUBSCRIPTION"))).toBe(false);
+    expect(sql).toContain(`ALTER SUBSCRIPTION "s" SET (two_phase = true)`);
   });
 });

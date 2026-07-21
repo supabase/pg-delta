@@ -34,6 +34,17 @@ interface SnapshotDoc {
    *  extract would report placeholder-vs-real drift. Metadata only: it describes
    *  how the facts were produced and never affects the digest. */
   redactSecrets?: boolean;
+  /** the profile this snapshot was CAPTURED under (`pgdelta snapshot --profile`),
+   *  as the profile's DECLARED id — the same value `Plan.profile.id` carries. So
+   *  `drift`/`prove` re-extract the live env with the SAME handler-aware profile
+   *  the snapshot's facts were produced with, instead of silently comparing a
+   *  raw extract against handler-aware facts (or vice versa). Three-state, like
+   *  `ExportManifest.defaultOwner`: a string id, `null` (captured raw — the
+   *  reconcile treats this as the concrete "raw" profile), or ABSENT (a snapshot
+   *  written before this field existed — legacy, the reconcile lets a --profile
+   *  flag win). Metadata only: it describes how the facts were produced and
+   *  NEVER affects the digest, which is `fb.rootHash`. */
+  profile?: string | null;
   digest: string;
   facts: Array<{ id: string; parent?: string; payload: unknown }>;
   edges: Array<{ from: string; to: string; kind: EdgeKind }>;
@@ -78,7 +89,12 @@ function decodePayload(value: unknown): PayloadValue {
 
 export function serializeSnapshot(
   fb: FactBase,
-  meta: { pgVersion: string; capturedAt?: string; redactSecrets?: boolean },
+  meta: {
+    pgVersion: string;
+    capturedAt?: string;
+    redactSecrets?: boolean;
+    profile?: string | null;
+  },
 ): string {
   const doc: SnapshotDoc = {
     formatVersion: FORMAT_VERSION,
@@ -87,6 +103,9 @@ export function serializeSnapshot(
     ...(meta.redactSecrets !== undefined
       ? { redactSecrets: meta.redactSecrets }
       : {}),
+    // `null` is a MEANINGFUL value here (captured raw), distinct from ABSENT
+    // (legacy) — so include the key whenever it is not `undefined`.
+    ...(meta.profile !== undefined ? { profile: meta.profile } : {}),
     digest: fb.rootHash,
     facts: fb
       .facts()
@@ -131,6 +150,7 @@ export function deserializeSnapshot(json: string): {
   factBase: FactBase;
   pgVersion: string;
   redactSecrets?: boolean;
+  profile?: string | null;
 } {
   const doc = JSON.parse(json) as SnapshotDoc;
   if (doc.formatVersion !== FORMAT_VERSION) {
@@ -175,5 +195,7 @@ export function deserializeSnapshot(json: string): {
     ...(doc.redactSecrets !== undefined
       ? { redactSecrets: doc.redactSecrets }
       : {}),
+    // preserve the three states: string / `null` (captured raw) / ABSENT (legacy).
+    ...(doc.profile !== undefined ? { profile: doc.profile } : {}),
   };
 }

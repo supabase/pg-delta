@@ -173,6 +173,10 @@ export async function extractSubscriptions(ctx: ExtractContext): Promise<void> {
       {
         id: subId,
         payload: {
+          // Non-semantic (leading `_`, dropped from the content hash): carries
+          // the source server major so the plan rule can gate `two_phase`
+          // handling — ALTER SUBSCRIPTION … SET (two_phase) is PG17+ only.
+          _serverMajor: major,
           enabled: Boolean(row["enabled"]),
           // conninfo is fully env-dependent and carries credentials — emit the
           // placeholder unless the caller explicitly opted out of redaction

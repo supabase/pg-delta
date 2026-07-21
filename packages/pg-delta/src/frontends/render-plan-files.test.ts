@@ -64,7 +64,7 @@ describe("renderPlanFiles", () => {
     expect(result.files[0]!.transactional).toBe(true);
     expect(result.files[0]!.actionCount).toBe(2);
     expect(result.files[0]!.contents).toMatchInlineSnapshot(`
-      "set check_function_bodies = off;
+      "set local check_function_bodies = off;
 
       CREATE SCHEMA foo;
 
@@ -94,7 +94,7 @@ describe("renderPlanFiles", () => {
     expect(result.files[0]!.transactional).toBe(true);
     expect(result.files[0]!.actionCount).toBe(1);
     expect(result.files[0]!.contents).toMatchInlineSnapshot(`
-      "set check_function_bodies = off;
+      "set local check_function_bodies = off;
 
       CREATE TABLE foo (id integer);
       "
@@ -108,6 +108,8 @@ describe("renderPlanFiles", () => {
       set check_function_bodies = off;
 
       CREATE INDEX CONCURRENTLY foo_idx ON foo (id);
+
+      reset all;
       "
     `);
   });
@@ -196,6 +198,51 @@ describe("renderPlanFiles", () => {
       /drop action/,
     );
     expect(renderPlanFiles(plan, { allowDrops: true }).files).toHaveLength(1);
+  });
+
+  test("transactional segment scopes preamble with SET LOCAL (dies at COMMIT, no session leak)", () => {
+    const plan = makePlan({
+      preamble: [
+        { name: "search_path", value: "pg_catalog" },
+        { name: "check_function_bodies", value: "off" },
+      ],
+      actions: [action({ sql: "CREATE SCHEMA foo" })],
+    });
+
+    const [file] = renderPlanFiles(plan, { allowDrops: false }).files;
+
+    // a transactional file runs inside dbmate's BEGIN/COMMIT, so SET LOCAL
+    // reverts at COMMIT — a reused runner session does not inherit the settings.
+    expect(file!.transactional).toBe(true);
+    expect(file!.contents).toContain("set local search_path = pg_catalog;");
+    expect(file!.contents).toContain("set local check_function_bodies = off;");
+    // no plain session-level SET that would leak past COMMIT
+    expect(file!.contents).not.toContain("set search_path = pg_catalog;");
+  });
+
+  test("non-transactional segment resets the preamble at end of file (no session leak)", () => {
+    const plan = makePlan({
+      preamble: [
+        { name: "search_path", value: "pg_catalog" },
+        { name: "check_function_bodies", value: "off" },
+      ],
+      actions: [
+        action({
+          sql: "CREATE INDEX CONCURRENTLY foo_idx ON foo (id)",
+          transactionality: "nonTransactional",
+        }),
+      ],
+    });
+
+    const [file] = renderPlanFiles(plan, { allowDrops: false }).files;
+
+    // SET LOCAL is a no-op outside a transaction, so a non-transactional file
+    // must use plain SET and RESET at the end so the settings do not persist on
+    // the runner's session (mirrors apply()'s RESET ALL after standalone DDL).
+    expect(file!.transactional).toBe(false);
+    expect(file!.contents).toContain("set search_path = pg_catalog;");
+    expect(file!.contents).not.toContain("set local");
+    expect(file!.contents.trimEnd().endsWith("reset all;")).toBe(true);
   });
 
   test("empty plan: no changes, no files", () => {

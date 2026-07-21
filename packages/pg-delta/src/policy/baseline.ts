@@ -23,8 +23,9 @@ import {
   type DependencyEdge,
   type Fact,
   type FactBase,
+  retainOwnerRoleDangling,
 } from "../core/fact.ts";
-import { encodeId } from "../core/stable-id.ts";
+import { encodeId, type StableId } from "../core/stable-id.ts";
 import { deserializeSnapshot } from "../core/snapshot.ts";
 
 /**
@@ -43,13 +44,18 @@ import { deserializeSnapshot } from "../core/snapshot.ts";
 export function subtractBaseline(fb: FactBase, baseline: FactBase): FactBase {
   const allFacts = fb.facts();
 
-  // Phase 1: mark each fact as "would subtract" (present-and-identical in baseline)
+  // Phase 1: mark each fact as "would subtract" (present-and-identical in
+  // baseline). "Identical" means BOTH the payload hash AND the outgoing-edge
+  // signature match — an equal-payload fact whose outgoing edge changed (e.g.
+  // `owner` A→B, or a `depends`/`memberOfExtension` provenance edge) is a real
+  // change and must NOT be subtracted, or the drift would be pruned invisibly.
   const wouldSubtract = new Set<string>();
   for (const fact of allFacts) {
     const encoded = encodeId(fact.id);
     if (
       baseline.has(fact.id) &&
-      baseline.hashOf(fact.id) === fb.hashOf(fact.id)
+      baseline.hashOf(fact.id) === fb.hashOf(fact.id) &&
+      edgeSignature(baseline, fact.id) === edgeSignature(fb, fact.id)
     ) {
       wouldSubtract.add(encoded);
     }
@@ -93,17 +99,50 @@ export function subtractBaseline(fb: FactBase, baseline: FactBase): FactBase {
     }
   }
 
-  // Phase 4: collect edges whose both endpoints survive
+  // Phase 4: collect edges. Keep an edge when both endpoints survive, OR when it
+  // is an `owner -> role` edge whose OWNED endpoint survives — that role may have
+  // been subtracted (a platform baseline role), but ownership must still
+  // serialize as `ALTER … OWNER TO` the assumed role, so the edge is retained as
+  // a dangling assumed reference (retainOwnerRoleDangling). Role endpoint facts
+  // are NOT force-kept, and a `depends`/`memberOfExtension`/`managedBy` edge to a
+  // subtracted endpoint stays pruned as before.
   const keptEdges: DependencyEdge[] = [];
   for (const edge of fb.edges) {
     const fromEncoded = encodeId(edge.from);
     const toEncoded = encodeId(edge.to);
-    if (finalSurviving.has(fromEncoded) && finalSurviving.has(toEncoded)) {
+    const bothSurvive =
+      finalSurviving.has(fromEncoded) && finalSurviving.has(toEncoded);
+    if (
+      bothSurvive ||
+      (retainOwnerRoleDangling(edge) && finalSurviving.has(fromEncoded))
+    ) {
       keptEdges.push(edge);
     }
   }
 
-  return buildFactBase(keptFacts, keptEdges);
+  // rootHash already folds each fact's outgoing edges (fact.ts #rollup), so a
+  // retained dangling owner edge is reflected in the digest — no separate digest
+  // change is needed. `allowDangling: retainOwnerRoleDangling` lets FactBase keep
+  // the retained owner->role edge without a `dangling_edge` diagnostic.
+  return buildFactBase(keptFacts, keptEdges, "liveDb", new Set(), {
+    allowDangling: retainOwnerRoleDangling,
+  });
+}
+
+/**
+ * The outgoing-edge signature of `id` in `fb`: the sorted `${kind}->${to}` list
+ * over ALL four edge kinds. Two facts with equal payloads still differ when an
+ * outgoing edge changed, so baseline subtraction compares this alongside the
+ * payload hash. Mirrors what `FactBase.#rollup` folds (payload + outgoing edges)
+ * but deliberately does NOT fold children — reusing `rollupOf` would let a
+ * changed child wrongly resurrect an otherwise-identical parent.
+ */
+function edgeSignature(fb: FactBase, id: StableId): string {
+  return fb
+    .outgoingEdges(id)
+    .map((e) => `${e.kind}->${encodeId(e.to)}`)
+    .sort()
+    .join("|");
 }
 
 /**

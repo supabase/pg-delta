@@ -108,7 +108,7 @@ describe("plan artifact v1", () => {
   test("rejects non-JSON and structurally broken artifacts", () => {
     expect(() => parsePlan("not json")).toThrow(/not valid JSON/);
     expect(() =>
-      parsePlan('{"formatVersion": 1, "engineVersion": "0.1.0"}'),
+      parsePlan(`{"formatVersion": 1, "engineVersion": "${ENGINE_VERSION}"}`),
     ).toThrow(/missing actions/);
   });
 });

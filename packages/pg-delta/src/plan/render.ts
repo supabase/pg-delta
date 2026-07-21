@@ -26,7 +26,10 @@ export function routineSig(id: {
  *  belongs to a domain (the id shape is identical to a table constraint). */
 export function commentTarget(
   id: StableId,
-  opts?: { domainConstraint?: boolean },
+  opts?: {
+    domainConstraint?: boolean;
+    aggregateSignature?: string | undefined;
+  },
 ): string {
   switch (id.kind) {
     case "schema":
@@ -57,9 +60,15 @@ export function commentTarget(
       return `PROCEDURE ${routineSig(id)}`;
     case "aggregate":
       // A zero-argument aggregate's signature is `(*)`, not `()` — PostgreSQL
-      // requires COMMENT ON / SECURITY LABEL ON AGGREGATE name(*). Ordered-set
-      // args (id.args non-empty) render as the plain list, like `aggSig`.
-      return `AGGREGATE ${rel(id.schema, id.name)}(${id.args.length > 0 ? id.args.join(", ") : "*"})`;
+      // requires COMMENT ON / SECURITY LABEL ON AGGREGATE name(*). An ordered-set
+      // / hypothetical-set aggregate must be addressed as
+      // `direct ORDER BY ordered`; the caller resolves that via the aggregate
+      // fact's `aggSig` and passes it as `opts.aggregateSignature` (undefined
+      // for ordinary aggregates, whose flat arg list is the correct signature).
+      return `AGGREGATE ${rel(id.schema, id.name)}(${
+        opts?.aggregateSignature ??
+        (id.args.length > 0 ? id.args.join(", ") : "*")
+      })`;
     case "extension":
       return `EXTENSION ${qid(id.name)}`;
     case "role":

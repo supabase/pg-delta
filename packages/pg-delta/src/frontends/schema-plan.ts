@@ -410,13 +410,25 @@ export async function planSchemaFiles(
         ...(ctx.susetGucs !== undefined ? { susetGucs: ctx.susetGucs } : {}),
       });
       if (seed.sql !== "") {
+        const seedClient = await shadowPool.connect();
         try {
-          await shadowPool.query(seed.sql);
+          // Same PG 16+ CREATEROLE non-superuser grant as loadSqlFiles: seed SQL
+          // may CREATE SCHEMA … AUTHORIZATION for assumed owners.
+          try {
+            await seedClient.query(
+              `SELECT set_config('createrole_self_grant', 'set, inherit', false)`,
+            );
+          } catch {
+            /* PG < 16 or GUC unavailable */
+          }
+          await seedClient.query(seed.sql);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           throw new SchemaFrontendError(
             `Failed to seed the co-located shadow with the target's assumed-schema objects: ${msg}`,
           );
+        } finally {
+          seedClient.release();
         }
         seededSchemas = seed.schemas;
         seededRoutines = seed.seededRoutines;

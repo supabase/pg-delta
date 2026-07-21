@@ -230,7 +230,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       // drop AFTER the parent's re-create. Its ordering before the parent drop
       // comes from the child-teardown rule (source parent → parentDestroyer).
       const isRoot = encodeId(rootFact.id) === key;
-      pushAction("drop", rulesForId(rootFact.id).drop(rootFact), {
+      pushAction("drop", rulesForId(rootFact.id).drop(rootFact, source), {
         consumes:
           isRoot && rootFact.parent !== undefined ? [rootFact.parent] : [],
         destroys,
@@ -390,7 +390,9 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   for (const [key, fact] of removed) {
     if (dropRootOf.get(key) !== key) continue; // suppressed
     if (replaceIds.has(key)) continue; // replace handles its own drop
-    const spec = rulesForId(fact.id).drop(fact);
+    // pass the resolved SOURCE view so a drop rule can read the fact's context
+    // (e.g. DROP EXTENSION derives data-loss from its members' edges).
+    const spec = rulesForId(fact.id).drop(fact, source);
     const destroyList = destroysByRoot.get(key) ?? [fact.id];
     pushAction("drop", spec, {
       consumes: fact.parent !== undefined ? [fact.parent] : [],

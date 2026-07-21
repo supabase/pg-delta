@@ -103,10 +103,29 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     assumedSchemaNames,
   );
 
+  // Order a table's ADD COLUMN creates by declared column position
+  // (pg_attribute.attnum, carried as the non-semantic `_position` field) instead
+  // of column NAME, so a from-empty CREATE renders columns in declared order —
+  // and the compaction pass, which folds them into the CREATE parens in this
+  // order, inherits it. Only column CREATES are affected; drops/alters and every
+  // other kind keep their encoded-id tie-break.
+  const columnSubjectKey = (
+    subject: StableId,
+    action: Action,
+  ): string | undefined => {
+    if (action.verb !== "create" || subject.kind !== "column") return undefined;
+    const pos = desired.get(subject)?.payload["_position"];
+    if (typeof pos !== "number") return undefined;
+    const c = subject as { schema: string; table: string; name: string };
+    // Group each table's columns together (schema+table prefix), then order
+    // within by zero-padded attnum. Every column create uses this same shape, so
+    // the total order stays deterministic.
+    return `column\x00${c.schema}\x00${c.table}\x00${String(pos).padStart(6, "0")}`;
+  };
   const order = topoSort(
     actions.length,
     edges,
-    (i) => actionTieKey(actions, i, rulesForId),
+    (i) => actionTieKey(actions, i, rulesForId, columnSubjectKey),
     (i) => (actions[i] as Action).sql,
   );
 

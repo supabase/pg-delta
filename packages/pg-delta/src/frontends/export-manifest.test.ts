@@ -70,6 +70,38 @@ describe("export manifest", () => {
     expect("defaultOwner" in (read as object)).toBe(false);
   });
 
+  test("round-trips the owned files list (sorted POSIX relative paths)", () => {
+    const files = ["cluster/roles.sql", "schemas/app/tables/t.sql"];
+    writeExportManifest(dir, {
+      redactSecrets: true,
+      scope: "database",
+      files,
+    });
+    expect(readExportManifest(dir)).toEqual({
+      redactSecrets: true,
+      scope: "database",
+      files,
+    });
+  });
+
+  test("drops a wrong-typed files field (non-array or non-string members)", () => {
+    // A non-array value is dropped entirely.
+    writeFileSync(
+      join(dir, EXPORT_MANIFEST_FILE),
+      `{"formatVersion":1,"redactSecrets":true,"files":"nope"}`,
+      "utf8",
+    );
+    expect(readExportManifest(dir)).toEqual({ redactSecrets: true });
+
+    // An array with a non-string member is dropped entirely.
+    writeFileSync(
+      join(dir, EXPORT_MANIFEST_FILE),
+      `{"formatVersion":1,"redactSecrets":true,"files":["ok.sql",3]}`,
+      "utf8",
+    );
+    expect(readExportManifest(dir)).toEqual({ redactSecrets: true });
+  });
+
   test("returns undefined when no manifest exists (older / hand-authored dir)", () => {
     expect(readExportManifest(dir)).toBeUndefined();
   });

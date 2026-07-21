@@ -180,8 +180,15 @@ export const aclJson = (
           ELSE NULL END) ORDER BY acl.grantee_name)
      FROM (
        SELECT COALESCE(g.rolname, 'PUBLIC') AS grantee_name,
-              array_agg(e.privilege_type ORDER BY e.privilege_type) AS privileges,
-              array_agg(e.privilege_type ORDER BY e.privilege_type)
+              -- DISTINCT: aclexplode() yields one row per GRANTOR, so a privilege
+              -- granted to one grantee by two grantors appears twice. pg-delta
+              -- models the EFFECTIVE privilege set, not who granted it, so grantor
+              -- identity is intentionally ignored — de-duplicate to avoid rendering
+              -- a doubled privilege list (GRANT SELECT, SELECT ...), which
+              -- Postgres collapses on apply so a re-extract no longer matches and
+              -- the proof drifts.
+              array_agg(DISTINCT e.privilege_type ORDER BY e.privilege_type) AS privileges,
+              array_agg(DISTINCT e.privilege_type ORDER BY e.privilege_type)
                 FILTER (WHERE e.is_grantable) AS grantable
        FROM aclexplode(COALESCE(${aclColumn}, acldefault('${objtype}', ${ownerColumn}))) e
        LEFT JOIN pg_roles g ON g.oid = e.grantee
@@ -247,8 +254,10 @@ export const memberAclDeltaJson = (
      FROM (
        WITH cur AS (
          SELECT COALESCE(g.rolname, 'PUBLIC') AS grantee,
-                array_agg(e.privilege_type ORDER BY e.privilege_type) AS privileges,
-                COALESCE(array_agg(e.privilege_type ORDER BY e.privilege_type)
+                -- DISTINCT across grantors (aclexplode emits one row per grantor);
+                -- grantor identity is intentionally ignored — see aclJson.
+                array_agg(DISTINCT e.privilege_type ORDER BY e.privilege_type) AS privileges,
+                COALESCE(array_agg(DISTINCT e.privilege_type ORDER BY e.privilege_type)
                   FILTER (WHERE e.is_grantable), ARRAY[]::text[]) AS grantable
          FROM aclexplode(COALESCE(${aclColumn}, acldefault('${objtype}', ${ownerColumn}))) e
          LEFT JOIN pg_roles g ON g.oid = e.grantee
@@ -256,8 +265,10 @@ export const memberAclDeltaJson = (
        ),
        ini AS (
          SELECT COALESCE(g.rolname, 'PUBLIC') AS grantee,
-                array_agg(e.privilege_type ORDER BY e.privilege_type) AS privileges,
-                COALESCE(array_agg(e.privilege_type ORDER BY e.privilege_type)
+                -- DISTINCT across grantors (aclexplode emits one row per grantor);
+                -- grantor identity is intentionally ignored — see aclJson.
+                array_agg(DISTINCT e.privilege_type ORDER BY e.privilege_type) AS privileges,
+                COALESCE(array_agg(DISTINCT e.privilege_type ORDER BY e.privilege_type)
                   FILTER (WHERE e.is_grantable), ARRAY[]::text[]) AS grantable
          FROM aclexplode(COALESCE(
                 (SELECT ip.initprivs FROM pg_init_privs ip

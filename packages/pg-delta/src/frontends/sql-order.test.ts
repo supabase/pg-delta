@@ -23,6 +23,7 @@ import {
   analyzeForShadow,
   canReorder,
   orderForShadow,
+  ReorderParseError,
   ReorderUnavailableError,
   type OrderedSqlFile,
 } from "./sql-order.ts";
@@ -169,6 +170,40 @@ describe("orderForShadow — split + topological pre-sort", () => {
 
   test("returns an empty list for empty input", async () => {
     expect(await orderForShadow([])).toEqual([]);
+  });
+});
+
+describe("orderForShadow — must not silently drop unparseable statements", () => {
+  test("throws ReorderParseError when pg-topo cannot parse an input (would shrink the file set)", async () => {
+    // pg-topo returns an empty statement list for a whole-content PARSE_ERROR,
+    // so the offending file vanishes from the ordered output. The convenience
+    // API discards diagnostics, so a raw `orderForShadow` caller would silently
+    // build an INCOMPLETE desired state — the invariant: no caller may receive a
+    // silently-shrunk file set.
+    const files = [
+      file("good.sql", "create table public.t(id int primary key);"),
+      file("bad.sql", "this is definitely not valid sql !!!;"),
+    ];
+
+    let thrown: unknown;
+    try {
+      await orderForShadow(files);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(ReorderParseError);
+    expect((thrown as Error).message).toContain("bad.sql");
+    // points the caller at the graceful-degradation escape hatch
+    expect((thrown as Error).message).toMatch(/analyzeForShadow|raw/i);
+    expect((thrown as ReorderParseError).diagnostics.length).toBeGreaterThan(0);
+  });
+
+  test("does not throw when every statement parses", async () => {
+    const ordered = await orderForShadow([
+      file("t.sql", "create table public.t(id int primary key);"),
+      file("v.sql", "create view public.v as select id from public.t;"),
+    ]);
+    expect(ordered).toHaveLength(2);
   });
 });
 

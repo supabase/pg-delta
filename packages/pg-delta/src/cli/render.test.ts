@@ -64,7 +64,7 @@ describe("renderPlan", () => {
     expect(result.files[0]!.transactional).toBe(true);
     expect(result.files[0]!.actionCount).toBe(2);
     expect(result.files[0]!.contents).toMatchInlineSnapshot(`
-      "set check_function_bodies = off;
+      "set local check_function_bodies = off;
 
       CREATE SCHEMA foo;
 
@@ -94,7 +94,7 @@ describe("renderPlan", () => {
     expect(result.files[0]!.transactional).toBe(true);
     expect(result.files[0]!.actionCount).toBe(1);
     expect(result.files[0]!.contents).toMatchInlineSnapshot(`
-      "set check_function_bodies = off;
+      "set local check_function_bodies = off;
 
       CREATE TABLE foo (id integer);
       "
@@ -108,6 +108,8 @@ describe("renderPlan", () => {
       set check_function_bodies = off;
 
       CREATE INDEX CONCURRENTLY foo_idx ON foo (id);
+
+      reset all;
       "
     `);
   });

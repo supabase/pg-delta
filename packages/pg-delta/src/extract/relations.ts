@@ -101,6 +101,7 @@ export async function extractColumns(ctx: ExtractContext): Promise<void> {
   // ── columns + defaults (defaults are their own facts, like pg_attrdef) ─
   for (const row of await q(`
     SELECT n.nspname AS schema, c.relname AS table, a.attname AS name,
+           a.attnum AS position,
            c.relkind AS table_kind,
            format_type(a.atttypid, a.atttypmod) AS type,
            a.attnotnull AS not_null,
@@ -165,6 +166,18 @@ export async function extractColumns(ctx: ExtractContext): Promise<void> {
         id: columnId,
         parent: tableId,
         payload: {
+          // `_position` is the declared column position (pg_attribute.attnum).
+          // Column ORDER is row-layout state (SELECT *, positional INSERT, the
+          // relation's row type), so a from-empty CREATE must render columns in
+          // this order — but positional IDENTITY is not desired state (columns
+          // are name-keyed, like composite attributes), so the `_`-prefix
+          // excludes it from the hash and diff (core/hash.ts, core/diff.ts): an
+          // order-only reshuffle on an EXISTING table stays undiffable by design.
+          // attnum has HOLES after DROP COLUMN, but ordering the survivors by it
+          // still yields their declared order, which is what matters. The plan's
+          // ordering phase (plan/phases/action-graph.ts) and the partitioned
+          // inline-column path (plan/rules/tables.ts) render in this order.
+          _position: Number(row["position"]),
           type: String(row["type"]),
           notNull: Boolean(row["not_null"]),
           identity:
@@ -279,6 +292,16 @@ export async function extractIndexes(ctx: ExtractContext): Promise<void> {
     SELECT n.nspname AS schema, ic.relname AS name, c.relname AS table,
            c.relkind AS table_kind,
            pg_get_indexdef(i.indexrelid) AS def,
+           -- A partitioned PARENT index (relkind 'I') is legitimately
+           -- indisvalid=false whenever a child index is unattached, and
+           -- pg_get_indexdef renders it as CREATE INDEX ... ON ONLY ..., which
+           -- itself produces an invalid parent (children attach separately). So
+           -- its indisvalid is attach-state, not repair-worthy corruption:
+           -- force it valid here so it never drives a diff (the unmodeled
+           -- attach-state stays tracked in #332). Only REGULAR indexes ('i')
+           -- carry their real indisvalid, which is what catches a failed
+           -- CREATE INDEX CONCURRENTLY.
+           CASE WHEN ic.relkind = 'I' THEN true ELSE i.indisvalid END AS valid,
            obj_description(i.indexrelid, 'pg_class') AS comment
     FROM pg_index i
     JOIN pg_class ic ON ic.oid = i.indexrelid
@@ -313,7 +336,24 @@ export async function extractIndexes(ctx: ExtractContext): Promise<void> {
           schema: String(row["schema"]),
           name: String(row["table"]),
         },
-        payload: { def: String(row["def"]) },
+        // `valid` (pg_index.indisvalid) is SEMANTIC state, not just metadata: a
+        // failed/cancelled CREATE INDEX CONCURRENTLY leaves indisvalid=false with
+        // a def IDENTICAL to the desired valid index, so without this field the
+        // unusable index would hash EQUAL to the valid one and retry planning /
+        // the proof would consider it converged. Including it in the payload
+        // (hashed) makes invalid ≠ valid, and the `valid: "replace"` attribute
+        // strategy repairs it via drop + recreate (the standard fix). A fresh
+        // CREATE INDEX in a SQL-loaded shadow is always valid=true, so the desired
+        // side naturally carries true and never churns a healthy index.
+        //
+        // NOTE (#332): the `valid` SELECT above deliberately forces partitioned
+        // PARENT indexes (relkind 'I') to true. Their indisvalid tracks child
+        // ATTACH-state (and pg_get_indexdef renders them `ON ONLY`, which itself
+        // produces an invalid parent), so surfacing it here would spuriously
+        // fail convergence on every partitioned-index scenario. That attach-state
+        // remains unmodeled and tracked in #332; only regular indexes drive the
+        // valid diff.
+        payload: { def: String(row["def"]), valid: Boolean(row["valid"]) },
       },
       row,
     );

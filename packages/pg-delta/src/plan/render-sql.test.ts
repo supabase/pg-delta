@@ -22,6 +22,8 @@ describe("renderPlanSql", () => {
       CREATE SCHEMA auth AUTHORIZATION supabase_admin;
 
       GRANT USAGE ON SCHEMA auth TO "anon";
+
+      RESET check_function_bodies;
       "
     `);
   });

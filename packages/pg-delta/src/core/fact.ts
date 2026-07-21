@@ -124,6 +124,36 @@ export class FactBase {
     for (const children of this.#children.values()) {
       children.sort((a, b) => (a.encoded < b.encoded ? -1 : 1));
     }
+    // Acyclicity / root-reachability. The missing-parent check above only
+    // proves every parent EXISTS; a self-parent or parent cycle passes it (each
+    // member's parent is present) yet reaches no parentless root, so roots()
+    // omits the whole component and rootHash fingerprints like a base that does
+    // not contain it — a poisoned base that diff() silently never descends into.
+    // Reject it here. Single pass, memoized reachability (O(n), no recursion).
+    const reachesRoot = new Set<string>(); // encoded ids known to reach a root
+    for (const start of this.#byId.values()) {
+      if (reachesRoot.has(start.encoded)) continue;
+      const path: string[] = [];
+      const onPath = new Set<string>();
+      let cursor: Entry | undefined = start;
+      while (cursor !== undefined) {
+        if (reachesRoot.has(cursor.encoded)) break; // joins a known-good chain
+        if (onPath.has(cursor.encoded)) {
+          const from = path.indexOf(cursor.encoded);
+          const members = [...path.slice(from), cursor.encoded];
+          throw new Error(
+            `FactBase: parent cycle (no root) among facts ${members.join(" -> ")}`,
+          );
+        }
+        onPath.add(cursor.encoded);
+        path.push(cursor.encoded);
+        const parent = cursor.fact.parent;
+        if (parent === undefined) break; // reached a parentless root
+        // parent presence was validated above, so this is always defined
+        cursor = this.#byId.get(encodeId(parent));
+      }
+      for (const key of path) reachesRoot.add(key);
+    }
     for (const edge of edges) {
       const fromKey = encodeId(edge.from);
       const toKey = encodeId(edge.to);

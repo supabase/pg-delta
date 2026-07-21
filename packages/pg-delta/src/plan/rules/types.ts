@@ -4,7 +4,10 @@ import { encodeId, type StableId } from "../../core/stable-id.ts";
 import { lit, qid, rel } from "../render.ts";
 import type { ActionSpec, KindRules } from "../rules.ts";
 import {
+  byteLength,
+  clipToByteLength,
   compositeUserColumns,
+  dependencyConsumes,
   isSubsequence,
   p,
   renameRule,
@@ -241,23 +244,106 @@ export const typeRules: Record<string, KindRules> = {
           // every column of this type through a text cast, drop the old type.
           // rebuildsDependents has already forced views/defaults/routines
           // that reference the type out of the way.
-          // a deterministic temp name that cannot collide with an existing
-          // type in the schema (bump a counter past any occupant)
-          const taken = (n: string): boolean =>
-            view.get({
-              kind: "type",
-              schema: id.schema,
-              name: n,
-            } as StableId) !== undefined ||
-            sourceView.get({
-              kind: "type",
-              schema: id.schema,
-              name: n,
-            } as StableId) !== undefined;
-          let tmp = `${id.name}__pgdelta_replaced`;
-          for (let n = 2; taken(tmp); n++)
-            tmp = `${id.name}__pgdelta_replaced_${n}`;
           const enumKey = encodeId(fact.id);
+          // GUARD (non-column dependents): the rebuild migrates only COLUMN
+          // dependents. A DOMAIN over the enum, a COMPOSITE type with an
+          // attribute of the enum, or a RANGE over the enum is NOT a rebuildable
+          // kind, so a SURVIVING one stays bound to the renamed old type and the
+          // final DROP TYPE fails at apply ("cannot drop type … other objects
+          // depend on it"). Fail loud at plan time — mirrors the in-use domain /
+          // range / composite ALTER ATTRIBUTE guards. Only dependents present on
+          // BOTH sides (view = desired, sourceView = target DB) can hit this;
+          // one this plan drops or creates is not a blocker. Full migration of
+          // non-column dependents is tracked separately.
+          const seenDependents = new Set<string>();
+          const nonColumnDependents = view.edges
+            .filter(
+              (e) =>
+                encodeId(e.to) === enumKey &&
+                (e.from.kind === "domain" || e.from.kind === "type") &&
+                encodeId(e.from) !== enumKey &&
+                view.get(e.from) !== undefined &&
+                sourceView.get(e.from) !== undefined,
+            )
+            .map((e) => e.from)
+            .filter((depId) => {
+              const key = encodeId(depId);
+              if (seenDependents.has(key)) return false;
+              seenDependents.add(key);
+              return true;
+            })
+            .sort((a, b) => (encodeId(a) < encodeId(b) ? -1 : 1));
+          if (nonColumnDependents.length > 0) {
+            const deps = nonColumnDependents
+              .map((depId) => {
+                const d = depId as {
+                  kind: string;
+                  schema: string;
+                  name: string;
+                };
+                const keyword = d.kind === "domain" ? "DOMAIN" : "TYPE";
+                return `${keyword} ${rel(d.schema, d.name)}`;
+              })
+              .join(", ");
+            throw new Error(
+              `enum ${relName}: cannot remove or reorder values while non-column object(s) depend on it — ${deps}. The rebuild drops the old enum, which those objects still reference, and PostgreSQL forbids dropping a type in use. Migrating a DOMAIN / COMPOSITE / RANGE that uses an enum across a value-set change is not supported yet; drop the dependent object(s), or recreate them, first.`,
+            );
+          }
+          // A deterministic temp name for the old enum, RENAMEd aside before the
+          // new value set is created. It must collide with NO occupant of the
+          // type namespace (pg_type) visible in the fact base — not only managed
+          // enum/composite/range `type` facts, but DOMAINS and the implicit row
+          // type every relation (table / view / matview / foreign table /
+          // sequence) registers in pg_type under its own name. Checking only
+          // `type` facts let a table (or domain) named `<enum>__pgdelta_replaced`
+          // slip through, so the initial `ALTER TYPE … RENAME TO` failed at apply
+          // with "type … already exists".
+          const OCCUPANT_KINDS = [
+            "type",
+            "domain",
+            "table",
+            "view",
+            "materializedView",
+            "foreignTable",
+            "sequence",
+          ] as const;
+          const taken = (n: string): boolean =>
+            OCCUPANT_KINDS.some(
+              (kind) =>
+                view.get({ kind, schema: id.schema, name: n } as StableId) !==
+                  undefined ||
+                sourceView.get({
+                  kind,
+                  schema: id.schema,
+                  name: n,
+                } as StableId) !== undefined,
+            );
+          // Length-safe: PostgreSQL clips identifiers to NAMEDATALEN-1 (63)
+          // BYTES, so a long enum name + suffix would be truncated by the server
+          // and could land back on an occupied name (a 63-byte enum whose temp
+          // truncates to the ORIGINAL name → RENAME to itself). Clip the base
+          // ourselves so the whole identifier stays ≤ 63 bytes and is stored
+          // verbatim; `taken` then guarantees uniqueness. Deterministic: same
+          // enum name + same fact base → same temp name.
+          const MAX_IDENT_BYTES = 63;
+          const REPLACED_SUFFIX = "__pgdelta_replaced";
+          const buildTmp = (n: number | null): string => {
+            const numeric = n === null ? "" : `_${n}`;
+            const budget =
+              MAX_IDENT_BYTES -
+              byteLength(REPLACED_SUFFIX) -
+              byteLength(numeric);
+            return `${clipToByteLength(id.name, budget)}${REPLACED_SUFFIX}${numeric}`;
+          };
+          let tmp = buildTmp(null);
+          for (let n = 2; taken(tmp); n++) {
+            if (n > 10_000) {
+              throw new Error(
+                `enum ${relName}: could not find a free temp name for the value-set rebuild after 10000 attempts — an extraordinary number of \`${REPLACED_SUFFIX}\`-suffixed occupants exist in schema "${id.schema}"`,
+              );
+            }
+            tmp = buildTmp(n);
+          }
           const specs: ActionSpec[] = [
             { sql: `ALTER TYPE ${relName} RENAME TO ${qid(tmp)}` },
             {
@@ -357,8 +443,14 @@ export const typeRules: Record<string, KindRules> = {
     },
     drop: (fact) => {
       const id = fact.id as { schema: string; type: string; name: string };
+      // Destructive: DROP ATTRIBUTE … CASCADE nulls the stored value of that
+      // field across every row of every table whose column is of this
+      // composite. A collation-only attribute change routes through the
+      // attribute "replace" strategy (drop + recreate), which renders via THIS
+      // drop rule too, so this one flag covers that path as well.
       return {
         sql: `ALTER TYPE ${rel(id.schema, id.type)} DROP ATTRIBUTE ${qid(id.name)} CASCADE`,
+        dataLoss: "destructive",
       };
     },
     rename: (fact, to) => {
@@ -369,7 +461,7 @@ export const typeRules: Record<string, KindRules> = {
     },
     attributes: {
       type: {
-        alter: (fact, _from, to, view) => {
+        alter: (fact, _from, to, view, sourceView) => {
           const id = fact.id as { schema: string; type: string; name: string };
           const typeId: StableId = {
             kind: "type",
@@ -381,9 +473,24 @@ export const typeRules: Record<string, KindRules> = {
               `composite type ${rel(id.schema, id.type)}: cannot change attribute "${id.name}" type while the type is used by table columns — PostgreSQL forbids ALTER ATTRIBUTE … TYPE on an in-use composite. Drop the using columns, or recreate the type, first.`,
             );
           }
-          return {
+          // A composite attribute's type dependency is extracted onto the
+          // enclosing `type` fact, not this `typeAttribute` child (see the
+          // `comptype` CTE in extract/dependencies.ts). When the composite is
+          // only being retyped (not dropped/created) its own actions never
+          // fire, so — mirroring the ALTER COLUMN … TYPE fix in tables.ts —
+          // release the OLD referenced types (source side) so this alter runs
+          // BEFORE their same-plan DROP, and consume the NEW ones (target side)
+          // so it runs AFTER their same-plan CREATE. The edges are keyed to the
+          // parent type fact; over-scoping to a sibling attribute's still-used
+          // type is harmless (nothing drops it → no ordering edge is added).
+          const consumes = dependencyConsumes(view, typeId);
+          const releases = dependencyConsumes(sourceView, typeId);
+          const spec: ActionSpec = {
             sql: `ALTER TYPE ${rel(id.schema, id.type)} ALTER ATTRIBUTE ${qid(id.name)} TYPE ${str(to)} CASCADE`,
           };
+          if (consumes.length > 0) spec.consumes = consumes;
+          if (releases.length > 0) spec.releases = releases;
+          return spec;
         },
       },
       // a collation-only change has no in-place form; replace the attribute

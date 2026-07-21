@@ -65,8 +65,13 @@ export async function cmdSnapshot(args: string[]): Promise<void> {
       strictCoverage: flags["strict-coverage"],
       action: "snapshot",
     });
-    // record the redaction mode so `drift` re-extracts the live env identically.
-    saveSnapshot(factBase, pgVersion, outPath, redactSecrets);
+    // record the redaction mode so `drift` re-extracts the live env identically,
+    // and stamp the capture profile so `drift`/`prove` re-extract with the SAME
+    // handler-aware profile the facts were produced with. `null` = captured raw
+    // (mirrors ExportManifest.defaultOwner's absent-vs-null precedent), so a
+    // later flagless drift adopts it and a contradicting --profile fails closed.
+    const profileStamp = ctx.id === "raw" ? null : ctx.id;
+    saveSnapshot(factBase, pgVersion, outPath, redactSecrets, profileStamp);
     process.stderr.write(
       `Snapshot saved to ${outPath} (${factBase.facts().length} facts, pg ${pgVersion})\n`,
     );

@@ -165,7 +165,14 @@ async function runPinnedOrProve(
     direction === "forward"
       ? `${scenario.name}:forward`
       : `${scenario.name}:reverse`;
-  const pinned = EXPECTED_RED.has(key) || EXPECTED_RED.has(scenario.name);
+  const pin = EXPECTED_RED.get(key) ?? EXPECTED_RED.get(scenario.name);
+  let pinned = pin !== undefined;
+  if (pinned && pin?.minMajor !== undefined) {
+    // Version-gated pin: on older majors the server behavior that makes the
+    // scenario red doesn't exist, so it runs normally and must pass.
+    const cluster = await sharedCluster();
+    if ((await cluster.pgMajor()) < pin.minMajor) pinned = false;
+  }
   if (!pinned) {
     await runDirection(scenario, direction);
     return;

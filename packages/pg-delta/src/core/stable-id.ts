@@ -340,6 +340,13 @@ function parseAt(c: Cursor): StableId {
       c.expect(")");
       c.expect(".");
       const grantee = c.readSegment();
+      // optional `.column` segment for a COLUMN-level grant; mirrors encodeId,
+      // which appends it only when `column` is set. A trailing "." here (rather
+      // than end-of-input or a nesting ")") signals the column is present.
+      if (c.peek() === ".") {
+        c.pos++;
+        return { kind, target, grantee, column: c.readSegment() };
+      }
       return { kind, target, grantee };
     }
     case "securityLabel": {

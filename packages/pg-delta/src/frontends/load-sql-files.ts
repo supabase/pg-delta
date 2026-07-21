@@ -27,9 +27,10 @@
  * memberships will load successfully. Use this mode when your SQL files
  * intentionally manage cluster-level state.
  */
-import type { Pool, PoolClient } from "pg";
+import type { Pool, PoolClient, QueryResult } from "pg";
 import type { Diagnostic } from "../core/diagnostic.ts";
-import type { FactBase } from "../core/fact.ts";
+import { qid } from "../plan/render.ts";
+import { buildFactBase, type FactBase } from "../core/fact.ts";
 import {
   extract,
   type ExtractOptions,
@@ -370,9 +371,20 @@ export function findMatchingStatements(
  *  not the declarative source's to manage in that scope. Membership grants are
  *  distinguished from privilege grants by the absence of an `ON` target. */
 const CLUSTER_DDL_RULES: { re: RegExp; label: string }[] = [
-  { re: /^\s*create\s+(role|user|group)\b/i, label: "CREATE ROLE" },
-  { re: /^\s*alter\s+(role|user|group)\b/i, label: "ALTER ROLE" },
-  { re: /^\s*drop\s+(role|user|group)\b/i, label: "DROP ROLE" },
+  // `user(?!\s+mapping)` so `CREATE|ALTER|DROP USER MAPPING …` (a database-local
+  // FDW object, emitted by src/plan/rules/foreign.ts) is NOT misclassified as
+  // cluster-global role DDL — otherwise database-scope apply would reject them
+  // (or --skip-cluster-ddl would strip them) from pg-delta's own exports. `\s+`
+  // matches any whitespace run in the masked/normalized statement text.
+  {
+    re: /^\s*create\s+(role|user(?!\s+mapping)|group)\b/i,
+    label: "CREATE ROLE",
+  },
+  {
+    re: /^\s*alter\s+(role|user(?!\s+mapping)|group)\b/i,
+    label: "ALTER ROLE",
+  },
+  { re: /^\s*drop\s+(role|user(?!\s+mapping)|group)\b/i, label: "DROP ROLE" },
   { re: /^\s*comment\s+on\s+role\b/i, label: "COMMENT ON ROLE" },
   {
     re: /^\s*security\s+label\b[\s\S]*\bon\s+role\b/i,
@@ -455,6 +467,91 @@ function serializeMembership(m: MembershipTuple): string {
   return `${m.role}:${m.member}:${String(m.admin_option)}`;
 }
 
+/**
+ * Best-effort undo of any cluster-level role / membership side effect that
+ * committed before the load threw (databaseScratch ONLY). Because `applyFile`
+ * commits per file, a CREATE ROLE / GRANT — or DO-block dynamic SQL that evaded
+ * the static preflight — survives a load that later throws (non-convergence,
+ * body-validation, DML, or the on-success leak comparison itself). Compares the
+ * current cluster state against the pre-load snapshot and reverses the delta:
+ * drop created roles, revoke added memberships, re-grant removed memberships.
+ * `applyFile` ROLLBACKs on failure, so `client` is in a clean (non-aborted)
+ * transaction state when this runs. Each restore statement is best-effort; a
+ * failure is reported as a `scratch_leak_unrestored` diagnostic rather than
+ * masking the original error. Successful restores contribute nothing.
+ */
+async function restoreScratchClusterState(
+  client: PoolClient,
+  rolesBefore: QueryResult | null,
+  membershipsBefore: QueryResult<MembershipTuple> | null,
+): Promise<Diagnostic[]> {
+  const diags: Diagnostic[] = [];
+  const rolesNow = await client.query(
+    `SELECT rolname FROM pg_roles ORDER BY 1`,
+  );
+  const membershipsNow = await client.query<MembershipTuple>(`
+    SELECT r1.rolname AS role, r2.rolname AS member,
+           m.admin_option
+    FROM pg_auth_members m
+    JOIN pg_roles r1 ON r1.oid = m.roleid
+    JOIN pg_roles r2 ON r2.oid = m.member
+    ORDER BY 1, 2`);
+
+  const beforeRoleSet = new Set(
+    (rolesBefore?.rows ?? []).map((r) => (r as { rolname: string }).rolname),
+  );
+  const createdRoles = rolesNow.rows
+    .map((r) => (r as { rolname: string }).rolname)
+    .filter((r) => !beforeRoleSet.has(r));
+
+  const beforeMemberMap = new Map(
+    (membershipsBefore?.rows ?? []).map((m) => [serializeMembership(m), m]),
+  );
+  const nowMemberMap = new Map(
+    membershipsNow.rows.map((m) => [serializeMembership(m), m]),
+  );
+  const addedMemberships = [...nowMemberMap.entries()]
+    .filter(([k]) => !beforeMemberMap.has(k))
+    .map(([, m]) => m);
+  const removedMemberships = [...beforeMemberMap.entries()]
+    .filter(([k]) => !nowMemberMap.has(k))
+    .map(([, m]) => m);
+
+  const tryRestore = async (stmt: string, what: string): Promise<void> => {
+    try {
+      await client.query(stmt);
+    } catch (err) {
+      diags.push({
+        code: "scratch_leak_unrestored",
+        severity: "error",
+        message: `${what}: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
+
+  // Revoke added memberships first (a created role may hold them), then drop
+  // created roles, then re-grant memberships the load removed.
+  for (const m of addedMemberships) {
+    await tryRestore(
+      `REVOKE ${qid(m.role)} FROM ${qid(m.member)}`,
+      `could not revoke leaked membership ${m.role} FROM ${m.member}`,
+    );
+  }
+  for (const role of createdRoles) {
+    await tryRestore(
+      `DROP ROLE IF EXISTS ${qid(role)}`,
+      `could not drop leaked role ${role}`,
+    );
+  }
+  for (const m of removedMemberships) {
+    await tryRestore(
+      `GRANT ${qid(m.role)} TO ${qid(m.member)}${m.admin_option ? " WITH ADMIN OPTION" : ""}`,
+      `could not restore revoked membership ${m.role} TO ${m.member}`,
+    );
+  }
+  return diags;
+}
+
 export async function loadSqlFiles(
   files: SqlFile[],
   shadow: Pool,
@@ -517,17 +614,23 @@ export async function loadSqlFiles(
   const seededSchemas = options.seededSchemas ?? [];
   const seededRoutines = options.seededRoutines;
   const strictFunctionBodies = options.strictFunctionBodies ?? false;
-  const preexisting = await shadow.query(
-    `
+  // isolatedCluster shadows may already carry a platform baseline (e.g. the
+  // Supabase CLI declarative seam). The empty guard is for co-located scratch
+  // databases only — requiring emptiness there prevents accidental loads into
+  // a non-scratch database on a shared cluster.
+  if (mode !== "isolatedCluster") {
+    const preexisting = await shadow.query(
+      `
     SELECT count(*)::int AS n FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
       AND n.nspname NOT LIKE 'pg\\_%'
       AND n.nspname <> ALL($1::text[])`,
-    [seededSchemas],
-  );
-  if ((preexisting.rows[0] as { n: number }).n > 0) {
-    throw new ShadowLoadError("shadow database is not empty", []);
+      [seededSchemas],
+    );
+    if ((preexisting.rows[0] as { n: number }).n > 0) {
+      throw new ShadowLoadError("shadow database is not empty", []);
+    }
   }
 
   // reject files that manage their own transaction (review finding 6): an
@@ -549,6 +652,33 @@ export async function loadSqlFiles(
       `declarative files must not manage transactions — ${txnControlDiags.length} file(s) contain transaction-control statements`,
       txnControlDiags,
     );
+  }
+
+  // cluster-DDL preflight (databaseScratch ONLY): role / membership DDL leaks
+  // into the shared cluster because each file commits (BEGIN/COMMIT in
+  // applyFile). Refuse it BEFORE executing anything so a committed CREATE ROLE
+  // / GRANT can never survive. This is a static (regex-masked) precheck; DO-block
+  // dynamic SQL that evades it is caught + reversed by the post-load snapshot
+  // comparison and the best-effort restore below. isolatedCluster mode manages
+  // cluster state legitimately and skips this preflight entirely.
+  if (mode === "databaseScratch") {
+    const clusterDdlDiags: Diagnostic[] = [];
+    for (const file of files) {
+      const offenders = findClusterDdlStatements(file.sql);
+      if (offenders.length > 0) {
+        clusterDdlDiags.push({
+          code: "cluster_ddl_in_scratch_mode",
+          severity: "error",
+          message: `${file.name}: declarative SQL must not contain cluster-level DDL in databaseScratch mode (found: ${[...new Set(offenders)].join(", ")}) — use an isolated-cluster shadow for shared objects`,
+        });
+      }
+    }
+    if (clusterDdlDiags.length > 0) {
+      throw new ShadowLoadError(
+        `declarative files contain cluster-level DDL not allowed in databaseScratch mode — ${clusterDdlDiags.length} file(s) affected; use an isolated-cluster shadow for shared objects`,
+        clusterDdlDiags,
+      );
+    }
   }
 
   // snapshot pg_roles + pg_auth_members before loading (databaseScratch only)
@@ -581,9 +711,36 @@ export async function loadSqlFiles(
   // a file whose error never changes is a genuine missing dependency (or cycle),
   // not something more rounds will resolve.
   const failStreak = new Map<string, { message: string; count: number }>();
+  let bootstrapMembershipStrip: {
+    roles: ReadonlySet<string>;
+    member: string;
+  } | null = null;
   const client = await shadow.connect();
   try {
     await client.query(`SET check_function_bodies = off`);
+    // PG 16+: CREATE ROLE no longer auto-grants the creator membership in the
+    // new role. Supabase's non-superuser `postgres` (CREATEROLE) then fails
+    // `CREATE SCHEMA … AUTHORIZATION new_role` with "must be able to SET ROLE"
+    // unless createrole_self_grant includes `set`. Best-effort — the GUC is
+    // absent on PG < 16, where creators still receive membership automatically.
+    //
+    // Those bootstrap memberships must NOT survive into the extracted desired
+    // state: planning them yields `GRANT role TO postgres WITH ADMIN OPTION`,
+    // which fails on apply with "ADMIN option cannot be granted back to your
+    // own grantor" (the applier is already the CREATE ROLE grantor).
+    let createroleSelfGrant = false;
+    try {
+      await client.query(
+        `SELECT set_config('createrole_self_grant', 'set, inherit', false)`,
+      );
+      createroleSelfGrant = true;
+    } catch {
+      /* PG < 16 or GUC unavailable */
+    }
+    const rolesBeforeSelfGrant =
+      createroleSelfGrant && mode === "isolatedCluster"
+        ? await client.query(`SELECT rolname FROM pg_roles ORDER BY 1`)
+        : null;
     while (pending.length > 0) {
       // Budget exhausted with files still pending: fail LOUD, never fall through
       // to extraction with a partially loaded shadow (review P1 #2). The SQL-file
@@ -653,6 +810,30 @@ export async function loadSqlFiles(
       }
       lastFailures = failures;
       pending = next;
+    }
+
+    // Capture createrole_self_grant bootstrap grants for post-extract stripping.
+    // REVOKE is insufficient: PG may leave an ADMIN membership whose grantor is
+    // the role that conferred CREATEROLE (not CURRENT_USER), which the applier
+    // cannot revoke — yet planning that membership yields a failing
+    // `GRANT … TO <applier> WITH ADMIN OPTION` on apply.
+    if (rolesBeforeSelfGrant !== null) {
+      const rolesAfterSelfGrant = await client.query(
+        `SELECT rolname FROM pg_roles ORDER BY 1`,
+      );
+      const beforeSet = new Set(
+        rolesBeforeSelfGrant.rows.map(
+          (r) => (r as { rolname: string }).rolname,
+        ),
+      );
+      const createdRoles = rolesAfterSelfGrant.rows
+        .map((r) => (r as { rolname: string }).rolname)
+        .filter((r) => !beforeSet.has(r));
+      const me = await client.query<{ u: string }>(`SELECT current_user AS u`);
+      bootstrapMembershipStrip = {
+        roles: new Set(createdRoles),
+        member: me.rows[0]!.u,
+      };
     }
 
     // shared-object isolation: role/membership leakage is an error in databaseScratch mode
@@ -750,6 +931,15 @@ export async function loadSqlFiles(
     // expression extraction uses (src/extract/routines.ts) so the encoded
     // `StableId` reconstructed per row matches the seed's `seededRoutines` keys
     // byte-for-byte — the leniency gate is by overload-safe identity, not name.
+    // format_type's output is search_path-sensitive, and extraction runs under
+    // the canonical `search_path = pg_catalog` (everything else comes back
+    // schema-qualified) — so this query must run under the SAME path or a
+    // user-type arg (`hstore` vs `public.hstore`) breaks the byte-for-byte key
+    // match. Scope the canonical path to this query alone via a transaction:
+    // body re-validation below must keep the session's own path so bodies
+    // resolve as they would at apply time.
+    await client.query(`BEGIN`);
+    await client.query(`SET LOCAL search_path TO 'pg_catalog'`);
     const defs = await client.query(`
       SELECT n.nspname AS nspname, p.proname AS proname, p.prokind AS prokind,
              ARRAY(SELECT format_type(t.t, NULL)
@@ -765,6 +955,7 @@ export async function loadSqlFiles(
         AND NOT EXISTS (
           SELECT 1 FROM pg_depend d
           WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')`);
+    await client.query(`COMMIT`);
     await client.query(`SET check_function_bodies = on`);
     const bodyErrors: Diagnostic[] = [];
     const bodyWarnings: Diagnostic[] = [];
@@ -887,6 +1078,24 @@ export async function loadSqlFiles(
         })),
       );
     }
+  } catch (err) {
+    // Best-effort containment of any cluster-level leak that committed before the
+    // throw (databaseScratch only): per-file COMMIT means a CREATE ROLE / GRANT —
+    // or DO-block dynamic SQL that evaded the static preflight, detected by the
+    // on-success snapshot comparison above — survives an aborted load. Reverse it
+    // BEFORE the finally releases the pooled client. `applyFile` ROLLBACKs on
+    // failure, so `client` is in a clean transaction state here.
+    if (mode === "databaseScratch") {
+      const restoreDiags = await restoreScratchClusterState(
+        client,
+        rolesBefore,
+        membershipsBefore,
+      );
+      if (restoreDiags.length > 0 && err instanceof ShadowLoadError) {
+        err.details.push(...restoreDiags);
+      }
+    }
+    throw err;
   } finally {
     // restore the GUC even when load fails early (before the on-success reset
     // at the body-validation step) — otherwise the pooled client returns with
@@ -899,8 +1108,30 @@ export async function loadSqlFiles(
   // extractor is profile-aware when the caller supplied one (handler-aware
   // projection), else the raw core extractor.
   const result = await extractShadow(shadow, { source: "sqlFiles" });
+  let factBase = result.factBase;
+  if (
+    bootstrapMembershipStrip !== null &&
+    bootstrapMembershipStrip.roles.size > 0
+  ) {
+    const strip = bootstrapMembershipStrip;
+    const drop = (id: StableId): boolean =>
+      id.kind === "membership" &&
+      strip.roles.has(id.role) &&
+      id.member === strip.member;
+    const facts = factBase.facts().filter((f) => !drop(f.id));
+    const kept = new Set(facts.map((f) => encodeId(f.id)));
+    const edges = [...factBase.edges].filter(
+      (e) => kept.has(encodeId(e.from)) && kept.has(encodeId(e.to)),
+    );
+    factBase = buildFactBase(
+      facts,
+      edges,
+      factBase.source,
+      factBase.referenceOnly,
+    );
+  }
   return {
-    factBase: result.factBase,
+    factBase,
     pgVersion: result.pgVersion,
     diagnostics: [...result.diagnostics, ...seededBodyWarnings],
     rounds,

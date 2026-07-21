@@ -311,7 +311,9 @@ describe("deriveAssumedSchemaSeed", () => {
       assumedRoles: ["admin", "reader"],
     });
     expect(seed.sql).toMatchInlineSnapshot(`
-      "SET check_function_bodies = off;
+      "SET search_path = pg_catalog;
+
+      SET check_function_bodies = off;
 
       CREATE SCHEMA "platform";
 
@@ -321,6 +323,10 @@ describe("deriveAssumedSchemaSeed", () => {
        SET search_path TO 'public'
        SET log_min_messages TO 'fatal'
       AS $function$SELECT 1$function$;
+
+      RESET search_path;
+
+      RESET check_function_bodies;
       "
     `);
   });

@@ -16,6 +16,7 @@ import {
   parseProfileFile,
   profileById,
   reconcileBaselineDigest,
+  reconcileSnapshotProfile,
 } from "./profile.ts";
 
 function writeTempProfile(contents: string): string {
@@ -77,6 +78,47 @@ describe("effectiveProfileId (apply/prove: flag vs plan-stamped profile)", () =>
     expect(effectiveProfileId(path, "platform-middleware")).toBe(path);
     // a contradicting stamped id is rejected
     expect(() => effectiveProfileId(path, "supabase")).toThrow(
+      /does not match/,
+    );
+  });
+});
+
+describe("reconcileSnapshotProfile (drift: flag vs snapshot-stamped profile)", () => {
+  test("adopts the snapshot's stamped profile when the flag is omitted", () => {
+    expect(reconcileSnapshotProfile(undefined, "supabase")).toBe("supabase");
+    // an explicit-raw (null) stamp reconciles as the concrete "raw" id
+    expect(reconcileSnapshotProfile(undefined, null)).toBe("raw");
+  });
+
+  test("uses the flag when it agrees with the stamp", () => {
+    expect(reconcileSnapshotProfile("supabase", "supabase")).toBe("supabase");
+    expect(reconcileSnapshotProfile("raw", null)).toBe("raw");
+  });
+
+  test("a --profile that contradicts the stamp fails closed (UsageError)", () => {
+    expect(() => reconcileSnapshotProfile("supabase", null)).toThrow(
+      UsageError,
+    );
+    expect(() => reconcileSnapshotProfile("supabase", null)).toThrow(
+      /snapshot/i,
+    );
+    expect(() => reconcileSnapshotProfile("raw", "supabase")).toThrow(
+      UsageError,
+    );
+  });
+
+  test("a legacy snapshot (no stamp, undefined) lets the flag win with no contradiction", () => {
+    // pre-stamping snapshot: current behavior — flag wins, never a contradiction
+    expect(reconcileSnapshotProfile("supabase", undefined)).toBe("supabase");
+    expect(reconcileSnapshotProfile(undefined, undefined)).toBeUndefined();
+  });
+
+  test("a file-path flag reconciles against the file's declared id", () => {
+    const path = writeTempProfile(
+      JSON.stringify({ id: "platform-middleware", handlers: ["pg_partman"] }),
+    );
+    expect(reconcileSnapshotProfile(path, "platform-middleware")).toBe(path);
+    expect(() => reconcileSnapshotProfile(path, "supabase")).toThrow(
       /does not match/,
     );
   });

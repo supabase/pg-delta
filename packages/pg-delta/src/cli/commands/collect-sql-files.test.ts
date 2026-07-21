@@ -51,27 +51,66 @@ describe("collectSqlFiles", () => {
 });
 
 describe("writeExportFiles", () => {
-  test("creates a brand-new root and writes the manifest even with zero files", () => {
+  test("creates a brand-new root and writes the manifest (with an empty files list) even with zero files", () => {
     // a DB with no managed objects yields zero files; the per-file loop would
     // never create outRoot, so the manifest write must create it first (review P2).
     const target = join(root, "nested", "brand-new");
-    const removed = writeExportFiles(target, [], {
-      redactSecrets: true,
-      profile: "raw",
-    });
+    const { removed, unmanaged } = writeExportFiles(
+      target,
+      [],
+      {
+        redactSecrets: true,
+        profile: "raw",
+      },
+      false,
+    );
     expect(removed).toEqual([]);
+    expect(unmanaged).toEqual([]);
     expect(existsSync(join(target, ".pgdelta-export.json"))).toBe(true);
     expect(readExportManifest(target)).toEqual({
       redactSecrets: true,
       profile: "raw",
+      files: [],
     });
   });
 
-  test("writes files and the manifest, pruning stale ones", () => {
-    const target = join(root, "out2");
-    mkdirSync(join(target, "schemas", "app"), { recursive: true });
-    writeFileSync(join(target, "schemas", "app", "gone.sql"), "-- stale\n");
-    const removed = writeExportFiles(
+  test("records the owned files list as sorted POSIX relative paths", () => {
+    const target = join(root, "sorted");
+    const { removed } = writeExportFiles(
+      target,
+      [
+        { name: join("schemas", "app", "b.sql"), sql: "-- b\n" },
+        { name: join("schemas", "app", "a.sql"), sql: "-- a\n" },
+        { name: join("cluster", "roles.sql"), sql: "-- roles\n" },
+      ],
+      { redactSecrets: false },
+      false,
+    );
+    expect(removed).toEqual([]);
+    expect(readExportManifest(target)?.files).toEqual([
+      "cluster/roles.sql",
+      "schemas/app/a.sql",
+      "schemas/app/b.sql",
+    ]);
+  });
+
+  test("prunes a previously-owned file that dropped out of the new set", () => {
+    const target = join(root, "reexport");
+    // first export owns t.sql AND gone.sql
+    writeExportFiles(
+      target,
+      [
+        {
+          name: join("schemas", "app", "t.sql"),
+          sql: "CREATE TABLE app.t ();\n",
+        },
+        { name: join("schemas", "app", "gone.sql"), sql: "-- gone\n" },
+      ],
+      { redactSecrets: false },
+      false,
+    );
+    // re-export drops gone.sql: it was owned, so it is pruned with no error
+    const { removed, unmanaged } = writeExportFiles(
       target,
       [
         {
@@ -80,11 +119,69 @@ describe("writeExportFiles", () => {
         },
       ],
       { redactSecrets: false },
+      false,
     );
     expect(removed).toEqual([join(target, "schemas", "app", "gone.sql")]);
+    expect(unmanaged).toEqual([]);
     expect(existsSync(join(target, "schemas", "app", "t.sql"))).toBe(true);
     expect(existsSync(join(target, "schemas", "app", "gone.sql"))).toBe(false);
-    expect(readExportManifest(target)?.redactSecrets).toBe(false);
+  });
+
+  test("throws (and preserves the file) on an unmanaged .sql not previously owned", () => {
+    const target = join(root, "handauthored");
+    mkdirSync(join(target, "schemas", "app"), { recursive: true });
+    writeFileSync(
+      join(target, "schemas", "app", "handwritten.sql"),
+      "-- hand-authored\n",
+    );
+    expect(() =>
+      writeExportFiles(
+        target,
+        [
+          {
+            name: join("schemas", "app", "t.sql"),
+            sql: "CREATE TABLE app.t ();\n",
+          },
+        ],
+        { redactSecrets: false },
+        false,
+      ),
+    ).toThrow(/handwritten\.sql[\s\S]*--prune-unmanaged/);
+    // the unmanaged file survives, and no new file / manifest was written
+    expect(existsSync(join(target, "schemas", "app", "handwritten.sql"))).toBe(
+      true,
+    );
+    expect(existsSync(join(target, "schemas", "app", "t.sql"))).toBe(false);
+    expect(existsSync(join(target, ".pgdelta-export.json"))).toBe(false);
+  });
+
+  test("--prune-unmanaged deletes the unmanaged file and proceeds", () => {
+    const target = join(root, "handauthored2");
+    mkdirSync(join(target, "schemas", "app"), { recursive: true });
+    writeFileSync(
+      join(target, "schemas", "app", "handwritten.sql"),
+      "-- hand-authored\n",
+    );
+    const { removed, unmanaged } = writeExportFiles(
+      target,
+      [
+        {
+          name: join("schemas", "app", "t.sql"),
+          sql: "CREATE TABLE app.t ();\n",
+        },
+      ],
+      { redactSecrets: false },
+      true,
+    );
+    expect(removed).toEqual([
+      join(target, "schemas", "app", "handwritten.sql"),
+    ]);
+    expect(unmanaged).toEqual([]);
+    expect(existsSync(join(target, "schemas", "app", "handwritten.sql"))).toBe(
+      false,
+    );
+    expect(existsSync(join(target, "schemas", "app", "t.sql"))).toBe(true);
+    expect(existsSync(join(target, ".pgdelta-export.json"))).toBe(true);
   });
 });
 

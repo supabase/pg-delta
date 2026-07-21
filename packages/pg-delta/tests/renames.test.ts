@@ -9,7 +9,11 @@ import { apply } from "../src/apply/apply.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
 import { provePlan } from "../src/proof/prove.ts";
-import { sharedCluster, type TestDb } from "./containers.ts";
+import {
+  isolatedClusterPair,
+  sharedCluster,
+  type TestDb,
+} from "./containers.ts";
 
 async function pair(
   prefix: string,
@@ -31,6 +35,67 @@ async function pair(
 }
 
 describe("stage 9: renames", () => {
+  test("role rename referenced by an RLS policy plans and proves without a cycle", async () => {
+    const [sourceCluster, desiredCluster] = await isolatedClusterPair();
+    const source = await sourceCluster.createDb("ren_policy_src");
+    const desired = await desiredCluster.createDb("ren_policy_dst");
+    try {
+      await sourceCluster.adminPool.query(`CREATE ROLE renpolicy_old NOLOGIN`);
+      await sourceCluster.adminPool.query(
+        `ALTER ROLE renpolicy_old SET statement_timeout = '42424ms'`,
+      );
+      await source.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.docs (id integer PRIMARY KEY);
+        ALTER TABLE app.docs ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY docs_read ON app.docs
+          FOR SELECT TO renpolicy_old USING (true);
+      `);
+
+      await desiredCluster.adminPool.query(`CREATE ROLE renpolicy_new NOLOGIN`);
+      await desiredCluster.adminPool.query(
+        `ALTER ROLE renpolicy_new SET statement_timeout = '42424ms'`,
+      );
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.docs (id integer PRIMARY KEY);
+        ALTER TABLE app.docs ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY docs_read ON app.docs
+          FOR SELECT TO renpolicy_new USING (true);
+      `);
+
+      const [sourceState, desiredState] = await Promise.all([
+        extract(source.pool),
+        extract(desired.pool),
+      ]);
+      const thePlan = plan(sourceState.factBase, desiredState.factBase, {
+        renames: "auto",
+        compact: false,
+      });
+
+      expect(thePlan.actions.map((action) => action.sql))
+        .toMatchInlineSnapshot(`
+        [
+          "ALTER ROLE "renpolicy_old" RENAME TO "renpolicy_new"",
+          "ALTER POLICY "docs_read" ON "app"."docs" TO "renpolicy_new"",
+        ]
+      `);
+      const verdict = await provePlan(
+        thePlan,
+        source.pool,
+        desiredState.factBase,
+      );
+      expect(verdict.applyError).toBeUndefined();
+      expect(verdict.driftDeltas).toEqual([]);
+      expect(verdict.ok).toBe(true);
+    } finally {
+      await Promise.all([
+        source.drop().catch(() => {}),
+        desired.drop().catch(() => {}),
+      ]);
+    }
+  }, 120_000);
+
   test("column leaf rename: emitted as RENAME COLUMN, values survive", async () => {
     const dbs = await pair(
       "ren_col",
@@ -96,6 +161,78 @@ describe("stage 9: renames", () => {
       expect(verdict.ok).toBe(true);
       const rows = await dbs.source.pool.query(`SELECT note FROM app.new_name`);
       expect((rows.rows[0] as { note: string }).note).toBe("keep");
+    } finally {
+      await dbs.drop();
+    }
+  }, 60_000);
+
+  test("renamed table stays under data-preservation coverage (F7)", async () => {
+    const dbs = await pair(
+      "ren_cover",
+      `CREATE SCHEMA app;
+       CREATE TABLE app.old_name (id integer NOT NULL, note text DEFAULT 'x');
+       INSERT INTO app.old_name VALUES (1, 'keep'), (2, 'stay');`,
+      `CREATE SCHEMA app;
+       CREATE TABLE app.new_name (id integer NOT NULL, note text DEFAULT 'x');`,
+    );
+    try {
+      const [s, d] = [
+        await extract(dbs.source.pool),
+        await extract(dbs.desired.pool),
+      ];
+      const thePlan = plan(s.factBase, d.factBase, { renames: "auto" });
+      const verdict = await provePlan(thePlan, dbs.source.pool, d.factBase);
+      expect(verdict.ok).toBe(true);
+      // the renamed table is CHECKED under its NEW name, not skipped as
+      // "dropped/recreated" — without the fix its old key lands in
+      // recreatedTables and it gets ZERO data-preservation coverage (F7).
+      const checked = verdict.coverage.perTable.find(
+        (p) => p.table.schema === "app" && p.table.name === "new_name",
+      );
+      expect(checked).toBeDefined();
+      expect(verdict.coverage.tablesSkipped).toEqual([]);
+    } finally {
+      await dbs.drop();
+    }
+  }, 60_000);
+
+  test("undeclared row loss on a renamed table is caught (F7)", async () => {
+    const dbs = await pair(
+      "ren_loss",
+      `CREATE SCHEMA app;
+       CREATE TABLE app.old_name (id integer DEFAULT 1);
+       INSERT INTO app.old_name SELECT generate_series(1, 5);`,
+      `CREATE SCHEMA app;
+       CREATE TABLE app.new_name (id integer DEFAULT 1);`,
+    );
+    try {
+      const [s, d] = [
+        await extract(dbs.source.pool),
+        await extract(dbs.desired.pool),
+      ];
+      const thePlan = plan(s.factBase, d.factBase, { renames: "auto" });
+      // inject a lie: after the rename, silently discard the rows but declare
+      // dataLoss:none. The proof must catch it now that the renamed table is
+      // covered (before the fix it was skipped as "dropped by the plan").
+      thePlan.actions.push({
+        sql: `TRUNCATE app.new_name`,
+        verb: "alter",
+        produces: [],
+        consumes: [{ kind: "table", schema: "app", name: "new_name" }],
+        destroys: [],
+        releases: [],
+        transactionality: "transactional",
+        lockClass: "accessExclusive",
+        newSegmentBefore: false,
+        dataLoss: "none",
+        rewriteRisk: false,
+      });
+      const verdict = await provePlan(thePlan, dbs.source.pool, d.factBase);
+      // row count dropped 5 → 0 under the NEW name — a data violation
+      expect(verdict.dataViolations).toEqual([
+        { table: { schema: "app", name: "new_name" }, before: 5, after: 0 },
+      ]);
+      expect(verdict.ok).toBe(false);
     } finally {
       await dbs.drop();
     }

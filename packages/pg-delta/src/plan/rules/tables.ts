@@ -64,6 +64,19 @@ export const tableRules: Record<string, KindRules> = {
           const colFacts = view
             .childrenOf(fact.id)
             .filter((c) => c.id.kind === "column");
+          // Column ORDER is row-layout state: render in declared position
+          // (`_position` = pg_attribute.attnum, captured at extract time), NOT
+          // the encoded-id (name) order childrenOf() yields. Fall back to the
+          // incoming order when `_position` is absent (legacy fact bases) so the
+          // sort stays stable and total. Mirrors the composite CREATE TYPE path
+          // (plan/rules/types.ts). The bare foldable path is handled separately:
+          // its columns arrive as ADD COLUMN folds, ordered by the tie-break in
+          // plan/phases/action-graph.ts.
+          if (colFacts.every((c) => p(c, "_position") != null)) {
+            colFacts.sort(
+              (a, b) => Number(p(a, "_position")) - Number(p(b, "_position")),
+            );
+          }
           cols = colFacts.map(columnClause).join(", ");
           for (const c of colFacts) alsoProduces.push(c.id);
         }

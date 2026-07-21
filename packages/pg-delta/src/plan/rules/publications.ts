@@ -1,5 +1,6 @@
 /** Rule definitions for publications, their member facts, and subscriptions. */
 import type { Fact } from "../../core/fact.ts";
+import { SUBSCRIPTION_CONNINFO_PLACEHOLDER } from "../../extract/sensitive-options.ts";
 import { lit, qid, rel } from "../render.ts";
 import type { ActionSpec, KindRules } from "../rules.ts";
 import { p, publicationObjects, publicationRelClause, str } from "./helpers.ts";
@@ -119,6 +120,18 @@ export const publicationRules: Record<string, KindRules> = {
         .map((pub) => qid(pub))
         .join(", ");
       const slot = p(fact, "slotName");
+      const conninfo = str(p(fact, "conninfo"));
+      // A subscription rebuilt from a REDACTED extraction carries a placeholder
+      // conninfo — its real host/credentials are unrecoverable. Emitting the
+      // ENABLE follow-up would start a replication worker against that bogus
+      // host, which fails asynchronously forever while catalog convergence still
+      // passes. When the desired state is ENABLED, keep it disabled instead and
+      // tell the operator to set a real connection and enable it by hand. A
+      // disabled subscription is unaffected (its create never emits ENABLE), and
+      // unredacted creates are unchanged.
+      const redacted = conninfo === SUBSCRIPTION_CONNINFO_PLACEHOLDER;
+      const wantEnabled = Boolean(p(fact, "enabled"));
+      const suppressEnable = redacted && wantEnabled;
       const withParts = [
         "connect = false",
         "enabled = false",
@@ -128,12 +141,17 @@ export const publicationRules: Record<string, KindRules> = {
         // below never fire for it — only the WITH clause carries the options.
         ...subscriptionOptionParts(fact),
       ];
+      const note = suppressEnable
+        ? `-- pg-delta: subscription ${name} was exported with REDACTED connection info;\n` +
+          `-- its CONNECTION below is a placeholder. Set the real connection string and run\n` +
+          `-- ALTER SUBSCRIPTION ${name} ENABLE; manually before it will replicate.\n`
+        : "";
       const specs: ActionSpec[] = [
         {
-          sql: `CREATE SUBSCRIPTION ${name} CONNECTION ${lit(str(p(fact, "conninfo")))} PUBLICATION ${publications} WITH (${withParts.join(", ")})`,
+          sql: `${note}CREATE SUBSCRIPTION ${name} CONNECTION ${lit(conninfo)} PUBLICATION ${publications} WITH (${withParts.join(", ")})`,
         },
       ];
-      if (p(fact, "enabled")) {
+      if (wantEnabled && !suppressEnable) {
         specs.push({ sql: `ALTER SUBSCRIPTION ${name} ENABLE` });
       }
       return specs;
@@ -176,9 +194,44 @@ export const publicationRules: Record<string, KindRules> = {
       disableOnError: subscriptionBoolSet("disable_on_error"),
       runAsOwner: subscriptionBoolSet("run_as_owner"),
       origin: subscriptionStringSet("origin"),
-      // two_phase cannot be toggled by ALTER … SET on an enabled subscription
-      // (PostgreSQL restricts it); recreate instead so the change is always safe
-      twoPhase: "replace",
+      // `two_phase` must NOT be classified "replace": drop+recreate runs
+      // DROP SUBSCRIPTION, which drops the publisher's replication slot (it
+      // connects via the catalog conninfo), and the recreate uses
+      // `connect = false, slot_name = <name>` — it does not recreate that
+      // remote slot, so the catalog converges while replication is silently
+      // broken (and the DROP fails outright when the publisher is unreachable).
+      // PG18+ added `ALTER SUBSCRIPTION … SET (two_phase)`, allowed only on a
+      // DISABLED subscription, so route through DISABLE → SET → (re-)ENABLE. On
+      // PG < 18 there is no in-place form (`two_phase` is rejected as an
+      // unrecognized parameter) and an automatic recreate is destructive, so
+      // fail loudly and let the operator recreate the subscription deliberately.
+      twoPhase: {
+        alter: (fact, _from, to) => {
+          const name = subscriptionName(fact);
+          const major = Number(p(fact, "_serverMajor") ?? 0);
+          if (major < 18) {
+            throw new Error(
+              `subscription ${name}: changing two_phase requires PostgreSQL 18+ ` +
+                `(ALTER SUBSCRIPTION … SET (two_phase)). On PG${major || " < 18"} ` +
+                `recreate the subscription manually — an automatic drop/recreate ` +
+                `would drop the publisher's replication slot and break replication.`,
+            );
+          }
+          // two_phase is settable only while the subscription is disabled; a
+          // DISABLE on an already-disabled subscription is a harmless no-op.
+          // These three specs tie on subject id and stay in emission order.
+          const specs: ActionSpec[] = [
+            { sql: `ALTER SUBSCRIPTION ${name} DISABLE` },
+            {
+              sql: `ALTER SUBSCRIPTION ${name} SET (two_phase = ${to ? "true" : "false"})`,
+            },
+          ];
+          if (p(fact, "enabled")) {
+            specs.push({ sql: `ALTER SUBSCRIPTION ${name} ENABLE` });
+          }
+          return specs;
+        },
+      },
     },
   },
 };

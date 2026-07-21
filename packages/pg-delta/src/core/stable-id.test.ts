@@ -102,6 +102,15 @@ describe("encodeId", () => {
     expect(encodeId({ kind: "acl", target: table, grantee: "app_user" })).toBe(
       "acl:(table:public.users).app_user",
     );
+    // column-level grant appends an optional `.column` segment
+    expect(
+      encodeId({
+        kind: "acl",
+        target: table,
+        grantee: "app_user",
+        column: "email",
+      }),
+    ).toBe("acl:(table:public.users).app_user.email");
     expect(
       encodeId({ kind: "securityLabel", target: table, provider: "selinux" }),
     ).toBe("securityLabel:(table:public.users).selinux");
@@ -170,6 +179,20 @@ describe("parseId round-trips", () => {
       kind: "acl",
       target: { kind: "procedure", schema: "s", name: "f", args: ["text"] },
       grantee: "PUBLIC",
+    },
+    // column-level ACL: the optional `column` segment must round-trip
+    {
+      kind: "acl",
+      target: { kind: "table", schema: "public", name: "users" },
+      grantee: "app_user",
+      column: "email",
+    },
+    // hostile column name (dot, quote, uppercase) must round-trip too
+    {
+      kind: "acl",
+      target: { kind: "table", schema: "s", name: "t" },
+      grantee: "PUBLIC",
+      column: 'weird."col".Name',
     },
     {
       kind: "securityLabel",

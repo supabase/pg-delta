@@ -78,11 +78,26 @@ export function renderPlanFiles(
       ? ""
       : "-- pg-delta: transaction=false\n";
     const statements: string[] = [];
+    // Scope the preamble session settings so a reused runner session (sequential
+    // migration runners share a connection) does not silently inherit them —
+    // mirroring apply() (src/apply/apply.ts): SET LOCAL inside a transactional
+    // segment (reverts at COMMIT), plain SET + a trailing RESET ALL around a
+    // standalone non-transactional action (SET LOCAL is a no-op outside a
+    // transaction). A transactional dbmate file runs inside its own BEGIN/COMMIT.
     for (const setting of plan.preamble) {
-      statements.push(`set ${setting.name} = ${setting.value};`);
+      statements.push(
+        segment.transactional
+          ? `set local ${setting.name} = ${setting.value};`
+          : `set ${setting.name} = ${setting.value};`,
+      );
     }
     for (let i = segment.start; i < segment.end; i++) {
       statements.push(terminate(plan.actions[i]!.sql));
+    }
+    // A non-transactional file cannot rely on COMMIT to drop its SETs, so reset
+    // them explicitly at the end (only when there was a preamble to reset).
+    if (!segment.transactional && plan.preamble.length > 0) {
+      statements.push("reset all;");
     }
     return {
       suffix: multi ? `_${index + 1}` : null,

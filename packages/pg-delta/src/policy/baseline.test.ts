@@ -6,7 +6,8 @@
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type DependencyEdge, type Fact } from "../core/fact.ts";
 import type { Payload } from "../core/hash.ts";
-import type { StableId } from "../core/stable-id.ts";
+import { encodeId, type StableId } from "../core/stable-id.ts";
+import { plan } from "../plan/plan.ts";
 import { subtractBaseline } from "./baseline.ts";
 
 // ---------------------------------------------------------------------------
@@ -141,7 +142,7 @@ describe("subtractBaseline — changed payload", () => {
 // ---------------------------------------------------------------------------
 
 describe("subtractBaseline — edge pruning", () => {
-  test("edges between surviving facts are kept", () => {
+  test("an owner->role edge to a subtracted baseline role is retained as dangling", () => {
     const facts: Fact[] = [
       makeFact(schemaPublic),
       makeFact(tableUsers, { persistence: "u" }, schemaPublic), // changed vs baseline
@@ -160,11 +161,14 @@ describe("subtractBaseline — edge pruning", () => {
     const fb = buildFactBase(facts, [edge]);
     const baseline = buildFactBase(baselineFacts, []);
     const result = subtractBaseline(fb, baseline);
-    // tableUsers changed → kept; roleOwner unchanged → subtracted
-    // BUT roleOwner has an edge from tableUsers → edge is kept only if BOTH survive
-    // roleOwner is not a parent of anything, so it's subtracted
-    // edge should be pruned
-    expect([...result.edges]).toHaveLength(0);
+    // tableUsers changed → kept; roleOwner unchanged → subtracted. The owner
+    // edge is an owner->role edge whose OWNED endpoint (tableUsers) survives, so
+    // it is retained as a dangling assumed reference (retainOwnerRoleDangling) —
+    // ownership must still serialize as ALTER … OWNER TO the platform role.
+    expect([...result.edges]).toHaveLength(1);
+    expect(result.get(tableUsers)).toBeDefined();
+    // the role fact itself is NOT resurrected — only the edge is retained.
+    expect(result.has(roleOwner)).toBe(false);
   });
 
   test("edges between both surviving facts are kept", () => {
@@ -216,6 +220,121 @@ describe("subtractBaseline — edge pruning", () => {
     expect(result.has(extPostgis)).toBe(false);
     // edge pruned because extPostgis was subtracted
     expect([...result.edges]).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: outgoing-edge signature (payload-equal facts with changed edges)
+// ---------------------------------------------------------------------------
+
+describe("subtractBaseline — outgoing-edge signature", () => {
+  const roleA: StableId = { kind: "role", name: "a" };
+  const roleB: StableId = { kind: "role", name: "b" };
+
+  test("equal-payload fact whose owner edge changed (A→B) is NOT subtracted", () => {
+    const shared: Fact[] = [
+      makeFact(roleA),
+      makeFact(roleB),
+      makeFact(schemaPublic),
+      makeFact(tableUsers, { persistence: "p" }, schemaPublic),
+    ];
+    const baseline = buildFactBase(shared, [
+      { from: tableUsers, to: roleA, kind: "owner" },
+    ]);
+    const fb = buildFactBase(shared, [
+      { from: tableUsers, to: roleB, kind: "owner" },
+    ]);
+    const result = subtractBaseline(fb, baseline);
+    // payload P is identical, but the outgoing owner edge changed → T survives
+    // (before the fix it was subtracted on payload hash alone and the drift was
+    // invisible).
+    expect(result.has(tableUsers)).toBe(true);
+    // and it carries its NEW owner->B edge, retained dangling (roleB is a
+    // subtracted baseline role).
+    const owns = [...result.edges].filter((e) => e.kind === "owner");
+    expect(owns).toHaveLength(1);
+    expect(encodeId(owns[0]!.to)).toBe(encodeId(roleB));
+    // roleB is NOT resurrected as a fact — only the dangling edge is retained.
+    expect(result.has(roleB)).toBe(false);
+  });
+
+  test("equal payload AND identical owner edge → still fully subtracted", () => {
+    const facts: Fact[] = [
+      makeFact(roleA),
+      makeFact(schemaPublic),
+      makeFact(tableUsers, { persistence: "p" }, schemaPublic),
+    ];
+    const edges: DependencyEdge[] = [
+      { from: tableUsers, to: roleA, kind: "owner" },
+    ];
+    const fb = buildFactBase(facts, edges);
+    const baseline = buildFactBase(facts, edges);
+    const result = subtractBaseline(fb, baseline);
+    // identical facts AND identical edges → everything subtracted; the owner
+    // edge is NOT retained because its owned endpoint (tableUsers) is gone too.
+    expect(result.facts()).toHaveLength(0);
+    expect([...result.edges]).toHaveLength(0);
+  });
+
+  test("a changed `depends` edge to a subtracted endpoint stays pruned", () => {
+    // Only owner->role edges are retained dangling; a `depends` edge to a
+    // subtracted fact is pruned as before.
+    const baseline = buildFactBase(
+      [
+        makeFact(schemaPublic),
+        makeFact(tableUsers, { persistence: "p" }, schemaPublic),
+        makeFact(extPostgis, { version: "3.0" }),
+      ],
+      [{ from: tableUsers, to: extPostgis, kind: "depends" }],
+    );
+    const fb = buildFactBase(
+      [
+        makeFact(schemaPublic),
+        makeFact(tableUsers, { persistence: "u" }, schemaPublic), // changed → survives
+        makeFact(extPostgis, { version: "3.0" }), // identical → subtracted
+      ],
+      [{ from: tableUsers, to: extPostgis, kind: "depends" }],
+    );
+    const result = subtractBaseline(fb, baseline);
+    expect(result.has(tableUsers)).toBe(true);
+    expect(result.has(extPostgis)).toBe(false);
+    expect([...result.edges]).toHaveLength(0);
+  });
+
+  test("plan() surfaces an ownership delta that payload-only subtraction hid (e2e)", () => {
+    // Both sides keep T (payload differs from the baseline), differing ONLY in
+    // the owner edge. Before the fix, Phase 4 pruned the owner->role edge to the
+    // subtracted role on BOTH sides, so the ownership change vanished; now the
+    // edges are retained dangling and the delta surfaces as a plan action.
+    const baseline = buildFactBase(
+      [
+        makeFact(roleA),
+        makeFact(roleB),
+        makeFact(schemaPublic),
+        makeFact(tableUsers, { persistence: "p0" }, schemaPublic),
+      ],
+      [{ from: tableUsers, to: roleA, kind: "owner" }],
+    );
+    const target = buildFactBase(
+      [
+        makeFact(roleA),
+        makeFact(roleB),
+        makeFact(schemaPublic),
+        makeFact(tableUsers, { persistence: "p1" }, schemaPublic),
+      ],
+      [{ from: tableUsers, to: roleA, kind: "owner" }],
+    );
+    const desired = buildFactBase(
+      [
+        makeFact(roleA),
+        makeFact(roleB),
+        makeFact(schemaPublic),
+        makeFact(tableUsers, { persistence: "p1" }, schemaPublic),
+      ],
+      [{ from: tableUsers, to: roleB, kind: "owner" }],
+    );
+    const thePlan = plan(target, desired, { baseline });
+    expect(thePlan.actions.length).toBeGreaterThan(0);
   });
 });
 

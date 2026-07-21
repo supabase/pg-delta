@@ -156,6 +156,63 @@ describe("detectViolations — content + coverage (review #3)", () => {
     expect(mode("empty")).toBe("none");
   });
 
+  test("renamed table is CHECKED under the new name; a doctored change is a violation (F7)", () => {
+    const OLD = relKey("public", "old");
+    const NEW = relKey("public", "new");
+
+    // RED baseline: with NO rename map, the real planner puts the OLD relKey in
+    // recreatedTables (an accepted rename destroys the old subtree), and the NEW
+    // relKey in `after` has no before-match — so the renamed table is neither
+    // checked nor a violation. A silent data-preservation blind spot.
+    const before = m([
+      [
+        "public",
+        "old",
+        { rows: 3, relfilenode: "1", schemaSig: SIG, content: "a" },
+      ],
+    ]);
+    // data now lives under the NEW name; doctor its content (count held)
+    const after = m([
+      [
+        "public",
+        "new",
+        { rows: 3, relfilenode: "1", schemaSig: SIG, content: "b" },
+      ],
+    ]);
+    const baseline = detectViolations(
+      before,
+      after,
+      ctx({ recreatedTables: new Set([OLD]) }),
+    );
+    expect(baseline.coverage.tablesChecked).toBe(0);
+    expect(baseline.coverage.tablesSkipped.map((s) => s.table.name)).toContain(
+      "old",
+    );
+
+    // GREEN: with the rename map old→new (and the source removed from
+    // recreatedTables, as provePlan does), the table is CHECKED under the NEW
+    // name and the doctored content is reported as a data violation.
+    const v = detectViolations(
+      before,
+      after,
+      ctx({ renamedTables: new Map([[OLD, NEW]]) }),
+    );
+    expect(v.coverage.tablesChecked).toBe(1);
+    expect(v.coverage.perTable[0]?.table).toEqual({
+      schema: "public",
+      name: "new",
+    });
+    expect(v.coverage.tablesSkipped).toEqual([]);
+    expect(v.dataViolations).toEqual([
+      {
+        table: { schema: "public", name: "new" },
+        before: 3,
+        after: 3,
+        contentChanged: true,
+      },
+    ]);
+  });
+
   test("recreated tables are skipped with a reason, not checked", () => {
     const before = m([
       [

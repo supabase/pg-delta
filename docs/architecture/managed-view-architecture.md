@@ -222,6 +222,12 @@ function plan(rawSource, rawDesired, options) {
   edges). The Supabase scope rules are more cases. One code path.
 - The proof loop’s `reextract` is wrapped in the same `resolveView` so
   `plan == prove == run` holds with no special-casing.
+- **Reconstruction under management scope** (plan / prove / apply / schema
+  export) goes through one internal helper —
+  `policy/reconstruct.ts` → `reconstructManagedView` — which seals the order
+  `resolveView` then `projectManagementScope`. Diff and seed paths may still
+  call bare `resolveView` (no scope projection). The helper is not on the
+  package index; `ResolvedProfile` remains the public composition surface.
 
 ## Costs (kept honest)
 

@@ -108,6 +108,15 @@ export async function extract(
   const client = await pool.connect();
   try {
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    // Canonicalize the deparse path (pg_dump convention, post-CVE-2018-1058):
+    // `format_type` and every `pg_get_*def` / `pg_get_expr` path-relativizes
+    // names, so anything visible on the session `search_path` comes back
+    // UNQUALIFIED. Pinning to `pg_catalog` forces every non-catalog reference to
+    // be schema-qualified, so the SAME catalog hashes identically regardless of
+    // the database's / role's / connection's default path. SET LOCAL scopes it
+    // to this transaction and is discarded on COMMIT/ROLLBACK, so pooled
+    // connections are untouched.
+    await client.query("SET LOCAL search_path TO 'pg_catalog'");
     // Opt-in per-statement budget: a runaway catalog query on a pathological
     // schema aborts with an actionable ExtractionTimeoutError (see scope.ts q())
     // instead of hanging. Default is unlimited — never abort a legitimate

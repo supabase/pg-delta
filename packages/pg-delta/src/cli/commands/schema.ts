@@ -153,9 +153,16 @@ export function collectSqlFiles(dir: string): SqlFile[] {
  * Creates `outRoot` up front: a database with no managed objects legitimately
  * yields zero files, and the per-file loop (which only mkdirs each file's parent)
  * would then never create the root, so the manifest write would ENOENT (review
- * P2). Stale `.sql` files from a previous export are pruned first so a dropped
- * object's file can't linger and be reloaded (only `.sql` not in the new set;
- * non-SQL untouched).
+ * P2). Stale `.sql` files the PREVIOUS export owned (recorded in that export's
+ * manifest `files` list) are pruned first so a dropped object's file can't
+ * linger and be reloaded. A `.sql` file the previous export did NOT own — hand
+ * authored SQL, or every `.sql` in a pre-feature / manifest-less dir — is
+ * UNMANAGED: rather than silently deleting it (`schema apply --dir` loads the
+ * whole tree, so a lingering unmanaged file is a real hazard), the export is
+ * refused with an error naming each such file and telling the operator to pass
+ * `--prune-unmanaged` (threaded here as `pruneUnmanaged`) to delete them. The
+ * new manifest records the owned files as SORTED relative POSIX paths so the
+ * next re-export knows what it may prune.
  */
 export function writeExportFiles(
   outRoot: string,
@@ -167,10 +174,33 @@ export function writeExportFiles(
     baselineDigest?: string;
     defaultOwner?: string | null;
   },
-): string[] {
-  mkdirSync(outRoot, { recursive: true });
+  pruneUnmanaged: boolean,
+): { removed: string[]; unmanaged: string[] } {
+  // The PREVIOUS export's owned-file list, read before we write anything. Absent
+  // manifest / no `files` field → undefined → every out-of-set `.sql` is
+  // unmanaged (pre-feature or hand-authored dir).
+  const previous = readExportManifest(outRoot);
+  const previouslyOwned =
+    previous?.files !== undefined
+      ? new Set(previous.files.map((rel) => resolve(outRoot, rel)))
+      : undefined;
   const keep = new Set(files.map((file) => join(outRoot, file.name)));
-  const removed = pruneStaleSqlFiles(outRoot, keep);
+  const { removed, unmanaged } = pruneStaleSqlFiles(
+    outRoot,
+    keep,
+    previouslyOwned,
+    pruneUnmanaged,
+  );
+  // Refuse BEFORE writing any file: deleting hand-authored SQL is irreversible.
+  if (unmanaged.length > 0) {
+    throw new Error(
+      `export: refusing to overwrite ${outRoot}: it contains ${unmanaged.length} ` +
+        `unmanaged .sql file(s) this export does not own:\n` +
+        unmanaged.map((f) => `  ${f}`).join("\n") +
+        `\nPass --prune-unmanaged to delete them and take ownership of the directory.`,
+    );
+  }
+  mkdirSync(outRoot, { recursive: true });
   for (const file of files) {
     const full = join(outRoot, file.name);
     // defense-in-depth (review P2): even with per-segment encoding in
@@ -183,8 +213,9 @@ export function writeExportFiles(
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, file.sql, "utf8");
   }
-  writeExportManifest(outRoot, manifest);
-  return removed;
+  const ownedFiles = files.map((file) => file.name.split(sep).join("/")).sort();
+  writeExportManifest(outRoot, { ...manifest, files: ownedFiles });
+  return { removed, unmanaged };
 }
 
 export async function cmdSchemaExport(args: string[]): Promise<void> {
@@ -205,13 +236,15 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       "no-format": { type: "boolean" },
       scope: { type: "value" },
       "default-owner": { type: "value" },
+      "prune-unmanaged": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       throw new UsageError(
         `${err.message}\nUsage: pgdelta schema export --source <pg-url> --out-dir <dir> ` +
-          `[--layout by-object|ordered|grouped] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets] [--scope database|cluster]\n` +
+          `[--layout by-object|ordered|grouped] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets] [--scope database|cluster] [--prune-unmanaged]\n` +
           `  [--default-owner <role|none>] (which owner stays implicit; default: profile default or the database owner; "none" emits every OWNER TO)\n` +
+          `  [--prune-unmanaged] (delete .sql files in --out-dir this export does not own; refuse otherwise)\n` +
           `  [--format-options '{"keywordCase":"upper","maxWidth":180}'] [--no-format]\n` +
           `    (SQL is pretty-printed by default: lowercase keywords, width 180; any layout)\n` +
           `  Grouped-layout options (only with --layout grouped):\n` +
@@ -352,20 +385,25 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     });
 
     const outRoot = resolve(outDir);
-    const removed = writeExportFiles(outRoot, result.files, {
-      redactSecrets: result.manifest.redactSecrets,
-      scope: result.manifest.scope,
-      ...(result.manifest.profile !== undefined
-        ? { profile: result.manifest.profile }
-        : {}),
-      ...(result.manifest.baselineDigest !== undefined
-        ? { baselineDigest: result.manifest.baselineDigest }
-        : {}),
-      ...(result.manifest.scope === "database" &&
-      "defaultOwner" in result.manifest
-        ? { defaultOwner: result.manifest.defaultOwner }
-        : {}),
-    });
+    const { removed } = writeExportFiles(
+      outRoot,
+      result.files,
+      {
+        redactSecrets: result.manifest.redactSecrets,
+        scope: result.manifest.scope,
+        ...(result.manifest.profile !== undefined
+          ? { profile: result.manifest.profile }
+          : {}),
+        ...(result.manifest.baselineDigest !== undefined
+          ? { baselineDigest: result.manifest.baselineDigest }
+          : {}),
+        ...(result.manifest.scope === "database" &&
+        "defaultOwner" in result.manifest
+          ? { defaultOwner: result.manifest.defaultOwner }
+          : {}),
+      },
+      flags["prune-unmanaged"] === true,
+    );
     if (removed.length > 0) {
       process.stderr.write(
         `Removed ${removed.length} stale .sql file(s) from ${outDir}\n`,

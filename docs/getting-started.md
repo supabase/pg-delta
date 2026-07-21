@@ -257,9 +257,9 @@ applier can actually execute. The same profile is threaded through extract → p
 → prove → apply, so *what you prove is exactly what you run*.
 
 ```ts
-import { resolveProfile } from "@supabase/pg-delta/integrations";
+import { resolveProfile, supabaseProfile } from "@supabase/pg-delta/integrations";
 
-const ctx = await resolveProfile(targetPool, "supabase");
+const ctx = await resolveProfile(targetPool, supabaseProfile);
 const { factBase } = await ctx.extract(targetPool);
 const thePlan = plan(sourceFb, factBase, ctx.planOptions);
 await apply(thePlan, targetPool, ctx.applyOptions);

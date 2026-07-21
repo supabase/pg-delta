@@ -58,10 +58,19 @@ async function catalogMembers(
   const userNs = (col: string) =>
     `${col} NOT IN ('pg_catalog', 'information_schema')
        AND ${col} NOT LIKE 'pg\\_toast%' AND ${col} NOT LIKE 'pg\\_temp%'`;
-  const { rows } = await pool.query<{
-    ident: Record<string, unknown>;
-    ext: string;
-  }>(`
+  // mirror the extractor's canonical session too: extraction runs under
+  // `search_path = pg_catalog`, so format_type schema-qualifies user types
+  // (`public.hstore`, not `hstore`). This oracle must format identity args the
+  // same way or its join keys never match the extracted fact ids.
+  const client = await pool.connect();
+  let rows: { ident: Record<string, unknown>; ext: string }[];
+  try {
+    await client.query(`BEGIN`);
+    await client.query(`SET LOCAL search_path TO 'pg_catalog'`);
+    ({ rows } = await client.query<{
+      ident: Record<string, unknown>;
+      ext: string;
+    }>(`
     SELECT ident, ext FROM (
       -- relations: tables, views, matviews, sequences (indexes 'i','I' skipped:
       -- not standalone facts in the member sense for parity)
@@ -149,7 +158,11 @@ async function catalogMembers(
         AND d.refclassid = 'pg_extension'::regclass
         AND e.extname <> 'plpgsql' AND ${userNs("n.nspname")}
     ) m
-    ORDER BY ident::text`);
+    ORDER BY ident::text`));
+    await client.query(`COMMIT`);
+  } finally {
+    client.release();
+  }
   return rows.map((r) => ({ id: identToStableId(r.ident), extension: r.ext }));
 }
 

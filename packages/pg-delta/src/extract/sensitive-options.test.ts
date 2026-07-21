@@ -54,6 +54,26 @@ describe("redactOptionStrings", () => {
     ).toEqual(["password_required=false", "password_required=true"]);
   });
 
+  test("keeps file_fdw's non-secret filename / null options verbatim", () => {
+    // file_fdw's `filename` is a filesystem path (not a credential); redacting
+    // it makes a default-redacted export create a foreign table pointing at the
+    // literal `__OPTION_FILENAME__`, which converges while every query fails.
+    // `null` is file_fdw's null-marker string, equally non-secret.
+    expect(
+      redactOptionStrings([
+        "filename=/srv/data/export.csv",
+        "null=\\N",
+        "format=csv",
+        "header=true",
+      ]),
+    ).toEqual([
+      "filename=/srv/data/export.csv",
+      "null=\\N",
+      "format=csv",
+      "header=true",
+    ]);
+  });
+
   test("keeps the non-secret postgres_fdw connection option service", () => {
     // `service` names a pg_service.conf connection-service entry — a reference,
     // not a credential (the actual host/user/password live in that file). It is

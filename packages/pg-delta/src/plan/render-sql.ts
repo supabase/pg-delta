@@ -31,5 +31,17 @@ export function renderPlanSql(plan: RenderablePlan): string {
     const sql = action.sql.trimEnd();
     parts.push(sql.endsWith(";") ? sql : `${sql};`);
   }
+  // This script has no transaction framing, so its session-level SETs would
+  // persist on the connection after the batch — and callers replay it on a
+  // POOLED connection they hand back for reuse (schema-plan.ts seeds a shadow
+  // then releases the client; applySupabaseBaseInit replays on one connection).
+  // Reset the preamble settings at the end so a later borrower of that
+  // connection does not inherit them. Targeted RESETs (not RESET ALL) leave any
+  // other session state the caller set around this batch untouched.
+  if (parts.length > 0) {
+    for (const setting of plan.preamble) {
+      parts.push(`RESET ${setting.name};`);
+    }
+  }
   return parts.length === 0 ? "" : `${parts.join("\n\n")}\n`;
 }

@@ -24,7 +24,14 @@ import {
 
 /** Engine version stamped into plan artifacts; apply refuses artifacts
  *  from an engine it does not understand (stage 6 deliverable 1). */
-export const ENGINE_VERSION = "0.1.0";
+export const ENGINE_VERSION = "0.2.0";
+
+// The plan-artifact (JSON serialize/parse) helpers live in ./artifact.ts but are
+// part of this module's public surface: docs/getting-started.md imports them from
+// `@supabase/pg-delta/plan` (the subpath that maps here), so the documented path
+// must be real. Cycle-safe: artifact.ts's only import from this module is
+// ENGINE_VERSION, which it reads inside a function body, never at module-eval time.
+export { parsePlan, serializePlan } from "./artifact.ts";
 
 export interface Action {
   sql: string;
@@ -116,6 +123,13 @@ export interface Plan {
   /** every rename candidate found, applied or not — "prompt" mode renders
    *  these as questions; near-misses explain why they degraded (§4.1) */
   renameCandidates: RenameCandidate[];
+  /** the renames this plan actually applied (as { from, to } stable-id pairs),
+   *  stamped only when non-empty so corpus / direct-library plan artifacts stay
+   *  byte-identical. The proof loop reads this to keep a renamed table under
+   *  data-preservation coverage: an accepted rename destroys the OLD subtree, so
+   *  without this stamp the old relKey looks "recreated" and the renamed table
+   *  is silently skipped (F7). */
+  acceptedRenames?: Array<{ from: StableId; to: StableId }>;
   actions: Action[];
   safetyReport: SafetyReport;
 }
@@ -501,7 +515,14 @@ export function plan(
     engineVersion: ENGINE_VERSION,
     source: { fingerprint: source.rootHash },
     target: { fingerprint: projectedDesired.rootHash },
-    preamble: [{ name: "check_function_bodies", value: "off" }],
+    preamble: [
+      // Pin the applier's deparse/resolution path to `pg_catalog` so the
+      // rendered (fully qualified) DDL resolves identically regardless of the
+      // applier role's default search_path. Extraction canonicalizes to the
+      // same path, so every emitted statement target is already qualified.
+      { name: "search_path", value: "pg_catalog" },
+      { name: "check_function_bodies", value: "off" },
+    ],
     deltas,
     filteredDeltas,
     ...(options?.policy ? { policy: options.policy } : {}),
@@ -524,6 +545,16 @@ export function plan(
       ? { redactSecrets: options.redactSecrets }
       : {}),
     renameCandidates,
+    // stamp accepted renames only when there are any, so corpus / direct-library
+    // plan artifacts stay byte-identical (F7).
+    ...(acceptedRenames.length > 0
+      ? {
+          acceptedRenames: acceptedRenames.map((r) => ({
+            from: r.from.id,
+            to: r.to.id,
+          })),
+        }
+      : {}),
     actions: finalActions,
     safetyReport,
   };

@@ -71,9 +71,28 @@ export const schemaRules: Record<string, KindRules> = {
           : { sql: `CREATE EXTENSION ${name}` },
       ];
     },
-    drop: (fact) => ({
-      sql: `DROP EXTENSION ${qid((fact.id as { name: string }).name)}`,
-    }),
+    // DROP EXTENSION cascades to its member objects (pg_depend deptype 'e'), but
+    // those members are projected out of the diff (kept reference-only), so no
+    // other action raises the destructive flag for them. Derive it here from the
+    // member closure: destructive iff the extension owns a DATA-BEARING persisted
+    // relation (table / materialized view) — dropping it destroys user rows. An
+    // extension whose members are only functions/types/operators/etc. drops
+    // without data loss, so it stays non-destructive (matches the per-kind
+    // convention: DROP TABLE is destructive, DROP FUNCTION is not). The proof
+    // loop turns this into a verified claim; here it is only the reported hazard.
+    // Reference-only members survive in the resolved view with their
+    // `memberOfExtension` edges intact, so `incomingEdges` sees them.
+    drop: (fact, view) => {
+      const destructive = (view?.incomingEdges(fact.id) ?? []).some(
+        (e) =>
+          e.kind === "memberOfExtension" &&
+          (e.from.kind === "table" || e.from.kind === "materializedView"),
+      );
+      return {
+        sql: `DROP EXTENSION ${qid((fact.id as { name: string }).name)}`,
+        ...(destructive ? { dataLoss: "destructive" as const } : {}),
+      };
+    },
     attributes: {
       schema: {
         // consume the NEW schema so the relocation is ordered after its CREATE;

@@ -195,6 +195,48 @@ describe("stage 6: execution", () => {
     }
   }, 60_000);
 
+  test("concurrentIndexes leaves a partitioned parent index non-concurrent (PG rejects CONCURRENTLY there)", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("exec_cic_part_src");
+    const desired = await cluster.createDb("exec_cic_part_dst");
+    try {
+      const seed = `
+        CREATE SCHEMA app;
+        CREATE TABLE app.p (id integer, ts date) PARTITION BY RANGE (ts);
+        CREATE TABLE app.p_2024 PARTITION OF app.p
+          FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
+        INSERT INTO app.p
+          SELECT i, DATE '2024-01-01' + i FROM generate_series(1, 50) i;
+      `;
+      await source.pool.query(seed);
+      await desired.pool.query(`${seed}
+        CREATE INDEX p_ts_idx ON app.p (ts);
+      `);
+      const [sourceState, desiredState] = [
+        await extract(source.pool),
+        await extract(desired.pool),
+      ];
+      const thePlan = plan(sourceState.factBase, desiredState.factBase, {
+        params: { concurrentIndexes: true },
+      });
+      // PostgreSQL rejects CREATE INDEX CONCURRENTLY on a partitioned table's
+      // parent index (relkind='p'), so that create must stay plain.
+      const parentIndexAction = thePlan.actions.find((a) =>
+        a.sql.includes("p_ts_idx"),
+      );
+      expect(parentIndexAction?.sql).not.toContain("CONCURRENTLY");
+      const report = await apply(thePlan, source.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.status).toBe("applied");
+      // converges to the same fact base as the direct CREATE INDEX
+      const proven = await extract(source.pool);
+      expect(proven.factBase.rootHash).toBe(desiredState.factBase.rootHash);
+    } finally {
+      await Promise.all([source.drop(), desired.drop()]);
+    }
+  }, 60_000);
+
   test("unknown serialize parameters are a plan-time error", async () => {
     const cluster = await sharedCluster();
     const db = await cluster.createDb("exec_param");

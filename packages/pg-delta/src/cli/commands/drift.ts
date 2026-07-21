@@ -10,7 +10,11 @@ import { loadSnapshot } from "../../frontends/snapshot-file.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
 import { CliExit, parseFlags, UsageError } from "../flags.ts";
-import { PROFILE_IDS, resolveCliProfile } from "../profile.ts";
+import {
+  PROFILE_IDS,
+  reconcileSnapshotProfile,
+  resolveCliProfile,
+} from "../profile.ts";
 
 export async function cmdDrift(args: string[]): Promise<void> {
   let parsed;
@@ -41,6 +45,7 @@ export async function cmdDrift(args: string[]): Promise<void> {
       factBase: snapshotFb,
       pgVersion: snapshotPgVersion,
       redactSecrets: snapshotRedactSecrets,
+      profile: snapshotProfile,
     } = loadSnapshot(snapshotPath);
     process.stderr.write(
       `Snapshot: ${snapshotFb.facts().length} facts (pg ${snapshotPgVersion})\n`,
@@ -65,10 +70,22 @@ export async function cmdDrift(args: string[]): Promise<void> {
     // Match the extractor to the snapshot: a snapshot captured with
     // `--profile` carries handler-aware facts (pg_cron intent, pg_partman
     // provenance), so the live re-extract must run the SAME handlers or those
-    // facts read as spurious drift. `skipBaseline` — drift is a raw
-    // snapshot-vs-live comparison, and the profile may declare a baseline that is
-    // irrelevant here (and need not exist).
-    const ctx = await resolveCliProfile(env.pool, flags["profile"], {
+    // facts read as spurious drift. Reconcile the snapshot's STAMPED profile with
+    // any `--profile` flag: omit the flag → adopt the stamp; a contradicting flag
+    // fails closed; a legacy (un-stamped) snapshot lets the flag win. `skipBaseline`
+    // — drift is a raw snapshot-vs-live comparison, and the profile may declare a
+    // baseline that is irrelevant here (and need not exist).
+    if (flags["profile"] === undefined && snapshotProfile === undefined) {
+      process.stderr.write(
+        "Note: this snapshot predates profile stamping; re-extracting with the default profile. " +
+          "Re-capture it with `pgdelta snapshot --profile …` to pin the profile.\n",
+      );
+    }
+    const profileId = reconcileSnapshotProfile(
+      flags["profile"],
+      snapshotProfile,
+    );
+    const ctx = await resolveCliProfile(env.pool, profileId, {
       redactSecrets,
       skipBaseline: true,
     });

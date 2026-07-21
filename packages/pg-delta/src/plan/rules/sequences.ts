@@ -2,7 +2,13 @@
 import type { StableId } from "../../core/stable-id.ts";
 import { rel } from "../render.ts";
 import type { KindRules } from "../rules.ts";
-import { p, renameRule, sequenceOwnedBySpecs, str } from "./helpers.ts";
+import {
+  p,
+  renameRule,
+  sequenceOptionAlter,
+  sequenceOwnedBySpecs,
+  str,
+} from "./helpers.ts";
 
 export const sequenceRules: Record<string, KindRules> = {
   sequence: {
@@ -57,61 +63,39 @@ export const sequenceRules: Record<string, KindRules> = {
       return `ALTER SEQUENCE ${rel(id.schema, id.name)}`;
     },
     attributes: {
+      // Every value option routes through the SAME combined-alter helper, which
+      // emits ONE `ALTER SEQUENCE … <opt> <opt> …` statement from whichever
+      // changed option sorts first (the emitter iterates changed attributes
+      // independently). A single statement validates the FINAL state, so moving
+      // both bounds at once no longer trips Postgres' transient `min > max`
+      // rejection — see `sequenceOptionAlter`.
       dataType: {
-        alter: (fact, _from, to) => {
-          const id = fact.id as { schema: string; name: string };
-          return {
-            sql: `ALTER SEQUENCE ${rel(id.schema, id.name)} AS ${str(to)}`,
-          };
-        },
+        alter: (fact, _from, _to, _view, sourceView) =>
+          sequenceOptionAlter("dataType", fact, sourceView),
       },
       increment: {
-        alter: (fact, _from, to) => {
-          const id = fact.id as { schema: string; name: string };
-          return {
-            sql: `ALTER SEQUENCE ${rel(id.schema, id.name)} INCREMENT BY ${str(to)}`,
-          };
-        },
+        alter: (fact, _from, _to, _view, sourceView) =>
+          sequenceOptionAlter("increment", fact, sourceView),
       },
       minValue: {
-        alter: (fact, _from, to) => {
-          const id = fact.id as { schema: string; name: string };
-          return {
-            sql: `ALTER SEQUENCE ${rel(id.schema, id.name)} MINVALUE ${str(to)}`,
-          };
-        },
+        alter: (fact, _from, _to, _view, sourceView) =>
+          sequenceOptionAlter("minValue", fact, sourceView),
       },
       maxValue: {
-        alter: (fact, _from, to) => {
-          const id = fact.id as { schema: string; name: string };
-          return {
-            sql: `ALTER SEQUENCE ${rel(id.schema, id.name)} MAXVALUE ${str(to)}`,
-          };
-        },
+        alter: (fact, _from, _to, _view, sourceView) =>
+          sequenceOptionAlter("maxValue", fact, sourceView),
       },
       start: {
-        alter: (fact, _from, to) => {
-          const id = fact.id as { schema: string; name: string };
-          return {
-            sql: `ALTER SEQUENCE ${rel(id.schema, id.name)} START WITH ${str(to)}`,
-          };
-        },
+        alter: (fact, _from, _to, _view, sourceView) =>
+          sequenceOptionAlter("start", fact, sourceView),
       },
       cache: {
-        alter: (fact, _from, to) => {
-          const id = fact.id as { schema: string; name: string };
-          return {
-            sql: `ALTER SEQUENCE ${rel(id.schema, id.name)} CACHE ${str(to)}`,
-          };
-        },
+        alter: (fact, _from, _to, _view, sourceView) =>
+          sequenceOptionAlter("cache", fact, sourceView),
       },
       cycle: {
-        alter: (fact, _from, to) => {
-          const id = fact.id as { schema: string; name: string };
-          return {
-            sql: `ALTER SEQUENCE ${rel(id.schema, id.name)} ${to ? "CYCLE" : "NO CYCLE"}`,
-          };
-        },
+        alter: (fact, _from, _to, _view, sourceView) =>
+          sequenceOptionAlter("cycle", fact, sourceView),
       },
       ownedBy: {
         alter: (fact, from) =>

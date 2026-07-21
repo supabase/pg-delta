@@ -123,10 +123,40 @@ export function buildActionGraph(
     alterersOf.set(key, list);
   });
 
+  // B1 temporary carve-out: an accepted ROLE rename destroys the old role id
+  // and produces the new one in the SAME action. A payload mutation such as
+  // ALTER POLICY … TO releases the old id and consumes that exact new id. Its
+  // consume edge correctly orders rename -> mutation; adding the generic
+  // release-before-destroy edge in the opposite direction would make a cycle.
+  // Keep this deliberately narrower than "release targets a rename": require
+  // one accepted role old->new pair represented by the destroyer action AND
+  // require this action to consume that pair's new id. I1's pre-diff payload
+  // normalization makes the redundant policy mutation disappear and removes
+  // this carve-out.
+  const releasesAcceptedRoleRename = (
+    action: Action,
+    released: StableId,
+    destroyer: number,
+  ): boolean => {
+    if (released.kind !== "role" || !renameActionIndices.has(destroyer)) {
+      return false;
+    }
+    const renameAction = actions[destroyer] as Action;
+    const releasedKey = encodeId(released);
+    if (!renameAction.destroys.some((id) => encodeId(id) === releasedKey)) {
+      return false;
+    }
+    const consumedKeys = new Set(action.consumes.map((id) => encodeId(id)));
+    return renameAction.produces.some(
+      (id) => id.kind === "role" && consumedKeys.has(encodeId(id)),
+    );
+  };
+
   actions.forEach((action, index) => {
     for (const id of action.releases) {
       const destroyer = destroyerOf.get(remember(id));
       if (destroyer !== undefined && destroyer !== index) {
+        if (releasesAcceptedRoleRename(action, id, destroyer)) continue;
         edges.push([index, destroyer]);
       }
     }
@@ -311,6 +341,13 @@ export function actionTieKey(
   // weight (via the profile's intent rules) rather than the accidental 99
   // catch-fallback. Defaults to the no-intent resolver for direct callers/tests.
   rulesForId: RulesForId = defaultRulesForId,
+  // Optional per-action override for the SUBJECT segment of the key. The
+  // ordering phase uses it to sort a table's ADD COLUMN creates by declared
+  // column position (pg_attribute.attnum) instead of column NAME, so from-empty
+  // CREATEs (and the folds that collapse them into the CREATE parens) render
+  // columns in declared order. Returns undefined to fall back to the encoded
+  // subject id (every other action is unaffected).
+  subjectKeyOf?: (subject: StableId, action: Action) => string | undefined,
 ): string {
   const action = actions[i] as Action;
   const subject =
@@ -325,7 +362,10 @@ export function actionTieKey(
   })();
   const phase = action.verb === "drop" ? "0" : "1";
   const w = action.verb === "drop" ? 99 - weight : weight;
-  return `${phase}|${String(w).padStart(2, "0")}|${subject ? encodeId(subject) : ""}|${String(i).padStart(6, "0")}`;
+  const subjectKey =
+    (subject !== undefined ? subjectKeyOf?.(subject, action) : undefined) ??
+    (subject ? encodeId(subject) : "");
+  return `${phase}|${String(w).padStart(2, "0")}|${subjectKey}|${String(i).padStart(6, "0")}`;
 }
 
 /**

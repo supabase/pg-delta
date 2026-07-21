@@ -36,77 +36,66 @@
     ".": {
       "bun": "./src/index.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
     "./extract": {
       "bun": "./src/extract/extract.ts",
       "import": "./dist/extract/extract.js",
-      "require": "./dist/extract/extract.js",
       "types": "./dist/extract/extract.d.ts",
       "default": "./dist/extract/extract.js"
     },
     "./plan": {
       "bun": "./src/plan/plan.ts",
       "import": "./dist/plan/plan.js",
-      "require": "./dist/plan/plan.js",
       "types": "./dist/plan/plan.d.ts",
       "default": "./dist/plan/plan.js"
     },
     "./apply": {
       "bun": "./src/apply/apply.ts",
       "import": "./dist/apply/apply.js",
-      "require": "./dist/apply/apply.js",
       "types": "./dist/apply/apply.d.ts",
       "default": "./dist/apply/apply.js"
     },
     "./proof": {
       "bun": "./src/proof/prove.ts",
       "import": "./dist/proof/prove.js",
-      "require": "./dist/proof/prove.js",
       "types": "./dist/proof/prove.d.ts",
       "default": "./dist/proof/prove.js"
     },
     "./frontends": {
       "bun": "./src/frontends/index.ts",
       "import": "./dist/frontends/index.js",
-      "require": "./dist/frontends/index.js",
       "types": "./dist/frontends/index.d.ts",
       "default": "./dist/frontends/index.js"
     },
     "./sql-order": {
       "bun": "./src/frontends/sql-order.ts",
       "import": "./dist/frontends/sql-order.js",
-      "require": "./dist/frontends/sql-order.js",
       "types": "./dist/frontends/sql-order.d.ts",
       "default": "./dist/frontends/sql-order.js"
     },
     "./sql-format": {
       "bun": "./src/frontends/sql-format/index.ts",
       "import": "./dist/frontends/sql-format/index.js",
-      "require": "./dist/frontends/sql-format/index.js",
       "types": "./dist/frontends/sql-format/index.d.ts",
       "default": "./dist/frontends/sql-format/index.js"
     },
     "./core": {
       "bun": "./src/core/index.ts",
       "import": "./dist/core/index.js",
-      "require": "./dist/core/index.js",
       "types": "./dist/core/index.d.ts",
       "default": "./dist/core/index.js"
     },
     "./policy": {
       "bun": "./src/policy/policy.ts",
       "import": "./dist/policy/policy.js",
-      "require": "./dist/policy/policy.js",
       "types": "./dist/policy/policy.d.ts",
       "default": "./dist/policy/policy.js"
     },
     "./integrations": {
       "bun": "./src/integrations/index.ts",
       "import": "./dist/integrations/index.js",
-      "require": "./dist/integrations/index.js",
       "types": "./dist/integrations/index.d.ts",
       "default": "./dist/integrations/index.js"
     }

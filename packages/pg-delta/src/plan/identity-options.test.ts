@@ -75,16 +75,15 @@ describe("identity column sequence options", () => {
     expect(sql).not.toContain("(");
   });
 
-  test("an options-only change is an in-place ALTER COLUMN SET", () => {
+  test("an options-only change is ONE in-place ALTER COLUMN with chained SETs", () => {
     const sql = plan(
       base([colFact({})]),
       base([colFact({ increment: "5", cache: "20" })]),
     ).actions.map((a) => a.sql);
+    // combined into a single statement (chained SET clauses) — no RESTART, since
+    // neither bound moved
     expect(sql).toContain(
-      `ALTER TABLE "app"."t" ALTER COLUMN "id" SET INCREMENT BY 5`,
-    );
-    expect(sql).toContain(
-      `ALTER TABLE "app"."t" ALTER COLUMN "id" SET CACHE 20`,
+      `ALTER TABLE "app"."t" ALTER COLUMN "id" SET INCREMENT BY 5 SET CACHE 20`,
     );
   });
 
@@ -94,5 +93,39 @@ describe("identity column sequence options", () => {
       base([colFact({ cycle: true })]),
     ).actions.map((a) => a.sql);
     expect(sql).toContain(`ALTER TABLE "app"."t" ALTER COLUMN "id" SET CYCLE`);
+  });
+
+  test("moving both identity bounds emits ONE combined ALTER COLUMN (final-state valid) with RESTART", () => {
+    const sql = plan(
+      base([colFact({ minValue: "100", maxValue: "200", start: "100" })]),
+      base([colFact({ minValue: "1", maxValue: "50", start: "1" })]),
+    ).actions.map((a) => a.sql);
+    // exactly one identity-options statement — per-field statements would run
+    // `SET MAXVALUE 50` while MIN is still 100 (transient min>max) and fail.
+    const idAlters = sql.filter((s) =>
+      /ALTER COLUMN "id" SET (MINVALUE|MAXVALUE|START)/.test(s),
+    );
+    expect(idAlters).toHaveLength(1);
+    expect(idAlters[0]).toContain("SET MINVALUE 1");
+    expect(idAlters[0]).toContain("SET MAXVALUE 50");
+    expect(idAlters[0]).toContain("SET START WITH 1");
+    expect(idAlters[0]).toContain("RESTART");
+  });
+
+  test("an OVERLAPPING identity bound + START change must NOT RESTART a live counter", () => {
+    // MAX 100→200 (widen) + START 50→60 with MIN unchanged: ranges [1,100] and
+    // [1,200] overlap, so a live counter stays valid. RESTART would replay
+    // already-issued values → duplicate keys. Only a DISJOINT shift may RESTART.
+    const sql = plan(
+      base([colFact({ minValue: "1", maxValue: "100", start: "50" })]),
+      base([colFact({ minValue: "1", maxValue: "200", start: "60" })]),
+    ).actions.map((a) => a.sql);
+    const idAlters = sql.filter((s) =>
+      /ALTER COLUMN "id" SET (MINVALUE|MAXVALUE|START)/.test(s),
+    );
+    expect(idAlters).toHaveLength(1);
+    expect(idAlters[0]).toContain("SET MAXVALUE 200");
+    expect(idAlters[0]).toContain("SET START WITH 60");
+    expect(idAlters[0]).not.toContain("RESTART");
   });
 });

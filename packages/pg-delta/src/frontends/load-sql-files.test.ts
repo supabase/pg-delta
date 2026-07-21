@@ -36,6 +36,36 @@ describe("cluster-DDL scanner (database scope guard)", () => {
     ]);
   });
 
+  test("does NOT flag USER MAPPING statements (database-local FDW objects)", () => {
+    // `CREATE|ALTER|DROP USER MAPPING` is a database-local FDW object emitted by
+    // pg-delta's own foreign-data exports; the role-lifecycle rules must not
+    // misclassify it as cluster-global role DDL (or database-scope apply would
+    // reject / --skip-cluster-ddl would strip user mappings from our exports).
+    expect(
+      findClusterDdlStatements(
+        `CREATE USER MAPPING FOR postgres SERVER s OPTIONS (user 'u');`,
+      ),
+    ).toEqual([]);
+    expect(
+      findClusterDdlStatements(
+        `ALTER USER MAPPING FOR postgres SERVER s OPTIONS (SET user 'x');`,
+      ),
+    ).toEqual([]);
+    expect(
+      findClusterDdlStatements(`DROP USER MAPPING IF EXISTS FOR u SERVER s;`),
+    ).toEqual([]);
+    // stripClusterDdl keeps them intact (not skipped as cluster DDL)
+    const { kept, skipped } = stripClusterDdl(
+      `CREATE USER MAPPING FOR postgres SERVER s OPTIONS (user 'u');`,
+    );
+    expect(skipped).toEqual([]);
+    expect(kept).toContain("USER MAPPING");
+    // non-regression: a genuine role (CREATE USER) is still detected
+    expect(findClusterDdlStatements(`CREATE USER app LOGIN;`)).toEqual([
+      "CREATE ROLE",
+    ]);
+  });
+
   test("does NOT flag database-local privilege grants (they have ON)", () => {
     expect(findClusterDdlStatements(`GRANT SELECT ON t TO reader;`)).toEqual(
       [],

@@ -244,11 +244,27 @@ jobs:
   pg-delta-integration-pg15-compat:
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     needs:
+      # detect-changes must be a direct dependency so this aggregator can tell
+      # "no pg-delta changes → matrices legitimately skipped" (stay green) apart
+      # from "detect-changes itself FAILED → matrices skipped through unmet needs"
+      # (must fail). Without it the always() gate below accepts the skipped
+      # matrices as success and the aggregator goes green on a broken run.
+      - detect-changes
       - pg-delta-corpus
       - pg-delta-integration
     name: "pg-delta: Integration (PostgreSQL 15)"
     runs-on: ubuntu-latest
     steps:
+      - name: Validate detect-changes result
+        # A failed/cancelled detect-changes skips the matrices through unmet
+        # needs; that must fail the aggregator rather than pass on the skips
+        # below. A successful/skipped detect-changes (no pg-delta changes) is a
+        # legitimate skip and stays green.
+        run: |
+          if [ "${{ needs.detect-changes.result }}" == "failure" ] || [ "${{ needs.detect-changes.result }}" == "cancelled" ]; then
+            echo "detect-changes result: ${{ needs.detect-changes.result }}"
+            exit 1
+          fi
       - name: Validate corpus matrix status
         run: |
           if [ "${{ needs.pg-delta-corpus.result }}" != "success" ] && [ "${{ needs.pg-delta-corpus.result }}" != "skipped" ]; then
@@ -265,11 +281,27 @@ jobs:
   pg-delta-integration-pg17-compat:
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     needs:
+      # detect-changes must be a direct dependency so this aggregator can tell
+      # "no pg-delta changes → matrices legitimately skipped" (stay green) apart
+      # from "detect-changes itself FAILED → matrices skipped through unmet needs"
+      # (must fail). Without it the always() gate below accepts the skipped
+      # matrices as success and the aggregator goes green on a broken run.
+      - detect-changes
       - pg-delta-corpus
       - pg-delta-integration
     name: "pg-delta: Integration (PostgreSQL 17)"
     runs-on: ubuntu-latest
     steps:
+      - name: Validate detect-changes result
+        # A failed/cancelled detect-changes skips the matrices through unmet
+        # needs; that must fail the aggregator rather than pass on the skips
+        # below. A successful/skipped detect-changes (no pg-delta changes) is a
+        # legitimate skip and stays green.
+        run: |
+          if [ "${{ needs.detect-changes.result }}" == "failure" ] || [ "${{ needs.detect-changes.result }}" == "cancelled" ]; then
+            echo "detect-changes result: ${{ needs.detect-changes.result }}"
+            exit 1
+          fi
       - name: Validate corpus matrix status
         run: |
           if [ "${{ needs.pg-delta-corpus.result }}" != "success" ] && [ "${{ needs.pg-delta-corpus.result }}" != "skipped" ]; then

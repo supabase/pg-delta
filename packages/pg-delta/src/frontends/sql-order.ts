@@ -111,6 +111,40 @@ export class ReorderUnavailableError extends Error {
   }
 }
 
+/**
+ * Thrown by the convenience {@link orderForShadow} when `@supabase/pg-topo`
+ * cannot parse one or more inputs. pg-topo returns an empty statement list for a
+ * whole-content parse failure, so the offending file would silently vanish from
+ * the ordered output. `orderForShadow` returns ONLY files (no diagnostics
+ * channel), so a silent shrink would leave a library caller building an
+ * INCOMPLETE desired state — and destructive drops when it diffs. Throwing keeps
+ * the invariant that no caller can receive a silently-shrunk file set; a caller
+ * that prefers graceful degradation (the CLI's fall-back-to-raw path) calls
+ * {@link analyzeForShadow} directly and inspects its diagnostics instead.
+ */
+export class ReorderParseError extends Error {
+  /** The PARSE_ERROR / DISCOVERY_ERROR diagnostics that caused the shrink. */
+  readonly diagnostics: ShadowOrderDiagnostic[];
+  constructor(diagnostics: ShadowOrderDiagnostic[]) {
+    const locations = [
+      ...new Set(
+        diagnostics
+          .map((d) => d.location?.filePath)
+          .filter((f): f is string => f !== undefined),
+      ),
+    ];
+    super(
+      `The statement reordering assist could not parse ${diagnostics.length} ` +
+        `input(s)${locations.length > 0 ? ` (${locations.join(", ")})` : ""} — ` +
+        `reordering would silently drop them and shrink the desired state. Fix the ` +
+        `SQL, or call analyzeForShadow(...) and inspect its diagnostics to degrade ` +
+        `to raw file loading (loadSqlFiles) instead.`,
+    );
+    this.name = "ReorderParseError";
+    this.diagnostics = diagnostics;
+  }
+}
+
 type PgTopoModule = typeof import("@supabase/pg-topo");
 
 /** The dynamic importer, behind an indirection so tests can simulate the
@@ -263,7 +297,18 @@ export async function orderForShadow(
   files: SqlFile[],
   options: OrderForShadowOptions = {},
 ): Promise<OrderedSqlFile[]> {
-  return (await analyzeForShadow(files, options)).files;
+  const result = await analyzeForShadow(files, options);
+  // A whole-content parse failure yields no statements, so the input vanishes
+  // from `result.files`. This convenience wrapper has no diagnostics channel, so
+  // it must refuse rather than hand back a silently-shrunk set (the same codes
+  // the CLI degrade-to-raw path keys on in schema-plan.ts).
+  const parseErrors = result.diagnostics.filter(
+    (d) => d.code === "PARSE_ERROR" || d.code === "DISCOVERY_ERROR",
+  );
+  if (parseErrors.length > 0) {
+    throw new ReorderParseError(parseErrors);
+  }
+  return result.files;
 }
 
 /** Parse the `i` out of pg-topo's synthetic `<input:i>` file path. */

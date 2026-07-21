@@ -107,6 +107,10 @@ export interface FactView {
    *  action after the objects the fact references — e.g. a routine's def-alter
    *  consuming its `depends` targets for BEGIN ATOMIC body validation. */
   outgoingEdges(id: StableId): readonly DependencyEdge[];
+  /** Edges pointing AT `id` (with kind), so a rule can inspect what depends on
+   *  it — e.g. the DROP EXTENSION rule reading `memberOfExtension` edges from its
+   *  reference-only members to decide data-loss from the member closure. */
+  incomingEdges(id: StableId): readonly DependencyEdge[];
   readonly edges: readonly { from: StableId; to: StableId }[];
   /** Whether `id` is present for REFERENCE ONLY (kept in the view so dependents
    *  resolve, but never itself created/dropped/altered — e.g. an assumed-schema
@@ -126,7 +130,11 @@ export interface KindRules {
     params?: PlanParams,
     sourceView?: FactView,
   ): ActionSpec[];
-  drop(fact: Fact): ActionSpec;
+  /** `view` is the resolved SOURCE (target) view the dropped fact lives in, so a
+   *  rule can derive drop metadata from the view — e.g. DROP EXTENSION reading
+   *  its reference-only members' `memberOfExtension` edges to flag data-loss.
+   *  Optional so existing single-arg drop rules stay type-compatible. */
+  drop(fact: Fact, view?: FactView): ActionSpec;
   /** rename support (stage 9): render the in-place rename from the old
    *  fact to the new id. Kinds without this member never become rename
    *  candidates (their changes stay drop+create). */

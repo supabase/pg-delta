@@ -241,3 +241,45 @@ export function effectiveProfileId(
   }
   return flagId ?? planProfileId;
 }
+
+/**
+ * Reconcile the `--profile` flag with the profile id STAMPED on a snapshot (the
+ * `drift` snapshot, or `prove`'s desired snapshot). A snapshot must be compared
+ * under the profile it was CAPTURED with, or the live re-extract runs different
+ * handlers than the snapshot's facts were produced with (handler-aware facts
+ * would read as spurious drift). Mirrors {@link effectiveProfileId} but for the
+ * snapshot's three-state stamp:
+ *
+ * - `--profile` omitted → adopt the stamp (a `null` stamp = captured raw →
+ *   resolves as the concrete `"raw"` profile);
+ * - `--profile` given → use it, but throw if it contradicts the stamp. A `null`
+ *   (captured-raw) stamp DOES contradict a non-raw `--profile` — it is treated
+ *   as `"raw"`, not collapsed to "no stamp";
+ * - an ABSENT (`undefined`) stamp is a pre-stamping legacy snapshot → the flag
+ *   wins with no contradiction (the caller may note the snapshot predates
+ *   stamping when the flag is omitted too).
+ */
+export function reconcileSnapshotProfile(
+  flagId: string | undefined,
+  stamped: string | null | undefined,
+): string | undefined {
+  // legacy snapshot (pre-stamping): no reconciliation — the flag wins.
+  if (stamped === undefined) return flagId;
+  // captured-raw (null) reconciles as the concrete "raw" profile so a
+  // contradicting --profile fails closed rather than slipping through.
+  const stampedId = stamped === null ? "raw" : stamped;
+  // a file-path flag stamps its DECLARED id on the snapshot, so reconcile
+  // against that id (load the file), not the raw path string.
+  const flagComparisonId =
+    flagId !== undefined && isProfilePath(flagId)
+      ? loadProfile(flagId).id
+      : flagId;
+  if (flagComparisonId !== undefined && flagComparisonId !== stampedId) {
+    throw new UsageError(
+      `--profile ${flagId} (id "${flagComparisonId}") does not match the snapshot's captured profile "${stampedId}"; ` +
+        `a snapshot must be compared under the profile it was captured with — omit --profile to use the snapshot's, ` +
+        `or re-capture the snapshot with --profile ${flagId}`,
+    );
+  }
+  return flagId ?? stampedId;
+}

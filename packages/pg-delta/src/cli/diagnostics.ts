@@ -36,11 +36,26 @@ export function printDiagnostics(
 }
 
 /**
+ * Diagnostic codes that escalate to blocking under `--strict-coverage`: each
+ * marks a user object the engine cannot faithfully carry into the artifact, so
+ * strict mode refuses rather than silently ship an incomplete migration.
+ *   - `unmodeled_kind`: a user object of a kind the engine does not model.
+ *   - `unresolved_security_label`: a valid SECURITY LABEL on an unsupported
+ *     object (language / database / large object / tablespace) — it cannot
+ *     resolve to a managed id, so the label would be silently missing.
+ */
+const STRICT_COVERAGE_CODES: ReadonlySet<string> = new Set([
+  "unmodeled_kind",
+  "unresolved_security_label",
+]);
+
+/**
  * Whether diagnostics should HALT a command before it produces something to
  * apply:
  *   - an error-severity diagnostic always blocks;
- *   - in strict-coverage mode, an `unmodeled_kind` warning blocks too — the
- *     engine refuses to act while user objects it cannot manage exist.
+ *   - in strict-coverage mode, a {@link STRICT_COVERAGE_CODES} warning blocks
+ *     too — the engine refuses to act while user objects it cannot faithfully
+ *     manage exist.
  */
 export function hasBlockingDiagnostics(
   diagnostics: readonly Diagnostic[],
@@ -49,7 +64,7 @@ export function hasBlockingDiagnostics(
   return diagnostics.some(
     (d) =>
       d.severity === "error" ||
-      (options.strictCoverage === true && d.code === "unmodeled_kind"),
+      (options.strictCoverage === true && STRICT_COVERAGE_CODES.has(d.code)),
   );
 }
 
@@ -66,12 +81,15 @@ export function exitIfBlocking(
   options: { strictCoverage?: boolean; action?: string } = {},
 ): void {
   if (!hasBlockingDiagnostics(diagnostics, options)) return;
-  const unmodeled = diagnostics.filter((d) => d.code === "unmodeled_kind");
+  const coverageGaps = diagnostics.filter((d) =>
+    STRICT_COVERAGE_CODES.has(d.code),
+  );
   const action = options.action ?? "continue";
-  if (options.strictCoverage && unmodeled.length > 0) {
+  if (options.strictCoverage && coverageGaps.length > 0) {
     process.stderr.write(
-      `\nRefusing to ${action}: --strict-coverage is set and ${unmodeled.length} ` +
-        `unmodeled object kind(s) are present — they are not managed by this engine. ` +
+      `\nRefusing to ${action}: --strict-coverage is set and ${coverageGaps.length} ` +
+        `object(s) cannot be faithfully managed by this engine (unmodeled kinds / ` +
+        `unresolved security labels — see above). ` +
         `Drop them, or rerun without --strict-coverage to proceed with them unmanaged.\n`,
     );
   } else {

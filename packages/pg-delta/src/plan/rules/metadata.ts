@@ -3,32 +3,65 @@
 import type { Fact } from "../../core/fact.ts";
 import type { StableId } from "../../core/stable-id.ts";
 import { commentTarget, grantTarget, lit, qid } from "../render.ts";
-import type { KindRules } from "../rules.ts";
-import { grantActions, p, str } from "./helpers.ts";
+import type { FactView, KindRules } from "../rules.ts";
+import { aggSig, grantActions, p, str } from "./helpers.ts";
+
+/** The COMMENT / SECURITY LABEL signature for an aggregate `target` — the
+ *  `direct ORDER BY ordered` form for an ordered-set / hypothetical-set
+ *  aggregate, reusing the aggregate DDL's `aggSig`. The aggregate metadata
+ *  (aggKind / numDirectArgs) lives on the aggregate FACT, not the target id, so
+ *  resolve the fact from whichever view holds it (desired for create/alter,
+ *  source for drop). Returns undefined for a non-aggregate target or an
+ *  unresolvable one, so `commentTarget` falls back to the plain arg list —
+ *  which is already correct for an ordinary aggregate. */
+function aggregateTargetSignature(
+  target: StableId,
+  ...views: (FactView | undefined)[]
+): string | undefined {
+  if (target.kind !== "aggregate") return undefined;
+  for (const view of views) {
+    const fact = view?.get(target);
+    if (fact !== undefined) return aggSig(fact);
+  }
+  return undefined;
+}
 
 export const metadataRules: Record<string, KindRules> = {
   comment: {
     weight: 20,
     metadata: true,
-    create: (fact) => {
+    create: (fact, view, _params, sourceView) => {
       const target = (fact.id as { target: StableId }).target;
-      const opts = { domainConstraint: p(fact, "onDomain") === true };
+      const opts = {
+        domainConstraint: p(fact, "onDomain") === true,
+        aggregateSignature: aggregateTargetSignature(target, view, sourceView),
+      };
       return [
         {
           sql: `COMMENT ON ${commentTarget(target, opts)} IS ${lit(str(p(fact, "text")))}`,
         },
       ];
     },
-    drop: (fact) => {
+    drop: (fact, view) => {
       const target = (fact.id as { target: StableId }).target;
-      const opts = { domainConstraint: p(fact, "onDomain") === true };
+      const opts = {
+        domainConstraint: p(fact, "onDomain") === true,
+        aggregateSignature: aggregateTargetSignature(target, view),
+      };
       return { sql: `COMMENT ON ${commentTarget(target, opts)} IS NULL` };
     },
     attributes: {
       text: {
-        alter: (fact, _from, to) => {
+        alter: (fact, _from, to, view, sourceView) => {
           const target = (fact.id as { target: StableId }).target;
-          const opts = { domainConstraint: p(fact, "onDomain") === true };
+          const opts = {
+            domainConstraint: p(fact, "onDomain") === true,
+            aggregateSignature: aggregateTargetSignature(
+              target,
+              view,
+              sourceView,
+            ),
+          };
           return {
             sql: `COMMENT ON ${commentTarget(target, opts)} IS ${lit(str(to))}`,
           };
@@ -43,26 +76,43 @@ export const metadataRules: Record<string, KindRules> = {
   securityLabel: {
     weight: 20,
     metadata: true,
-    create: (fact) => {
+    create: (fact, view, _params, sourceView) => {
       const id = fact.id as { target: StableId; provider: string };
+      const opts = {
+        aggregateSignature: aggregateTargetSignature(
+          id.target,
+          view,
+          sourceView,
+        ),
+      };
       return [
         {
-          sql: `SECURITY LABEL FOR ${lit(id.provider)} ON ${commentTarget(id.target)} IS ${lit(str(p(fact, "label")))}`,
+          sql: `SECURITY LABEL FOR ${lit(id.provider)} ON ${commentTarget(id.target, opts)} IS ${lit(str(p(fact, "label")))}`,
         },
       ];
     },
-    drop: (fact) => {
+    drop: (fact, view) => {
       const id = fact.id as { target: StableId; provider: string };
+      const opts = {
+        aggregateSignature: aggregateTargetSignature(id.target, view),
+      };
       return {
-        sql: `SECURITY LABEL FOR ${lit(id.provider)} ON ${commentTarget(id.target)} IS NULL`,
+        sql: `SECURITY LABEL FOR ${lit(id.provider)} ON ${commentTarget(id.target, opts)} IS NULL`,
       };
     },
     attributes: {
       label: {
-        alter: (fact, _from, to) => {
+        alter: (fact, _from, to, view, sourceView) => {
           const id = fact.id as { target: StableId; provider: string };
+          const opts = {
+            aggregateSignature: aggregateTargetSignature(
+              id.target,
+              view,
+              sourceView,
+            ),
+          };
           return {
-            sql: `SECURITY LABEL FOR ${lit(id.provider)} ON ${commentTarget(id.target)} IS ${lit(str(to))}`,
+            sql: `SECURITY LABEL FOR ${lit(id.provider)} ON ${commentTarget(id.target, opts)} IS ${lit(str(to))}`,
           };
         },
       },

@@ -31,6 +31,7 @@ function view(present: StableId[], refOnly: StableId[] = []): FactView {
     childrenOf: () => [],
     facts: () => [],
     outgoingEdges: () => [],
+    incomingEdges: () => [],
     edges: [],
   };
 }

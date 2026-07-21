@@ -56,6 +56,38 @@ describe("snapshot", () => {
     ).toBeUndefined();
   });
 
+  test("stamps and round-trips the capture profile (string / null / absent)", () => {
+    // a named profile round-trips as its declared id
+    expect(
+      deserializeSnapshot(
+        serializeSnapshot(fb, { pgVersion: "17.6", profile: "supabase" }),
+      ).profile,
+    ).toBe("supabase");
+    // an explicit raw capture round-trips as null (distinct from legacy absent)
+    expect(
+      deserializeSnapshot(
+        serializeSnapshot(fb, { pgVersion: "17.6", profile: null }),
+      ).profile,
+    ).toBeNull();
+    // a snapshot written without the field (legacy) parses with profile undefined
+    expect(
+      deserializeSnapshot(serializeSnapshot(fb, { pgVersion: "17.6" })).profile,
+    ).toBeUndefined();
+    // the profile stamp is METADATA — it never moves the digest
+    expect(
+      deserializeSnapshot(
+        serializeSnapshot(fb, { pgVersion: "17.6", profile: "supabase" }),
+      ).factBase.rootHash,
+    ).toBe(fb.rootHash);
+    const withStamp = JSON.parse(
+      serializeSnapshot(fb, { pgVersion: "17.6", profile: "supabase" }),
+    ) as { digest: string };
+    const withoutStamp = JSON.parse(
+      serializeSnapshot(fb, { pgVersion: "17.6" }),
+    ) as { digest: string };
+    expect(withStamp.digest).toBe(withoutStamp.digest);
+  });
+
   test("rejects corrupted content (digest re-verification)", () => {
     const json = serializeSnapshot(fb, { pgVersion: "17.6" });
     const doc = JSON.parse(json);

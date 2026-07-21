@@ -110,6 +110,30 @@ describe("buildFactBase", () => {
     );
   });
 
+  test("a self-parent fact is rejected (its cycle has no root)", () => {
+    // Every parent exists (it is itself), so the missing-parent check passes,
+    // but the fact never reaches a parentless root: roots() omits it and
+    // rootHash silently fingerprints like a base that does not contain it.
+    const self: StableId = { kind: "schema", name: "loop" };
+    expect(() =>
+      buildFactBase([{ id: self, parent: self, payload: {} }], []),
+    ).toThrow(/cycle/i);
+  });
+
+  test("a parent cycle among facts is rejected and names the members", () => {
+    const a: StableId = { kind: "schema", name: "a" };
+    const b: StableId = { kind: "schema", name: "b" };
+    expect(() =>
+      buildFactBase(
+        [
+          { id: a, parent: b, payload: {} },
+          { id: b, parent: a, payload: {} },
+        ],
+        [],
+      ),
+    ).toThrow(/cycle/i);
+  });
+
   test("dangling edges are dropped with a diagnostic, not thrown", () => {
     const dangling: DependencyEdge[] = [
       {

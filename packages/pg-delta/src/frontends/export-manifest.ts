@@ -44,6 +44,12 @@ export interface ExportManifest {
    *  (distinct from `null`): `schema apply` resolves the chain against the target
    *  and warns. */
   defaultOwner?: string | null;
+  /** the relative POSIX paths (`/` separators), SORTED, of the `.sql` files this
+   *  export OWNS. `schema export` prunes only files in this list that dropped out
+   *  of the new set; a `.sql` file NOT recorded here is treated as unmanaged (hand
+   *  authored) and refused rather than silently deleted. FIELD ABSENT → a
+   *  pre-feature or hand-authored dir: every existing `.sql` is unmanaged. */
+  files?: string[];
 }
 
 export function writeExportManifest(
@@ -54,6 +60,7 @@ export function writeExportManifest(
     scope?: "database" | "cluster";
     baselineDigest?: string;
     defaultOwner?: string | null;
+    files?: string[];
   },
 ): void {
   writeFileSync(
@@ -113,6 +120,13 @@ export function readExportManifest(dir: string): ExportManifest | undefined {
     if (typeof v === "string" || v === null) {
       manifest.defaultOwner = v;
     }
+  }
+  // files: accept only an array whose every element is a string. A non-array or
+  // a member of the wrong type drops the whole field (treated as absent → the
+  // pruner refuses to delete any existing `.sql` as if hand-authored).
+  const files = doc["files"];
+  if (Array.isArray(files) && files.every((f) => typeof f === "string")) {
+    manifest.files = files as string[];
   }
   return manifest;
 }

@@ -105,8 +105,16 @@ export const roleRules: Record<string, KindRules> = {
     },
     drop: (fact) => {
       const id = fact.id as { role: string; member: string };
+      // NO CASCADE: on PG16+, revoking an ADMIN-OPTION membership with CASCADE
+      // also deletes downstream pg_auth_members rows the member granted onward
+      // — including ones present on BOTH diff sides that are meant to be kept.
+      // Extraction is grantor-blind, so nothing plans a corrective re-grant, and
+      // the kept grant is silently destroyed. Plain REVOKE removes only this
+      // pair; on PG16+ with a dependent grant it fails LOUDLY ("dependent
+      // privileges exist") rather than silently — intended for now (convergent
+      // regrant tracked in #333).
       return {
-        sql: `REVOKE ${qid(id.role)} FROM ${qid(id.member)} CASCADE`,
+        sql: `REVOKE ${qid(id.role)} FROM ${qid(id.member)}`,
         consumes: [
           { kind: "role", name: id.role },
           { kind: "role", name: id.member },

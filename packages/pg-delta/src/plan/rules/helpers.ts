@@ -10,6 +10,32 @@ import { encodeId, type StableId } from "../../core/stable-id.ts";
 import { grantTarget, qid, rel, splitOption } from "../render.ts";
 import type { ActionSpec, FactView } from "../rules.ts";
 
+const TEXT_ENCODER = new TextEncoder();
+
+/** UTF-8 byte length of a string. Runtime-agnostic (no `Buffer`), so it works
+ *  identically in Bun / Node / Deno — used where PostgreSQL's byte-based
+ *  identifier limit (NAMEDATALEN) matters, not the JS UTF-16 code-unit length. */
+export function byteLength(s: string): number {
+  return TEXT_ENCODER.encode(s).length;
+}
+
+/** Clip `s` to at most `maxBytes` UTF-8 bytes WITHOUT splitting a code point, so
+ *  the result is an identifier PostgreSQL will store verbatim (never itself
+ *  truncate). Iterates by code point (`for…of`), never by UTF-16 unit. */
+export function clipToByteLength(s: string, maxBytes: number): string {
+  if (maxBytes <= 0) return "";
+  if (byteLength(s) <= maxBytes) return s;
+  let out = "";
+  let used = 0;
+  for (const ch of s) {
+    const chBytes = byteLength(ch);
+    if (used + chBytes > maxBytes) break;
+    out += ch;
+    used += chBytes;
+  }
+  return out;
+}
+
 /** Most renames are `<ALTER prefix> RENAME TO <new name>`. */
 export function renameRule(
   alterPrefix: (fact: Fact) => string,
@@ -228,28 +254,148 @@ export function identityOptionsClause(
   return parts.length === 0 ? "" : ` (${parts.join(" ")})`;
 }
 
-/** in-place `ALTER COLUMN … SET <seq option>` specs for an identity sequence
- *  parameter transition (no rebuild). */
+/** true when the OLD `[oldMin, oldMax]` value range and the NEW `[newMin, newMax]`
+ *  range are provably DISJOINT (`oldMax < newMin || oldMin > newMax`).
+ *
+ *  A sequence's / identity's live counter (`last_value`) is UNMODELED runtime
+ *  state — the diff never sees it. When the two ranges are disjoint the counter
+ *  is GUARANTEED to fall outside the new range, so the only in-place path that
+ *  converges is `RESTART` (realign to the new START, always inside the new range
+ *  — matching what a fresh `… START WITH …` would produce). When the ranges
+ *  OVERLAP we must NOT `RESTART`: the live counter is very likely still valid
+ *  (e.g. counter at 500, MIN 1→0 + START 1→2 leaves 500 usable), and silently
+ *  resetting it to START replays already-issued values → duplicate keys. If an
+ *  overlapping change happens to leave the counter outside the new range,
+ *  PostgreSQL rejects the ALTER loudly and the operator decides — we never
+ *  silently reset. Bounds are bigint-valued, so compare with BigInt (they reach
+ *  9223372036854775807, past Number's safe-integer range). */
+function rangesDisjoint(
+  oldMin: string,
+  oldMax: string,
+  newMin: string,
+  newMax: string,
+): boolean {
+  return BigInt(oldMax) < BigInt(newMin) || BigInt(oldMin) > BigInt(newMax);
+}
+
+/** in-place identity-sequence parameter transition (no rebuild), emitted as ONE
+ *  `ALTER COLUMN … SET <opt> SET <opt> …` statement.
+ *
+ *  A single ALTER COLUMN with CHAINED `SET` clauses validates the FINAL state:
+ *  splitting the change into one statement per option (in diff-field order) ran
+ *  `SET MAXVALUE 50` while MIN was still 100 when moving both bounds down —
+ *  Postgres rejects the transient `min > max`. Chaining defers the range check to
+ *  the end of the statement (verified on PG15/17).
+ *
+ *  `RESTART` is appended only when the old and new ranges are provably DISJOINT
+ *  (see {@link rangesDisjoint}). An overlapping change — even one that moves a
+ *  bound AND the START — leaves the live counter alone, because it is probably
+ *  still valid and resetting it risks duplicate keys. */
 export function identityOptionAlterSpecs(
   target: string,
   from: IdentityOptions | null,
   to: IdentityOptions | null,
 ): ActionSpec[] {
   if (to == null) return [];
-  const specs: ActionSpec[] = [];
+  const clauses: string[] = [];
   if (from == null || from.increment !== to.increment)
-    specs.push({ sql: `${target} SET INCREMENT BY ${to.increment}` });
+    clauses.push(`SET INCREMENT BY ${to.increment}`);
   if (from == null || from.minValue !== to.minValue)
-    specs.push({ sql: `${target} SET MINVALUE ${to.minValue}` });
+    clauses.push(`SET MINVALUE ${to.minValue}`);
   if (from == null || from.maxValue !== to.maxValue)
-    specs.push({ sql: `${target} SET MAXVALUE ${to.maxValue}` });
+    clauses.push(`SET MAXVALUE ${to.maxValue}`);
   if (from == null || from.start !== to.start)
-    specs.push({ sql: `${target} SET START WITH ${to.start}` });
+    clauses.push(`SET START WITH ${to.start}`);
   if (from == null || from.cache !== to.cache)
-    specs.push({ sql: `${target} SET CACHE ${to.cache}` });
+    clauses.push(`SET CACHE ${to.cache}`);
   if (from == null || from.cycle !== to.cycle)
-    specs.push({ sql: `${target} SET ${to.cycle ? "CYCLE" : "NO CYCLE"}` });
-  return specs;
+    clauses.push(`SET ${to.cycle ? "CYCLE" : "NO CYCLE"}`);
+  if (clauses.length === 0) return [];
+  if (
+    from != null &&
+    rangesDisjoint(from.minValue, from.maxValue, to.minValue, to.maxValue)
+  )
+    clauses.push("RESTART");
+  return [{ sql: `${target} ${clauses.join(" ")}` }];
+}
+
+/** The CREATE-SEQUENCE-style value options a standalone sequence carries, in a
+ *  fixed render order. `ownedBy` is deliberately excluded: it carries its own
+ *  dependency metadata (consumes/releases) and is emitted as a separate
+ *  `OWNED BY` statement. */
+const SEQUENCE_VALUE_OPTIONS = [
+  "dataType",
+  "increment",
+  "minValue",
+  "maxValue",
+  "start",
+  "cache",
+  "cycle",
+] as const;
+
+function sequenceOptionClause(fact: Fact, option: string): string {
+  switch (option) {
+    case "dataType":
+      return `AS ${str(p(fact, "dataType"))}`;
+    case "increment":
+      return `INCREMENT BY ${str(p(fact, "increment"))}`;
+    case "minValue":
+      return `MINVALUE ${str(p(fact, "minValue"))}`;
+    case "maxValue":
+      return `MAXVALUE ${str(p(fact, "maxValue"))}`;
+    case "start":
+      return `START WITH ${str(p(fact, "start"))}`;
+    case "cache":
+      return `CACHE ${str(p(fact, "cache"))}`;
+    case "cycle":
+      return p(fact, "cycle") ? "CYCLE" : "NO CYCLE";
+    default:
+      throw new Error(`sequence rule: unknown value option '${option}'`);
+  }
+}
+
+/** Combined `ALTER SEQUENCE … <opt> <opt> …` for a standalone sequence's
+ *  value-option transition, emitted ONCE — from whichever changed option sorts
+ *  first — because the emitter calls each changed attribute's `alter`
+ *  independently and we want a SINGLE statement covering all of them.
+ *
+ *  One statement validates the FINAL state: per-field `ALTER SEQUENCE` statements
+ *  in diff-field (lexicographic) order ran `MAXVALUE 50` while MIN was still 100
+ *  when moving both bounds down, and Postgres rejects the transient `min > max`.
+ *
+ *  `RESTART` is appended only when the old and new ranges are provably DISJOINT —
+ *  see {@link rangesDisjoint} and {@link identityOptionAlterSpecs} for the
+ *  identity seam's identical reasoning: the sequence's live counter (unmanaged
+ *  runtime state, not part of the diff) is left in place for an overlapping
+ *  change, because it is probably still valid and resetting it risks duplicate
+ *  keys; only a disjoint shift guarantees the counter is invalid. */
+export function sequenceOptionAlter(
+  currentAttr: string,
+  fact: Fact,
+  sourceView: FactView,
+): ActionSpec[] {
+  const source = sourceView.get(fact.id);
+  const changed = SEQUENCE_VALUE_OPTIONS.filter(
+    (key) => source === undefined || source.payload[key] !== fact.payload[key],
+  );
+  if (changed.length === 0) return [];
+  const [lead] = [...changed].sort();
+  if (currentAttr !== lead) return [];
+  const id = fact.id as { schema: string; name: string };
+  const clauses = changed.map((option) => sequenceOptionClause(fact, option));
+  if (
+    source !== undefined &&
+    rangesDisjoint(
+      str(source.payload["minValue"]),
+      str(source.payload["maxValue"]),
+      str(p(fact, "minValue")),
+      str(p(fact, "maxValue")),
+    )
+  )
+    clauses.push("RESTART");
+  return [
+    { sql: `ALTER SEQUENCE ${rel(id.schema, id.name)} ${clauses.join(" ")}` },
+  ];
 }
 
 export function columnRef(fact: Fact): {
