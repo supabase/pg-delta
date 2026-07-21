@@ -69,6 +69,10 @@ stronger path.
    keyed by `{ scenario, direction, table, reasonCode }` — no bare table names.
    Strict behavior: any `failed` outcome, or a `skipped` with a non-allowlisted
    key, fails the scenario.
+   Data on tables that were already populated stays anchored to the pre-seed
+   snapshot; only originally-empty tables take their baseline from the final
+   post-seed snapshot. This prevents seed-trigger side effects on existing data
+   from being silently accepted as the proof baseline.
 
 ## RED → GREEN
 

@@ -128,7 +128,9 @@ so an unseedable table is never confused with one that failed for a reason
 nobody saw. A `skipped` is either a class-23 integrity-constraint SQLSTATE
 or the synthetic `no_row` code (the insert resolved but a trigger/rule left
 the row absent from the final pre-apply snapshot — persistence is judged by
-reconciling against that snapshot, not the command tag). Per-kind graph policy
+reconciling against that snapshot, not the command tag). Tables that were
+already populated remain anchored to their pre-seed stats, so trigger side
+effects from synthetic inserts cannot be baselined away. Per-kind graph policy
 (cascade/rebuild/suppression/defacl) lives entirely in the rule table as
 `KindRules` flags — the planner body holds no kind-name lists (guardrail 3).
 

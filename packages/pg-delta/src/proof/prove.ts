@@ -342,6 +342,29 @@ export function reconcileSeedOutcomes(
 }
 
 /**
+ * Build the data-proof baseline after auto-seeding without letting seed-trigger
+ * side effects erase the source data we meant to protect:
+ *  - tables that were already populated stay anchored to their PRE-seed stats;
+ *  - tables that were empty use the FINAL post-seed stats, so a surviving
+ *    synthetic row gives the proof content coverage;
+ *  - post-seed-only tables pass through defensively (state proof owns them).
+ *
+ * `autoSeedEmptyTables` can fire arbitrary user triggers. A trigger on an empty
+ * candidate may update/delete a different, populated table; using only the
+ * post-seed snapshot would silently accept that damage as the proof baseline.
+ */
+export function composeAutoSeedBaseline(
+  preSeed: Map<string, TableStat>,
+  postSeed: Map<string, TableStat>,
+): Map<string, TableStat> {
+  const baseline = new Map(postSeed);
+  for (const [table, stat] of preSeed) {
+    if (stat.rows > 0) baseline.set(table, stat);
+  }
+  return baseline;
+}
+
+/**
  * Pure verdict logic over before/after table stats (testable without a DB).
  *
  * For every table present before applying:
@@ -499,21 +522,30 @@ export async function provePlan(
   // populated only when autoSeed ran, so it stays out of the verdict entirely
   // on the default opt-out path (present ⇒ autoSeed was requested).
   let seedOutcomes: SeedOutcome[] | undefined;
+  let preSeedStats: Map<string, TableStat> | undefined;
   if (options.autoSeed) {
-    const present = await tableStats(clonePool);
-    const empty = [...present]
+    preSeedStats = await tableStats(clonePool);
+    const empty = [...preSeedStats]
       .filter(([t, s]) => s.rows === 0 && !recreatedTables.has(t))
       .map(([t]) => t);
     seedOutcomes = await autoSeedEmptyTables(clonePool, empty);
   }
 
-  const before = await tableStats(clonePool);
-  // reconcile provisional seeds against `before` — the single FINAL pre-apply
+  const postSeedStats = await tableStats(clonePool);
+  // reconcile provisional seeds against `postSeedStats` — the single FINAL pre-apply
   // snapshot (taken after ALL seeding), so a row later suppressed/undone by a
   // trigger or rule (even cross-table) is downgraded to skipped("no_row").
   if (seedOutcomes !== undefined) {
-    seedOutcomes = reconcileSeedOutcomes(seedOutcomes, before);
+    seedOutcomes = reconcileSeedOutcomes(seedOutcomes, postSeedStats);
   }
+  // Synthetic rows need the post-seed snapshot, but data that existed before
+  // autoSeed must stay anchored to the pre-seed snapshot. Otherwise a trigger
+  // fired by seeding one empty table can mutate a populated table and have that
+  // damage silently accepted as the proof baseline.
+  const before =
+    preSeedStats === undefined
+      ? postSeedStats
+      : composeAutoSeedBaseline(preSeedStats, postSeedStats);
   // the proof re-extracts after applying anyway; the fingerprint gate's
   // extra extraction is redundant here (it has its own execution tests)
   const report = await apply(thePlan, clonePool, { fingerprintGate: false });

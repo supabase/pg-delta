@@ -9,6 +9,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  composeAutoSeedBaseline,
   detectViolations,
   reconcileSeedOutcomes,
   relKey,
@@ -311,5 +312,36 @@ describe("reconcileSeedOutcomes — provisional seeds vs the final snapshot", ()
       { table: { schema: "s", name: "orphan" }, status: "seeded" },
     ];
     expect(reconcileSeedOutcomes(outcomes, stats([]))).toEqual(outcomes);
+  });
+});
+
+describe("composeAutoSeedBaseline — preserve original data across seeding", () => {
+  const stats = (entries: Array<[string, string, number]>) =>
+    new Map(
+      entries.map(([s, n, rows]) => [
+        relKey(s, n),
+        { rows, relfilenode: String(rows), schemaSig: SIG },
+      ]),
+    );
+
+  test("keeps pre-seed stats for populated tables and post-seed stats for empty tables", () => {
+    const preSeed = stats([
+      ["s", "populated", 2],
+      ["s", "empty", 0],
+    ]);
+    const postSeed = stats([
+      ["s", "populated", 0],
+      ["s", "empty", 1],
+    ]);
+
+    const baseline = composeAutoSeedBaseline(preSeed, postSeed);
+    expect(baseline.get(relKey("s", "populated"))?.rows).toBe(2);
+    expect(baseline.get(relKey("s", "empty"))?.rows).toBe(1);
+  });
+
+  test("retains a populated pre-seed table even if a seed trigger removes it", () => {
+    const preSeed = stats([["s", "removed", 1]]);
+    const baseline = composeAutoSeedBaseline(preSeed, stats([]));
+    expect(baseline.get(relKey("s", "removed"))?.rows).toBe(1);
   });
 });
