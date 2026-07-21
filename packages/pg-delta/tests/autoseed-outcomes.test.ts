@@ -34,6 +34,14 @@ beforeAll(async () => {
       BEGIN RAISE EXCEPTION 'seed blocked by trigger'; END $$;
     CREATE TRIGGER boom_before BEFORE INSERT ON s.raiser
       FOR EACH ROW EXECUTE FUNCTION s.boom();
+    -- all columns defaulted/nullable, but a BEFORE INSERT trigger RETURNS NULL:
+    -- the INSERT succeeds with rowCount 0, so NO row is stored — a false
+    -- "seeded" unless the outcome is classified by rowCount ("no_row").
+    CREATE TABLE s.trigger_suppressed (id integer);
+    CREATE FUNCTION s.suppress() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RETURN NULL; END $$;
+    CREATE TRIGGER suppress_before BEFORE INSERT ON s.trigger_suppressed
+      FOR EACH ROW EXECUTE FUNCTION s.suppress();
   `);
 
   const { factBase } = await extract(db.pool);
@@ -83,5 +91,15 @@ describe("provePlan autoSeed seed-outcome reporting", () => {
       reasonCode: "P0001",
     });
     expect((o as { message: string }).message).toMatch(/seed blocked/i);
+  });
+
+  test("a RETURNS NULL trigger (zero-row insert) reports `skipped` with reasonCode `no_row`", () => {
+    // the INSERT succeeds but stores no row, so this is NOT `seeded` — classify
+    // by rowCount and route it through the same allowlist gate as class-23.
+    expect(outcomeFor("trigger_suppressed")).toEqual({
+      table: { schema: "s", name: "trigger_suppressed" },
+      status: "skipped",
+      reasonCode: "no_row",
+    });
   });
 });
