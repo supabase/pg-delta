@@ -64,6 +64,13 @@ export interface DataViolation {
   schemaChanged?: boolean;
 }
 
+export interface SeedStateViolation {
+  /** managed-state fingerprint the plan was produced from */
+  expectedFingerprint: string;
+  /** managed-state fingerprint observed after autoSeed, before plan apply */
+  actualFingerprint: string;
+}
+
 export interface ProofVerdict {
   ok: boolean;
   applyError?: { actionIndex: number; sql: string; message: string };
@@ -77,6 +84,9 @@ export interface ProofVerdict {
    *  autoSeed itself. Present only on that early-failure path so harnesses can
    *  distinguish a seed audit failure from an expected migration failure. */
   seedSideEffects?: DataViolation[];
+  /** autoSeed changed extracted managed state before the plan ran (RLS,
+   *  constraints, reloptions, replica identity, or any other modeled fact). */
+  seedStateViolation?: SeedStateViolation;
   /** a kept table that was physically rewritten (relfilenode changed)
    *  under no action declaring rewriteRisk — the rule under-declared */
   rewriteViolations: Array<{ table: TableRef }>;
@@ -589,6 +599,34 @@ export async function provePlan(
   }
   for (const from of renamedTables.keys()) recreatedTables.delete(from);
 
+  // Reconstruct the exact managed view the plan fingerprinted. The same helper
+  // serves both the post-autoSeed pre-apply guard and the final convergence
+  // proof, so policy/capability/baseline/scope cannot drift between them.
+  const policy = options.policy ?? thePlan.policy;
+  const capability = options.capability ?? thePlan.capability;
+  if (policy?.baseline !== undefined && options.baseline === undefined) {
+    throw new Error(
+      `provePlan: plan was produced with policy "${policy.id}" declaring baseline ` +
+        `"${policy.baseline}", but no baseline was supplied; pass the resolved baseline ` +
+        `as options.baseline so the proof compares the same view the plan diffed.`,
+    );
+  }
+  const scope = thePlan.scope ?? "cluster";
+  const scopeOpts =
+    thePlan.defaultOwner !== undefined
+      ? { defaultOwner: thePlan.defaultOwner }
+      : {};
+  const reextractClone = (): Promise<{ factBase: FactBase }> =>
+    options.reextract
+      ? options.reextract(clonePool)
+      : extract(clonePool, { redactSecrets: thePlan.redactSecrets ?? true });
+  const managedView = (factBase: FactBase): FactBase =>
+    projectManagementScope(
+      resolveView(factBase, policy, capability, options.baseline),
+      scope,
+      scopeOpts,
+    );
+
   // populated only when autoSeed ran, so it stays out of the verdict entirely
   // on the default opt-out path (present ⇒ autoSeed was requested).
   let seedOutcomes: SeedOutcome[] | undefined;
@@ -627,6 +665,28 @@ export async function provePlan(
       ...(seedOutcomes !== undefined ? { seedOutcomes } : {}),
     };
   }
+  // Table stats deliberately cover data and column representation only. A seed
+  // trigger can also change any other modeled state (RLS, constraints,
+  // reloptions, replica identity, comments, roles, ...). Re-extract the same
+  // managed view the plan fingerprinted and require it to remain the source
+  // state before applying anything. Row inserts do not affect the fact base.
+  if (preSeedStats !== undefined) {
+    const postSeedState = managedView((await reextractClone()).factBase);
+    if (postSeedState.rootHash !== thePlan.source.fingerprint) {
+      return {
+        ok: false,
+        driftDeltas: [],
+        dataViolations: [],
+        seedStateViolation: {
+          expectedFingerprint: thePlan.source.fingerprint,
+          actualFingerprint: postSeedState.rootHash,
+        },
+        rewriteViolations: [],
+        coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+        ...(seedOutcomes !== undefined ? { seedOutcomes } : {}),
+      };
+    }
+  }
   // Synthetic rows need the post-seed snapshot, but data that existed before
   // autoSeed must stay anchored to the pre-seed snapshot. Otherwise a trigger
   // fired by seeding one empty table can mutate a populated table and have that
@@ -657,9 +717,7 @@ export async function provePlan(
   // still carries real secrets, and the comparison below reports a spurious
   // drift delta though nothing actually diverged. A custom `reextract` is
   // trusted to already bake in the right mode.
-  const proven = await (options.reextract
-    ? options.reextract(clonePool)
-    : extract(clonePool, { redactSecrets: thePlan.redactSecrets ?? true }));
+  const proven = await reextractClone();
   // Compare the SAME managed view the plan diffed: resolveView projects out
   // extension members + the policy's scope rules at the fact level, on BOTH the
   // proven clone and the target — otherwise an extension's internals or a
@@ -669,47 +727,16 @@ export async function provePlan(
   // policy + capability default to the values the plan was produced with (both
   // are inlined on the plan artifact), so a separate `prove` invocation recovers
   // the exact same view without the caller re-supplying them.
-  const policy = options.policy ?? thePlan.policy;
-  const capability = options.capability ?? thePlan.capability;
-  // baseline is NOT carried in the artifact — a baseline-shaped plan must be
-  // re-supplied with it, or the proof cannot reconstruct the diffed view (P0-2).
-  if (policy?.baseline !== undefined && options.baseline === undefined) {
-    throw new Error(
-      `provePlan: plan was produced with policy "${policy.id}" declaring baseline ` +
-        `"${policy.baseline}", but no baseline was supplied; pass the resolved baseline ` +
-        `as options.baseline so the proof compares the same view the plan diffed.`,
-    );
-  }
   // reconstruct the SAME managed-view-under-scope the plan diffed: resolveView
   // FIRST, then the scope projection (change-set.ts), on BOTH the proven clone
   // and the target — otherwise cluster-global roles (or an owner-excluded
   // platform object whose owner edge the scope projection would strip before
   // the policy runs) reappear as drift. `scope` defaults to the identity
   // "cluster" projection, so the corpus proof is unchanged.
-  const scope = thePlan.scope ?? "cluster";
-  // same default owner the plan projected with (owner edges to it stay implicit),
-  // so the proven clone and the target reconstruct the identical view.
-  const scopeOpts =
-    thePlan.defaultOwner !== undefined
-      ? { defaultOwner: thePlan.defaultOwner }
-      : {};
-  const provenFb = projectManagementScope(
-    resolveView(proven.factBase, policy, capability, options.baseline),
-    scope,
-    scopeOpts,
-  );
+  const provenFb = managedView(proven.factBase);
   // target the PROJECTED desired: the plan only applies kept deltas, so it
   // converges to `desired` minus the policy-filtered changes (review #2).
-  const target = projectManagementScope(
-    resolveView(
-      projectTarget(desired, thePlan.filteredDeltas),
-      policy,
-      capability,
-      options.baseline,
-    ),
-    scope,
-    scopeOpts,
-  );
+  const target = managedView(projectTarget(desired, thePlan.filteredDeltas));
   const driftDeltas = diff(provenFb, target);
   const after = await tableStats(clonePool);
 

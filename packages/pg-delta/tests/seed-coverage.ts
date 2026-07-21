@@ -61,6 +61,17 @@ export function enforceSeedCoverage(
     table: { schema: string; name: string },
     reasonCode: string,
   ): string => JSON.stringify([table.schema, table.name, reasonCode]);
+  if (verdict.seedStateViolation !== undefined) {
+    const state = verdict.seedStateViolation;
+    writeSync(
+      2,
+      `SEED_AUDIT ${JSON.stringify({ status: "state_side_effect", scenario: scenarioName, direction, expectedFingerprint: state.expectedFingerprint, actualFingerprint: state.actualFingerprint })}\n`,
+    );
+    violations.push(
+      `  STATE SIDE EFFECT managed fingerprint ` +
+        `${state.expectedFingerprint.slice(0, 12)} -> ${state.actualFingerprint.slice(0, 12)}`,
+    );
+  }
   for (const sideEffect of verdict.seedSideEffects ?? []) {
     writeSync(
       2,
