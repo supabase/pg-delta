@@ -24,12 +24,18 @@
  * classifies as `failed` (a raised exception, connection/permission error,
  * etc.) is never allowlistable and always fails the scenario.
  *
- * Maintenance: the harness prints a machine-readable `SEED_AUDIT {json}` line to
- * stderr for every non-allowlisted skip before failing. Add the reported
- * `{ scenario, direction, table, reasonCode }` here (keep the list sorted by
- * scenario, then direction, then schema.name) only after confirming the table
- * is genuinely unseedable-with-defaults — never to paper over a `failed`
- * outcome or a real data-preservation hazard.
+ * Maintenance: before adding an entry here, prefer giving the scenario a hand
+ * -written row instead — extend `corpus/<scenario>/seed.sql` (forward skips) or
+ * `corpus/<scenario>/seed-b.sql` (reverse skips) with one minimal row that
+ * satisfies the table's constraints, which upgrades the table from EMPTY to real
+ * fingerprint/count coverage. Only allowlist what genuinely can't (or shouldn't)
+ * be seeded: a row a trigger/rule suppresses, or a scenario whose whole point is
+ * a constraint interplay. The harness prints a machine-readable `SEED_AUDIT
+ * {json}` line to stderr for every non-allowlisted skip before failing. Add the
+ * reported `{ scenario, direction, table, reasonCode }` here (keep the list
+ * sorted by scenario, then direction, then schema.name) only after confirming
+ * the table is genuinely unseedable-with-defaults — never to paper over a
+ * `failed` outcome or a real data-preservation hazard.
  */
 
 /** A precise identity for one tolerated class-23 skip. `reasonCode` is the
