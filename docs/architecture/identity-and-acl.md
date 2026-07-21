@@ -24,7 +24,7 @@ carry and a narrow role-rename ordering carve-out.
 6. Payload keys beginning with `_` are operational hints. They may guide
    rendering, ordering, or safety, but never participate in equality.
 7. State proof compares post-apply declarative identities. Data proof remaps
-   accepted table/materialized-view renames only.
+   accepted ordinary heap-table renames only.
 
 ## StableId means declarative addressability
 
@@ -101,19 +101,22 @@ Current planning performs these steps:
    deltas.
 3. Propose rename-capable roots whose identity-free structural rollups match.
    Ambiguous and near-miss candidates are reported, never guessed.
-4. Accept candidates according to `auto`, `prompt`, and explicit confirmation;
-   cancel their old and new subtrees from create/drop worklists.
-5. For accepted role renames, relabel role-bearing StableIds after the diff.
-   Cancel unchanged remove/add pairs and matching owner unlink/link pairs;
-   convert payload-changed pairs into mutations against the new identity.
+4. Accept candidates according to the rename mode (`auto`/`prompt`/`off`) and
+   explicit confirmations; cancel their old and new subtrees from create/drop
+   worklists.
+5. For accepted role renames, match remove/add deltas by relabeling their
+   role-bearing StableIds without rewriting either fact base. Cancel unchanged
+   pairs and matching owner unlink/link pairs; convert payload-changed pairs
+   into mutations against the new identity.
 6. Emit the rename separately, with the old subtree in `destroys` and the new
    subtree in `produces`, so dependent actions order against both names.
 
 This post-diff carry lives in
 [`role-rename-carry.ts`](../../packages/pg-delta/src/plan/role-rename-carry.ts).
 It cannot relabel `policy.roles`, because that reference is payload-carried.
-The current planner therefore retains the narrow B1 ordering carve-out for a
-policy mutation spanning an accepted role rename.
+The current planner therefore retains the narrow
+[B1](../roadmap/agent-tracks/B1-role-rename-policy-cycle.md) ordering carve-out
+for a policy mutation spanning an accepted role rename.
 
 ### I1 target (not current)
 
@@ -198,11 +201,13 @@ post-apply catalog must therefore use the desired declarative ids and names;
 underscore hints cannot rescue a state mismatch because proof does not include
 them in equality.
 
-Data proof has a narrower rename rule. Accepted table and materialized-view
-renames map the old relation key used for pre-apply row statistics to the new
-relation key used after apply. That prevents a data-preserving rename from being
-misclassified as drop/recreate. Role and other object renames do not use this
-row-key map.
+Data proof has narrower coverage: row statistics include only ordinary heap
+tables (`pg_class.relkind = 'r'`). For an accepted heap-table rename, proof maps
+the old relation key used before apply to the new key used afterward. That
+prevents a data-preserving rename from being misclassified as drop/recreate.
+Materialized views and partitioned table roots receive state-proof coverage but
+do not enter these row statistics; role and other object renames do not use the
+row-key map either.
 
 Under the I1 target, the proof algorithm remains unchanged, but fingerprint
 routing matters: apply must compare the physical pre-rename source with the

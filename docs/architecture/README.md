@@ -93,8 +93,8 @@ This is the safety net the old engine never had. `provePlan()` applies the plan
 to a **throwaway clone**, re-extracts it, and checks two things:
 
 - **State proof** — the result's fact hashes equal the desired state (zero drift).
-- **Data preservation** — rows in kept tables survive (and a table rewritten
-  without declaring it fails the proof).
+- **Data preservation** — rows in kept ordinary heap tables survive (and a table
+  rewritten without declaring it fails the proof).
 
 Because re-extraction yields the same kind of facts, "did the migration work?"
 becomes a hash comparison, run automatically in CI — not a production incident.
