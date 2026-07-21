@@ -17,6 +17,7 @@ import { rel } from "../src/plan/render.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import { enforceSeedCoverage, runPinnedDirection } from "./seed-coverage.ts";
 import { loadCorpus, type Scenario } from "./corpus.ts";
+import { mustRunSerially } from "./corpus-scheduling.ts";
 import {
   isolatedClusterPair,
   sharedCluster,
@@ -270,16 +271,6 @@ const ALL_CASES: Case[] = CORPUS.flatMap((scenario) => [
 // collides ("role already exists", "duplicate key pg_authid", "cannot be
 // dropped"). Such cases (plus the explicitly cluster-level isolatedCluster ones)
 // run SERIALLY; only genuinely DB-local scenarios go in the concurrent pool.
-const ROLE_DDL = /\b(?:create|drop|alter)\s+(?:role|user|group)\b/i;
-function mustRunSerially(scenario: Scenario): boolean {
-  return (
-    scenario.meta.isolatedCluster === true ||
-    ROLE_DDL.test(scenario.a) ||
-    ROLE_DDL.test(scenario.b) ||
-    (scenario.seed !== undefined && ROLE_DDL.test(scenario.seed))
-  );
-}
-
 if (CONCURRENCY > 1) {
   describe("engine: corpus proof loop (concurrent)", () => {
     test(`all ${CORPUS_TOTAL} cases (concurrency=${CONCURRENCY})`, async () => {

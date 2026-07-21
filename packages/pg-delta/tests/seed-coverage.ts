@@ -1,7 +1,7 @@
 /**
- * The corpus auto-seed coverage contract, extracted so it is unit-testable and
- * so the harness can tell a coverage violation apart from a scenario's ordinary
- * proof failure.
+ * The corpus auto-seed safety/coverage contract, extracted so it is unit-testable
+ * and so the harness can tell an autoSeed audit failure apart from a scenario's
+ * ordinary proof failure.
  *
  * `enforceSeedCoverage` throws a distinct `SeedCoverageError` (NOT a plain
  * `Error`) on any violation. That matters because the EXPECTED_RED pinned path
@@ -29,6 +29,8 @@ export class SeedCoverageError extends Error {
 
 /**
  * Enforce the corpus auto-seed coverage contract on a proof verdict.
+ *  - any pre-plan `seedSideEffects` fail the scenario; they are never a
+ *    legitimate EXPECTED_RED migration failure.
  *  - a `failed` seed outcome (anything NOT a tolerated skip — a raised
  *    exception, connection/permission error, …) fails the scenario loudly; it
  *    is never allowlistable.
@@ -59,6 +61,18 @@ export function enforceSeedCoverage(
     table: { schema: string; name: string },
     reasonCode: string,
   ): string => JSON.stringify([table.schema, table.name, reasonCode]);
+  for (const sideEffect of verdict.seedSideEffects ?? []) {
+    writeSync(
+      2,
+      `SEED_AUDIT ${JSON.stringify({ status: "side_effect", scenario: scenarioName, direction, table: sideEffect.table, before: sideEffect.before, after: sideEffect.after, schemaChanged: sideEffect.schemaChanged === true, contentChanged: sideEffect.contentChanged === true })}\n`,
+    );
+    violations.push(
+      `  SIDE EFFECT ${rel(sideEffect.table.schema, sideEffect.table.name)} ` +
+        `(${sideEffect.before} -> ${sideEffect.after} rows` +
+        `${sideEffect.schemaChanged === true ? ", schema changed" : ""}` +
+        `${sideEffect.contentChanged === true ? ", content changed" : ""})`,
+    );
+  }
   for (const o of outcomes) {
     if (o.status === "seeded") continue;
     if (o.status === "failed") {

@@ -53,6 +53,17 @@ export type SeedOutcome =
   | { table: TableRef; status: "skipped"; reasonCode: string }
   | { table: TableRef; status: "failed"; reasonCode?: string; message: string };
 
+export interface DataViolation {
+  table: TableRef;
+  before: number;
+  after: number;
+  /** count held but row CONTENT changed on an untouched table (review #3) */
+  contentChanged?: boolean;
+  /** autoSeed changed the table's schema before the plan ran, so row content
+   *  cannot be compared safely (including a table that started empty) */
+  schemaChanged?: boolean;
+}
+
 export interface ProofVerdict {
   ok: boolean;
   applyError?: { actionIndex: number; sql: string; message: string };
@@ -61,16 +72,11 @@ export interface ProofVerdict {
    *  plan did NOT touch) content changed though the count held — drop+recreate
    *  masquerading as preservation, an undeclared destructive operation, or an
    *  autoSeed trigger mutating pre-existing data before the plan ran */
-  dataViolations: Array<{
-    table: TableRef;
-    before: number;
-    after: number;
-    /** count held but row CONTENT changed on an untouched table (review #3) */
-    contentChanged?: boolean;
-    /** autoSeed changed the table's schema before the plan ran, so its
-     *  pre-existing row content can no longer be compared safely */
-    schemaChanged?: boolean;
-  }>;
+  dataViolations: DataViolation[];
+  /** subset of `dataViolations` detected before the plan ran and caused by
+   *  autoSeed itself. Present only on that early-failure path so harnesses can
+   *  distinguish a seed audit failure from an expected migration failure. */
+  seedSideEffects?: DataViolation[];
   /** a kept table that was physically rewritten (relfilenode changed)
    *  under no action declaring rewriteRisk — the rule under-declared */
   rewriteViolations: Array<{ table: TableRef }>;
@@ -370,9 +376,10 @@ export function composeAutoSeedBaseline(
 
 /**
  * Detect autoSeed side effects while pre/post fingerprints are directly
- * comparable: no plan action has run between these snapshots. Only populated,
- * kept tables are protected here; originally-empty tables are expected to gain
- * synthetic rows, and recreated tables carry no data-preservation claim.
+ * comparable: no plan action has run between these snapshots. Schema is
+ * protected for every kept table; row/content changes are protected only for
+ * populated tables because originally-empty tables are expected to gain a
+ * synthetic row. Recreated tables carry no data-preservation claim.
  */
 export function detectAutoSeedSideEffects(
   preSeed: Map<string, TableStat>,
@@ -381,10 +388,21 @@ export function detectAutoSeedSideEffects(
 ): ProofVerdict["dataViolations"] {
   const violations: ProofVerdict["dataViolations"] = [];
   for (const [table, before] of preSeed) {
-    if (before.rows === 0 || recreatedTables.has(table)) continue;
+    if (recreatedTables.has(table)) continue;
     const [schema, name] = parseRelKey(table);
     const ref: TableRef = { schema, name };
     const after = postSeed.get(table);
+    if (before.rows === 0) {
+      if (after === undefined || after.schemaSig !== before.schemaSig) {
+        violations.push({
+          table: ref,
+          before: 0,
+          after: after?.rows ?? 0,
+          schemaChanged: true,
+        });
+      }
+      continue;
+    }
     if (after === undefined || after.rows !== before.rows) {
       violations.push({
         table: ref,
@@ -603,6 +621,7 @@ export async function provePlan(
       ok: false,
       driftDeltas: [],
       dataViolations: seedSideEffects,
+      seedSideEffects,
       rewriteViolations: [],
       coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
       ...(seedOutcomes !== undefined ? { seedOutcomes } : {}),
