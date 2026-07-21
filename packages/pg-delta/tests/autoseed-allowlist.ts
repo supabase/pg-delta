@@ -11,9 +11,11 @@
  * A skip has one of two `reasonCode` shapes, both expected and both gated here:
  *   - a class-23 SQLSTATE (`23502` NOT NULL w/o default, `23503` FK, `23505`
  *     unique, `23514` check, …) — the insert was rejected; or
- *   - the synthetic sentinel `"no_row"` (NOT a SQLSTATE) — the insert SUCCEEDED
- *     but stored zero rows because a BEFORE INSERT trigger returned NULL / a
- *     DO INSTEAD rule suppressed it, so nothing was actually seeded.
+ *   - the synthetic sentinel `"no_row"` (NOT a SQLSTATE) — the insert RESOLVED
+ *     but left the table empty: a BEFORE INSERT trigger returned NULL, a DO
+ *     INSTEAD rule suppressed it, or an AFTER INSERT trigger deleted the row.
+ *     (rowCount is only the command tag — persistence is confirmed with an
+ *     existence probe — so nothing was actually seeded.)
  * Both must be declared here, keyed precisely by
  * `{ scenario, direction, table, reasonCode }`, so a NEW unseedable table (or a
  * skip that silently appears in an unexpected scenario) fails the suite loudly

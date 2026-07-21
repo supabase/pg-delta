@@ -123,9 +123,12 @@ see (§3.7): **rewrite risk** is observed on the clone (a kept table whose
 `relfilenode` changed under no `rewriteRisk`-declaring action fails the
 proof) and **data preservation** can be sharpened with opt-in `autoSeed`
 (synthetic rows in empty kept tables), which now reports a per-table
-outcome on the verdict (`seedOutcomes`: `seeded` / class-23 `skipped` /
-`failed`) so an unseedable table is never confused with one that failed
-for a reason nobody saw. Per-kind graph policy
+outcome on the verdict (`seedOutcomes`: `seeded` / `skipped` / `failed`)
+so an unseedable table is never confused with one that failed for a reason
+nobody saw. A `skipped` is either a class-23 integrity-constraint SQLSTATE
+or the synthetic `no_row` code (the insert resolved but a trigger/rule left
+the table empty — persistence is confirmed with an existence probe, not the
+command tag). Per-kind graph policy
 (cascade/rebuild/suppression/defacl) lives entirely in the rule table as
 `KindRules` flags — the planner body holds no kind-name lists (guardrail 3).
 

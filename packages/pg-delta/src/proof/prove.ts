@@ -33,13 +33,15 @@ export interface TableRef {
  *  `ProveOptions.autoSeed`). Taxonomy is by SQLSTATE class, NOT string matching:
  *  - `seeded` — a synthetic `DEFAULT VALUES` row landed; the table now has
  *    content-fingerprint coverage in the data-preservation check.
- *  - `skipped` — no row was stored and that is expected, in two shapes:
+ *  - `skipped` — no row persisted and that is expected, in two shapes:
  *    (a) the insert hit a class-23 integrity-constraint violation (`reasonCode`
  *    = the SQLSTATE: `23502` NOT NULL w/o default, `23503` FK, `23505` unique,
- *    `23514` check, any `23xxx`); or (b) the insert SUCCEEDED but stored zero
- *    rows because a BEFORE INSERT trigger returned NULL / a DO INSTEAD rule
- *    suppressed it (`reasonCode` = the synthetic sentinel `"no_row"`, which is
- *    NOT a SQLSTATE). Either way the table keeps `contentMode: "none"`.
+ *    `23514` check, any `23xxx`); or (b) the insert RESOLVED but left the table
+ *    empty — a BEFORE INSERT trigger returned NULL, a DO INSTEAD rule suppressed
+ *    it, or an AFTER INSERT trigger deleted the row (rowCount is only the command
+ *    tag, so persistence is confirmed with an existence probe). This carries the
+ *    synthetic sentinel `reasonCode` `"no_row"`, the one skip code that is NOT a
+ *    SQLSTATE. Either way the table keeps `contentMode: "none"`.
  *  - `failed` — anything else (a raised exception, connection/syntax/permission
  *    error, or a driver error with no code): a real problem the caller must see
  *    rather than have swallowed. `reasonCode` is the SQLSTATE when the driver
@@ -286,16 +288,22 @@ async function autoSeedEmptyTables(
     // raised exception, connection/syntax/permission error, unknown) is a real
     // problem → `failed`, so it can't hide behind `contentMode: "none"`.
     try {
-      const res = await pool.query(
+      await pool.query(
         `INSERT INTO ${qte(schema)}.${qte(name)} DEFAULT VALUES`,
       );
-      // a resolved insert is NOT proof of a stored row: a BEFORE INSERT trigger
-      // that RETURNS NULL (or a DO INSTEAD NOTHING rule) makes the statement
-      // SUCCEED with rowCount 0 — nothing was seeded. Classify by rowCount so
-      // that case becomes `skipped` (synthetic reasonCode "no_row", NOT a
-      // SQLSTATE) and goes through the same allowlist gate, instead of a false
-      // `seeded` that leaves the table at contentMode "none" with no coverage.
-      if ((res.rowCount ?? 0) >= 1) {
+      // a resolved insert is NOT proof of a stored row, and rowCount is only the
+      // command tag — it lies here: an AFTER INSERT trigger that DELETEs the row
+      // still reports INSERT 0 1 (rowCount 1) on a now-empty table, and a BEFORE
+      // INSERT trigger returning NULL / a DO INSTEAD rule suppresses it with
+      // rowCount 0. Verify PERSISTED state with one existence probe (the table
+      // was empty pre-insert, so EXISTS is true iff the synthetic row survived).
+      // No surviving row → skipped (synthetic reasonCode "no_row", NOT a
+      // SQLSTATE) through the same allowlist gate, instead of a false `seeded`
+      // that leaves the table at contentMode "none" with no coverage.
+      const persisted = await pool.query<{ e: boolean }>(
+        `SELECT EXISTS(SELECT 1 FROM ${qte(schema)}.${qte(name)}) AS e`,
+      );
+      if (persisted.rows[0]?.e === true) {
         outcomes.push({ table: ref, status: "seeded" });
       } else {
         outcomes.push({ table: ref, status: "skipped", reasonCode: "no_row" });

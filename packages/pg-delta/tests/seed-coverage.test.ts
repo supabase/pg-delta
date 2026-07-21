@@ -84,16 +84,23 @@ describe("runPinnedDirection (EXPECTED_RED wrapper)", () => {
   });
 
   test("any other error resolves quietly (legitimately red as pinned)", async () => {
-    await expect(
-      runPinnedDirection("k:forward", async () => {
-        throw new Error("ordinary proof failure");
-      }),
-    ).resolves.toBeUndefined();
+    // resolves without throwing — reaching the next line is the assertion.
+    const result = await runPinnedDirection("k:forward", async () => {
+      throw new Error("ordinary proof failure");
+    });
+    expect(result).toBeUndefined();
   });
 
   test("a passing run throws the pinned-but-now-passes error", async () => {
-    await expect(
-      runPinnedDirection("k:forward", async () => {}),
-    ).rejects.toThrow(/pinned in EXPECTED_RED but now PASSES/);
+    let caught: unknown;
+    try {
+      await runPinnedDirection("k:forward", async () => {});
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(
+      /pinned in EXPECTED_RED but now PASSES/,
+    );
   });
 });

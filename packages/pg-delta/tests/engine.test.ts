@@ -15,7 +15,7 @@ import { plan } from "../src/plan/plan.ts";
 import { probeApplierCapability } from "../src/policy/capability.ts";
 import { rel } from "../src/plan/render.ts";
 import { provePlan } from "../src/proof/prove.ts";
-import { enforceSeedCoverage, SeedCoverageError } from "./seed-coverage.ts";
+import { enforceSeedCoverage, runPinnedDirection } from "./seed-coverage.ts";
 import { loadCorpus, type Scenario } from "./corpus.ts";
 import {
   isolatedClusterPair,
@@ -206,17 +206,9 @@ async function runPinnedOrProve(
     await runDirection(scenario, direction);
     return;
   }
-  try {
-    await runDirection(scenario, direction);
-  } catch (error) {
-    // a seed-coverage violation is NEVER a legitimate "red as pinned" — it must
-    // fail the corpus even inside a pinned scenario, so re-throw it.
-    if (error instanceof SeedCoverageError) throw error;
-    return; // red as pinned — fine
-  }
-  throw new Error(
-    `${key} is pinned in EXPECTED_RED but now PASSES — remove the pin (tests/expected-red.ts)`,
-  );
+  // runPinnedDirection owns the pinned semantics (incl. the seed-coverage
+  // rethrow), so the guard is bound by seed-coverage.test.ts.
+  await runPinnedDirection(key, () => runDirection(scenario, direction));
 }
 
 // Live progress (opt-in via PGDELTA_NEXT_PROGRESS=1). `bun test` buffers its

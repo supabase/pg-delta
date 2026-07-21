@@ -56,11 +56,17 @@ stronger path.
    not-null without default, `23503` FK, `23505` unique, `23514` check →
    `skipped(reason=SQLSTATE)`. (Generated/identity `428C9` errors are
    unreachable via `DEFAULT VALUES` — do not allowlist what cannot occur.)
-   Everything else (connection, syntax, permission, unknown states) →
-   `failed(error)`. The skip-allowlist is keyed by
-   `{ scenario, direction, table, reasonCode }` — no bare table names. Strict
-   behavior: any `failed` outcome, or a `skipped` with a non-allowlisted key,
-   fails the scenario.
+   **One documented exception to "SQLSTATE only":** a `DEFAULT VALUES` insert
+   can *resolve* yet persist no row — a BEFORE INSERT trigger returning NULL, a
+   DO INSTEAD rule, or an AFTER INSERT trigger deleting the row (rowCount is the
+   command tag, not persisted state, so persistence is confirmed with an
+   existence probe). That is also `skipped`, with the **synthetic sentinel
+   `reason=no_row`** — the one non-SQLSTATE skip code. Everything else
+   (connection, syntax, permission, raised exceptions, unknown states) →
+   `failed(error)`; only class-23 and `no_row` are skips. The skip-allowlist is
+   keyed by `{ scenario, direction, table, reasonCode }` — no bare table names.
+   Strict behavior: any `failed` outcome, or a `skipped` with a non-allowlisted
+   key, fails the scenario.
 
 ## RED → GREEN
 

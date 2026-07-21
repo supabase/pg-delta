@@ -85,3 +85,28 @@ export function enforceSeedCoverage(
     );
   }
 }
+
+/**
+ * Run one EXPECTED_RED-pinned corpus direction and interpret the outcome:
+ *  - the run throws `SeedCoverageError` → RE-THROW it (a seed-coverage violation
+ *    is never a legitimate "red as pinned"; it must fail the corpus even here);
+ *  - the run throws anything else → resolve quietly (red as pinned — fine);
+ *  - the run passes → throw the "pinned but now PASSES" error so a stale pin is
+ *    removed.
+ * The harness's pinned path CALLS this, so the rethrow guard is exercised by
+ * seed-coverage.test.ts and can't be silently deleted.
+ */
+export async function runPinnedDirection(
+  key: string,
+  run: () => Promise<void>,
+): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    if (error instanceof SeedCoverageError) throw error;
+    return; // red as pinned — fine
+  }
+  throw new Error(
+    `${key} is pinned in EXPECTED_RED but now PASSES — remove the pin (tests/expected-red.ts)`,
+  );
+}
