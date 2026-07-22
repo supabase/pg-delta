@@ -69,11 +69,11 @@ describe("enforceSeedCoverage error typing", () => {
 
   test("an allowlist entry becoming seedable is rejected as stale", () => {
     const verdict = verdictWith([
-      { table: { schema: "t", name: "cats" }, status: "seeded" },
+      { table: { schema: "test_schema", name: "foo" }, status: "seeded" },
     ]);
     expect(() =>
       enforceSeedCoverage(
-        "alter-column-type--blocked-by-policy",
+        "trigger-operations--trigger-drop-before-function-drop",
         "forward",
         "l",
         verdict,
@@ -84,14 +84,14 @@ describe("enforceSeedCoverage error typing", () => {
   test("an observed allowlisted skip remains accepted", () => {
     const verdict = verdictWith([
       {
-        table: { schema: "t", name: "cats" },
+        table: { schema: "test_schema", name: "foo" },
         status: "skipped",
-        reasonCode: "23502",
+        reasonCode: "no_row",
       },
     ]);
     expect(() =>
       enforceSeedCoverage(
-        "alter-column-type--blocked-by-policy",
+        "trigger-operations--trigger-drop-before-function-drop",
         "forward",
         "l",
         verdict,

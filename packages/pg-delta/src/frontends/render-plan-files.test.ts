@@ -214,10 +214,13 @@ describe("renderPlanFiles", () => {
     // a transactional file runs inside dbmate's BEGIN/COMMIT, so SET LOCAL
     // reverts at COMMIT — a reused runner session does not inherit the settings.
     expect(file!.transactional).toBe(true);
-    expect(file!.contents).toContain("set local search_path = pg_catalog;");
     expect(file!.contents).toContain("set local check_function_bodies = off;");
-    // no plain session-level SET that would leak past COMMIT
-    expect(file!.contents).not.toContain("set search_path = pg_catalog;");
+    // search_path is NOT pinned in rendered files: the DDL is already fully
+    // qualified so the pin is redundant, and a third-party runner (dbmate)
+    // executes its own UNqualified bookkeeping (INSERT INTO schema_migrations)
+    // in the same transaction — pinning search_path=pg_catalog would misresolve
+    // it to pg_catalog.schema_migrations and break the migration.
+    expect(file!.contents).not.toContain("search_path");
   });
 
   test("non-transactional segment resets the preamble at end of file (no session leak)", () => {
@@ -239,10 +242,30 @@ describe("renderPlanFiles", () => {
     // SET LOCAL is a no-op outside a transaction, so a non-transactional file
     // must use plain SET and RESET at the end so the settings do not persist on
     // the runner's session (mirrors apply()'s RESET ALL after standalone DDL).
+    // search_path is filtered out (see transactional test above), so only
+    // check_function_bodies is set — but RESET ALL still cleans it up.
     expect(file!.transactional).toBe(false);
-    expect(file!.contents).toContain("set search_path = pg_catalog;");
+    expect(file!.contents).toContain("set check_function_bodies = off;");
+    expect(file!.contents).not.toContain("search_path");
     expect(file!.contents).not.toContain("set local");
     expect(file!.contents.trimEnd().endsWith("reset all;")).toBe(true);
+  });
+
+  test("does not emit any search_path preamble line (fully-qualified DDL makes it redundant; third-party runners like dbmate share the transaction with unqualified bookkeeping)", () => {
+    const plan = makePlan({
+      preamble: [
+        { name: "search_path", value: "pg_catalog" },
+        { name: "check_function_bodies", value: "off" },
+      ],
+      actions: [action({ sql: "CREATE TABLE public.widgets (id integer)" })],
+    });
+
+    const [file] = renderPlanFiles(plan, { allowDrops: false }).files;
+
+    expect(file!.contents).not.toContain("search_path");
+    expect(file!.contents).toContain("set local check_function_bodies = off;");
+    // the redundancy claim: the create is already schema-qualified.
+    expect(file!.contents).toContain("CREATE TABLE public.widgets");
   });
 
   test("empty plan: no changes, no files", () => {

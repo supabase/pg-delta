@@ -53,9 +53,12 @@ pre-sorting them (via `@supabase/pg-topo`) before the loader runs. See
   surface cycles and other diagnostics for proactive authoring — deliberately
   out of the apply path so apply stays Postgres-truth.
 
-- **Corpus proof loop**: every scenario in `corpus/` proven in BOTH
-  directions (build and teardown) — state proof = zero drift deltas after
-  applying the plan to a clone; data proof = seeded rows survive. The proof
+- **Corpus proof loop**: every scenario in `corpus/` is proven in BOTH
+  directions (build and teardown), with independently built compact and
+  uncompacted plan artifacts applied end-to-end. Compaction is therefore
+  enforced as cosmetic rather than required for convergence. State proof =
+  zero drift deltas after applying the plan to a clone; data proof = seeded
+  rows survive. The proof
   reports honest per-table **coverage** (`tablesChecked`, `tablesSkipped`,
   and a `contentMode` of `fingerprint` / `count` / `none`) rather than a bare
   boolean: a non-empty table whose schema is unchanged is content-fingerprinted
@@ -185,8 +188,9 @@ bun scripts/benchmark.ts                                # timing numbers
 ```
 
 Compaction (cosmetic clause folding + redundant-drop / default-ACL elision) is
-**on by default** and proof-stable — the plan converges to the same state either
-way. The passes, in order:
+**on by default** and proof-stable — the corpus independently builds, applies,
+and proves compact and uncompacted artifacts for every scenario and direction.
+The passes, in order:
 
 - **column folds** — `ADD COLUMN` clauses fold into their bare `CREATE TABLE`
   when no graph edge crosses the merge.

@@ -24,7 +24,15 @@ export type RenderablePlan = Pick<Plan, "preamble"> & {
 
 export function renderPlanSql(plan: RenderablePlan): string {
   const parts: string[] = [];
-  for (const setting of plan.preamble) {
+  // Emit the preamble session settings EXCEPT search_path. The rendered DDL is
+  // already fully schema-qualified (extraction canonicalizes to pg_catalog
+  // before deparse), so pinning search_path is redundant here — and a
+  // third-party replayer that shares this batch's session with its own
+  // UNqualified statements (e.g. dbmate's `INSERT INTO schema_migrations ...`)
+  // would misresolve them under a pinned pg_catalog path. apply() keeps the pin
+  // on its own dedicated connection. check_function_bodies is retained.
+  const settings = plan.preamble.filter((s) => s.name !== "search_path");
+  for (const setting of settings) {
     parts.push(`SET ${setting.name} = ${setting.value};`);
   }
   for (const action of plan.actions) {
@@ -35,11 +43,12 @@ export function renderPlanSql(plan: RenderablePlan): string {
   // persist on the connection after the batch — and callers replay it on a
   // POOLED connection they hand back for reuse (schema-plan.ts seeds a shadow
   // then releases the client; applySupabaseBaseInit replays on one connection).
-  // Reset the preamble settings at the end so a later borrower of that
-  // connection does not inherit them. Targeted RESETs (not RESET ALL) leave any
-  // other session state the caller set around this batch untouched.
+  // Reset the settings we actually emitted so a later borrower of that
+  // connection does not inherit them (no search_path RESET when no search_path
+  // SET was emitted). Targeted RESETs (not RESET ALL) leave any other session
+  // state the caller set around this batch untouched.
   if (parts.length > 0) {
-    for (const setting of plan.preamble) {
+    for (const setting of settings) {
       parts.push(`RESET ${setting.name};`);
     }
   }
