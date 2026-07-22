@@ -260,8 +260,8 @@ async function runDirection(
         // proveOn drops every scenario database before returning. Only then is
         // it safe to reset cluster-global roles for the next mode's replay.
         await Promise.all([
-          clusterA.dropRolesExcept(baseA),
-          clusterB.dropRolesExcept(baseB),
+          clusterA.dropRolesExcept(baseA, { strict: true }),
+          clusterB.dropRolesExcept(baseB, { strict: true }),
         ]);
       }),
     );
@@ -279,7 +279,7 @@ async function runDirection(
       proveMode(compact, cluster, cluster, async () => {
         // Database teardown lives inside proveOn and therefore completes before
         // role cleanup. This ordering avoids DROP ROLE ownership/grant errors.
-        await cluster.dropRolesExcept(baselineRoles);
+        await cluster.dropRolesExcept(baselineRoles, { strict: true });
       }),
     );
     return;
