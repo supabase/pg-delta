@@ -80,6 +80,30 @@ describe("plan artifact v1", () => {
     expect(parsed.profile).toBeUndefined();
   });
 
+  test("round-trips the additive projection audit", () => {
+    const withAudit: Plan = {
+      ...samplePlan,
+      projectionAudit: {
+        entries: [],
+        summary: {
+          total: 0,
+          suspicious: 0,
+          acknowledged: 0,
+          baseline: 0,
+        },
+      },
+    };
+    expect(parsePlan(serializePlan(withAudit)).projectionAudit).toEqual(
+      withAudit.projectionAudit,
+    );
+  });
+
+  test("accepts a legacy v1 artifact without a projection audit", () => {
+    expect(
+      parsePlan(serializePlan(samplePlan)).projectionAudit,
+    ).toBeUndefined();
+  });
+
   test("round-trips the stamped redaction mode so apply/prove re-extract identically", () => {
     // a plan produced with --unsafe-show-secrets fingerprints over unredacted
     // secrets; the artifact must carry redactSecrets:false so apply/prove
