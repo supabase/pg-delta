@@ -8,6 +8,10 @@ import type { FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { flattenPolicy, type Policy } from "../policy/policy.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
+import {
+  auditManagedViewProjection,
+  type ProjectionAudit,
+} from "../policy/reconstruct.ts";
 import type { ManagementScope } from "../policy/view.ts";
 import { emitActions } from "./phases/action-emitter.ts";
 import { finalizeActions } from "./phases/action-graph.ts";
@@ -32,6 +36,16 @@ export const ENGINE_VERSION = "0.2.0";
 // must be real. Cycle-safe: artifact.ts's only import from this module is
 // ENGINE_VERSION, which it reads inside a function body, never at module-eval time.
 export { parsePlan, serializePlan } from "./artifact.ts";
+export type {
+  ProjectionAudit,
+  ProjectionAuditEntry,
+  ProjectionAuditSuppression,
+} from "../policy/reconstruct.ts";
+export type {
+  ProjectionAuditClassification,
+  ProjectionAuditStage,
+  ProjectionAuditSubject,
+} from "../policy/view.ts";
 
 export interface Action {
   sql: string;
@@ -89,6 +103,10 @@ export interface Plan {
    *  (§3.9): drift the user chose not to manage is still drift they can
    *  ask about */
   filteredDeltas: Delta[];
+  /** Raw source↔desired differences suppressed by managed-view projection,
+   * attributed to stable stage/rule reason codes. Generated plans always carry
+   * this field; optional only so pre-P2a v1 artifacts remain parseable. */
+  projectionAudit?: ProjectionAudit;
   /** the policy that shaped this plan, inlined for reproducibility */
   policy?: Policy;
   /** the applier capability the plan was produced with (move 6 / follow-up 2),
@@ -263,6 +281,18 @@ export function plan(
     carriedOwnerLinks,
     changedRoleFacts,
   } = buildChangeSet(rawSource, rawDesired, options, rulesForId);
+
+  const projectionAudit = auditManagedViewProjection(rawSource, rawDesired, {
+    ...(options?.policy !== undefined ? { policy: options.policy } : {}),
+    ...(options?.capability !== undefined
+      ? { capability: options.capability }
+      : {}),
+    ...(options?.baseline !== undefined ? { baseline: options.baseline } : {}),
+    ...(options?.scope !== undefined ? { scope: options.scope } : {}),
+    ...(options?.defaultOwner !== undefined
+      ? { defaultOwner: options.defaultOwner }
+      : {}),
+  });
 
   // A user-mapping row whose options were unreadable via pg_user_mappings on
   // either side (extraction-time warning, USER_MAPPING_UNREADABLE — see
@@ -525,6 +555,7 @@ export function plan(
     ],
     deltas,
     filteredDeltas,
+    projectionAudit,
     ...(options?.policy ? { policy: options.policy } : {}),
     ...(options?.capability ? { capability: options.capability } : {}),
     ...(options?.profile ? { profile: options.profile } : {}),
