@@ -1111,7 +1111,7 @@ export function resolveView(
       recordReferenceOnly(key, {
         stage: "referenceOnly",
         reasonCode: `reference-only.assumed-schema:${ruleAttribution.reasonCode}`,
-        classification: "acknowledged",
+        classification: ruleAttribution.classification,
       });
     }
   }

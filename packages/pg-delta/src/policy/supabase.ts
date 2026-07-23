@@ -413,6 +413,10 @@ export const supabasePolicy: Policy = {
         all: [{ kind: "acl" }, { target: { kind: "fdw" } }],
       },
       action: "exclude",
+      audit: {
+        reasonCode: "supabase.fdw-acl",
+        classification: "acknowledged",
+      },
     },
 
     // Rule 10 (implicit in old engine): exclude ACL, comment, and security-label

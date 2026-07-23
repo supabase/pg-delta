@@ -280,7 +280,7 @@ describe("attributed projection audit", () => {
     );
     expect(
       audit.entries.flatMap((entry) => entry.suppressions.map((s) => s.side)),
-    ).toEqual(["desired", "source"]);
+    ).toEqual(["desired", "source", "desired", "source"]);
   });
 
   test("reference-only on one side attributes edges present only on the other side", () => {

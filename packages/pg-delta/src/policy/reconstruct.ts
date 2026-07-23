@@ -173,8 +173,22 @@ export function auditManagedViewProjection(
     const subject = deltaSubject(delta);
     const entrySuppressions: ProjectionAuditSuppression[] = [];
     const seen = new Set<string>();
-    for (const { side, suppression } of bySubject.get(subjectKey(subject)) ??
-      []) {
+    const tracedSuppressions = [
+      ...(bySubject.get(subjectKey(subject)) ?? []),
+      // diff() suppresses every outgoing edge delta when the edge's FROM fact is
+      // reference-only on EITHER side. The edge may exist only on the opposite,
+      // non-reference-only side, so no exact edge suppression record exists
+      // there. Join the fact-level reference-only decision as the cause or that
+      // asymmetric edge drift disappears from the audit entirely.
+      ...(subject.kind === "edge"
+        ? (
+            bySubject.get(
+              subjectKey({ kind: "fact", id: subject.edge.from }),
+            ) ?? []
+          ).filter(({ suppression }) => suppression.stage === "referenceOnly")
+        : []),
+    ];
+    for (const { side, suppression } of tracedSuppressions) {
       const via = suppression.viaDescendantOf
         ? encodeId(suppression.viaDescendantOf)
         : "";
