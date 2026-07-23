@@ -96,11 +96,11 @@ no `summarizeActions` on the public surface. P2 owns prove API changes.
 
 ## Acceptance criteria
 
-- [ ] Fixture format + loader documented
-- [ ] Engine harness enforces budgets when present
-- [ ] ≥3 live scenarios with passing budgets
-- [ ] ≥1 documented known-bad shape (skip or issue link) if no planner fix in-PR
-- [ ] Changeset: none if tests-only; `minor` if public prove helpers exported
+- [x] Fixture format + loader documented
+- [x] Engine harness enforces budgets when present
+- [x] ≥3 live scenarios with passing budgets
+- [x] ≥1 documented known-bad shape (skip or issue link) if no planner fix in-PR
+- [x] Changeset: none if tests-only; `minor` if public prove helpers exported
 
 ## Conflicts
 

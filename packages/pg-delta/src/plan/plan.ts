@@ -245,8 +245,8 @@ export function plan(
   options?: PlanOptions,
 ): Plan {
   // ── phase 1: change set (managed-view resolution, diff, filter, group,
-  // rename + role-rename cancellation) → ./phases/change-set.ts. `source` /
-  // `desired` below are the RESOLVED managed views. ────────────────────
+  // rename discovery + identity normalization) → ./phases/change-set.ts.
+  // `source` / `desired` below are canonical managed views. ────────────
   // A desired-side intent object the engine cannot key (an unnamed pg_cron job)
   // can never converge — refuse rather than silently drop it. The handler emits
   // this as a warning during capture; here, on the DESIRED side, it is fatal.
@@ -267,6 +267,7 @@ export function plan(
   const rulesForId = buildRuleResolver(options?.intentRules);
 
   const {
+    physicalSource,
     source,
     desired,
     projectedDesired,
@@ -277,9 +278,6 @@ export function plan(
     setsByFact,
     renameCandidates,
     acceptedRenames,
-    roleRenameMap,
-    carriedOwnerLinks,
-    changedRoleFacts,
   } = buildChangeSet(rawSource, rawDesired, options, rulesForId);
 
   const projectionAudit = auditManagedViewProjection(rawSource, rawDesired, {
@@ -322,11 +320,11 @@ export function plan(
   // references) — refusing in plan() just surfaces that earlier and louder.
   //
   // KNOWN LIMITATION (deliberately not handled here, tracked as a follow-up):
-  // a role RENAME combined with a one-side-hidden mapping. Rename-carry logic
-  // cancels the resulting remove/add pair into a single rename action before
-  // this gate runs on raw deltas from the ORIGINAL role name, so a renamed
-  // role is invisible to the `unreadableRoles` name-set built below in that
-  // case. In the realistic direction (the mapping is hidden on the SOURCE
+  // a role RENAME combined with a one-side-hidden mapping. Identity
+  // normalization rewrites visible deltas into the desired role name, while
+  // the extraction diagnostic still names the physical role, so a renamed role
+  // can be invisible to the `unreadableRoles` name-set below. In the realistic
+  // direction (the mapping is hidden on the SOURCE
   // side), this still fails safely — apply cannot rename a role a hidden
   // mapping references, for the same FK-style reason as a DROP. The only
   // truly gap is a hidden mapping combined with a rename that requires an
@@ -487,9 +485,9 @@ export function plan(
   });
 
   // ── phase 3: emit actions (./phases/action-emitter.ts) ────────────────
-  // Rename actions, creates (parents first), default-privilege hygiene,
-  // drops, replaces, in-place alters, role-rename changed-pair mutations, and
-  // owner-edge ALTERs — with the emitter's own producer/destroyer/fold
+  // Rename actions, creates (parents first), default-privilege hygiene, drops,
+  // replaces, in-place alters, and owner-edge ALTERs — with the emitter's own
+  // producer/destroyer/fold
   // bookkeeping. Enforces the create-produces-its-fact invariant.
   const {
     actions,
@@ -508,9 +506,6 @@ export function plan(
     replaceIds,
     dropRootOf,
     acceptedRenames,
-    roleRenameMap,
-    carriedOwnerLinks,
-    changedRoleFacts,
     deltas,
     params,
     serializeRules,
@@ -543,7 +538,10 @@ export function plan(
   return {
     formatVersion: 1,
     engineVersion: ENGINE_VERSION,
-    source: { fingerprint: source.rootHash },
+    // Identity normalization rewrites source ids into desired-name space for
+    // planning. The apply gate must still fingerprint the physical pre-rename
+    // managed view that exists before the first action runs.
+    source: { fingerprint: physicalSource.rootHash },
     target: { fingerprint: projectedDesired.rootHash },
     preamble: [
       // Pin the applier's deparse/resolution path to `pg_catalog` so the

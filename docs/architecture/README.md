@@ -118,8 +118,8 @@ Three concerns don't belong to any single step — they shape the whole pipeline
 `StableId` is a declarative, name-based address; PostgreSQL carries runtime
 references by OID. Role renames, ownership, memberships, grants, and
 non-semantic extraction hints all sit on that boundary. The identity/ACL
-invariants document separates today's post-diff carry from the planned
-canonical-normalization model and records what ACL equality actually means.
+invariants document explains the pre-diff canonical-normalization model and
+records what ACL equality actually means.
 
 → [identity-and-acl.md](identity-and-acl.md)
 

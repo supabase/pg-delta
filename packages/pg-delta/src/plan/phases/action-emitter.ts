@@ -5,13 +5,11 @@
  * list, with its OWN producer/destroyer/fold bookkeeping (local to this phase —
  * the cohesive emission algorithm the planner once inlined). Emits, in order:
  * rename actions, creates (parents first), default-privilege hygiene, drops,
- * replaces (drop + recreate), in-place alters, role-rename changed-pair
- * mutations, and owner-edge ALTERs. Enforces the create-produces-its-fact
- * invariant at the phase boundary (review architecture rec #2).
+ * replaces (drop + recreate), in-place alters, and owner-edge ALTERs. Enforces
+ * the create-produces-its-fact invariant at the phase boundary.
  */
 import type { Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
-import { canonicalize } from "../../core/hash.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import {
   canSetOwner,
@@ -23,16 +21,15 @@ import type { Action } from "../plan.ts";
 import { grantTarget, qid } from "../render.ts";
 import { subtreeIds } from "../renames.ts";
 import { cascadesToChildren, ruleFlag } from "../rule-flags.ts";
-import { ownerEdgeKey } from "../role-rename-carry.ts";
 import { type ActionSpec, type PlanParams, type RulesForId } from "../rules.ts";
-import type { ChangedRoleFact } from "./change-set.ts";
+import type { AcceptedRename } from "./change-set.ts";
 
 export interface ActionEmitterInput {
   /** resolved source / desired views + the projected plan target */
   source: FactBase;
   desired: FactBase;
   projectedDesired: FactBase;
-  /** add/remove worklists + grouped set-deltas (rename cancellation applied) */
+  /** canonical add/remove worklists + grouped set-deltas */
   removed: ReadonlyMap<string, Fact>;
   added: ReadonlyMap<string, Fact>;
   setsByFact: ReadonlyMap<string, Extract<Delta, { verb: "set" }>[]>;
@@ -40,10 +37,7 @@ export interface ActionEmitterInput {
   replaceIds: ReadonlySet<string>;
   dropRootOf: ReadonlyMap<string, string>;
   /** from ChangeSet */
-  acceptedRenames: ReadonlyArray<{ from: Fact; to: Fact }>;
-  roleRenameMap: ReadonlyMap<string, string>;
-  carriedOwnerLinks: ReadonlySet<string>;
-  changedRoleFacts: readonly ChangedRoleFact[];
+  acceptedRenames: readonly AcceptedRename[];
   deltas: readonly Delta[];
   /** serialize params + policy serialize rules */
   params: PlanParams;
@@ -78,9 +72,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     replaceIds,
     dropRootOf,
     acceptedRenames,
-    roleRenameMap,
-    carriedOwnerLinks,
-    changedRoleFacts,
     deltas,
     params,
     serializeRules,
@@ -177,7 +168,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // RENAME), so owner edges on the renamed subtree must not drive graph ordering
   // through the rename (review P1 #2: rename/rename cycle).
   const renameActionIndices = new Set<number>();
-  for (const { from, to } of acceptedRenames) {
+  for (const { from, to, sourceSubtree, desiredSubtree } of acceptedRenames) {
     const rename = rulesForId(from.id).rename;
     if (rename === undefined) {
       throw new Error(
@@ -186,8 +177,8 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     }
     renameActionIndices.add(
       pushAction("alter", rename(from, to.id), {
-        produces: subtreeIds(desired, to.id),
-        destroys: subtreeIds(source, from.id),
+        produces: desiredSubtree,
+        destroys: sourceSubtree,
         consumes: to.parent !== undefined ? [to.parent] : [],
       }),
     );
@@ -426,63 +417,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     }
   }
 
-  // role-rename changed-pair mutations (review P2, fourth follow-up): the role
-  // rename carries the fact's IDENTITY by OID, so emit only the PAYLOAD change
-  // against the post-rename id — never old-name teardown + new-name create. The
-  // renamed roles the new id references (`orderingConsumes`) order every emitted
-  // action AFTER the `ALTER ROLE … RENAME` that produces them. We must NOT
-  // consume the carried fact id itself: it is neither in `source` nor produced
-  // by any action, so buildActionGraph would flag it missing.
-  for (const { toFact, fromPayload, orderingConsumes } of changedRoleFacts) {
-    const rules = rulesForId(toFact.id);
-    const alterSpecs: ActionSpec[] = [];
-    let needsReplace = false;
-    const attrs = new Set([
-      ...Object.keys(fromPayload),
-      ...Object.keys(toFact.payload),
-    ]);
-    for (const attr of attrs) {
-      const from = fromPayload[attr];
-      const to = toFact.payload[attr];
-      const canon = (v: typeof from): string =>
-        v === undefined ? " absent" : canonicalize(v);
-      if (canon(from) === canon(to)) continue;
-      const attrRule = rules.attributes[attr];
-      if (attrRule === undefined || attrRule === "replace") {
-        // replace-shaped attr (acl/defaultPrivilege): the whole fact is replaced
-        needsReplace = true;
-        continue;
-      }
-      const specs = attrRule.alter(toFact, from, to, projectedDesired, source);
-      alterSpecs.push(...(Array.isArray(specs) ? specs : [specs]));
-    }
-    if (needsReplace) {
-      // drop+create against the carried (post-rename) id. The drop rule reads
-      // only fact.id (no `source` lookup), so it works although `to` is absent
-      // from source; "destroy before re-produce" orders the drop before create.
-      pushAction("drop", rules.drop(toFact), {
-        destroys: [toFact.id],
-        consumes: orderingConsumes,
-      });
-      const createSpecs = rules.create(
-        toFact,
-        projectedDesired,
-        paramsFor(toFact),
-        source,
-      );
-      createSpecs.forEach((spec, i) => {
-        pushAction("create", spec, {
-          produces: i === 0 ? [toFact.id] : [],
-          consumes: [...(i === 0 ? [] : [toFact.id]), ...orderingConsumes],
-        });
-      });
-    } else {
-      for (const spec of alterSpecs) {
-        pushAction("alter", spec, { consumes: orderingConsumes });
-      }
-    }
-  }
-
   // owner-edge changes: emit ALTER … OWNER TO from link/unlink deltas (move 2:
   // owner is now an edge, not a payload attribute)
   {
@@ -492,18 +426,10 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       if (delta.verb !== "unlink" || delta.edge.kind !== "owner") continue;
       oldOwnerByFact.set(encodeId(delta.edge.from), delta.edge.to);
     }
-    // `roleRenameMap` (source role name → dest) is reused: a table owned by
-    // `old` and renamed alongside keeps the SAME owner OID, surfacing in
-    // `desired` as `new` — so the owner is CARRIED by the two renames, not
-    // changed. Accepted renames carry ownership: `ALTER … RENAME` never changes
-    // the owner, so the renamed subtree's owner edge resurfaces as a fresh link
-    // in the desired base even when nothing changed. Map each renamed-to id to
-    // the owner its rename-from counterpart held in source — projected THROUGH
-    // any accepted role rename, so a table+owner-role pair both renamed reads as
-    // an unchanged owner (the renames carry it; no `ALTER … OWNER TO`, and no
-    // rename/rename cycle — review P1 #2). A genuinely changed owner still
-    // emits. Subtree ids zip by index — the rename matched on a structural
-    // rollup.
+    // Accepted object renames preserve ownership. Map each renamed-to id to the
+    // owner its rename-from counterpart held in canonical source. Any accepted
+    // role rename is already reflected in that source edge, so a dual object +
+    // owner-role rename compares as unchanged without carry bookkeeping.
     const renamedOwner = new Map<string, string | null>();
     // and the OLD owner's StableId, so a genuinely-changed owner's link action
     // can `releases` it (the source-side unlink is keyed by the OLD id, which
@@ -525,10 +451,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
           continue;
         }
         const srcOwnerName = (ownerEdge.to as { name: string }).name;
-        renamedOwner.set(
-          encodeId(dstId),
-          roleRenameMap.get(srcOwnerName) ?? srcOwnerName,
-        );
+        renamedOwner.set(encodeId(dstId), srcOwnerName);
         renamedOwnerId.set(encodeId(dstId), ownerEdge.to);
       }
     }
@@ -556,12 +479,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       // ownership carried unchanged by an accepted OBJECT rename (the object id
       // changed; renamedOwner maps it through any role rename) — no action
       if (renamedOwner.get(objKey) === roleName) continue;
-      // ownership carried by an accepted ROLE rename on a STABLE object: the
-      // owner edge relinks r1→r2 on the same id, but PostgreSQL carries it by
-      // OID. Skip BEFORE the capability check — there is no owner action to
-      // authorize (third follow-up review P1: role-only rename cycle / false
-      // capability failure). The general role-rename carry seam decided this.
-      if (carriedOwnerLinks.has(ownerEdgeKey(objId, newRoleId))) continue;
       // Owner residue (move 6): `ALTER … OWNER TO R` requires the applier to be
       // a superuser or a member of R. If a capability is supplied and the
       // applier cannot, fail fast at plan time with an actionable message —

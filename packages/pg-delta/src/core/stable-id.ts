@@ -103,7 +103,7 @@ export function isSatelliteId(id: StableId): boolean {
 /** Every `FactKind`, as a runtime array. The `satisfies` + the `_exhaustive`
  *  assignment below make this a COMPILE error if a new `StableId` kind is added
  *  without listing it here — which in turn keeps the role-name-bearing registry
- *  (role-rename-carry.ts) honest (a new kind must be classified). */
+ *  (plan/identity-normalize.ts) honest (a new kind must be classified). */
 export const ALL_FACT_KINDS = [
   ...SIMPLE_KINDS,
   ...QUALIFIED_KINDS,

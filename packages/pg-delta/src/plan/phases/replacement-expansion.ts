@@ -15,7 +15,7 @@ import { cascadesToChildren, isRebuildable } from "../rule-flags.ts";
 import type { RulesForId } from "../rules.ts";
 
 export interface ReplacementExpansionInput {
-  /** removed facts keyed by encoded id (rename/role-rename cancellation applied) */
+  /** removed facts keyed by encoded id (ordinary rename cancellation applied) */
   removed: ReadonlyMap<string, Fact>;
   /** set-deltas grouped by encoded fact id */
   setsByFact: ReadonlyMap<string, Extract<Delta, { verb: "set" }>[]>;

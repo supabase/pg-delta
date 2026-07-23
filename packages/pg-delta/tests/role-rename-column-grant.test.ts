@@ -1,9 +1,9 @@
 /**
- * Role-rename carry for COLUMN-level grants (regression).
+ * Pre-diff role identity normalization for COLUMN-level grants (regression).
  *
  * `ALTER ROLE r_old RENAME TO r_new` carries every role-name-bearing fact by
  * OID — including a column-qualified grant (`pg_attribute.attacl`,
- * `GRANT SELECT (col) ON t TO r_old`). The carry detector must recognise the
+ * `GRANT SELECT (col) ON t TO r_old`). Canonicalization must preserve the
  * relabeled column-ACL id, otherwise a pure role rename spuriously emits a
  * REVOKE/GRANT pair around the rename (which also demands table-grant
  * privileges a rename-only migration should not need). The column-grant
@@ -11,11 +11,12 @@
  * must preserve it.
  *
  * Roles are cluster-global, so the pair runs on an isolated cluster pair and
- * carries a distinctive role config so the role rename is UNAMBIGUOUS
+ * uses a distinctive role config so the role rename is UNAMBIGUOUS
  * regardless of leftover roles from other tests (same trick as owner-edge
  * test (e)). Docker required.
  */
 import { describe, expect, test } from "bun:test";
+import { subjectOf } from "../src/core/diff.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
 import { provePlan } from "../src/proof/prove.ts";
@@ -23,7 +24,7 @@ import { isolatedClusterPair, type TestDb } from "./containers.ts";
 
 const dbs: TestDb[] = [];
 
-describe("role rename carries a column-level grant (no spurious REVOKE/GRANT)", () => {
+describe("role rename normalizes a column-level grant (no spurious REVOKE/GRANT)", () => {
   test("pure role rename emits only ALTER ROLE … RENAME TO", async () => {
     const [clusterA, clusterB] = await isolatedClusterPair();
     const srcDb = await clusterA.createDb("rencolgr_src");
@@ -72,12 +73,15 @@ describe("role rename carries a column-level grant (no spurious REVOKE/GRANT)", 
         (a) => a.sql.includes("RENAME TO") && a.sql.includes("rencolgr_new"),
       ),
     ).toBe(true);
-    // … and the rename carries BOTH the column grant AND the object grant by
-    // OID: no REVOKE and no GRANT churn around the rename.
+    // … and canonicalization sees BOTH grants as the same OID-carried state:
+    // no REVOKE and no GRANT churn around the rename.
     const revokes = thePlan.actions.filter((a) => a.sql.includes("REVOKE"));
     const grants = thePlan.actions.filter((a) => /\bGRANT\b/.test(a.sql));
     expect(revokes.map((a) => a.sql)).toEqual([]);
     expect(grants.map((a) => a.sql)).toEqual([]);
+    expect(
+      thePlan.deltas.filter((delta) => subjectOf(delta).kind === "acl"),
+    ).toEqual([]);
 
     const verdict = await provePlan(thePlan, srcDb.pool, dstState.factBase);
     expect(verdict.applyError).toBeUndefined();

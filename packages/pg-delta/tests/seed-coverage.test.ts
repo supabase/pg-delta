@@ -9,6 +9,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { ProofVerdict, SeedOutcome } from "../src/proof/prove.ts";
+import { ActionShapeBudgetError } from "./action-shape-budgets.ts";
 import {
   enforceSeedCoverage,
   runPinnedDirection,
@@ -172,6 +173,20 @@ describe("runPinnedDirection (EXPECTED_RED wrapper)", () => {
       caught = e;
     }
     expect(caught).toBeInstanceOf(SeedCoverageError);
+    expect(caught).toBe(boom);
+  });
+
+  test("an ActionShapeBudgetError is re-thrown (never swallowed as red-as-pinned)", async () => {
+    const boom = new ActionShapeBudgetError("action shape violated");
+    let caught: unknown;
+    try {
+      await runPinnedDirection("k:forward", async () => {
+        throw boom;
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ActionShapeBudgetError);
     expect(caught).toBe(boom);
   });
 

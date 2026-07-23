@@ -3,16 +3,16 @@
  * and so the harness can tell an autoSeed audit failure apart from a scenario's
  * ordinary proof failure.
  *
- * `enforceSeedCoverage` throws a distinct `SeedCoverageError` (NOT a plain
- * `Error`) on any violation. That matters because the EXPECTED_RED pinned path
- * in engine.test.ts is `try { runDirection() } catch { return }` — a plain
- * error there would be swallowed as "red as pinned", letting a seed-coverage
- * regression hide inside a pinned scenario. The pinned catch re-throws
- * `SeedCoverageError`, so a coverage violation always fails the corpus.
+ * `enforceSeedCoverage` throws a `SeedCoverageError`, which is a test-harness
+ * `CorpusContractError`, on any violation. That matters because the EXPECTED_RED
+ * pinned path swallows ordinary planner/proof errors as "red as pinned". The
+ * pinned catch re-throws every corpus-contract failure, so neither seed coverage
+ * nor action-shape regressions can hide inside a pinned scenario.
  */
 import { writeSync } from "node:fs";
 import { rel } from "../src/plan/render.ts";
 import type { ProofVerdict } from "../src/proof/prove.ts";
+import { CorpusContractError } from "./corpus-contract.ts";
 import {
   isSeedSkipAllowed,
   seedSkipAllowlistFor,
@@ -20,7 +20,7 @@ import {
 
 /** A seed-coverage contract violation. Never a legitimate "red as pinned": the
  *  EXPECTED_RED pinned catch re-throws this so it always fails the corpus. */
-export class SeedCoverageError extends Error {
+export class SeedCoverageError extends CorpusContractError {
   constructor(message: string) {
     super(message);
     this.name = "SeedCoverageError";
@@ -135,8 +135,8 @@ export function enforceSeedCoverage(
 
 /**
  * Run one EXPECTED_RED-pinned corpus direction and interpret the outcome:
- *  - the run throws `SeedCoverageError` → RE-THROW it (a seed-coverage violation
- *    is never a legitimate "red as pinned"; it must fail the corpus even here);
+ *  - the run throws `CorpusContractError` → RE-THROW it (a harness-contract
+ *    violation is never a legitimate "red as pinned"; it must fail even here);
  *  - the run throws anything else → resolve quietly (red as pinned — fine);
  *  - the run passes → throw the "pinned but now PASSES" error so a stale pin is
  *    removed.
@@ -150,7 +150,7 @@ export async function runPinnedDirection(
   try {
     await run();
   } catch (error) {
-    if (error instanceof SeedCoverageError) throw error;
+    if (error instanceof CorpusContractError) throw error;
     return; // red as pinned — fine
   }
   throw new Error(

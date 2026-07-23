@@ -1,22 +1,23 @@
 /**
  * Planner phase 1 — ChangeSet (target-architecture §3.4, §3.9, §4.1).
  *
- * Resolves the managed VIEW (baseline subtraction + policy/extension-member
- * projection) on both sides, diffs, applies the policy delta filter, and groups
- * the kept deltas into added/removed/set worklists. Then it cancels what an
- * accepted rename or a role rename carries — so replacement expansion and action
- * emission never see a delta the rename already accounts for. Pure over its
- * inputs; the resolved views + worklists + rename bookkeeping it returns are the
- * single input to the rest of the planner.
+ * Resolves the managed VIEW on both sides, performs a policy-filtered discovery
+ * diff to accept renames, normalizes accepted role identities into desired-name
+ * space, then diffs and filters the canonical pair for the actual plan. Pure
+ * over its inputs; the resolved views + worklists + rename bookkeeping it
+ * returns are the single input to the rest of the planner.
  */
 import { diff, type Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
-import type { Payload } from "../../core/hash.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import { filterDeltas, validatePolicy } from "../../policy/policy.ts";
 import { reconstructManagedView } from "../../policy/reconstruct.ts";
+import {
+  buildRoleRenameMap,
+  normalizeRoleIdentities,
+  relabelRoleNames,
+} from "../identity-normalize.ts";
 import type { PlanOptions } from "../plan.ts";
-import type { RulesForId } from "../rules.ts";
 import { projectTarget } from "../project.ts";
 import {
   matchRenameCandidates,
@@ -24,48 +25,93 @@ import {
   type RenameCandidate,
   type RenameMode,
 } from "../renames.ts";
-import {
-  buildRoleRenameMap,
-  computeRoleRenameCarry,
-  roleNamesIn,
-} from "../role-rename-carry.ts";
+import type { RulesForId } from "../rules.ts";
 
-/** A role-name-bearing fact whose identity a role rename carries but whose
- *  payload also changed: emit the payload change against the post-rename id,
- *  ordered after the rename (orderingConsumes). */
-export interface ChangedRoleFact {
-  toFact: Fact;
-  fromPayload: Payload;
-  orderingConsumes: StableId[];
+/** Accepted rename facts stay physical so rename SQL renders old -> new. The
+ * subtree identities are captured before role normalization for honest action
+ * metadata even though every downstream fact base is canonical. */
+export interface AcceptedRename {
+  from: Fact;
+  to: Fact;
+  sourceSubtree: StableId[];
+  desiredSubtree: StableId[];
 }
 
 export interface ChangeSet {
-  /** resolved (managed-view) source / desired — what everything downstream uses */
+  /** resolved physical source — used only by the apply fingerprint gate */
+  physicalSource: FactBase;
+  /** canonical managed-view source / desired — what everything downstream uses */
   source: FactBase;
   desired: FactBase;
   /** desired with every FILTERED delta reverted to source — the honest plan
-   *  target (fingerprint + proof target) */
+   * target (fingerprint + proof target) */
   projectedDesired: FactBase;
   deltas: Delta[];
   filteredDeltas: Delta[];
-  /** add/remove worklists (rename + role-rename cancellation already applied)
-   *  and set-deltas grouped by encoded fact id */
+  /** add/remove worklists (ordinary rename cancellation already applied) and
+   * set-deltas grouped by encoded fact id */
   removed: Map<string, Fact>;
   added: Map<string, Fact>;
   setsByFact: Map<string, Extract<Delta, { verb: "set" }>[]>;
   renameCandidates: RenameCandidate[];
-  acceptedRenames: Array<{ from: Fact; to: Fact }>;
-  /** source-role-name → dest-role-name, from accepted role renames */
-  roleRenameMap: Map<string, string>;
-  /** owner LINK edge keys a role rename carries (skip in the owner loop) */
-  carriedOwnerLinks: Set<string>;
-  changedRoleFacts: ChangedRoleFact[];
+  acceptedRenames: AcceptedRename[];
 }
 
-/**
- * Build the change set: resolve views, diff, filter, group, and apply rename /
- * role-rename cancellation. Behavior-preserving extraction of `plan()`'s head.
- */
+function groupDeltas(deltas: readonly Delta[]): {
+  removed: Map<string, Fact>;
+  added: Map<string, Fact>;
+  setsByFact: Map<string, Extract<Delta, { verb: "set" }>[]>;
+} {
+  const removed = new Map<string, Fact>();
+  const added = new Map<string, Fact>();
+  const setsByFact = new Map<string, Extract<Delta, { verb: "set" }>[]>();
+  for (const delta of deltas) {
+    if (delta.verb === "remove") {
+      removed.set(encodeId(delta.fact.id), delta.fact);
+    } else if (delta.verb === "add") {
+      added.set(encodeId(delta.fact.id), delta.fact);
+    } else if (delta.verb === "set") {
+      const key = encodeId(delta.id);
+      const list = setsByFact.get(key) ?? [];
+      list.push(delta);
+      setsByFact.set(key, list);
+    }
+  }
+  return { removed, added, setsByFact };
+}
+
+/** Whether the effective policy-projected target is exactly compatible with a
+ * physical ordinary rename. The old root must be gone, the complete desired
+ * subtree (including outgoing edges via its Merkle rollup) must be unchanged,
+ * and incoming edges to every renamed descendant must match. Comparing the
+ * projected target—not raw filtered deltas—allows harmless old-side facts that
+ * projectTarget pruned as orphans while still rejecting partial new subtrees. */
+function renameMatchesProjectedTarget(
+  desired: FactBase,
+  projectedDesired: FactBase,
+  from: StableId,
+  to: StableId,
+): boolean {
+  if (projectedDesired.has(from) || !projectedDesired.has(to)) return false;
+  if (projectedDesired.rollupOf(to) !== desired.rollupOf(to)) return false;
+
+  const desiredSubtree = new Set(subtreeIds(desired, to).map(encodeId));
+  const incomingSignature = (fb: FactBase): string[] =>
+    fb.edges
+      .filter((edge) => desiredSubtree.has(encodeId(edge.to)))
+      .map(
+        (edge) => `${encodeId(edge.from)}-[${edge.kind}]->${encodeId(edge.to)}`,
+      )
+      .sort();
+  const desiredIncoming = incomingSignature(desired);
+  const projectedIncoming = incomingSignature(projectedDesired);
+  return (
+    desiredIncoming.length === projectedIncoming.length &&
+    desiredIncoming.every((edge, index) => edge === projectedIncoming[index])
+  );
+}
+
+/** Build the canonical change set while retaining the physical source gate. */
 export function buildChangeSet(
   rawSource: FactBase,
   rawDesired: FactBase,
@@ -73,9 +119,8 @@ export function buildChangeSet(
   rulesForId: RulesForId,
 ): ChangeSet {
   if (options?.policy) validatePolicy(options.policy);
-  // a declared baseline must NEVER be silently ignored (review finding 3): if
-  // the policy names a baseline, the caller must resolve it (resolveBaseline)
-  // and pass it as options.baseline. Refuse otherwise — at every entry point.
+  // A declared baseline must never be silently ignored: the caller must resolve
+  // it and pass the resulting FactBase into every planning entry point.
   if (
     options?.policy?.baseline !== undefined &&
     options.baseline === undefined
@@ -87,25 +132,17 @@ export function buildChangeSet(
         `platform facts are actually subtracted — a declared baseline is never silently ignored.`,
     );
   }
-  // the managed VIEW the engine diffs (docs/architecture/managed-view-architecture.md):
-  // the platform baseline is subtracted, then the policy's scope (non-`verb`)
-  // rules are projected out and extension members are marked reference-only, at
-  // the FACT level on BOTH sides, so the proof stays honest by construction.
-  // `verb` rules remain for the delta-level filter below. With no policy/baseline
-  // and no member edges this is the identity projection, so the corpus is unchanged.
-  //
-  // Managed view under scope: `reconstructManagedView` seals resolveView THEN
-  // projectManagementScope (owner edges must survive for policy exclusion before
-  // database-scope role prune). Plan / apply / prove / export share that helper
-  // so `plan == prove == run`. `scope` defaults to "cluster" (identity).
-  const source = reconstructManagedView(rawSource, {
+
+  // `reconstructManagedView` seals baseline subtraction, policy projection,
+  // extension-member handling, and management scope in one shared composition.
+  const physicalSource = reconstructManagedView(rawSource, {
     policy: options?.policy,
     capability: options?.capability,
     baseline: options?.baseline,
     scope: options?.scope,
     defaultOwner: options?.defaultOwner,
   });
-  const desired = reconstructManagedView(rawDesired, {
+  const physicalDesired = reconstructManagedView(rawDesired, {
     policy: options?.policy,
     capability: options?.capability,
     baseline: options?.baseline,
@@ -113,104 +150,110 @@ export function buildChangeSet(
     defaultOwner: options?.defaultOwner,
   });
 
-  const allDeltas = diff(source, desired);
-  const { kept: deltas, filtered: filteredDeltas } = options?.policy
-    ? filterDeltas(allDeltas, options.policy, source, desired)
-    : { kept: allDeltas, filtered: [] };
-  // the honest plan target: `desired` with every FILTERED delta reverted to its
-  // source value, since the plan only applies KEPT deltas (review #2). The
-  // fingerprint and the proof both target THIS, not full `desired`.
-  const projectedDesired = projectTarget(desired, filteredDeltas);
+  // Rename proposals come from policy-kept deltas in physical identity space.
+  // This is intentionally a discovery pass: the actual plan is built from a
+  // second diff after accepted role identities have been canonicalized.
+  const discoveryAllDeltas = diff(physicalSource, physicalDesired);
+  const { kept: discoveryDeltas } = options?.policy
+    ? filterDeltas(
+        discoveryAllDeltas,
+        options.policy,
+        physicalSource,
+        physicalDesired,
+      )
+    : { kept: discoveryAllDeltas };
+  const { removed: discoveryRemoved, added: discoveryAdded } =
+    groupDeltas(discoveryDeltas);
 
-  const removed = new Map<string, Fact>();
-  const added = new Map<string, Fact>();
-  const setsByFact = new Map<string, Extract<Delta, { verb: "set" }>[]>();
-  for (const delta of deltas) {
-    if (delta.verb === "remove")
-      removed.set(encodeId(delta.fact.id), delta.fact);
-    if (delta.verb === "add") added.set(encodeId(delta.fact.id), delta.fact);
-    if (delta.verb === "set") {
-      const key = encodeId(delta.id);
-      const list = setsByFact.get(key) ?? [];
-      list.push(delta);
-      setsByFact.set(key, list);
-    }
-  }
-
-  // ── rename detection (§4.1, stage 9) ──────────────────────────────────
-  // accepted renames cancel their remove/add subtrees BEFORE replace, rebuild,
-  // and suppression see them; the rename action is emitted later.
   const renameMode: RenameMode = options?.renames ?? "off";
   const renameCandidates: RenameCandidate[] = [];
-  const acceptedRenames: Array<{ from: Fact; to: Fact }> = [];
+  const discoveredRenames: AcceptedRename[] = [];
   if (renameMode !== "off") {
     const candidates = matchRenameCandidates(
-      removed,
-      added,
-      source,
-      desired,
+      discoveryRemoved,
+      discoveryAdded,
+      physicalSource,
+      physicalDesired,
       rulesForId,
     );
     renameCandidates.push(...candidates);
     const confirmed = new Set(
       (options?.acceptRenames ?? []).map(
-        (r) => `${encodeId(r.from)}>${encodeId(r.to)}`,
+        (rename) => `${encodeId(rename.from)}>${encodeId(rename.to)}`,
       ),
     );
     for (const candidate of candidates) {
       if (candidate.status !== "unambiguous") continue;
       const key = `${encodeId(candidate.from)}>${encodeId(candidate.to)}`;
       if (renameMode === "prompt" && !confirmed.has(key)) continue;
-      const fromFact = removed.get(encodeId(candidate.from)) as Fact;
-      const toFact = added.get(encodeId(candidate.to)) as Fact;
-      // structural equality covers the whole subtree: cancel every descendant's
-      // remove/add — the rename carries them implicitly
-      for (const id of subtreeIds(source, candidate.from))
-        removed.delete(encodeId(id));
-      for (const id of subtreeIds(desired, candidate.to))
-        added.delete(encodeId(id));
-      acceptedRenames.push({ from: fromFact, to: toFact });
+      const from = discoveryRemoved.get(encodeId(candidate.from)) as Fact;
+      const to = discoveryAdded.get(encodeId(candidate.to)) as Fact;
+      discoveredRenames.push({
+        from,
+        to,
+        sourceSubtree: subtreeIds(physicalSource, candidate.from),
+        desiredSubtree: subtreeIds(physicalDesired, candidate.to),
+      });
     }
   }
 
-  // ── role-rename carry (role-rename-carry.ts) ──────────────────────────
-  // PostgreSQL carries every role-name-bearing fact through `ALTER ROLE …
-  // RENAME` by OID. The diff still surfaces those as remove/add (or owner
-  // unlink/link) pairs differing only by the renamed name; this Module decides,
-  // in ONE place, which the rename carries so emission re-issues no DDL for
-  // them. carriedFactKeys (acl/membership/userMapping/defaultPrivilege) are
-  // cancelled from the worklists here; carriedOwnerLinks are skipped in the
-  // owner-edge loop later (where the role-only-rename owner cycle lived).
-  const roleRenameMap = buildRoleRenameMap(acceptedRenames);
-  const { carriedFactKeys, carriedOwnerLinks, changedFacts } =
-    computeRoleRenameCarry(deltas, roleRenameMap);
-  for (const key of carriedFactKeys) {
-    removed.delete(key);
-    added.delete(key);
-  }
-  // A changed pair carries the IDENTITY (old name → new name by OID) but the
-  // payload also changed. Cancel the old-name teardown AND the new-name create,
-  // and capture the facts so emission can mutate the post-rename id instead
-  // (review P2, fourth follow-up). The renamed roles the new id references order
-  // that mutation AFTER the role rename.
-  const targetRoleNames = new Set(roleRenameMap.values());
-  const changedRoleFacts: ChangedRoleFact[] = [];
-  for (const { from, to } of changedFacts) {
-    const fromFact = removed.get(encodeId(from));
-    const toFact = added.get(encodeId(to));
-    removed.delete(encodeId(from));
-    added.delete(encodeId(to));
-    if (fromFact === undefined || toFact === undefined) continue;
-    changedRoleFacts.push({
-      toFact,
-      fromPayload: fromFact.payload,
-      orderingConsumes: [...roleNamesIn(to)]
-        .filter((name) => targetRoleNames.has(name))
-        .map((name) => ({ kind: "role", name }) as StableId),
-    });
+  // PostgreSQL carries role references by OID. Rewrite both managed views into
+  // desired-name space so the generic diff sees that continuity directly.
+  const roleRenameMap = buildRoleRenameMap(discoveredRenames);
+  const source = normalizeRoleIdentities(physicalSource, roleRenameMap);
+  const desired = normalizeRoleIdentities(physicalDesired, roleRenameMap);
+
+  const allDeltas = diff(source, desired);
+  const { kept: deltas, filtered: filteredDeltas } = options?.policy
+    ? filterDeltas(allDeltas, options.policy, source, desired)
+    : { kept: allDeltas, filtered: [] };
+  // The honest target is canonical desired with every filtered delta reverted
+  // to canonical source. The physical source is retained only for fingerprinting.
+  const projectedDesired = projectTarget(desired, filteredDeltas);
+  const { removed, added, setsByFact } = groupDeltas(deltas);
+
+  // Discovery runs in physical identity space, but canonical filtering can
+  // change the effective target of an ordinary object rename. PostgreSQL cannot
+  // rename only part of a subtree, so retain the rename only when the projected
+  // target contains no old root and exactly the desired destination subtree and
+  // incoming edges. Leave surviving worklist entries alone otherwise so
+  // ordinary create/drop converges on the policy-projected target.
+  // Accepted role renames are the deliberate exception: normalization erases
+  // their canonical remove/add pair by construction, while PostgreSQL carries
+  // their normalized role references by OID.
+  const acceptedRenames = discoveredRenames.filter(({ from, to }) => {
+    if (from.id.kind === "role" && to.id.kind === "role") return true;
+    const canonicalFrom = relabelRoleNames(from.id, roleRenameMap);
+    const canonicalTo = relabelRoleNames(to.id, roleRenameMap);
+    return (
+      removed.has(encodeId(canonicalFrom)) &&
+      added.has(encodeId(canonicalTo)) &&
+      renameMatchesProjectedTarget(
+        desired,
+        projectedDesired,
+        canonicalFrom,
+        canonicalTo,
+      )
+    );
+  });
+
+  // Ordinary object renames still remove their structural subtrees from the
+  // create/drop worklists. Role renames are already one canonical identity;
+  // any simultaneous payload change remains an ordinary set delta.
+  for (const { from, to } of acceptedRenames) {
+    if (from.id.kind === "role" && to.id.kind === "role") continue;
+    const canonicalFrom = relabelRoleNames(from.id, roleRenameMap);
+    const canonicalTo = relabelRoleNames(to.id, roleRenameMap);
+    for (const id of subtreeIds(source, canonicalFrom)) {
+      removed.delete(encodeId(id));
+    }
+    for (const id of subtreeIds(desired, canonicalTo)) {
+      added.delete(encodeId(id));
+    }
   }
 
   return {
+    physicalSource,
     source,
     desired,
     projectedDesired,
@@ -221,8 +264,5 @@ export function buildChangeSet(
     setsByFact,
     renameCandidates,
     acceptedRenames,
-    roleRenameMap,
-    carriedOwnerLinks,
-    changedRoleFacts,
   };
 }

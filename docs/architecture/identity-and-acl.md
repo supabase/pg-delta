@@ -6,9 +6,8 @@ connect objects at runtime; pg-delta uses declarative, name-based addresses to
 describe the state that DDL can reproduce. Confusing those two identities is
 the source of most rename and ACL edge cases.
 
-This document distinguishes the **current implementation** from the **I1
-target**. I1 has not landed yet: current planning still uses post-diff role
-carry and a narrow role-rename ordering carve-out.
+The planner reconciles PostgreSQL's OID continuity with declarative StableIds
+by normalizing accepted role renames before its canonical diff.
 
 ## The invariants at a glance
 
@@ -66,8 +65,8 @@ role OID. Ownership, grants, memberships, user mappings, and policy role lists
 continue to reference that OID. Re-extraction reports `new` everywhere even
 though pg-delta's pre-rename facts were keyed by `old`.
 
-The current StableId role-name registry is
-[`ROLE_NAME_BEARING_KINDS`](../../packages/pg-delta/src/plan/role-rename-carry.ts):
+The StableId role-name registry lives with the planner's normalizer at
+[`ROLE_NAME_BEARING_KINDS`](../../packages/pg-delta/src/plan/identity-normalize.ts).
 
 | Kind | Role-bearing identity fields |
 |---|---|
@@ -90,51 +89,37 @@ cannot protect payload fields. Whenever a new catalog field contains a role
 name, decide explicitly whether it belongs in identity, an edge, or structured
 payload. Do not derive or repair the reference by parsing SQL text.
 
-## Rename flow: current and target
-
-### Current implementation
+## Rename flow
 
 Current planning performs these steps:
 
 1. Reconstruct the managed source and desired views.
-2. Run generic diff and policy filtering; build remove/add worklists from kept
-   deltas.
-3. Propose rename-capable roots whose identity-free structural rollups match.
-   Ambiguous and near-miss candidates are reported, never guessed.
-4. Accept candidates according to the rename mode (`auto`/`prompt`/`off`) and
-   explicit confirmations; cancel their old and new subtrees from create/drop
-   worklists.
-5. For accepted role renames, match remove/add deltas by relabeling their
-   role-bearing StableIds without rewriting either fact base. Cancel unchanged
-   pairs and matching owner unlink/link pairs; convert payload-changed pairs
-   into mutations against the new identity.
-6. Emit the rename separately, with the old subtree in `destroys` and the new
-   subtree in `produces`, so dependent actions order against both names.
+2. Run a discovery diff and policy filter. Propose rename-capable roots from
+   kept remove/add pairs whose identity-free structural rollups match.
+3. Accept candidates according to the rename mode (`auto`/`prompt`/`off`) and
+   explicit confirmations. Ambiguous and near-miss candidates are reported,
+   never guessed.
+4. Rewrite both managed views into the accepted roles' **desired-name space**:
+   ids, parents, edges, `referenceOnly` encoded ids, and known structured
+   payload references such as `policy.roles`.
+5. Run a second canonical diff and policy filter. Pure role-name relabels are
+   now continuity, while simultaneous payload changes are ordinary set deltas.
+6. Cancel accepted non-role object rename subtrees from create/drop worklists.
+   Role renames need no post-diff cancellation.
+7. Emit every rename through the existing seam using the original physical
+   facts and captured subtrees, with old ids in `destroys` and new ids in
+   `produces` so dependent actions order against both names.
 
-This post-diff carry lives in
-[`role-rename-carry.ts`](../../packages/pg-delta/src/plan/role-rename-carry.ts).
-It cannot relabel `policy.roles`, because that reference is payload-carried.
-The current planner therefore retains the narrow
-[B1](../roadmap/agent-tracks/B1-role-rename-policy-cycle.md) ordering carve-out
-for a policy mutation spanning an accepted role rename.
+The source fingerprint remains tied to the physical pre-rename managed view;
+canonical source and desired views feed every planning phase and the desired
+state proof. There is no role-carry module or special role-policy graph carve-out.
 
-### I1 target (not current)
+Rename proposal remains conservative:
 
-[I1](../roadmap/agent-tracks/I1-prediff-rename-identity.md) replaces carry with
-identity normalization:
-
-1. A discovery diff, with policy filtering, proposes and accepts role renames.
-2. Copy-on-write normalization rewrites both fact bases into the **desired-name
-   space**: ids, parents, edges, `referenceOnly` encoded ids, and known
-   structured payload references such as `policy.roles`.
-3. A second canonical diff and policy filter produce the ordinary plan.
-4. The existing rename-emission seam still renders SQL from the original
-   physical old/new facts.
-
-Only the source fingerprint remains tied to the physical pre-rename source.
-Everything else consumes the canonical pair. When I1 lands, the role carry
-module and B1 carve-out should disappear; until then, documentation and tests
-must describe them as current behavior.
+- Rename-capable roots must have matching identity-free structural rollups.
+- Ambiguous and near-miss candidates are reported, never guessed.
+- Policy filtering runs on both discovery and canonical deltas, so excluded
+  state can neither propose a rename nor leak into the plan.
 
 ## ACL identity and equality
 
@@ -209,10 +194,9 @@ Materialized views and partitioned table roots receive state-proof coverage but
 do not enter these row statistics; role and other object renames do not use the
 row-key map either.
 
-Under the I1 target, the proof algorithm remains unchanged, but fingerprint
-routing matters: apply must compare the physical pre-rename source with the
-physical source fingerprint, while canonical ids feed diff, planning, and the
-desired state proof.
+The proof algorithm itself remains unchanged, but fingerprint routing matters:
+apply compares the physical pre-rename source with the physical source
+fingerprint, while canonical ids feed diff, planning, and desired state proof.
 
 ## Checklist for contributors
 
@@ -222,8 +206,8 @@ Before adding or changing identity, ACL, or role-bearing state:
   dependency/provenance relationship (`edge`)?
 - If a StableId embeds a role name, is its kind classified and relabeled in the
   role-name-bearing registry and guard test?
-- If a payload embeds a role name, is the current carry limitation documented
-  and the I1 normalizer inventory updated?
+- If a payload embeds a role name, is the normalizer inventory updated without
+  parsing or rewriting SQL text?
 - Does an ACL change preserve `target`, `grantee`, and optional `column`?
 - Are privilege arrays sorted and grantor duplicates removed intentionally?
 - If a field begins with `_`, is it safe for equality and proof to ignore it?
