@@ -2,7 +2,7 @@ import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
   emitObjectPrivilegeChanges,
-  filterPublicBuiltInDefaults,
+  withPublicBuiltInDefault,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
 import { diffSecurityLabels } from "../security-label.types.ts";
@@ -79,17 +79,16 @@ export function diffAggregates(
       aggregate.owner !== ctx.currentUser
         ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
         : effectiveDefaults;
-    // Filter out PUBLIC's built-in default EXECUTE privilege (PostgreSQL grants it automatically)
-    // Reference: https://www.postgresql.org/docs/17/ddl-priv.html Table 5.2
-    // This prevents generating unnecessary "GRANT EXECUTE TO PUBLIC" statements
-    const desiredPrivileges = filterPublicBuiltInDefaults(
-      "aggregate",
-      aggregate.privileges,
-    );
+    // aggregate.privileges is the desired object's real ACL, which already
+    // reflects PostgreSQL's implicit PUBLIC EXECUTE default (or its absence,
+    // if explicitly revoked). Compare it unfiltered against the defaults side
+    // with that same built-in default added back in, so both sides are
+    // symmetric.
+    const desiredPrivileges = aggregate.privileges;
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the aggregate owner as the reference.
     const privilegeResults = diffPrivileges(
-      filterPublicBuiltInDefaults("aggregate", creatorFilteredDefaults),
+      withPublicBuiltInDefault("aggregate", creatorFilteredDefaults),
       desiredPrivileges,
       aggregate.owner,
     );
@@ -216,22 +215,15 @@ export function diffAggregates(
     );
 
     // PRIVILEGES
-    // Filter out PUBLIC's built-in default EXECUTE privilege from main catalog
-    // (PostgreSQL grants it automatically, so we shouldn't compare it)
-    const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
-      "aggregate",
-      mainAggregate.privileges,
-    );
-    // Filter out PUBLIC's built-in default EXECUTE privilege from branch catalog
-    const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
-      "aggregate",
-      branchAggregate.privileges,
-    );
+    // Both mainAggregate.privileges and branchAggregate.privileges are
+    // extracted via COALESCE(<acl-column>, acldefault(...)), so PostgreSQL's
+    // implicit PUBLIC EXECUTE default is already correctly represented (or
+    // absent, if explicitly revoked) on both sides. Diff them unfiltered.
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use branch owner as the reference.
     const privilegeResults = diffPrivileges(
-      mainPrivilegesFiltered,
-      branchPrivilegesFiltered,
+      mainAggregate.privileges,
+      branchAggregate.privileges,
       branchAggregate.owner,
     );
 

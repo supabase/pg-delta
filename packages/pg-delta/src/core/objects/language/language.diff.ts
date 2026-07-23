@@ -3,7 +3,6 @@ import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
   emitObjectPrivilegeChanges,
-  filterPublicBuiltInDefaults,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
@@ -104,22 +103,16 @@ export function diffLanguages(
       // a name change would be handled as drop + create by diffObjects()
 
       // PRIVILEGES
-      // Filter out PUBLIC's built-in default USAGE privilege from main catalog
-      // (PostgreSQL grants it automatically, so we shouldn't compare it)
-      const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
-        "language",
-        mainLanguage.privileges,
-      );
-      // Filter out PUBLIC's built-in default USAGE privilege from branch catalog
-      const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
-        "language",
-        branchLanguage.privileges,
-      );
+      // Both mainLanguage.privileges and branchLanguage.privileges are
+      // extracted via COALESCE(<acl-column>, acldefault(...)), so
+      // PostgreSQL's implicit PUBLIC USAGE default is already correctly
+      // represented (or absent, if explicitly revoked) on both sides. Diff
+      // them unfiltered.
       // Filter out owner privileges - owner always has ALL privileges implicitly
       // and shouldn't be compared. Use branch owner as the reference.
       const privilegeResults = diffPrivileges(
-        mainPrivilegesFiltered,
-        branchPrivilegesFiltered,
+        mainLanguage.privileges,
+        branchLanguage.privileges,
         branchLanguage.owner,
       );
 

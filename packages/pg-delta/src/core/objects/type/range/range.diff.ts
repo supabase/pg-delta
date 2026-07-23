@@ -2,7 +2,7 @@ import { diffObjects } from "../../base.diff.ts";
 import {
   diffPrivileges,
   emitObjectPrivilegeChanges,
-  filterPublicBuiltInDefaults,
+  withPublicBuiltInDefault,
 } from "../../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../../diff-context.ts";
 import { diffSecurityLabels } from "../../security-label.types.ts";
@@ -87,17 +87,16 @@ export function diffRanges(
       createdRange.owner !== ctx.currentUser
         ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
         : effectiveDefaults;
-    // Filter out PUBLIC's built-in default USAGE privilege (PostgreSQL grants it automatically)
-    // Reference: https://www.postgresql.org/docs/17/ddl-priv.html Table 5.2
-    // This prevents generating unnecessary "GRANT USAGE TO PUBLIC" statements
-    const desiredPrivileges = filterPublicBuiltInDefaults(
-      "range",
-      createdRange.privileges,
-    );
+    // createdRange.privileges is the desired object's real ACL, which already
+    // reflects PostgreSQL's implicit PUBLIC USAGE default (or its absence, if
+    // explicitly revoked). Compare it unfiltered against the defaults side
+    // with that same built-in default added back in, so both sides are
+    // symmetric.
+    const desiredPrivileges = createdRange.privileges;
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the range owner as the reference.
     const privilegeResults = diffPrivileges(
-      filterPublicBuiltInDefaults("range", creatorFilteredDefaults),
+      withPublicBuiltInDefault("range", creatorFilteredDefaults),
       desiredPrivileges,
       createdRange.owner,
     );
@@ -190,22 +189,15 @@ export function diffRanges(
       );
 
       // PRIVILEGES
-      // Filter out PUBLIC's built-in default USAGE privilege from main catalog
-      // (PostgreSQL grants it automatically, so we shouldn't compare it)
-      const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
-        "range",
-        mainRange.privileges,
-      );
-      // Filter out PUBLIC's built-in default USAGE privilege from branch catalog
-      const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
-        "range",
-        branchRange.privileges,
-      );
+      // Both mainRange.privileges and branchRange.privileges are extracted
+      // via COALESCE(<acl-column>, acldefault(...)), so PostgreSQL's implicit
+      // PUBLIC USAGE default is already correctly represented (or absent, if
+      // explicitly revoked) on both sides. Diff them unfiltered.
       // Filter out owner privileges - owner always has ALL privileges implicitly
       // and shouldn't be compared. Use branch owner as the reference.
       const privilegeResults = diffPrivileges(
-        mainPrivilegesFiltered,
-        branchPrivilegesFiltered,
+        mainRange.privileges,
+        branchRange.privileges,
         branchRange.owner,
       );
 

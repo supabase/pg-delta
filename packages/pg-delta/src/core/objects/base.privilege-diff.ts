@@ -169,9 +169,10 @@ function groupPrivilegesByColumns<T extends PrivilegeProps>(
 }
 
 /**
- * Filters out PUBLIC's built-in default privileges that PostgreSQL automatically grants
- * when creating certain object types. This prevents generating unnecessary GRANT statements
- * for privileges that PostgreSQL grants automatically.
+ * Returns the privilege name that PostgreSQL implicitly grants to PUBLIC by
+ * default for a given object type (e.g. EXECUTE for procedures/aggregates,
+ * USAGE for domains/enums/ranges/composite types/languages), or `null` if the
+ * object type has no PUBLIC built-in default.
  *
  * Reference: PostgreSQL 17 Documentation, Table 5.2 "Summary of Access Privileges"
  * https://www.postgresql.org/docs/17/ddl-priv.html
@@ -181,47 +182,91 @@ function groupPrivilegesByColumns<T extends PrivilegeProps>(
  * - Types/Domains/Enums/Ranges/Composite Types: USAGE
  * - Languages: USAGE
  *
- * Objects WITHOUT default PUBLIC privileges (so we should generate GRANT statements):
+ * Objects WITHOUT default PUBLIC privileges:
  * - Tables, Views, Materialized Views, Sequences, Schemas, etc.
+ */
+function getPublicBuiltInDefaultPrivilege(
+  objectType: Change["objectType"],
+): string | null {
+  switch (objectType) {
+    case "procedure":
+    case "aggregate":
+      return "EXECUTE";
+
+    case "domain":
+    case "enum":
+    case "range":
+    case "composite_type":
+    case "language":
+      return "USAGE";
+
+    default:
+      return null;
+  }
+}
+
+/**
+ * Filters out PUBLIC's built-in default privileges that PostgreSQL automatically grants
+ * when creating certain object types. This prevents generating unnecessary GRANT statements
+ * for privileges that PostgreSQL grants automatically.
+ *
+ * See {@link getPublicBuiltInDefaultPrivilege} for the object type -> privilege mapping.
  */
 export function filterPublicBuiltInDefaults<T extends PrivilegeProps>(
   objectType: Change["objectType"],
   privileges: T[],
 ): T[] {
-  // Only filter PUBLIC privileges
-  return privileges.filter((priv) => {
-    if (priv.grantee !== "PUBLIC") {
-      return true; // Keep all non-PUBLIC privileges
-    }
+  const builtInPrivilege = getPublicBuiltInDefaultPrivilege(objectType);
+  if (builtInPrivilege === null) {
+    // This object type has no PUBLIC built-in default, so keep all PUBLIC
+    // privileges and generate GRANT statements for them.
+    return privileges;
+  }
 
-    // Check if this is a built-in default privilege for this object type
-    switch (objectType) {
-      case "procedure":
-      case "aggregate":
-        // Functions/Procedures/Aggregates: EXECUTE is granted to PUBLIC by default
-        // Filter it out so we don't generate unnecessary GRANT EXECUTE TO PUBLIC
-        return priv.privilege !== "EXECUTE";
+  return privileges.filter(
+    (priv) => priv.grantee !== "PUBLIC" || priv.privilege !== builtInPrivilege,
+  );
+}
 
-      case "domain":
-      case "enum":
-      case "range":
-      case "composite_type":
-        // Types/Domains/Enums/Ranges/Composite Types: USAGE is granted to PUBLIC by default
-        // Filter it out so we don't generate unnecessary GRANT USAGE TO PUBLIC
-        return priv.privilege !== "USAGE";
+/**
+ * Adds PostgreSQL's implicit PUBLIC built-in default privilege (e.g. EXECUTE
+ * for procedures/aggregates, USAGE for domains/enums/ranges/composite
+ * types/languages) to a privilege list, unless an entry for that grantee and
+ * privilege is already present.
+ *
+ * `DefaultPrivilegeState.getEffectiveDefaults` only tracks explicit
+ * `ALTER DEFAULT PRIVILEGES` customizations, so it never encodes PostgreSQL's
+ * hardcoded PUBLIC fallback the way a real ACL does. This helper restores
+ * that fallback so the "effective defaults" side of a create-path privilege
+ * diff can be compared symmetrically against the desired object's actual
+ * (unfiltered) privileges.
+ *
+ * See {@link getPublicBuiltInDefaultPrivilege} for the object type -> privilege mapping.
+ */
+export function withPublicBuiltInDefault<T extends PrivilegeProps>(
+  objectType: Change["objectType"],
+  privileges: T[],
+): T[] {
+  const builtInPrivilege = getPublicBuiltInDefaultPrivilege(objectType);
+  if (builtInPrivilege === null) {
+    return privileges;
+  }
 
-      case "language":
-        // Languages: USAGE is granted to PUBLIC by default
-        // Filter it out so we don't generate unnecessary GRANT USAGE TO PUBLIC
-        return priv.privilege !== "USAGE";
+  const hasDefaultAlready = privileges.some(
+    (priv) => priv.grantee === "PUBLIC" && priv.privilege === builtInPrivilege,
+  );
+  if (hasDefaultAlready) {
+    return privileges;
+  }
 
-      default:
-        // For other object types (tables, views, sequences, schemas, etc.),
-        // PUBLIC has NO default privileges, so we should keep all PUBLIC privileges
-        // and generate GRANT statements for them
-        return true;
-    }
-  });
+  return [
+    ...privileges,
+    {
+      grantee: "PUBLIC",
+      privilege: builtInPrivilege,
+      grantable: false,
+    } as T,
+  ];
 }
 
 /**
