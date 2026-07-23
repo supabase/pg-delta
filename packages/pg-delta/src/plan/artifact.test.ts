@@ -81,13 +81,31 @@ describe("plan artifact v1", () => {
   });
 
   test("round-trips the additive projection audit", () => {
+    const schemaId = { kind: "schema" as const, name: "hidden" };
     const withAudit: Plan = {
       ...samplePlan,
       projectionAudit: {
-        entries: [],
+        entries: [
+          {
+            delta: {
+              verb: "remove",
+              fact: { id: schemaId, payload: {} },
+            },
+            subject: { kind: "fact", id: schemaId },
+            suppressions: [
+              {
+                side: "source",
+                stage: "policyScopeRule",
+                reasonCode: "policy:test:hidden-schema",
+                classification: "suspicious",
+              },
+            ],
+            classification: "suspicious",
+          },
+        ],
         summary: {
-          total: 0,
-          suspicious: 0,
+          total: 1,
+          suspicious: 1,
           acknowledged: 0,
           baseline: 0,
         },

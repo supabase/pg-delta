@@ -6,6 +6,7 @@ import { plan } from "../plan/plan.ts";
 import type { ApplierCapability } from "./capability.ts";
 import type { Policy } from "./policy.ts";
 import { auditManagedViewProjection } from "./reconstruct.ts";
+import { supabasePolicy } from "./supabase.ts";
 
 const schema = (name: string): StableId => ({ kind: "schema", name });
 const table = (schemaName: string, name: string): StableId => ({
@@ -282,6 +283,45 @@ describe("attributed projection audit", () => {
     ).toEqual(["desired", "source"]);
   });
 
+  test("reference-only on one side attributes edges present only on the other side", () => {
+    const publicSchema = schema("public");
+    const pgmq = extension("pgmq");
+    const queue = table("public", "q_jobs");
+    const owner: StableId = { kind: "role", name: "queue_owner" };
+    const memberEdge: DependencyEdge = {
+      from: queue,
+      to: pgmq,
+      kind: "memberOfExtension",
+    };
+    const ownerEdge: DependencyEdge = {
+      from: queue,
+      to: owner,
+      kind: "owner",
+    };
+    const facts = [
+      fact(publicSchema),
+      fact(pgmq),
+      fact(queue, {}, publicSchema),
+      fact(owner),
+    ];
+    const source = buildFactBase(facts, [memberEdge]);
+    const desired = buildFactBase(facts, [ownerEdge]);
+
+    const audit = auditManagedViewProjection(source, desired);
+    expect(audit.entries.map((entry) => entry.delta)).toEqual([
+      { verb: "link", edge: ownerEdge },
+      { verb: "unlink", edge: memberEdge },
+    ]);
+    expect(audit.entries[0]?.suppressions).toEqual([
+      {
+        side: "source",
+        stage: "referenceOnly",
+        reasonCode: "reference-only.extension-member",
+        classification: "acknowledged",
+      },
+    ]);
+  });
+
   test("baseline suppression stays visible when only one side matches it", () => {
     const publicSchema = schema("public");
     const userTable = table("public", "accounts");
@@ -346,6 +386,41 @@ describe("attributed projection audit", () => {
           side: "source",
           stage: "capability",
           reasonCode: "capability.fdw-acl",
+        },
+      ],
+    });
+  });
+
+  test("Supabase's intentional FDW ACL exclusion is acknowledged", () => {
+    const wrapper: StableId = { kind: "fdw", name: "remote" };
+    const acl: StableId = { kind: "acl", target: wrapper, grantee: "reader" };
+    const source = buildFactBase(
+      [fact(wrapper), fact(acl, { privileges: ["USAGE"] })],
+      [],
+    );
+    const desired = buildFactBase(
+      [fact(wrapper), fact(acl, { privileges: [] })],
+      [],
+    );
+
+    expect(
+      auditManagedViewProjection(source, desired, { policy: supabasePolicy })
+        .entries[0],
+    ).toMatchObject({
+      subject: { kind: "fact", id: acl },
+      classification: "acknowledged",
+      suppressions: [
+        {
+          side: "desired",
+          stage: "policyScopeRule",
+          reasonCode: "supabase.fdw-acl",
+          classification: "acknowledged",
+        },
+        {
+          side: "source",
+          stage: "policyScopeRule",
+          reasonCode: "supabase.fdw-acl",
+          classification: "acknowledged",
         },
       ],
     });
@@ -447,6 +522,57 @@ describe("attributed projection audit", () => {
           reasonCode: "reference-only.assumed-schema:platform.auth",
         },
       ],
+    });
+  });
+
+  test("assumed-schema reference-only projection preserves an explicit suspicious override", () => {
+    const authSchema = schema("auth");
+    const authTable = table("auth", "users");
+    const source = buildFactBase(
+      [fact(authSchema), fact(authTable, { version: 1 }, authSchema)],
+      [],
+    );
+    const desired = buildFactBase(
+      [fact(authSchema), fact(authTable, { version: 2 }, authSchema)],
+      [],
+    );
+    const policy: Policy = {
+      id: "assumed-auth",
+      assumedSchemas: ["auth"],
+      filter: [
+        {
+          match: { schema: "auth" },
+          action: "exclude",
+          audit: {
+            reasonCode: "platform.auth",
+            classification: "suspicious",
+          },
+        },
+      ],
+    };
+
+    const audit = auditManagedViewProjection(source, desired, { policy });
+    expect(audit.entries[0]).toMatchObject({
+      subject: { kind: "fact", id: authTable },
+      classification: "suspicious",
+      suppressions: [
+        {
+          side: "desired",
+          stage: "referenceOnly",
+          reasonCode: "reference-only.assumed-schema:platform.auth",
+          classification: "suspicious",
+        },
+        {
+          side: "source",
+          stage: "referenceOnly",
+          reasonCode: "reference-only.assumed-schema:platform.auth",
+          classification: "suspicious",
+        },
+      ],
+    });
+    expect(audit.summary).toMatchObject({
+      suspicious: 1,
+      acknowledged: 0,
     });
   });
 
