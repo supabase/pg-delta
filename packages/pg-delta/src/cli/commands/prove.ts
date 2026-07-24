@@ -204,7 +204,7 @@ export function assertProofCloneIdentity(
   if (source === undefined) {
     if (allowUnverified) return "unverified";
     throw new UsageError(
-      "prove: the plan has no observed source database identity (legacy/direct-library or unavailable at plan time); re-plan with a role that can execute pg_catalog.pg_control_system(), or pass --allow-unverified-source-identity only for an independently verified disposable clone",
+      "prove: the plan has no observed source database identity (legacy/direct-library or unavailable at plan time); re-plan against a server where pg_catalog.pg_control_system() exists and the source role has EXECUTE access, or pass --allow-unverified-source-identity only for an independently verified disposable clone",
     );
   }
   if (clone === undefined) {

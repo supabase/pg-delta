@@ -704,6 +704,14 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
           "schema apply: --scope cluster requires a shadow from a different PostgreSQL lineage; the supplied shadow shares the target lineage",
         );
       }
+      if (
+        flags["isolated-shadow"] &&
+        isSamePostgresLineage(targetIdentity, shadowIdentity)
+      ) {
+        throw new UsageError(
+          "schema apply: an isolated shadow (--isolated-shadow) requires a different PostgreSQL lineage; the supplied shadow shares the target lineage",
+        );
+      }
     }
     const redactSecrets =
       manifest?.redactSecrets ?? !flags["unsafe-show-secrets"];
