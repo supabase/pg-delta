@@ -893,17 +893,17 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     } else {
       process.stderr.write("Apply failed!\n");
       if (report.error) {
+        // Non-verbose applies have not exposed action SQL yet. PostgreSQL's
+        // error message can echo that SQL, so warn before the entire failure
+        // diagnostic. Verbose mode already warned before its actionStart trace.
+        if (!verbose) {
+          warnIfUnredactedOutput(redactSecrets, "failure diagnostic");
+        }
         const subject =
           report.error.statementKind === "action"
             ? `action[${report.error.actionIndex}]`
             : "control";
         process.stderr.write(`  ${subject}: ${report.error.message}\n`);
-        // Non-verbose applies have not exposed action SQL yet. Warn directly
-        // before the final failed-SQL diagnostic; verbose mode already warned
-        // before its actionStart trace, so repeating the warning would mislead.
-        if (!verbose) {
-          warnIfUnredactedOutput(redactSecrets, "failure diagnostic");
-        }
         process.stderr.write(`  sql: ${report.error.sql}\n`);
       }
       // The finally below releases resources (drops any co-located shadow);
