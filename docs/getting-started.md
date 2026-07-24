@@ -105,6 +105,27 @@ fingerprint check; it never authorizes data loss.
 `plan` writes the JSON plan to stdout (or `--out <file>`) and a summary
 (action count, filtered deltas, safety report, rename candidates) to stderr.
 
+`prove` always prints the plan's projection-audit result. Current plans show a
+summary of raw source/desired differences hidden by policy, baseline,
+capability, management-scope, or reference-only projection, with a stable reason
+code and classification for each suppression; legacy plans report the audit as
+unavailable and ask you to re-plan. Human detail is bounded to 50 entries and 10
+suppressions per selected entry by default. When more entries exist, selection
+is deterministic: reserve one baseline and one non-baseline acknowledged entry
+when present, then fill the remaining slots with suspicious, baseline, and other
+acknowledged entries in that order, preserving artifact order within each
+bucket. The truncation notice identifies the bounded, safely rendered supplied
+plan path and its `projectionAudit`;
+pass `--audit-all` to print every entry and suppression. Individual human fields
+remain visibly bounded; the artifact retains the complete raw audit.
+
+The audit is informational by default. Add `--strict-audit` to make suspicious
+suppressions fail the proof; it evaluates the full audit even when human detail
+is truncated. Acknowledged-only entries do not block. Baseline and `managedBy`
+causes do not block by themselves, but any suspicious cause makes a mixed-cause
+entry suspicious. Strict mode fails closed with an `unavailable` reason for a
+legacy plan that predates projection audits; re-plan before relying on that gate.
+
 ### Flow 2 — declarative: keep your schema as `.sql` files
 
 Author your schema as ordinary `.sql` files in a directory; order doesn't matter
@@ -176,7 +197,7 @@ has drifted (and prints the deltas) — handy in CI.
 | `diff` | Print the deltas between two live DBs | `--source` `--desired` `[--strict-coverage]` |
 | `plan` | Produce a plan artifact (JSON) | `--source` `--desired` `[--out]` `[--profile]` `[--renames]` `[--no-compact]` `[--accept-rename]` `[--restrict-to-applier]` `[--strict-coverage]` |
 | `apply` | Apply a plan to a target | `--plan` `--target` `[--profile]` `[--force]` `[--allow-data-loss]` |
-| `prove` | Apply a plan to a clone and verify convergence + data preservation | `--plan` `--clone` `--desired-snapshot` `[--profile]` `[--trusted-local-host]` `[--allow-remote-clone]` `[--allow-unverified-source-identity]` |
+| `prove` | Apply a plan to a clone and verify convergence + data preservation | `--plan` `--clone` `--desired-snapshot` `[--profile]` `[--strict-audit]` `[--audit-all]` `[--trusted-local-host]` `[--allow-remote-clone]` `[--allow-unverified-source-identity]` |
 | `snapshot` | Save a database's fact base to a file | `--source` `--out` `[--strict-coverage]` |
 | `drift` | Compare a live DB against a saved snapshot | `--env` `--snapshot` `[--strict-coverage]` |
 | `schema export` | Export a live DB to `.sql` files | `--source` `--out-dir` `[--layout]` `[--profile]` `[--strict-coverage]` |
@@ -189,6 +210,13 @@ Common flags, explained:
   them from the diff. See [Profiles](#profiles) below.
 - **`--strict-coverage`** — refuse to act while user objects exist in a kind the
   engine doesn't model yet (instead of silently ignoring them).
+- **`--strict-audit`** — on `prove`, fail when the plan's projection audit has
+  suspicious entries. Acknowledged-only entries do not block; baseline and
+  `managedBy` causes are non-blocking by themselves, while any suspicious cause
+  makes a mixed-cause entry suspicious.
+- **`--audit-all`** — on `prove`, print every projection-audit entry and
+  suppression instead of the default 50-entry/10-suppression caps. Human fields
+  remain bounded; the plan artifact retains the complete raw audit.
 - **`--renames auto\|prompt\|off`** — `plan`/`schema apply` default to `prompt`,
   which lists rename candidates you confirm with `--accept-rename <from>=<to>`.
 - **`--force`** — disables the fingerprint gate on `apply` (see
@@ -236,7 +264,11 @@ if (report.status !== "applied") throw new Error(report.error?.message);
 import { provePlan } from "@supabase/pg-delta/proof";
 
 // clonePool is a throwaway copy of the source; it WILL be mutated
-const verdict = await provePlan(thePlan, clonePool, desiredFb);
+const verdict = await provePlan(thePlan, clonePool, desiredFb, {
+  strictAudit: true, // optional; suspicious projection entries make ok false
+});
+console.error(verdict.projectionAuditStatus); // "available" | "unavailable"
+console.error(verdict.projectionAudit); // normalized empty when unavailable
 if (!verdict.ok) {
   console.error(verdict.driftDeltas);      // what didn't converge
   console.error(verdict.dataViolations);   // rows that vanished
@@ -282,8 +314,15 @@ const { factBase } = loadSnapshot("prod.snapshot");
   renameCandidates, … }`. `Action` carries `sql`, `verb`, `transactionality`,
   `lockClass`, `dataLoss`, `rewriteRisk`, and produces/consumes/destroys edges.
 - **`ApplyReport`** — `{ status, appliedActions, actionStatuses, error? }`.
-- **`ProofVerdict`** — `{ ok, driftDeltas, dataViolations, rewriteViolations,
-  coverage, applyError? }`.
+- **`ProofVerdict`** — the compatibility shape. Its additive
+  `projectionAudit?` and `projectionAuditStatus?` fields remain optional so
+  existing consumer-authored verdict literals continue to compile.
+- **`ProducedProofVerdict`** — the result returned by `provePlan`; it requires
+  `projectionAudit`, `projectionAuditStatus: "available" | "unavailable"`, and
+  the normal proof fields (`ok`, drift/data/rewrite violations, and coverage).
+  Pre-audit plans produce status `"unavailable"` plus a normalized empty audit.
+  `strictAuditFailure?` distinguishes unavailable legacy audits from suspicious
+  entries when strict enforcement is requested.
 
 ---
 

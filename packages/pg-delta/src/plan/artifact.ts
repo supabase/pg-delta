@@ -9,6 +9,7 @@
  * as {"$bigint": "…"} exactly like fact snapshots (stage 1).
  */
 import { ALL_FACT_KINDS, type StableId } from "../core/stable-id.ts";
+import { normalizeProjectionAudit } from "../policy/reconstruct.ts";
 import { ENGINE_VERSION, type Action, type Plan } from "./plan.ts";
 
 const ACTION_VERBS = new Set(["create", "alter", "drop"]);
@@ -232,7 +233,6 @@ function assertAction(value: unknown, index: number): asserts value is Action {
     fail(`${path}.rewriteRisk`, "a boolean");
   }
 }
-
 function replacer(_key: string, value: unknown): unknown {
   if (typeof value === "bigint") return { $bigint: value.toString() };
   return value;
@@ -329,5 +329,16 @@ export function parsePlan(json: string): Plan {
   }
   exactKeys(artifact.target, ["fingerprint"], [], "target");
   sha256Field(artifact.target, "fingerprint", "target");
+  if (artifact.projectionAudit !== undefined) {
+    try {
+      artifact.projectionAudit = normalizeProjectionAudit(
+        artifact.projectionAudit,
+      );
+    } catch (error) {
+      throw new Error(
+        `plan artifact: invalid projectionAudit — ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
   return artifact as Plan;
 }

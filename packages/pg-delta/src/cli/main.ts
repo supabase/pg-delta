@@ -21,7 +21,7 @@
  *                  [--accept-rename <from>=<to>] ...
  *   apply          --plan <plan.json> --target <pg-url> [--force]
  *   render         --plan <plan.json> --out <base>.sql [--allow-drops]
- *   prove          --plan <plan.json> --clone <pg-url> --desired-snapshot <file>
+ *   prove          --plan <plan.json> --clone <pg-url> --desired-snapshot <file> [--strict-audit] [--audit-all]
  *   diff           --source <pg-url> --desired <pg-url>
  *   drift          --env <pg-url> --snapshot <file>
  *   snapshot       --source <pg-url> --out <file>
@@ -66,6 +66,7 @@ Commands:
   apply          --plan <plan.json> --target <pg-url> [--force] [--allow-data-loss]
   render         --plan <plan.json> --out <base>.sql [--allow-drops]
   prove          --plan <plan.json> --clone <pg-url> --desired-snapshot <file>
+                 [--strict-audit] [--audit-all]
                  [--trusted-local-host <hostname>]... [--allow-remote-clone]
                  [--allow-unverified-source-identity]
   diff           --source <pg-url> --desired <pg-url>

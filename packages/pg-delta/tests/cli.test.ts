@@ -7,8 +7,19 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { loadSnapshot } from "../src/frontends/snapshot-file.ts";
+import { serializeSnapshot } from "../src/core/snapshot.ts";
+import { extract } from "../src/extract/extract.ts";
+import { serializePlan } from "../src/plan/artifact.ts";
+import { plan } from "../src/plan/plan.ts";
+import type { Policy } from "../src/policy/policy.ts";
 import { isolatedClusterPair, sharedCluster } from "./containers.ts";
 
 const PKG_DIR = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
@@ -118,6 +129,14 @@ describe("CLI: --help", () => {
     );
     expect(gettingStarted).toMatch(
       /pinned to one database.*multi-cluster.*unsupported/is,
+    );
+  }, 30_000);
+
+  test("lists projection-audit flags on the prove usage line", async () => {
+    const res = await runCli(["--help"]);
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toMatch(
+      /prove\s+--plan <plan\.json> --clone <pg-url> --desired-snapshot <file>\s+\[--strict-audit\] \[--audit-all\]/,
     );
   }, 30_000);
 });
@@ -290,6 +309,95 @@ describe("CLI: prove redaction guard", () => {
       expect(res.stderr).toMatch(/redaction mode/i);
     } finally {
       await source.drop();
+    }
+  }, 60_000);
+});
+
+describe("CLI: prove projection audit", () => {
+  test("prints suspicious suppressions informationally by default and blocks in strict mode", async () => {
+    const cluster = await sharedCluster();
+    const clone = await cluster.createDb("cli_prove_audit_clone");
+    const desired = await cluster.createDb("cli_prove_audit_desired");
+    const artifactDir = mkdtempSync(join(tmpdir(), "pgdn-prove-audit-"));
+    try {
+      await clone.pool.query(`CREATE SCHEMA app`);
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.ignored ();
+      `);
+      const [sourceState, desiredState] = await Promise.all([
+        extract(clone.pool),
+        extract(desired.pool),
+      ]);
+      const policy: Policy = {
+        id: "generic",
+        filter: [{ match: { kind: "table" }, action: "exclude" }],
+      };
+      const thePlan = plan(sourceState.factBase, desiredState.factBase, {
+        policy,
+      });
+      const planFile = join(artifactDir, "plan.json");
+      const snapshotFile = join(artifactDir, "desired.snapshot");
+      writeFileSync(planFile, serializePlan(thePlan), "utf8");
+      writeFileSync(
+        snapshotFile,
+        serializeSnapshot(desiredState.factBase, {
+          pgVersion: "17",
+          redactSecrets: true,
+        }),
+        "utf8",
+      );
+
+      const args = [
+        "prove",
+        "--plan",
+        planFile,
+        "--clone",
+        clone.uri,
+        "--allow-unverified-source-identity",
+        "--desired-snapshot",
+        snapshotFile,
+      ];
+      const informational = await runCli(args);
+      expect(informational.exitCode).toBe(0);
+      expect(informational.stderr).toMatch(
+        /Projection audit: [1-9]\d* suppressed differences? \([1-9]\d* suspicious/,
+      );
+      expect(informational.stderr).toContain("add table:app.ignored");
+      expect(informational.stderr).toContain("policyScopeRule");
+      expect(informational.stderr).toContain("Proof passed");
+
+      const legacyPlan = structuredClone(thePlan);
+      delete legacyPlan.projectionAudit;
+      writeFileSync(planFile, serializePlan(legacyPlan), "utf8");
+      const legacyInformational = await runCli(args);
+      expect(legacyInformational.exitCode).toBe(0);
+      expect(legacyInformational.stderr).toContain(
+        "Projection audit: unavailable for this legacy plan; re-plan.",
+      );
+      expect(legacyInformational.stderr).not.toContain(
+        "Projection audit: 0 suppressed differences",
+      );
+
+      const legacyStrict = await runCli([...args, "--strict-audit"]);
+      expect(legacyStrict.exitCode).toBe(1);
+      expect(legacyStrict.stderr).toContain(
+        "strict projection audit failed: this legacy plan has no projection audit",
+      );
+
+      writeFileSync(planFile, serializePlan(thePlan), "utf8");
+      const strict = await runCli([...args, "--strict-audit"]);
+      expect(strict.exitCode).toBe(1);
+      expect(strict.stderr).toMatch(
+        /Projection audit: [1-9]\d* suppressed differences? \([1-9]\d* suspicious/,
+      );
+      expect(strict.stderr).toContain("Proof FAILED");
+    } finally {
+      try {
+        rmSync(artifactDir, { recursive: true, force: true });
+      } finally {
+        await Promise.all([clone.drop(), desired.drop()]);
+      }
     }
   }, 60_000);
 });

@@ -46,7 +46,7 @@ managed what the user thought. The failure mode this track exists for:
 | **P2a** | Plan artifact | `plan/plan.ts` + the plan artifact/result type (audit attached at plan time) |
 | **P2a** | Tests | Projection/policy unit tests; plan artifact tests; public-API surface tests |
 | **P2b** | Prove result | `proof/prove.ts`, `proof/prove.test.ts` — surface the plan-attached audit |
-| **P2b** | CLI | `cli/commands/prove.ts`, `cli/commands/drift.ts` — additive fields only; focused cases in `tests/cli.test.ts` |
+| **P2b** | CLI | `cli/commands/prove.ts` — plan-consuming prove surfaces the audit; raw `drift` remains unchanged; focused cases in `tests/cli.test.ts` |
 | **P2b** | Docs | Short note in README prove section or `managed-view-architecture.md` |
 
 ## Audit model (pinned — challenge in PR if wrong)
@@ -87,7 +87,7 @@ to all three.
 | Capability restriction | acknowledged | server capability is a fact, not a choice |
 | Management scope | acknowledged | explicit user/profile choice (`scope: database` etc.) |
 | Policy scope rule | per-rule flag; **default suspicious for generic/wildcard matchers, acknowledged for named-object rules** | a wildcard eating a user object is exactly the bug class |
-| Baseline | **acknowledged but always visible** — baseline-suppressed *differing* subjects are reported as their own count in the audit summary, never silently folded; strict mode escalates them | the goal says baseline bugs cannot hide: a baseline that captured user state must be detectable, but flat-suspicious would red-light every image upgrade |
+| Baseline | **acknowledged but always visible** — baseline-suppressed *differing* subjects are reported as their own count in the audit summary, never silently folded; strict mode does **not** escalate them | the goal says baseline bugs cannot hide: a baseline that captured user state must be detectable, but flat-suspicious would red-light every image upgrade |
 
 **Where the audit runs: plan time, pinned.** `provePlan` takes a finished
 `Plan` and has no raw pre-projection source FactBase (`prove.ts:379-384`), so
@@ -106,9 +106,12 @@ the helper, not around it). **P2b** is the prove-result/CLI surfacing on top.
 1. **Additive API:** existing `ok` / managed proof semantics unchanged unless
    documented as intentional. The audit is informational by default.
 2. Code comments restate the audit model above at the attribution site.
-3. CLI: human-readable section + machine-readable field; don’t fail CI corpus
-   on audit findings unless opted in (`strictAudit` or similar — and then only
-   on **suspicious** entries, never acknowledged ones).
+3. CLI: `prove` always prints a human-readable section; `provePlan` returns a
+   `ProducedProofVerdict` with required `projectionAudit` and
+   `projectionAuditStatus`. The compatibility `ProofVerdict` keeps both fields
+   optional. Raw `drift` does not consume a plan and remains unchanged. Don’t
+   fail CI corpus on audit findings unless opted in (`strictAudit` or similar —
+   and then only on **suspicious** entries, never acknowledged ones).
 4. Unit tests: managed green / audit red (synthetic fact bases where a generic
    policy rule filters out a differing user fact → one **suspicious** entry
    with the correct stage + rule attribution).

@@ -27,6 +27,29 @@ database with fail-safe ordering (bounded rounds), routine-body
 re-validation, shared-object leak detection, and parser-free DML rejection
 — then the result flows through the same plan/prove path.
 
+### Projection audit and strict proof
+
+Planning records every raw source/desired difference hidden by the managed-view
+projection, including operational objects excluded through extractor-emitted
+`managedBy` provenance edges. `provePlan` always returns a normalized audit and
+an explicit availability status; current plans carry the complete attributed
+audit. `pgdelta prove` prints its full summary plus at most 50 human-detail
+entries and 10 suppressions per selected entry by default; it deterministically
+reserves baseline and non-baseline acknowledged samples when present, then
+prioritizes suspicious, baseline, and other acknowledged entries. Human fields
+remain visibly bounded even with `--audit-all`, which lifts the entry and
+suppression-count caps. The complete raw machine audit remains under
+`projectionAudit` in the supplied plan artifact identified by the truncation
+notice; the displayed path is safely rendered and bounded.
+
+The audit is informational by default; `--strict-audit` evaluates the complete
+audit and fails on suspicious entries even if human output is truncated.
+Acknowledged-only entries do not block. Baseline and `managedBy` causes do not
+block by themselves, but any suspicious cause makes a mixed-cause entry
+suspicious. Strict mode also fails closed for a legacy plan with no audit, so
+re-plan before relying on that gate. Informational proof reports the audit as
+unavailable instead of presenting the normalized empty audit as an audited zero.
+
 ### Statement reordering assist (opt-in)
 
 `loadSqlFiles` is parser-free: it sequences whole *files* into the shadow, so it
