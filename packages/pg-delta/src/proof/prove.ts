@@ -91,7 +91,7 @@ export interface ProofVerdict {
   };
   /** A table-destroying action claimed dataLoss:none. This is a rule/artifact
    *  safety contradiction, so proof refuses rather than skipping that table. */
-  safetyMetadataViolations?: UndeclaredTableDestruction[];
+  safetyMetadataViolations?: UndeclaredDataDestruction[];
   driftDeltas: Delta[];
   /** a kept table whose data changed: row count differs, OR (on a table the
    *  plan did NOT touch) content changed though the count held — drop+recreate
@@ -175,6 +175,15 @@ export interface UndeclaredTableDestruction {
   actionIndex: number;
   table: TableRef;
 }
+
+export interface UndeclaredObjectDestruction {
+  actionIndex: number;
+  object: StableId;
+}
+
+export type UndeclaredDataDestruction =
+  | UndeclaredTableDestruction
+  | UndeclaredObjectDestruction;
 
 interface TableStat {
   rows: number;
@@ -678,10 +687,15 @@ export async function provePlan(
   const safetyMetadataViolations = findDestructionMetadataViolations(
     thePlan.actions,
     thePlan.acceptedRenames,
-  ).map(({ actionIndex, relation }) => ({
-    actionIndex,
-    table: { schema: relation.schema, name: relation.name },
-  }));
+  ).map(({ actionIndex, relation }): UndeclaredDataDestruction => {
+    if (relation.kind === "table" || relation.kind === "materializedView") {
+      return {
+        actionIndex,
+        table: { schema: relation.schema, name: relation.name },
+      };
+    }
+    return { actionIndex, object: relation };
+  });
   if (safetyMetadataViolations.length > 0) {
     return {
       ok: false,

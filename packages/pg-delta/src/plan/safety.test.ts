@@ -101,7 +101,11 @@ describe("destruction metadata integrity", () => {
     expect(
       findDestructionMetadataViolations(
         [
-          action({ verb: "alter", destroys: [oldColumn], produces: [newColumn] }),
+          action({
+            verb: "alter",
+            destroys: [oldColumn],
+            produces: [newColumn],
+          }),
           action({
             verb: "alter",
             destroys: [oldAttribute],

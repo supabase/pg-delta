@@ -83,16 +83,11 @@ describe("provePlan — destruction metadata preflight", () => {
         lockClasses: { accessExclusive: 1 },
       },
     };
-    const verdict = await provePlan(
-      thePlan,
-      {} as Pool,
-      empty,
-      {
-        reextract: () => {
-          throw new Error("proof touched the clone before rejecting metadata");
-        },
+    const verdict = await provePlan(thePlan, {} as Pool, empty, {
+      reextract: () => {
+        throw new Error("proof touched the clone before rejecting metadata");
       },
-    );
+    });
 
     expect(verdict.ok).toBe(false);
     expect(verdict.safetyMetadataViolations).toEqual([

@@ -71,6 +71,27 @@ describe("assertProofCloneEndpoint", () => {
 });
 
 describe("formatProofFailure (review P2)", () => {
+  test("renders an intrinsically destructive subobject metadata failure", () => {
+    const verdict: ProofVerdict = {
+      ...baseVerdict(),
+      safetyMetadataViolations: [
+        {
+          actionIndex: 2,
+          object: {
+            kind: "column",
+            schema: "app",
+            table: "accounts",
+            name: "secret",
+          },
+        },
+      ],
+    };
+
+    expect(formatProofFailure(verdict)).toContain(
+      "action[2] destroys column:app.accounts.secret but declares dataLoss:none",
+    );
+  });
+
   test("renders a rewrite-only failure with the offending table", () => {
     const verdict: ProofVerdict = {
       ...baseVerdict(),

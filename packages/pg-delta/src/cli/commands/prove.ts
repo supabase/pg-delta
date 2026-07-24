@@ -55,11 +55,15 @@ export function formatProofFailure(verdict: ProofVerdict): string {
   }
   if ((verdict.safetyMetadataViolations?.length ?? 0) > 0) {
     lines.push(
-      `  undeclared table destruction (${verdict.safetyMetadataViolations!.length}):`,
+      `  undeclared data destruction (${verdict.safetyMetadataViolations!.length}):`,
     );
     for (const violation of verdict.safetyMetadataViolations!) {
+      const subject =
+        "table" in violation
+          ? rel(violation.table.schema, violation.table.name)
+          : encodeId(violation.object);
       lines.push(
-        `    action[${violation.actionIndex}] destroys ${rel(violation.table.schema, violation.table.name)} but declares dataLoss:none`,
+        `    action[${violation.actionIndex}] destroys ${subject} but declares dataLoss:none`,
       );
     }
   }
