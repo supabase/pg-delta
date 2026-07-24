@@ -369,13 +369,24 @@ describe("apply() onEvent observer", () => {
       });
       expect(report.status).toBe("failed");
 
+      const failingSet = "SET lock_timeout = -1";
+      expect(report).toMatchObject({
+        appliedActions: 0,
+        actionStatuses: ["unapplied"],
+        error: {
+          actionIndex: 0,
+          statementKind: "control",
+          sql: failingSet,
+        },
+      });
+
       // the trace must not claim an action executed and failed when it was
       // the preamble that failed: no actionStart, no actionEnd.
       expect(events.some((e) => e.kind === "actionStart")).toBe(false);
       expect(events.some((e) => e.kind === "actionEnd")).toBe(false);
       const last = events[events.length - 1]!;
       expect(last.kind).toBe("segmentEnd");
-      expect(last.kind === "segmentEnd" && last.outcome).toBe("inDoubt");
+      expect(last.kind === "segmentEnd" && last.outcome).toBe("failed");
     } finally {
       await Promise.all([target.drop(), desired.drop()]);
     }

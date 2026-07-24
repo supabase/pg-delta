@@ -102,6 +102,44 @@ describe("CLI: error → exit-code mapping (main is the sole exiter)", () => {
   });
 });
 
+describe("CLI: apply failure attribution", () => {
+  test("renders a failing preamble statement as a control, not an action", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("cli_apply_control_tgt");
+    const desired = await cluster.createDb("cli_apply_control_desired");
+    const artifactDir = mkdtempSync(join(tmpdir(), "pgdn-apply-control-"));
+    try {
+      await desired.pool.query(`CREATE SCHEMA app`);
+      const [sourceState, desiredState] = await Promise.all([
+        extract(target.pool),
+        extract(desired.pool),
+      ]);
+      const thePlan = plan(sourceState.factBase, desiredState.factBase);
+      thePlan.preamble = [{ name: "lock_timeout", value: "-1" }];
+      const planFile = join(artifactDir, "plan.json");
+      writeFileSync(planFile, serializePlan(thePlan), "utf8");
+
+      const result = await runCli([
+        "apply",
+        "--plan",
+        planFile,
+        "--target",
+        target.uri,
+        "--force",
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toMatch(/  control: .*lock_timeout/i);
+      expect(result.stderr).toContain("  sql: SET LOCAL lock_timeout = -1");
+      expect(result.stderr).not.toContain("  action[0]:");
+    } finally {
+      rmSync(artifactDir, { recursive: true, force: true });
+      await Promise.all([target.drop(), desired.drop()]);
+    }
+  }, 60_000);
+});
+
 describe("CLI: --help", () => {
   test("does not recommend apply --force for unsafe plans", async () => {
     const res = await runCli(["--help"]);

@@ -148,3 +148,289 @@ describe("apply action timing", () => {
     await expectObserverLatencyExcluded("nonTransactional");
   });
 });
+
+interface ScriptedApply {
+  pool: Pool;
+  queries: string[];
+  releases: Array<Error | boolean | undefined>;
+}
+
+function scriptedApplyClient(failingSql: ReadonlySet<string>): ScriptedApply {
+  const queries: string[] = [];
+  const releases: Array<Error | boolean | undefined> = [];
+  const client = {
+    query: (sql: string) => {
+      queries.push(sql);
+      return failingSql.has(sql)
+        ? Promise.reject(new Error(`scripted failure: ${sql}`))
+        : Promise.resolve({ rows: [] });
+    },
+    release: (error?: Error | boolean) => releases.push(error),
+  };
+  return {
+    pool: {
+      connect: () => Promise.resolve(client),
+    } as unknown as Pool,
+    queries,
+    releases,
+  };
+}
+
+function planWithPreamble(
+  transactionality: Action["transactionality"],
+  preamble: Plan["preamble"],
+): Plan {
+  return { ...planWithAction(transactionality), preamble };
+}
+
+function segmentOutcomes(events: ApplyEvent[]): string[] {
+  return events
+    .filter(
+      (event): event is Extract<ApplyEvent, { kind: "segmentEnd" }> =>
+        event.kind === "segmentEnd",
+    )
+    .map((event) => event.outcome);
+}
+
+describe("apply control-error attribution", () => {
+  test("BEGIN failure reports the exact control and leaves the action unapplied", async () => {
+    const scripted = scriptedApplyClient(new Set(["BEGIN"]));
+    const events: ApplyEvent[] = [];
+
+    const report = await apply(
+      planWithAction("transactional"),
+      scripted.pool,
+      {
+        fingerprintGate: false,
+        onEvent: (event) => events.push(event),
+      },
+    );
+
+    expect(scripted.queries).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(report).toMatchObject({
+      status: "failed",
+      appliedActions: 0,
+      actionStatuses: ["unapplied"],
+      error: {
+        actionIndex: 0,
+        statementKind: "control",
+        sql: "BEGIN",
+        message: "scripted failure: BEGIN",
+      },
+    });
+    expect(events.some((event) => event.kind === "actionStart")).toBe(false);
+    expect(events.some((event) => event.kind === "actionEnd")).toBe(false);
+    expect(segmentOutcomes(events)).toEqual(["failed"]);
+    expect(scripted.releases).toEqual([undefined]);
+  });
+
+  test("later transactional preamble failure reports that SET LOCAL and rolls back", async () => {
+    const failingSet = "SET LOCAL check_function_bodies = off";
+    const scripted = scriptedApplyClient(new Set([failingSet]));
+    const events: ApplyEvent[] = [];
+
+    const report = await apply(
+      planWithPreamble("transactional", [
+        { name: "check_function_bodies", value: "off" },
+      ]),
+      scripted.pool,
+      {
+        fingerprintGate: false,
+        lockTimeoutMs: 5000,
+        onEvent: (event) => events.push(event),
+      },
+    );
+
+    expect(scripted.queries).toEqual([
+      "BEGIN",
+      "SET LOCAL lock_timeout = 5000",
+      failingSet,
+      "ROLLBACK",
+    ]);
+    expect(report).toMatchObject({
+      status: "failed",
+      appliedActions: 0,
+      actionStatuses: ["unapplied"],
+      error: {
+        actionIndex: 0,
+        statementKind: "control",
+        sql: failingSet,
+      },
+    });
+    expect(events.some((event) => event.kind === "actionStart")).toBe(false);
+    expect(events.some((event) => event.kind === "actionEnd")).toBe(false);
+    expect(segmentOutcomes(events)).toEqual(["failed"]);
+  });
+
+  test("transactional action failure remains an action error after successful rollback", async () => {
+    const scripted = scriptedApplyClient(new Set(["SELECT 42"]));
+    const events: ApplyEvent[] = [];
+
+    const report = await apply(
+      planWithAction("transactional"),
+      scripted.pool,
+      {
+        fingerprintGate: false,
+        onEvent: (event) => events.push(event),
+      },
+    );
+
+    expect(scripted.queries).toEqual(["BEGIN", "SELECT 42", "ROLLBACK"]);
+    expect(report).toMatchObject({
+      status: "failed",
+      appliedActions: 0,
+      actionStatuses: ["unapplied"],
+      error: {
+        actionIndex: 0,
+        statementKind: "action",
+        sql: "SELECT 42",
+      },
+    });
+    expect(segmentOutcomes(events)).toEqual(["rolledBack"]);
+    expect(scripted.releases).toEqual([undefined]);
+  });
+
+  test("COMMIT failure is an in-doubt control failure even when ROLLBACK succeeds", async () => {
+    const scripted = scriptedApplyClient(new Set(["COMMIT"]));
+    const events: ApplyEvent[] = [];
+
+    const report = await apply(
+      planWithAction("transactional"),
+      scripted.pool,
+      {
+        fingerprintGate: false,
+        onEvent: (event) => events.push(event),
+      },
+    );
+
+    expect(scripted.queries).toEqual([
+      "BEGIN",
+      "SELECT 42",
+      "COMMIT",
+      "ROLLBACK",
+    ]);
+    expect(report).toMatchObject({
+      status: "failed",
+      appliedActions: 0,
+      actionStatuses: ["inDoubt"],
+      error: {
+        actionIndex: 0,
+        statementKind: "control",
+        sql: "COMMIT",
+      },
+    });
+    expect(segmentOutcomes(events)).toEqual(["inDoubt"]);
+  });
+
+  test("non-transactional preamble failure is failed and never marks the action in doubt", async () => {
+    const failingSet = "SET check_function_bodies = invalid";
+    const scripted = scriptedApplyClient(new Set([failingSet]));
+    const events: ApplyEvent[] = [];
+
+    const report = await apply(
+      planWithPreamble("nonTransactional", [
+        { name: "check_function_bodies", value: "invalid" },
+      ]),
+      scripted.pool,
+      {
+        fingerprintGate: false,
+        onEvent: (event) => events.push(event),
+      },
+    );
+
+    expect(scripted.queries).toEqual([failingSet, "RESET ALL"]);
+    expect(report).toMatchObject({
+      status: "failed",
+      appliedActions: 0,
+      actionStatuses: ["unapplied"],
+      error: {
+        actionIndex: 0,
+        statementKind: "control",
+        sql: failingSet,
+      },
+    });
+    expect(events.some((event) => event.kind === "actionStart")).toBe(false);
+    expect(events.some((event) => event.kind === "actionEnd")).toBe(false);
+    expect(segmentOutcomes(events)).toEqual(["failed"]);
+  });
+
+  test("non-transactional action failure stays primary and in doubt when RESET ALL also fails", async () => {
+    const scripted = scriptedApplyClient(new Set(["SELECT 42", "RESET ALL"]));
+    const events: ApplyEvent[] = [];
+
+    const report = await apply(
+      planWithAction("nonTransactional"),
+      scripted.pool,
+      {
+        fingerprintGate: false,
+        onEvent: (event) => events.push(event),
+      },
+    );
+
+    expect(scripted.queries).toEqual(["SELECT 42", "RESET ALL"]);
+    expect(report).toMatchObject({
+      status: "failed",
+      appliedActions: 0,
+      actionStatuses: ["inDoubt"],
+      error: {
+        actionIndex: 0,
+        statementKind: "action",
+        sql: "SELECT 42",
+      },
+    });
+    expect(segmentOutcomes(events)).toEqual(["inDoubt"]);
+    expect(scripted.releases).toEqual([true]);
+  });
+
+  test("RESET ALL failure after a successful action preserves the applied action", async () => {
+    const scripted = scriptedApplyClient(new Set(["RESET ALL"]));
+    const events: ApplyEvent[] = [];
+
+    const report = await apply(
+      planWithAction("nonTransactional"),
+      scripted.pool,
+      {
+        fingerprintGate: false,
+        onEvent: (event) => events.push(event),
+      },
+    );
+
+    expect(scripted.queries).toEqual(["SELECT 42", "RESET ALL"]);
+    expect(report).toMatchObject({
+      status: "failed",
+      appliedActions: 1,
+      actionStatuses: ["applied"],
+      error: {
+        actionIndex: 0,
+        statementKind: "control",
+        sql: "RESET ALL",
+      },
+    });
+    expect(segmentOutcomes(events)).toEqual(["failed"]);
+    expect(scripted.releases).toEqual([true]);
+  });
+
+  test("failed ROLLBACK destroys the client without replacing the primary preamble failure", async () => {
+    const failingSet = "SET LOCAL check_function_bodies = invalid";
+    const scripted = scriptedApplyClient(new Set([failingSet, "ROLLBACK"]));
+    const events: ApplyEvent[] = [];
+
+    const report = await apply(
+      planWithPreamble("transactional", [
+        { name: "check_function_bodies", value: "invalid" },
+      ]),
+      scripted.pool,
+      {
+        fingerprintGate: false,
+        onEvent: (event) => events.push(event),
+      },
+    );
+
+    expect(report.error).toMatchObject({
+      statementKind: "control",
+      sql: failingSet,
+    });
+    expect(segmentOutcomes(events)).toEqual(["failed"]);
+    expect(scripted.releases).toEqual([true]);
+  });
+});

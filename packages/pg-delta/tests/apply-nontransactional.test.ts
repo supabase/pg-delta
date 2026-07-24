@@ -66,6 +66,11 @@ describe("non-transactional apply: reset + inDoubt (P1)", () => {
       expect(report.status).toBe("failed");
       // inDoubt, NOT unapplied — the action may have durable side effects
       expect(report.actionStatuses[0]).toBe("inDoubt");
+      expect(report.error).toMatchObject({
+        actionIndex: 0,
+        statementKind: "action",
+        sql: "SELECT 1 / 0",
+      });
       // RESET ALL ran in finally despite the failure → back to the default
       const { rows } = await probe.query("SHOW lock_timeout");
       expect((rows[0] as { lock_timeout: string }).lock_timeout).toBe("0");
