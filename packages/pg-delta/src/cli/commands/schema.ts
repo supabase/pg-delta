@@ -19,7 +19,7 @@
  *     the formatter (frontends/sql-format), e.g. '{"keywordCase":"upper","maxWidth":180}'.
  *     Off by default (raw renderer output). Cosmetic — load(export) ≡ db still holds.
  *
- * schema apply --dir <dir> --shadow <pg-url> --target <pg-url>
+ * schema apply --dir <dir> [--shadow <pg-url>] --target <pg-url>
  *              [--renames auto|prompt|off] [--force]
  *              [--accept-rename <from>=<to>] (repeatable) [--no-reorder]
  *   Read .sql files recursively (lexicographic), load into shadow, extract

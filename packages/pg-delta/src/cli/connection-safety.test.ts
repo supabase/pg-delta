@@ -136,7 +136,9 @@ describe("connection safety", () => {
       ),
     ).toBe(connectionEndpointHash("postgres://query.example:2222/app"));
     expect(
-      connectionEndpointHash("postgres:///app?host=%2Ftmp%2Fpostgres&port=6543"),
+      connectionEndpointHash(
+        "postgres:///app?host=%2Ftmp%2Fpostgres&port=6543",
+      ),
     ).toBe(
       connectionEndpointHash(
         "postgres://ignored.example/app?host=%2Ftmp%2Fpostgres&port=6543",

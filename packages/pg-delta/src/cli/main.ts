@@ -26,7 +26,7 @@
  *   drift          --env <pg-url> --snapshot <file>
  *   snapshot       --source <pg-url> --out <file>
  *   schema export  --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
- *   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
+ *   schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>
  *                  [--renames auto|prompt|off] [--force]
  *                  [--accept-rename <from>=<to>] ... [--no-reorder]
  *   schema lint    --dir <dir>
@@ -74,7 +74,7 @@ Commands:
                  [--format-options <json>]   (pretty-print SQL; any layout)
                  grouped adds: [--grouping-mode single-file|subdirectory]
                  [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
-  schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
+  schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>
                  [--renames auto|prompt|off] [--force] [--allow-data-loss]
                  [--trusted-local-host <hostname>]... [--allow-remote-shadow]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
@@ -150,7 +150,7 @@ Subcommands:
                  [--format-options <json>]   (pretty-print SQL; any layout)
                  grouped adds: [--grouping-mode single-file|subdirectory]
                  [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
-  schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
+  schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>
                  [--renames auto|prompt|off] [--force] [--allow-data-loss]
                  [--trusted-local-host <hostname>]... [--allow-remote-shadow]
                  [--accept-rename <from>=<to>] ... [--no-reorder]

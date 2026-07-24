@@ -103,9 +103,11 @@ migrates the target to match:
 ```bash
 pgdelta schema apply \
   --dir ./schema \
-  --shadow "$SHADOW_URL" \   # a fresh, empty database the files are loaded into
   --target "$TARGET_URL"     # the database to migrate
 ```
+
+Add `--shadow "$SHADOW_URL"` to use an explicit fresh database; otherwise,
+database scope creates and later drops a co-located shadow automatically.
 
 Explicit shadows follow the same endpoint policy as proof clones: local by
 default, an exact custom hostname via `--trusted-local-host`, or an
@@ -160,7 +162,7 @@ has drifted (and prints the deltas) — handy in CI.
 | `snapshot` | Save a database's fact base to a file | `--source` `--out` `[--strict-coverage]` |
 | `drift` | Compare a live DB against a saved snapshot | `--env` `--snapshot` `[--strict-coverage]` |
 | `schema export` | Export a live DB to `.sql` files | `--source` `--out-dir` `[--layout]` `[--profile]` `[--strict-coverage]` |
-| `schema apply` | Load `.sql` files via a shadow DB and migrate a target | `--dir` `--shadow` `--target` `[--renames]` `[--accept-rename]` `[--force]` `[--allow-data-loss]` `[--trusted-local-host]` `[--allow-remote-shadow]` `[--profile]` `[--restrict-to-applier]` `[--strict-coverage]` |
+| `schema apply` | Load `.sql` files via a shadow DB and migrate a target | `--dir` `[--shadow]` `--target` `[--renames]` `[--accept-rename]` `[--force]` `[--allow-data-loss]` `[--trusted-local-host]` `[--allow-remote-shadow]` `[--profile]` `[--restrict-to-applier]` `[--strict-coverage]` |
 
 Common flags, explained:
 

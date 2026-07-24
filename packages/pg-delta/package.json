@@ -115,7 +115,8 @@
   },
   "dependencies": {
     "debug": "^4.3.7",
-    "pg": "^8.17.2"
+    "pg": "^8.17.2",
+    "pg-connection-string": "^2.13.0"
   },
   "devDependencies": {
     "@supabase/bun-istanbul-coverage": "workspace:*",

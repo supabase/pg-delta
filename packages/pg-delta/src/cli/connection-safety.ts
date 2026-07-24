@@ -7,6 +7,7 @@
  */
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
+import { parse as parseConnectionString } from "pg-connection-string";
 
 interface ConnectionEndpoint {
   host: string;
@@ -19,6 +20,17 @@ function normalizeHost(host: string): string {
   const unbracketed =
     host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
   return unbracketed.toLowerCase().replace(/\.$/, "");
+}
+
+const SAFETY_SENSITIVE_QUERY_KEYS = new Set(["host", "port", "database"]);
+
+function effectivePgValue(
+  parsed: unknown,
+  environmentName: "PGHOST" | "PGPORT" | "PGDATABASE" | "PGUSER",
+  fallback?: string,
+): string | undefined {
+  if (typeof parsed === "string" && parsed !== "") return parsed;
+  return process.env[environmentName] || fallback;
 }
 
 function parseConnectionEndpoint(connectionString: string): ConnectionEndpoint {
@@ -34,20 +46,46 @@ function parseConnectionEndpoint(connectionString: string): ConnectionEndpoint {
     );
   }
 
-  // libpq-style URLs may select a Unix socket through ?host=/path while the
-  // authority is empty. The query parameter is the effective host in that form.
-  const queryHost = url.searchParams.get("host");
-  const unixSocket = queryHost?.startsWith("/") === true;
-  const host = unixSocket
-    ? queryHost
-    : normalizeHost(
-        queryHost && url.hostname === "" ? queryHost : url.hostname,
+  const seenSafetyKeys = new Set<string>();
+  for (const key of url.searchParams.keys()) {
+    if (!SAFETY_SENSITIVE_QUERY_KEYS.has(key)) continue;
+    if (seenSafetyKeys.has(key)) {
+      throw new Error(
+        `connection URL contains duplicate safety-sensitive query parameter: ${key}`,
       );
-  const database = decodeURIComponent(url.pathname.replace(/^\//, ""));
+    }
+    seenSafetyKeys.add(key);
+  }
+
+  let parsed: ReturnType<typeof parseConnectionString>;
+  try {
+    // This is the same parser `pg` uses for Pool({ connectionString }). In
+    // particular, query host/port values override the URL authority while the
+    // pathname remains the effective database.
+    parsed = parseConnectionString(connectionString);
+  } catch {
+    throw new Error("connection URL is not a valid PostgreSQL URL");
+  }
+
+  const parsedUser = effectivePgValue(
+    parsed.user,
+    "PGUSER",
+    process.platform === "win32" ? process.env.USERNAME : process.env.USER,
+  );
+  const database =
+    effectivePgValue(parsed.database, "PGDATABASE") ?? parsedUser ?? "";
+  const rawHost = effectivePgValue(parsed.host, "PGHOST", "localhost")!;
+  const rawPort = effectivePgValue(parsed.port, "PGPORT", "5432")!;
+  const effectivePort = Number.parseInt(rawPort, 10);
+  if (Number.isNaN(effectivePort)) {
+    throw new Error(`connection URL has an invalid port: ${rawPort}`);
+  }
+  const unixSocket = rawHost.startsWith("/");
+  const host = unixSocket ? rawHost : normalizeHost(rawHost);
 
   return {
     host,
-    port: url.port || "5432",
+    port: String(effectivePort),
     database,
     unixSocket,
   };
@@ -98,6 +136,7 @@ export function isTrustedLocalConnection(
   trustedHosts: readonly string[],
 ): boolean {
   const endpoint = parseConnectionEndpoint(connectionString);
+  const normalizedTrustedHosts = trustedHosts.map(normalizeTrustedHost);
   if (endpoint.unixSocket) return true;
   if (
     endpoint.host === "localhost" ||
@@ -106,9 +145,7 @@ export function isTrustedLocalConnection(
   ) {
     return true;
   }
-  return trustedHosts.some(
-    (trusted) => normalizeTrustedHost(trusted) === endpoint.host,
-  );
+  return normalizedTrustedHosts.includes(endpoint.host);
 }
 
 /** Credential-free stable stamp used only to catch source-as-clone mistakes. */

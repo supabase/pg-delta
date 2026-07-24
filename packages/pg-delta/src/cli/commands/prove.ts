@@ -219,9 +219,6 @@ export async function cmdProve(args: string[]): Promise<void> {
     flags["trusted-local-host"],
     flags["allow-remote-clone"],
   );
-  process.stderr.write(
-    "WARNING: The --clone database will be mutated and can no longer be used as a source.\n",
-  );
   const {
     factBase: desiredFb,
     redactSecrets: snapshotRedactSecrets,
@@ -290,6 +287,9 @@ export async function cmdProve(args: string[]): Promise<void> {
     );
   }
 
+  process.stderr.write(
+    "WARNING: prove may mutate the --clone database; use only a disposable clone.\n",
+  );
   const clone = makePool(cloneUrl);
   try {
     process.stderr.write(
