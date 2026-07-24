@@ -157,14 +157,14 @@ export function formatProofPassCoverage(coverage: ProofCoverage): string {
 export function assertProofCloneEndpoint(
   cloneUrl: string,
   sourceEndpointHash: string | undefined,
-  trustedLocalEndpoints: readonly string[],
+  trustedLocalHosts: readonly string[],
   allowRemoteClone: boolean,
 ): void {
   let cloneEndpointHash: string;
   let local: boolean;
   try {
     cloneEndpointHash = connectionEndpointHash(cloneUrl);
-    local = isTrustedLocalConnection(cloneUrl, trustedLocalEndpoints);
+    local = isTrustedLocalConnection(cloneUrl, trustedLocalHosts);
   } catch (error) {
     throw new UsageError(
       `prove: invalid clone endpoint safety option — ${error instanceof Error ? error.message : String(error)}`,
@@ -180,7 +180,7 @@ export function assertProofCloneEndpoint(
   }
   if (!local && !allowRemoteClone) {
     throw new UsageError(
-      "prove: --clone must use localhost, a loopback address, a Unix socket, or an exact --trusted-local-endpoint; pass --allow-remote-clone only for an intentional remote disposable clone",
+      "prove: --clone must use localhost, a loopback address, a Unix socket, or an exact --trusted-local-host; pass --allow-remote-clone only for an intentional remote disposable clone",
     );
   }
 }
@@ -193,14 +193,14 @@ export async function cmdProve(args: string[]): Promise<void> {
       clone: { type: "value", required: true },
       "desired-snapshot": { type: "value", required: true },
       profile: { type: "value" },
-      "trusted-local-endpoint": { type: "multi" },
+      "trusted-local-host": { type: "multi" },
       "allow-remote-clone": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       throw new UsageError(
         `${err.message}\nUsage: pgdelta prove --plan <plan.json> --clone <pg-url> --desired-snapshot <file> [--profile ${PROFILE_IDS}] ` +
-          `[--trusted-local-endpoint <host:port>]... [--allow-remote-clone]`,
+          `[--trusted-local-host <hostname>]... [--allow-remote-clone]`,
       );
     }
     throw err;
@@ -216,7 +216,7 @@ export async function cmdProve(args: string[]): Promise<void> {
   assertProofCloneEndpoint(
     cloneUrl,
     thePlan.source.endpointHash,
-    flags["trusted-local-endpoint"],
+    flags["trusted-local-host"],
     flags["allow-remote-clone"],
   );
   process.stderr.write(

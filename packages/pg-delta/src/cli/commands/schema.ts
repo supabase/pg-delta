@@ -453,7 +453,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       "skip-cluster-ddl": { type: "boolean" },
       "keep-shadow": { type: "boolean" },
       "allow-data-loss": { type: "boolean" },
-      "trusted-local-endpoint": { type: "multi" },
+      "trusted-local-host": { type: "multi" },
       "allow-remote-shadow": { type: "boolean" },
     });
   } catch (err) {
@@ -462,7 +462,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         `${err.message}\nUsage: pgdelta schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
           `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow] [--allow-data-loss] ` +
-          `[--trusted-local-endpoint <host:port>]... [--allow-remote-shadow]\n` +
+          `[--trusted-local-host <hostname>]... [--allow-remote-shadow]\n` +
           `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.`,
       );
     }
@@ -604,7 +604,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       }
       shadowIsLocal = isTrustedLocalConnection(
         shadowFlag,
-        flags["trusted-local-endpoint"],
+        flags["trusted-local-host"],
       );
     } catch (error) {
       if (error instanceof UsageError) throw error;
@@ -614,7 +614,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     }
     if (!shadowIsLocal && !flags["allow-remote-shadow"]) {
       throw new UsageError(
-        "schema apply: an explicit --shadow must use localhost, a loopback address, a Unix socket, or an exact --trusted-local-endpoint; pass --allow-remote-shadow only for an intentional remote shadow",
+        "schema apply: an explicit --shadow must use localhost, a loopback address, a Unix socket, or an exact --trusted-local-host; pass --allow-remote-shadow only for an intentional remote shadow",
       );
     }
     shadowUrl = shadowFlag;

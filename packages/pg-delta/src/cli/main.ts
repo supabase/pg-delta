@@ -66,7 +66,7 @@ Commands:
   apply          --plan <plan.json> --target <pg-url> [--force] [--allow-data-loss]
   render         --plan <plan.json> --out <base>.sql [--allow-drops]
   prove          --plan <plan.json> --clone <pg-url> --desired-snapshot <file>
-                 [--trusted-local-endpoint <host:port>]... [--allow-remote-clone]
+                 [--trusted-local-host <hostname>]... [--allow-remote-clone]
   diff           --source <pg-url> --desired <pg-url>
   drift          --env <pg-url> --snapshot <file>
   snapshot       --source <pg-url> --out <file>
@@ -76,7 +76,7 @@ Commands:
                  [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
                  [--renames auto|prompt|off] [--force] [--allow-data-loss]
-                 [--trusted-local-endpoint <host:port>]... [--allow-remote-shadow]
+                 [--trusted-local-host <hostname>]... [--allow-remote-shadow]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
   schema lint    --dir <dir>
 
@@ -116,7 +116,7 @@ Notes:
   --renames defaults to "prompt" for the CLI (library default is "off").
   --accept-rename: confirm a rename from a prior prompt run; repeatable.
   Safety: prove accepts local clone endpoints by default. Add an exact custom
-    host:port with --trusted-local-endpoint, or explicitly opt into a disposable
+    hostname with --trusted-local-host, or explicitly opt into a disposable
     remote clone with --allow-remote-clone. Explicit schema shadows follow the
     same rule via --allow-remote-shadow. apply/schema apply refuse actions marked
     dataLoss:"destructive" unless --allow-data-loss is supplied; --force only
@@ -152,7 +152,7 @@ Subcommands:
                  [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
                  [--renames auto|prompt|off] [--force] [--allow-data-loss]
-                 [--trusted-local-endpoint <host:port>]... [--allow-remote-shadow]
+                 [--trusted-local-host <hostname>]... [--allow-remote-shadow]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
   schema lint    --dir <dir>
                  Statically check the SQL files (pg-topo) for shadow-load

@@ -53,23 +53,35 @@ function parseConnectionEndpoint(connectionString: string): ConnectionEndpoint {
   };
 }
 
-function normalizeTrustedEndpoint(value: string): string {
-  // Reuse URL's IPv6/port parsing and require a port so trust is scoped to one
-  // concrete listener rather than every service on a custom hostname.
+function normalizeTrustedHost(value: string): string {
+  // Reuse URL's host parsing, but accept only a bare, exact hostname. Ports are
+  // intentionally excluded because local container runtimes commonly assign a
+  // different forwarded port to each disposable database.
   let url: URL;
   try {
     url = new URL(`postgres://${value}/_`);
   } catch {
     throw new Error(
-      `trusted local endpoint must be an exact host:port (got ${value})`,
+      `trusted local host must be an exact hostname (got ${value})`,
     );
   }
-  if (url.hostname === "" || url.port === "") {
+  if (
+    value === "" ||
+    value !== value.trim() ||
+    value.includes("*") ||
+    url.hostname === "" ||
+    url.port !== "" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.pathname !== "/_" ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
     throw new Error(
-      `trusted local endpoint must be an exact host:port (got ${value})`,
+      `trusted local host must be an exact hostname (got ${value})`,
     );
   }
-  return `${normalizeHost(url.hostname)}:${url.port}`;
+  return normalizeHost(url.hostname);
 }
 
 function isIpv4Loopback(host: string): boolean {
@@ -83,7 +95,7 @@ function isIpv4Loopback(host: string): boolean {
 
 export function isTrustedLocalConnection(
   connectionString: string,
-  trustedEndpoints: readonly string[],
+  trustedHosts: readonly string[],
 ): boolean {
   const endpoint = parseConnectionEndpoint(connectionString);
   if (endpoint.unixSocket) return true;
@@ -94,9 +106,8 @@ export function isTrustedLocalConnection(
   ) {
     return true;
   }
-  const exact = `${endpoint.host}:${endpoint.port}`;
-  return trustedEndpoints.some(
-    (trusted) => normalizeTrustedEndpoint(trusted) === exact,
+  return trustedHosts.some(
+    (trusted) => normalizeTrustedHost(trusted) === endpoint.host,
   );
 }
 
