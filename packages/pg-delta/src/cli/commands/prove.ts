@@ -17,6 +17,10 @@ import { loadSnapshot } from "../../frontends/snapshot-file.ts";
 import { encodeId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
+import {
+  connectionEndpointHash,
+  isTrustedLocalConnection,
+} from "../connection-safety.ts";
 import { CliExit, parseFlags, UsageError } from "../flags.ts";
 import {
   effectiveProfileId,
@@ -37,6 +41,28 @@ import {
  */
 export function formatProofFailure(verdict: ProofVerdict): string {
   const lines: string[] = [];
+  if (verdict.sourceStateViolation !== undefined) {
+    lines.push(
+      `  clone state mismatch: expected ${verdict.sourceStateViolation.expectedFingerprint.slice(0, 12)}… ` +
+        `but observed ${verdict.sourceStateViolation.actualFingerprint.slice(0, 12)}…; the clone was not mutated`,
+    );
+  }
+  if (verdict.desiredStateViolation !== undefined) {
+    lines.push(
+      `  desired snapshot mismatch: expected ${verdict.desiredStateViolation.expectedFingerprint.slice(0, 12)}… ` +
+        `but observed ${verdict.desiredStateViolation.actualFingerprint.slice(0, 12)}…; the clone was not mutated`,
+    );
+  }
+  if ((verdict.safetyMetadataViolations?.length ?? 0) > 0) {
+    lines.push(
+      `  undeclared table destruction (${verdict.safetyMetadataViolations!.length}):`,
+    );
+    for (const violation of verdict.safetyMetadataViolations!) {
+      lines.push(
+        `    action[${violation.actionIndex}] destroys ${rel(violation.table.schema, violation.table.name)} but declares dataLoss:none`,
+      );
+    }
+  }
   if (verdict.applyError) {
     lines.push(
       `  apply error at action[${verdict.applyError.actionIndex}]: ${verdict.applyError.message}`,
@@ -128,6 +154,37 @@ export function formatProofPassCoverage(coverage: ProofCoverage): string {
   return ` — ${segments.join(", ")}`;
 }
 
+export function assertProofCloneEndpoint(
+  cloneUrl: string,
+  sourceEndpointHash: string | undefined,
+  trustedLocalEndpoints: readonly string[],
+  allowRemoteClone: boolean,
+): void {
+  let cloneEndpointHash: string;
+  let local: boolean;
+  try {
+    cloneEndpointHash = connectionEndpointHash(cloneUrl);
+    local = isTrustedLocalConnection(cloneUrl, trustedLocalEndpoints);
+  } catch (error) {
+    throw new UsageError(
+      `prove: invalid clone endpoint safety option — ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (
+    sourceEndpointHash !== undefined &&
+    cloneEndpointHash === sourceEndpointHash
+  ) {
+    throw new UsageError(
+      "prove: the clone resolves to the plan's source endpoint; refusing to mutate the original source database",
+    );
+  }
+  if (!local && !allowRemoteClone) {
+    throw new UsageError(
+      "prove: --clone must use localhost, a loopback address, a Unix socket, or an exact --trusted-local-endpoint; pass --allow-remote-clone only for an intentional remote disposable clone",
+    );
+  }
+}
+
 export async function cmdProve(args: string[]): Promise<void> {
   let parsed;
   try {
@@ -136,11 +193,14 @@ export async function cmdProve(args: string[]): Promise<void> {
       clone: { type: "value", required: true },
       "desired-snapshot": { type: "value", required: true },
       profile: { type: "value" },
+      "trusted-local-endpoint": { type: "multi" },
+      "allow-remote-clone": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       throw new UsageError(
-        `${err.message}\nUsage: pgdelta prove --plan <plan.json> --clone <pg-url> --desired-snapshot <file> [--profile ${PROFILE_IDS}]`,
+        `${err.message}\nUsage: pgdelta prove --plan <plan.json> --clone <pg-url> --desired-snapshot <file> [--profile ${PROFILE_IDS}] ` +
+          `[--trusted-local-endpoint <host:port>]... [--allow-remote-clone]`,
       );
     }
     throw err;
@@ -151,12 +211,17 @@ export async function cmdProve(args: string[]): Promise<void> {
   const cloneUrl = flags["clone"];
   const snapshotPath = flags["desired-snapshot"];
 
+  const json = readFileSync(planPath, "utf8");
+  const thePlan = parsePlan(json);
+  assertProofCloneEndpoint(
+    cloneUrl,
+    thePlan.source.endpointHash,
+    flags["trusted-local-endpoint"],
+    flags["allow-remote-clone"],
+  );
   process.stderr.write(
     "WARNING: The --clone database will be mutated and can no longer be used as a source.\n",
   );
-
-  const json = readFileSync(planPath, "utf8");
-  const thePlan = parsePlan(json);
   const {
     factBase: desiredFb,
     redactSecrets: snapshotRedactSecrets,

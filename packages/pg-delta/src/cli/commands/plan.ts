@@ -24,6 +24,7 @@ import { parseFlags, UsageError } from "../flags.ts";
 import { PROFILE_IDS, resolveCliProfile } from "../profile.ts";
 import type { RenameMode } from "../../plan/renames.ts";
 import { writeFileSync } from "node:fs";
+import { connectionEndpointHash } from "../connection-safety.ts";
 
 const USAGE =
   "Usage: pgdelta plan --source <pg-url> --desired <pg-url> " +
@@ -143,6 +144,9 @@ export async function cmdPlan(args: string[]): Promise<void> {
       desiredResult.factBase,
       planOptions,
     );
+    // Credential-free origin stamp: prove uses this only to reject the most
+    // dangerous endpoint mixup (`--clone` accidentally receives SOURCE_URL).
+    thePlan.source.endpointHash = connectionEndpointHash(sourceUrl);
 
     // human summary → stderr
     process.stderr.write(`\nPlan summary:\n`);

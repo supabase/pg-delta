@@ -83,6 +83,14 @@ import {
 import { CliExit, parseFlags, UsageError } from "../flags.ts";
 import { effectiveProfileId, PROFILE_IDS, profileById } from "../profile.ts";
 import type { RenameMode } from "../../plan/renames.ts";
+import { assertDataLossAllowed } from "../data-loss-safety.ts";
+import {
+  connectionEndpointHash,
+  isSameDatabase,
+  isSamePostgresCluster,
+  isTrustedLocalConnection,
+  observeDatabaseIdentity,
+} from "../connection-safety.ts";
 
 /** Recursively collect *.sql files in lexicographic order. Exported for tests. */
 export function collectSqlFiles(dir: string): SqlFile[] {
@@ -444,13 +452,17 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       scope: { type: "value" },
       "skip-cluster-ddl": { type: "boolean" },
       "keep-shadow": { type: "boolean" },
+      "allow-data-loss": { type: "boolean" },
+      "trusted-local-endpoint": { type: "multi" },
+      "allow-remote-shadow": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       throw new UsageError(
         `${err.message}\nUsage: pgdelta schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
-          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow]\n` +
+          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow] [--allow-data-loss] ` +
+          `[--trusted-local-endpoint <host:port>]... [--allow-remote-shadow]\n` +
           `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.`,
       );
     }
@@ -581,6 +593,30 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   let coLocated: CoLocatedShadow | undefined;
   let shadowUrl: string;
   if (shadowFlag !== undefined) {
+    let shadowIsLocal: boolean;
+    try {
+      if (
+        connectionEndpointHash(shadowFlag) === connectionEndpointHash(targetUrl)
+      ) {
+        throw new UsageError(
+          "schema apply: --shadow resolves to the target endpoint; refusing to load declarative SQL into the target database",
+        );
+      }
+      shadowIsLocal = isTrustedLocalConnection(
+        shadowFlag,
+        flags["trusted-local-endpoint"],
+      );
+    } catch (error) {
+      if (error instanceof UsageError) throw error;
+      throw new UsageError(
+        `schema apply: invalid shadow endpoint safety option — ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!shadowIsLocal && !flags["allow-remote-shadow"]) {
+      throw new UsageError(
+        "schema apply: an explicit --shadow must use localhost, a loopback address, a Unix socket, or an exact --trusted-local-endpoint; pass --allow-remote-shadow only for an intentional remote shadow",
+      );
+    }
     shadowUrl = shadowFlag;
   } else {
     if (scope === "cluster") {
@@ -625,6 +661,25 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     }
   };
   try {
+    if (shadowFlag !== undefined) {
+      const [targetIdentity, shadowIdentity] = await Promise.all([
+        observeDatabaseIdentity(tgt.pool),
+        observeDatabaseIdentity(shadow.pool),
+      ]);
+      if (isSameDatabase(targetIdentity, shadowIdentity)) {
+        throw new UsageError(
+          `schema apply: shadow and target are the same observed database (${targetIdentity.database}); refusing to load declarative SQL`,
+        );
+      }
+      if (
+        scope === "cluster" &&
+        isSamePostgresCluster(targetIdentity, shadowIdentity)
+      ) {
+        throw new UsageError(
+          "schema apply: --scope cluster requires a shadow on a different PostgreSQL cluster; the supplied shadow shares the target cluster",
+        );
+      }
+    }
     const redactSecrets =
       manifest?.redactSecrets ?? !flags["unsafe-show-secrets"];
     const profile = profileById(profileId);
@@ -723,6 +778,17 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     if (thePlan.actions.length === 0) {
       process.stderr.write("Target is already up to date.\n");
       return;
+    }
+
+    const destructive = assertDataLossAllowed(
+      thePlan.actions,
+      flags["allow-data-loss"],
+      "schema apply",
+    );
+    if (destructive.length > 0) {
+      process.stderr.write(
+        "WARNING: --allow-data-loss permits actions that can permanently destroy data.\n",
+      );
     }
 
     if (force) {

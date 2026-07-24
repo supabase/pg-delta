@@ -74,6 +74,21 @@ export interface SeedStateViolation {
 export interface ProofVerdict {
   ok: boolean;
   applyError?: { actionIndex: number; sql: string; message: string };
+  /** Clone state did not match the state the plan was produced from. The proof
+   *  refuses before auto-seeding or applying any action. */
+  sourceStateViolation?: {
+    expectedFingerprint: string;
+    actualFingerprint: string;
+  };
+  /** The supplied desired snapshot is not the target stamped on the plan. The
+   *  proof refuses before opening the mutation phase. */
+  desiredStateViolation?: {
+    expectedFingerprint: string;
+    actualFingerprint: string;
+  };
+  /** A table-destroying action claimed dataLoss:none. This is a rule/artifact
+   *  safety contradiction, so proof refuses rather than skipping that table. */
+  safetyMetadataViolations?: UndeclaredTableDestruction[];
   driftDeltas: Delta[];
   /** a kept table whose data changed: row count differs, OR (on a table the
    *  plan did NOT touch) content changed though the count held — drop+recreate
@@ -151,6 +166,11 @@ export interface ProveOptions {
    *  must be re-supplied here; otherwise the proof cannot reconstruct the same
    *  view it diffed and fails loudly (P0-2). */
   baseline?: FactBase;
+}
+
+export interface UndeclaredTableDestruction {
+  actionIndex: number;
+  table: TableRef;
 }
 
 interface TableStat {
@@ -293,6 +313,56 @@ function tablesReferencedBy(action: Action): Set<string> {
     if (rel !== undefined) out.add(rel);
   }
   return out;
+}
+
+/**
+ * A table teardown is only allowed to escape data-preservation comparison when
+ * the action honestly declares data loss. Accepted renames are the exception:
+ * their old table identity is destroyed, but provePlan follows the data to the
+ * accepted new identity and compares it there.
+ */
+export function findUndeclaredTableDestruction(
+  actions: readonly Action[],
+  acceptedRenames: ReadonlyArray<{ from: StableId; to: StableId }> = [],
+): UndeclaredTableDestruction[] {
+  const acceptedTableRenames = new Map(
+    acceptedRenames
+      .filter(
+        (rename) => rename.from.kind === "table" && rename.to.kind === "table",
+      )
+      .map((rename) => {
+        const from = rename.from as { schema: string; name: string };
+        const to = rename.to as { schema: string; name: string };
+        return [
+          relKey(from.schema, from.name),
+          relKey(to.schema, to.name),
+        ] as const;
+      }),
+  );
+  const violations: UndeclaredTableDestruction[] = [];
+  actions.forEach((action, actionIndex) => {
+    if (action.dataLoss === "destructive") return;
+    for (const id of action.destroys) {
+      if (id.kind !== "table") continue;
+      const table = id as { schema: string; name: string };
+      const renamedTo = acceptedTableRenames.get(
+        relKey(table.schema, table.name),
+      );
+      const isAcceptedRenameAction =
+        renamedTo !== undefined &&
+        action.produces.some((produced) => {
+          if (produced.kind !== "table") return false;
+          const target = produced as { schema: string; name: string };
+          return relKey(target.schema, target.name) === renamedTo;
+        });
+      if (isAcceptedRenameAction) continue;
+      violations.push({
+        actionIndex,
+        table: { schema: table.schema, name: table.name },
+      });
+    }
+  });
+  return violations;
 }
 
 async function autoSeedEmptyTables(
@@ -625,6 +695,57 @@ export async function provePlan(
   const managedView = (factBase: FactBase): FactBase =>
     reconstructManagedView(factBase, viewOpts);
 
+  // Validate every immutable input before table scans, auto-seeding, or DDL.
+  // A stale/wrong desired snapshot used to be discovered only after the clone
+  // had already been mutated; a stale clone bypassed apply's normal gate
+  // entirely because provePlan called apply({ fingerprintGate:false }).
+  const safetyMetadataViolations = findUndeclaredTableDestruction(
+    thePlan.actions,
+    thePlan.acceptedRenames,
+  );
+  if (safetyMetadataViolations.length > 0) {
+    return {
+      ok: false,
+      safetyMetadataViolations,
+      driftDeltas: [],
+      dataViolations: [],
+      rewriteViolations: [],
+      coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+    };
+  }
+
+  // The plan target is the managed, projected desired view. Reconstruct it
+  // exactly as the final convergence comparison does, but before mutation.
+  const target = managedView(projectTarget(desired, thePlan.filteredDeltas));
+  if (target.rootHash !== thePlan.target.fingerprint) {
+    return {
+      ok: false,
+      desiredStateViolation: {
+        expectedFingerprint: thePlan.target.fingerprint,
+        actualFingerprint: target.rootHash,
+      },
+      driftDeltas: [],
+      dataViolations: [],
+      rewriteViolations: [],
+      coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+    };
+  }
+
+  const initialClone = managedView((await reextractClone()).factBase);
+  if (initialClone.rootHash !== thePlan.source.fingerprint) {
+    return {
+      ok: false,
+      sourceStateViolation: {
+        expectedFingerprint: thePlan.source.fingerprint,
+        actualFingerprint: initialClone.rootHash,
+      },
+      driftDeltas: [],
+      dataViolations: [],
+      rewriteViolations: [],
+      coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+    };
+  }
+
   // populated only when autoSeed ran, so it stays out of the verdict entirely
   // on the default opt-out path (present ⇒ autoSeed was requested).
   let seedOutcomes: SeedOutcome[] | undefined;
@@ -729,7 +850,6 @@ export async function provePlan(
   const provenFb = managedView(proven.factBase);
   // target the PROJECTED desired: the plan only applies kept deltas, so it
   // converges to `desired` minus the policy-filtered changes (review #2).
-  const target = managedView(projectTarget(desired, thePlan.filteredDeltas));
   const driftDeltas = diff(provenFb, target);
   const after = await tableStats(clonePool);
 

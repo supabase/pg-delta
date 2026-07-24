@@ -78,6 +78,17 @@ pgdelta prove --plan plan.json --clone "$CLONE_URL" --desired-snapshot desired.s
 pgdelta apply --plan plan.json --target "$SOURCE_URL"
 ```
 
+`prove` accepts localhost, loopback addresses, and Unix sockets by default. For
+a local container DNS name, add its exact listener with
+`--trusted-local-endpoint postgres.orb.local:5432`. An intentional remote clone
+requires `--allow-remote-clone`. The command refuses the plan's original source
+endpoint and verifies both the clone fingerprint and desired snapshot before
+auto-seeding or applying any DDL.
+
+Plans containing actions marked `dataLoss:"destructive"` require the separate
+`--allow-data-loss` flag at `apply` time. `--force` only bypasses the source
+fingerprint check; it never authorizes data loss.
+
 `plan` writes the JSON plan to stdout (or `--out <file>`) and a summary
 (action count, filtered deltas, safety report, rename candidates) to stderr.
 
@@ -94,6 +105,12 @@ pgdelta schema apply \
   --shadow "$SHADOW_URL" \   # a fresh, empty database the files are loaded into
   --target "$TARGET_URL"     # the database to migrate
 ```
+
+Explicit shadows follow the same endpoint policy as proof clones: local by
+default, an exact custom listener via `--trusted-local-endpoint`, or an
+intentional remote database via `--allow-remote-shadow`. pg-delta observes both
+connections before loading SQL and refuses when shadow and target are the same
+database. Cluster scope additionally requires a different PostgreSQL cluster.
 
 Export the inverse — a live database back out to `.sql` files:
 
@@ -117,9 +134,9 @@ pgdelta schema export --source "$SOURCE_URL" --out-dir ./schema
 # (formatSqlStatements).
 ```
 
-> The shadow database must be a fresh, empty Postgres. Auto-provisioning an
-> ephemeral shadow (so `--shadow` becomes optional) is a designed-but-deferred
-> feature — see [roadmap/ephemeral-shadow-design.md](roadmap/ephemeral-shadow-design.md).
+> The shadow database must be fresh and empty. When `--shadow` is omitted in
+> database scope, pg-delta creates and later drops a co-located scratch database.
+> Cluster scope requires an explicit shadow on an isolated PostgreSQL cluster.
 
 ### Detect drift from a saved snapshot
 
@@ -137,12 +154,12 @@ has drifted (and prints the deltas) — handy in CI.
 |---|---|---|
 | `diff` | Print the deltas between two live DBs | `--source` `--desired` `[--strict-coverage]` |
 | `plan` | Produce a plan artifact (JSON) | `--source` `--desired` `[--out]` `[--profile]` `[--renames]` `[--no-compact]` `[--accept-rename]` `[--restrict-to-applier]` `[--strict-coverage]` |
-| `apply` | Apply a plan to a target | `--plan` `--target` `[--profile]` `[--force]` |
-| `prove` | Apply a plan to a clone and verify convergence + data preservation | `--plan` `--clone` `--desired-snapshot` `[--profile]` |
+| `apply` | Apply a plan to a target | `--plan` `--target` `[--profile]` `[--force]` `[--allow-data-loss]` |
+| `prove` | Apply a plan to a clone and verify convergence + data preservation | `--plan` `--clone` `--desired-snapshot` `[--profile]` `[--trusted-local-endpoint]` `[--allow-remote-clone]` |
 | `snapshot` | Save a database's fact base to a file | `--source` `--out` `[--strict-coverage]` |
 | `drift` | Compare a live DB against a saved snapshot | `--env` `--snapshot` `[--strict-coverage]` |
 | `schema export` | Export a live DB to `.sql` files | `--source` `--out-dir` `[--layout]` `[--profile]` `[--strict-coverage]` |
-| `schema apply` | Load `.sql` files via a shadow DB and migrate a target | `--dir` `--shadow` `--target` `[--renames]` `[--accept-rename]` `[--force]` `[--profile]` `[--restrict-to-applier]` `[--strict-coverage]` |
+| `schema apply` | Load `.sql` files via a shadow DB and migrate a target | `--dir` `--shadow` `--target` `[--renames]` `[--accept-rename]` `[--force]` `[--allow-data-loss]` `[--trusted-local-endpoint]` `[--allow-remote-shadow]` `[--profile]` `[--restrict-to-applier]` `[--strict-coverage]` |
 
 Common flags, explained:
 

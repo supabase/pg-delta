@@ -86,7 +86,13 @@ export interface SafetyReport {
 export interface Plan {
   formatVersion: 1;
   engineVersion: string;
-  source: { fingerprint: string };
+  source: {
+    fingerprint: string;
+    /** Credential-free hash of the CLI source endpoint. Used only to reject
+     *  the common `prove --clone "$SOURCE_URL"` mistake. Absent on direct
+     *  library plans and legacy artifacts. */
+    endpointHash?: string;
+  };
   target: { fingerprint: string };
   /** whether the source/desired fact bases were extracted with secret redaction
    *  on (the extract default). Stamped by the CLI so `apply`/`prove` re-extract
