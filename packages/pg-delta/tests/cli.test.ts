@@ -2489,10 +2489,7 @@ describe("CLI: schema apply debugging", () => {
     const shadow = await cluster.createDb("cli_apply_failure_unred_shadow");
     const target = await cluster.createDb("cli_apply_failure_unred_tgt");
     const secret = "cli-apply-failure-secret-xyz";
-    const dir = join(
-      tmpdir(),
-      `pg-delta-next-failure-unred-${Date.now()}`,
-    );
+    const dir = join(tmpdir(), `pg-delta-next-failure-unred-${Date.now()}`);
     try {
       await Promise.all([
         source.pool.query(`

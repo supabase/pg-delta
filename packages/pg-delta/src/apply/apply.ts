@@ -298,12 +298,12 @@ export async function apply(
             actionIndex: index,
             sql: action.sql,
           });
-          const actionStartedAt = Date.now();
+          const actionStartedAt = performance.now();
           try {
             await client.query(action.sql);
             // actionEnd fires as the action settles, so `ms` measures only the
             // action's round-trip (not the RESET ALL below).
-            const actionElapsedMs = Date.now() - actionStartedAt;
+            const actionElapsedMs = performance.now() - actionStartedAt;
             emit(onEvent, {
               kind: "actionEnd",
               actionIndex: index,
@@ -311,7 +311,7 @@ export async function apply(
               ms: actionElapsedMs,
             });
           } catch (error) {
-            const actionElapsedMs = Date.now() - actionStartedAt;
+            const actionElapsedMs = performance.now() - actionStartedAt;
             emit(onEvent, {
               kind: "actionEnd",
               actionIndex: index,
@@ -413,11 +413,11 @@ export async function apply(
       for (let i = segment.start; i < segment.end; i++) {
         const action = thePlan.actions[i]!;
         emit(onEvent, { kind: "actionStart", actionIndex: i, sql: action.sql });
-        const actionStartedAt = Date.now();
+        const actionStartedAt = performance.now();
         try {
           await client.query(action.sql);
         } catch (error) {
-          const actionElapsedMs = Date.now() - actionStartedAt;
+          const actionElapsedMs = performance.now() - actionStartedAt;
           emit(onEvent, {
             kind: "actionEnd",
             actionIndex: i,
@@ -444,7 +444,7 @@ export async function apply(
             error: errorEntry(i, "action", action.sql, error),
           };
         }
-        const actionElapsedMs = Date.now() - actionStartedAt;
+        const actionElapsedMs = performance.now() - actionStartedAt;
         emit(onEvent, {
           kind: "actionEnd",
           actionIndex: i,
