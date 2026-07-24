@@ -29,26 +29,76 @@ export interface TableRef {
   name: string;
 }
 
+/** The result of best-effort auto-seeding one empty kept table (opt-in via
+ *  `ProveOptions.autoSeed`). Taxonomy is by SQLSTATE class, NOT string matching:
+ *  - `seeded` — a synthetic `DEFAULT VALUES` row landed; the table now has
+ *    content-fingerprint coverage in the data-preservation check.
+ *  - `skipped` — no row persisted and that is expected, in two shapes:
+ *    (a) the insert hit a class-23 integrity-constraint violation (`reasonCode`
+ *    = the SQLSTATE: `23502` NOT NULL w/o default, `23503` FK, `23505` unique,
+ *    `23514` check, any `23xxx`); or (b) the insert RESOLVED but the row is
+ *    absent from the FINAL pre-apply snapshot — a BEFORE INSERT trigger returned
+ *    NULL, a DO INSTEAD rule suppressed it, or an AFTER INSERT trigger deleted it
+ *    (possibly while seeding a LATER table). rowCount is only the command tag, so
+ *    persistence is judged once by reconciling against that snapshot, not per
+ *    insert. This carries the synthetic sentinel `reasonCode` `"no_row"`, the one
+ *    skip code that is NOT a SQLSTATE. Either way the table keeps
+ *    `contentMode: "none"`.
+ *  - `failed` — anything else (a raised exception, connection/syntax/permission
+ *    error, or a driver error with no code): a real problem the caller must see
+ *    rather than have swallowed. `reasonCode` is the SQLSTATE when the driver
+ *    supplied one, and `message` is the error text. */
+export type SeedOutcome =
+  | { table: TableRef; status: "seeded" }
+  | { table: TableRef; status: "skipped"; reasonCode: string }
+  | { table: TableRef; status: "failed"; reasonCode?: string; message: string };
+
+export interface DataViolation {
+  table: TableRef;
+  before: number;
+  after: number;
+  /** count held but row CONTENT changed on an untouched table (review #3) */
+  contentChanged?: boolean;
+  /** autoSeed changed the table's schema before the plan ran, so row content
+   *  cannot be compared safely (including a table that started empty) */
+  schemaChanged?: boolean;
+}
+
+export interface SeedStateViolation {
+  /** managed-state fingerprint the plan was produced from */
+  expectedFingerprint: string;
+  /** managed-state fingerprint observed after autoSeed, before plan apply */
+  actualFingerprint: string;
+}
+
 export interface ProofVerdict {
   ok: boolean;
   applyError?: { actionIndex: number; sql: string; message: string };
   driftDeltas: Delta[];
   /** a kept table whose data changed: row count differs, OR (on a table the
    *  plan did NOT touch) content changed though the count held — drop+recreate
-   *  masquerading as preservation, or an undeclared destructive operation */
-  dataViolations: Array<{
-    table: TableRef;
-    before: number;
-    after: number;
-    /** count held but row CONTENT changed on an untouched table (review #3) */
-    contentChanged?: boolean;
-  }>;
+   *  masquerading as preservation, an undeclared destructive operation, or an
+   *  autoSeed trigger mutating pre-existing data before the plan ran */
+  dataViolations: DataViolation[];
+  /** subset of `dataViolations` detected before the plan ran and caused by
+   *  autoSeed itself. Present only on that early-failure path so harnesses can
+   *  distinguish a seed audit failure from an expected migration failure. */
+  seedSideEffects?: DataViolation[];
+  /** autoSeed changed extracted managed state before the plan ran (RLS,
+   *  constraints, reloptions, replica identity, or any other modeled fact). */
+  seedStateViolation?: SeedStateViolation;
   /** a kept table that was physically rewritten (relfilenode changed)
    *  under no action declaring rewriteRisk — the rule under-declared */
   rewriteViolations: Array<{ table: TableRef }>;
   /** what the proof actually verified, per table — honest coverage instead of
    *  a bare boolean (review #3). `ok` is backed by this. */
   coverage: ProofCoverage;
+  /** per-table auto-seed outcomes, present ONLY when `options.autoSeed` was set
+   *  (seeding runs before the plan is applied, so this is populated even on the
+   *  apply-failure early return). Lets a harness tell a genuinely-unseedable
+   *  table (`skipped`, class-23) apart from one that failed for a reason nobody
+   *  saw (`failed`) instead of both collapsing to `contentMode: "none"`. */
+  seedOutcomes?: SeedOutcome[];
 }
 
 export interface TableCoverage {
@@ -248,20 +298,150 @@ function tablesReferencedBy(action: Action): Set<string> {
 async function autoSeedEmptyTables(
   pool: Pool,
   candidates: Iterable<string>,
-): Promise<void> {
+): Promise<SeedOutcome[]> {
+  const outcomes: SeedOutcome[] = [];
   for (const table of candidates) {
     const [schema, name] = parseRelKey(table);
-    // best-effort: DEFAULT VALUES only succeeds when every column is
-    // nullable or defaulted; skip tables it can't satisfy (NOT NULL
-    // without default, etc.) rather than fabricating typed values
+    const ref: TableRef = { schema, name };
+    // best-effort: DEFAULT VALUES only succeeds when every column is nullable
+    // or defaulted. Classify the failure by SQLSTATE class, not string match:
+    // a class-23 integrity-constraint violation (NOT NULL w/o default, FK,
+    // unique, check) is an EXPECTED "unseedable" → `skipped`; anything else (a
+    // raised exception, connection/syntax/permission error, unknown) is a real
+    // problem → `failed`, so it can't hide behind `contentMode: "none"`.
     try {
       await pool.query(
         `INSERT INTO ${qte(schema)}.${qte(name)} DEFAULT VALUES`,
       );
-    } catch {
-      // not insertable with defaults — skip (recorded as no coverage)
+      // PROVISIONAL: a resolved insert is NOT proof of a persisted row, and
+      // rowCount is only the command tag. Persistence is judged once, later, by
+      // reconcileSeedOutcomes against the single FINAL pre-apply snapshot — that
+      // catches same-table suppression (BEFORE trigger → NULL), same-table undo
+      // (AFTER trigger delete), AND cross-table undo (seeding a LATER table
+      // deletes THIS row), which no per-insert probe can see. A row that ends
+      // that snapshot gone is downgraded to skipped("no_row").
+      outcomes.push({ table: ref, status: "seeded" });
+    } catch (err) {
+      const rawCode = (err as { code?: unknown }).code;
+      const code = typeof rawCode === "string" ? rawCode : undefined;
+      if (code !== undefined && code.startsWith("23")) {
+        outcomes.push({ table: ref, status: "skipped", reasonCode: code });
+      } else {
+        outcomes.push({
+          table: ref,
+          status: "failed",
+          ...(code !== undefined ? { reasonCode: code } : {}),
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
+  return outcomes;
+}
+
+/**
+ * Reconcile provisional `seeded` outcomes against the FINAL pre-apply table
+ * snapshot: a synthetic row that no longer exists there (a trigger/rule
+ * suppressed or deleted it — possibly while seeding a LATER table) was never
+ * really seeded, so downgrade it to `skipped("no_row")`. One source of truth
+ * for persistence; `skipped`/`failed` outcomes are already terminal and pass
+ * through unchanged. Pure (no DB) — unit-testable. (`no_row` is the one
+ * non-SQLSTATE skip reasonCode; see SeedOutcome.)
+ */
+export function reconcileSeedOutcomes(
+  outcomes: SeedOutcome[],
+  finalStats: Map<string, TableStat>,
+): SeedOutcome[] {
+  return outcomes.map((o) => {
+    if (o.status !== "seeded") return o;
+    const stat = finalStats.get(relKey(o.table.schema, o.table.name));
+    return stat !== undefined && stat.rows === 0
+      ? { table: o.table, status: "skipped", reasonCode: "no_row" }
+      : o;
+  });
+}
+
+/**
+ * Build the data-proof baseline after auto-seeding without letting seed-trigger
+ * side effects erase the source data we meant to protect:
+ *  - tables that were already populated stay anchored to their PRE-seed stats;
+ *  - tables that were empty use the FINAL post-seed stats, so a surviving
+ *    synthetic row gives the proof content coverage;
+ *  - post-seed-only tables pass through defensively (state proof owns them).
+ *
+ * `autoSeedEmptyTables` can fire arbitrary user triggers. A trigger on an empty
+ * candidate may update/delete a different, populated table; using only the
+ * post-seed snapshot would silently accept that damage as the proof baseline.
+ */
+export function composeAutoSeedBaseline(
+  preSeed: Map<string, TableStat>,
+  postSeed: Map<string, TableStat>,
+): Map<string, TableStat> {
+  const baseline = new Map(postSeed);
+  for (const [table, stat] of preSeed) {
+    if (stat.rows > 0) baseline.set(table, stat);
+  }
+  return baseline;
+}
+
+/**
+ * Detect autoSeed side effects while pre/post fingerprints are directly
+ * comparable: no plan action has run between these snapshots. Schema is
+ * protected for every kept table; row/content changes are protected only for
+ * populated tables because originally-empty tables are expected to gain a
+ * synthetic row. Recreated tables carry no data-preservation claim.
+ */
+export function detectAutoSeedSideEffects(
+  preSeed: Map<string, TableStat>,
+  postSeed: Map<string, TableStat>,
+  recreatedTables: Set<string>,
+): ProofVerdict["dataViolations"] {
+  const violations: ProofVerdict["dataViolations"] = [];
+  for (const [table, before] of preSeed) {
+    if (recreatedTables.has(table)) continue;
+    const [schema, name] = parseRelKey(table);
+    const ref: TableRef = { schema, name };
+    const after = postSeed.get(table);
+    if (before.rows === 0) {
+      if (after === undefined || after.schemaSig !== before.schemaSig) {
+        violations.push({
+          table: ref,
+          before: 0,
+          after: after?.rows ?? 0,
+          schemaChanged: true,
+        });
+      }
+      continue;
+    }
+    if (after === undefined || after.rows !== before.rows) {
+      violations.push({
+        table: ref,
+        before: before.rows,
+        after: after?.rows ?? 0,
+      });
+    } else if (after.schemaSig !== before.schemaSig) {
+      // No plan action has run yet: unlike the final proof comparison, there is
+      // no legitimate schema transition to tolerate between these snapshots.
+      violations.push({
+        table: ref,
+        before: before.rows,
+        after: after.rows,
+        schemaChanged: true,
+      });
+    } else if (
+      before.content !== undefined &&
+      after.content !== undefined &&
+      before.content !== after.content
+    ) {
+      violations.push({
+        table: ref,
+        before: before.rows,
+        after: after.rows,
+        contentChanged: true,
+      });
+    }
+  }
+  return violations;
 }
 
 /**
@@ -419,15 +599,100 @@ export async function provePlan(
   }
   for (const from of renamedTables.keys()) recreatedTables.delete(from);
 
+  // Reconstruct the exact managed view the plan fingerprinted. The same helper
+  // serves both the post-autoSeed pre-apply guard and the final convergence
+  // proof, so policy/capability/baseline/scope cannot drift between them.
+  const policy = options.policy ?? thePlan.policy;
+  const capability = options.capability ?? thePlan.capability;
+  if (policy?.baseline !== undefined && options.baseline === undefined) {
+    throw new Error(
+      `provePlan: plan was produced with policy "${policy.id}" declaring baseline ` +
+        `"${policy.baseline}", but no baseline was supplied; pass the resolved baseline ` +
+        `as options.baseline so the proof compares the same view the plan diffed.`,
+    );
+  }
+  const viewOpts = {
+    policy,
+    capability,
+    baseline: options.baseline,
+    scope: thePlan.scope,
+    defaultOwner: thePlan.defaultOwner,
+  };
+  const reextractClone = (): Promise<{ factBase: FactBase }> =>
+    options.reextract
+      ? options.reextract(clonePool)
+      : extract(clonePool, { redactSecrets: thePlan.redactSecrets ?? true });
+  const managedView = (factBase: FactBase): FactBase =>
+    reconstructManagedView(factBase, viewOpts);
+
+  // populated only when autoSeed ran, so it stays out of the verdict entirely
+  // on the default opt-out path (present ⇒ autoSeed was requested).
+  let seedOutcomes: SeedOutcome[] | undefined;
+  let preSeedStats: Map<string, TableStat> | undefined;
   if (options.autoSeed) {
-    const present = await tableStats(clonePool);
-    const empty = [...present]
+    preSeedStats = await tableStats(clonePool);
+    const empty = [...preSeedStats]
       .filter(([t, s]) => s.rows === 0 && !recreatedTables.has(t))
       .map(([t]) => t);
-    await autoSeedEmptyTables(clonePool, empty);
+    seedOutcomes = await autoSeedEmptyTables(clonePool, empty);
   }
 
-  const before = await tableStats(clonePool);
+  const postSeedStats = await tableStats(clonePool);
+  // reconcile provisional seeds against `postSeedStats` — the single FINAL pre-apply
+  // snapshot (taken after ALL seeding), so a row later suppressed/undone by a
+  // trigger or rule (even cross-table) is downgraded to skipped("no_row").
+  if (seedOutcomes !== undefined) {
+    seedOutcomes = reconcileSeedOutcomes(seedOutcomes, postSeedStats);
+  }
+  const seedSideEffects =
+    preSeedStats === undefined
+      ? []
+      : detectAutoSeedSideEffects(preSeedStats, postSeedStats, recreatedTables);
+  // Do not apply a plan to a clone whose pre-existing data autoSeed already
+  // changed. Capturing the violation now, while schemas are still comparable,
+  // prevents a later legitimate schema change from suppressing the content
+  // comparison and producing a false-green proof.
+  if (seedSideEffects.length > 0) {
+    return {
+      ok: false,
+      driftDeltas: [],
+      dataViolations: seedSideEffects,
+      seedSideEffects,
+      rewriteViolations: [],
+      coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+      ...(seedOutcomes !== undefined ? { seedOutcomes } : {}),
+    };
+  }
+  // Table stats deliberately cover data and column representation only. A seed
+  // trigger can also change any other modeled state (RLS, constraints,
+  // reloptions, replica identity, comments, roles, ...). Re-extract the same
+  // managed view the plan fingerprinted and require it to remain the source
+  // state before applying anything. Row inserts do not affect the fact base.
+  if (preSeedStats !== undefined) {
+    const postSeedState = managedView((await reextractClone()).factBase);
+    if (postSeedState.rootHash !== thePlan.source.fingerprint) {
+      return {
+        ok: false,
+        driftDeltas: [],
+        dataViolations: [],
+        seedStateViolation: {
+          expectedFingerprint: thePlan.source.fingerprint,
+          actualFingerprint: postSeedState.rootHash,
+        },
+        rewriteViolations: [],
+        coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+        ...(seedOutcomes !== undefined ? { seedOutcomes } : {}),
+      };
+    }
+  }
+  // Synthetic rows need the post-seed snapshot, but data that existed before
+  // autoSeed must stay anchored to the pre-seed snapshot. Otherwise a trigger
+  // fired by seeding one empty table can mutate a populated table and have that
+  // damage silently accepted as the proof baseline.
+  const before =
+    preSeedStats === undefined
+      ? postSeedStats
+      : composeAutoSeedBaseline(preSeedStats, postSeedStats);
   // the proof re-extracts after applying anyway; the fingerprint gate's
   // extra extraction is redundant here (it has its own execution tests)
   const report = await apply(thePlan, clonePool, { fingerprintGate: false });
@@ -439,6 +704,9 @@ export async function provePlan(
       dataViolations: [],
       rewriteViolations: [],
       coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+      // seeding already happened before apply, so report it even on this
+      // early return (the caller's coverage gate still wants to see it).
+      ...(seedOutcomes !== undefined ? { seedOutcomes } : {}),
     };
   }
   // same redaction mode the plan was fingerprinted with (Plan.redactSecrets,
@@ -447,9 +715,7 @@ export async function provePlan(
   // still carries real secrets, and the comparison below reports a spurious
   // drift delta though nothing actually diverged. A custom `reextract` is
   // trusted to already bake in the right mode.
-  const proven = await (options.reextract
-    ? options.reextract(clonePool)
-    : extract(clonePool, { redactSecrets: thePlan.redactSecrets ?? true }));
+  const proven = await reextractClone();
   // Compare the SAME managed view the plan diffed: resolveView projects out
   // extension members + the policy's scope rules at the fact level, on BOTH the
   // proven clone and the target — otherwise an extension's internals or a
@@ -459,33 +725,11 @@ export async function provePlan(
   // policy + capability default to the values the plan was produced with (both
   // are inlined on the plan artifact), so a separate `prove` invocation recovers
   // the exact same view without the caller re-supplying them.
-  const policy = options.policy ?? thePlan.policy;
-  const capability = options.capability ?? thePlan.capability;
-  // baseline is NOT carried in the artifact — a baseline-shaped plan must be
-  // re-supplied with it, or the proof cannot reconstruct the diffed view (P0-2).
-  if (policy?.baseline !== undefined && options.baseline === undefined) {
-    throw new Error(
-      `provePlan: plan was produced with policy "${policy.id}" declaring baseline ` +
-        `"${policy.baseline}", but no baseline was supplied; pass the resolved baseline ` +
-        `as options.baseline so the proof compares the same view the plan diffed.`,
-    );
-  }
-  // reconstruct the SAME managed-view-under-scope the plan diffed on BOTH the
-  // proven clone and the target (`reconstructManagedView` seals order).
-  const viewOpts = {
-    policy,
-    capability,
-    baseline: options.baseline,
-    scope: thePlan.scope,
-    defaultOwner: thePlan.defaultOwner,
-  };
-  const provenFb = reconstructManagedView(proven.factBase, viewOpts);
+  // Reconstruct the same managed view on both sides through the shared helper.
+  const provenFb = managedView(proven.factBase);
   // target the PROJECTED desired: the plan only applies kept deltas, so it
   // converges to `desired` minus the policy-filtered changes (review #2).
-  const target = reconstructManagedView(
-    projectTarget(desired, thePlan.filteredDeltas),
-    viewOpts,
-  );
+  const target = managedView(projectTarget(desired, thePlan.filteredDeltas));
   const driftDeltas = diff(provenFb, target);
   const after = await tableStats(clonePool);
 
@@ -504,5 +748,6 @@ export async function provePlan(
     dataViolations,
     rewriteViolations,
     coverage,
+    ...(seedOutcomes !== undefined ? { seedOutcomes } : {}),
   };
 }

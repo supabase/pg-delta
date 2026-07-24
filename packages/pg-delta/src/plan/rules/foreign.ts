@@ -104,6 +104,9 @@ export const foreignRules: Record<string, KindRules> = {
       const roleName = id.role === "PUBLIC" ? "PUBLIC" : qid(id.role);
       return {
         sql: `DROP USER MAPPING FOR ${roleName} SERVER ${qid(id.server)}`,
+        ...(id.role === "PUBLIC"
+          ? {}
+          : { consumes: [{ kind: "role", name: id.role } as StableId] }),
       };
     },
     attributes: {
@@ -116,6 +119,9 @@ export const foreignRules: Record<string, KindRules> = {
               (from as string[] | null) ?? [],
               (to as string[] | null) ?? [],
             )}`,
+            ...(id.role === "PUBLIC"
+              ? {}
+              : { consumes: [{ kind: "role", name: id.role } as StableId] }),
           };
         },
       },

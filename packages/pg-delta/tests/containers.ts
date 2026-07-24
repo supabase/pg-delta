@@ -7,13 +7,14 @@
  * `isolatedClusterPair()` is a SINGLETON pair shared by every cluster-level
  * test, and roles are cluster-global, so roles ACCUMULATE across scenarios.
  * There is NO automatic role cleanup — `dropRolesExcept` is exposed but each
- * caller must call it (and even then it is best-effort: a role owning objects
- * in another still-live test database cannot be dropped until that database is
- * gone). The established pattern for role-heavy tests instead avoids pollution
- * by construction: use distinctive role names/configs so rename detection stays
- * unambiguous, and prove plans that drop/rename roles against the SACRIFICIAL
- * source database directly (never a clone — a clone leaves the original source
- * pinning the old role; see owner-edge.test.ts).
+ * caller must call it. Cleanup is best-effort by default because a role owning
+ * objects in another still-live test database cannot be dropped until that
+ * database is gone; callers that require isolation can enable strict
+ * postcondition verification. The established pattern for role-heavy tests
+ * otherwise avoids pollution by construction: use distinctive role names/configs
+ * so rename detection stays unambiguous, and prove plans that drop/rename roles
+ * against the SACRIFICIAL source database directly (never a clone — a clone
+ * leaves the original source pinning the old role; see owner-edge.test.ts).
  */
 import {
   GenericContainer,
@@ -160,18 +161,41 @@ export class Cluster {
     return new Set(res.rows.map((r) => (r as { rolname: string }).rolname));
   }
 
-  /** Drop roles created since `baseline` (scenario cleanup). */
-  async dropRolesExcept(baseline: Set<string>): Promise<void> {
+  /** Drop roles created since `baseline`; strict mode verifies the postcondition. */
+  async dropRolesExcept(
+    baseline: Set<string>,
+    options: { strict?: boolean } = {},
+  ): Promise<void> {
     const current = await this.listRoles();
+    const cleanupErrors: string[] = [];
     for (const role of current) {
       if (baseline.has(role)) continue;
       const quoted = `"${role.replaceAll('"', '""')}"`;
-      await this.adminPool
-        .query(`DROP OWNED BY ${quoted} CASCADE`)
-        .catch(() => {});
-      await this.adminPool
-        .query(`DROP ROLE IF EXISTS ${quoted}`)
-        .catch(() => {});
+      try {
+        await this.adminPool.query(`DROP OWNED BY ${quoted} CASCADE`);
+      } catch (error) {
+        cleanupErrors.push(`${role} DROP OWNED: ${String(error)}`);
+      }
+      try {
+        await this.adminPool.query(`DROP ROLE IF EXISTS ${quoted}`);
+      } catch (error) {
+        cleanupErrors.push(`${role} DROP ROLE: ${String(error)}`);
+      }
+    }
+
+    if (options.strict) {
+      const remaining = [...(await this.listRoles())]
+        .filter((role) => !baseline.has(role))
+        .sort();
+      if (remaining.length > 0) {
+        const detail =
+          cleanupErrors.length > 0
+            ? `; cleanup errors: ${cleanupErrors.join("; ")}`
+            : "";
+        throw new Error(
+          `Role cleanup incomplete; non-baseline roles remain: ${remaining.join(", ")}${detail}`,
+        );
+      }
     }
   }
 

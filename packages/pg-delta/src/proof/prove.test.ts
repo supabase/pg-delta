@@ -8,7 +8,14 @@
  * proof reports honest per-table coverage instead of a bare boolean.
  */
 import { describe, expect, test } from "bun:test";
-import { detectViolations, relKey } from "./prove.ts";
+import {
+  composeAutoSeedBaseline,
+  detectAutoSeedSideEffects,
+  detectViolations,
+  reconcileSeedOutcomes,
+  relKey,
+  type SeedOutcome,
+} from "./prove.ts";
 
 // TableStat is module-internal; the tests only need its shape.
 type Stat = {
@@ -239,6 +246,221 @@ describe("detectViolations — content + coverage (review #3)", () => {
       {
         table: { schema: "public", name: "t" },
         reason: "recreated by the plan",
+      },
+    ]);
+  });
+});
+
+describe("reconcileSeedOutcomes — provisional seeds vs the final snapshot", () => {
+  const stats = (entries: Array<[string, string, number]>) =>
+    new Map(
+      entries.map(([s, n, rows]) => [
+        relKey(s, n),
+        { rows, relfilenode: "1", schemaSig: SIG },
+      ]),
+    );
+
+  test("a `seeded` row absent from the final snapshot is downgraded to no_row", () => {
+    const outcomes: SeedOutcome[] = [
+      { table: { schema: "s", name: "gone" }, status: "seeded" },
+    ];
+    expect(reconcileSeedOutcomes(outcomes, stats([["s", "gone", 0]]))).toEqual([
+      {
+        table: { schema: "s", name: "gone" },
+        status: "skipped",
+        reasonCode: "no_row",
+      },
+    ]);
+  });
+
+  test("a `seeded` row that persists stays seeded", () => {
+    const outcomes: SeedOutcome[] = [
+      { table: { schema: "s", name: "kept" }, status: "seeded" },
+    ];
+    expect(reconcileSeedOutcomes(outcomes, stats([["s", "kept", 1]]))).toEqual(
+      outcomes,
+    );
+  });
+
+  test("skipped / failed outcomes pass through unchanged", () => {
+    const outcomes: SeedOutcome[] = [
+      {
+        table: { schema: "s", name: "a" },
+        status: "skipped",
+        reasonCode: "23502",
+      },
+      {
+        table: { schema: "s", name: "b" },
+        status: "failed",
+        reasonCode: "P0001",
+        message: "boom",
+      },
+    ];
+    // present with rows 0, but they are already terminal — not reconciled
+    expect(
+      reconcileSeedOutcomes(
+        outcomes,
+        stats([
+          ["s", "a", 0],
+          ["s", "b", 0],
+        ]),
+      ),
+    ).toEqual(outcomes);
+  });
+
+  test("a `seeded` table missing from the snapshot is left seeded (defensive)", () => {
+    const outcomes: SeedOutcome[] = [
+      { table: { schema: "s", name: "orphan" }, status: "seeded" },
+    ];
+    expect(reconcileSeedOutcomes(outcomes, stats([]))).toEqual(outcomes);
+  });
+});
+
+describe("composeAutoSeedBaseline — preserve original data across seeding", () => {
+  const stats = (entries: Array<[string, string, number]>) =>
+    new Map(
+      entries.map(([s, n, rows]) => [
+        relKey(s, n),
+        { rows, relfilenode: String(rows), schemaSig: SIG },
+      ]),
+    );
+
+  test("keeps pre-seed stats for populated tables and post-seed stats for empty tables", () => {
+    const preSeed = stats([
+      ["s", "populated", 2],
+      ["s", "empty", 0],
+    ]);
+    const postSeed = stats([
+      ["s", "populated", 0],
+      ["s", "empty", 1],
+    ]);
+
+    const baseline = composeAutoSeedBaseline(preSeed, postSeed);
+    expect(baseline.get(relKey("s", "populated"))?.rows).toBe(2);
+    expect(baseline.get(relKey("s", "empty"))?.rows).toBe(1);
+  });
+
+  test("retains a populated pre-seed table even if a seed trigger removes it", () => {
+    const preSeed = stats([["s", "removed", 1]]);
+    const baseline = composeAutoSeedBaseline(preSeed, stats([]));
+    expect(baseline.get(relKey("s", "removed"))?.rows).toBe(1);
+  });
+});
+
+describe("detectAutoSeedSideEffects — pre-plan data guard", () => {
+  test("detects equal-row-count content changes on populated tables", () => {
+    const preSeed = m([
+      [
+        "s",
+        "populated",
+        { rows: 1, relfilenode: "1", schemaSig: SIG, content: "original" },
+      ],
+    ]);
+    const postSeed = m([
+      [
+        "s",
+        "populated",
+        { rows: 1, relfilenode: "1", schemaSig: SIG, content: "mutated" },
+      ],
+    ]);
+
+    expect(detectAutoSeedSideEffects(preSeed, postSeed, new Set())).toEqual([
+      {
+        table: { schema: "s", name: "populated" },
+        before: 1,
+        after: 1,
+        contentChanged: true,
+      },
+    ]);
+  });
+
+  test("ignores intentional synthetic rows in originally-empty tables", () => {
+    const preSeed = m([
+      ["s", "empty", { rows: 0, relfilenode: "1", schemaSig: SIG }],
+    ]);
+    const postSeed = m([
+      [
+        "s",
+        "empty",
+        { rows: 1, relfilenode: "1", schemaSig: SIG, content: "synthetic" },
+      ],
+    ]);
+
+    expect(detectAutoSeedSideEffects(preSeed, postSeed, new Set())).toEqual([]);
+  });
+
+  test("rejects seed-time schema changes on originally-empty kept tables", () => {
+    const preSeed = m([
+      ["s", "empty", { rows: 0, relfilenode: "1", schemaSig: SIG }],
+    ]);
+    const postSeed = m([
+      [
+        "s",
+        "empty",
+        {
+          rows: 1,
+          relfilenode: "2",
+          schemaSig: `${SIG},note:25`,
+          content: "synthetic",
+        },
+      ],
+    ]);
+
+    expect(detectAutoSeedSideEffects(preSeed, postSeed, new Set())).toEqual([
+      {
+        table: { schema: "s", name: "empty" },
+        before: 0,
+        after: 1,
+        schemaChanged: true,
+      },
+    ]);
+  });
+
+  test("ignores populated tables the plan intentionally recreates", () => {
+    const table = relKey("s", "recreated");
+    const preSeed = m([
+      [
+        "s",
+        "recreated",
+        { rows: 1, relfilenode: "1", schemaSig: SIG, content: "original" },
+      ],
+    ]);
+    const postSeed = m([
+      ["s", "recreated", { rows: 0, relfilenode: "1", schemaSig: SIG }],
+    ]);
+
+    expect(
+      detectAutoSeedSideEffects(preSeed, postSeed, new Set([table])),
+    ).toEqual([]);
+  });
+
+  test("rejects seed-time schema changes on populated kept tables", () => {
+    const preSeed = m([
+      [
+        "s",
+        "populated",
+        { rows: 1, relfilenode: "1", schemaSig: SIG, content: "before" },
+      ],
+    ]);
+    const postSeed = m([
+      [
+        "s",
+        "populated",
+        {
+          rows: 1,
+          relfilenode: "2",
+          schemaSig: `${SIG},note:25`,
+          content: "after",
+        },
+      ],
+    ]);
+
+    expect(detectAutoSeedSideEffects(preSeed, postSeed, new Set())).toEqual([
+      {
+        table: { schema: "s", name: "populated" },
+        before: 1,
+        after: 1,
+        schemaChanged: true,
       },
     ]);
   });

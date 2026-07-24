@@ -54,13 +54,12 @@ export const policyRules: Record<string, KindRules> = {
             r === "PUBLIC" ? "PUBLIC" : qid(r),
           );
           const roleId = (r: string): StableId => ({ kind: "role", name: r });
-          // Consume roles newly listed (ordered after a same-plan CREATE ROLE)
-          // and release roles removed (ordered before a same-plan DROP ROLE,
-          // which PostgreSQL refuses while the policy still references it).
-          // PUBLIC is not an object, so it never forms an edge.
-          const consumes = toRoles
-            .filter((r) => r !== "PUBLIC" && !fromRoles.includes(r))
-            .map(roleId);
+          // The statement renders the complete target role list, so consume
+          // every listed role — including one retained through an accepted
+          // rename — and order after any same-plan CREATE/RENAME. Release only
+          // removed roles so their DROP stays after this mutation. PUBLIC is
+          // not an object, so it never forms an edge.
+          const consumes = toRoles.filter((r) => r !== "PUBLIC").map(roleId);
           const releases = fromRoles
             .filter((r) => r !== "PUBLIC" && !toRoles.includes(r))
             .map(roleId);

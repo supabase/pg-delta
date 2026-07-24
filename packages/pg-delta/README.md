@@ -53,9 +53,12 @@ pre-sorting them (via `@supabase/pg-topo`) before the loader runs. See
   surface cycles and other diagnostics for proactive authoring — deliberately
   out of the apply path so apply stays Postgres-truth.
 
-- **Corpus proof loop**: every scenario in `corpus/` proven in BOTH
-  directions (build and teardown) — state proof = zero drift deltas after
-  applying the plan to a clone; data proof = seeded rows survive. The proof
+- **Corpus proof loop**: every scenario in `corpus/` is proven in BOTH
+  directions (build and teardown), with independently built compact and
+  uncompacted plan artifacts applied end-to-end. Compaction is therefore
+  enforced as cosmetic rather than required for convergence. State proof =
+  zero drift deltas after applying the plan to a clone; data proof = seeded
+  rows survive. The proof
   reports honest per-table **coverage** (`tablesChecked`, `tablesSkipped`,
   and a `contentMode` of `fingerprint` / `count` / `none`) rather than a bare
   boolean: a non-empty table whose schema is unchanged is content-fingerprinted
@@ -122,7 +125,18 @@ The proof loop now verifies the two safety fields state-proof alone can't
 see (§3.7): **rewrite risk** is observed on the clone (a kept table whose
 `relfilenode` changed under no `rewriteRisk`-declaring action fails the
 proof) and **data preservation** can be sharpened with opt-in `autoSeed`
-(synthetic rows in empty kept tables). Per-kind graph policy
+(synthetic rows in empty kept tables), which now reports a per-table
+outcome on the verdict (`seedOutcomes`: `seeded` / `skipped` / `failed`)
+so an unseedable table is never confused with one that failed for a reason
+nobody saw. A `skipped` is either a class-23 integrity-constraint SQLSTATE
+or the synthetic `no_row` code (the insert resolved but a trigger/rule left
+the row absent from the final pre-apply snapshot — persistence is judged by
+reconciling against that snapshot, not the command tag). Tables that were
+already populated remain anchored to their pre-seed stats, so trigger side
+effects from synthetic inserts cannot be baselined away. Those tables are also
+compared immediately after seeding, before any plan action can make their
+fingerprints incomparable through a schema change; any schema change caused by
+seeding itself also fails the proof before the plan runs. Per-kind graph policy
 (cascade/rebuild/suppression/defacl) lives entirely in the rule table as
 `KindRules` flags — the planner body holds no kind-name lists (guardrail 3).
 
@@ -174,8 +188,9 @@ bun scripts/benchmark.ts                                # timing numbers
 ```
 
 Compaction (cosmetic clause folding + redundant-drop / default-ACL elision) is
-**on by default** and proof-stable — the plan converges to the same state either
-way. The passes, in order:
+**on by default** and proof-stable — the corpus independently builds, applies,
+and proves compact and uncompacted artifacts for every scenario and direction.
+The passes, in order:
 
 - **column folds** — `ADD COLUMN` clauses fold into their bare `CREATE TABLE`
   when no graph edge crosses the merge.

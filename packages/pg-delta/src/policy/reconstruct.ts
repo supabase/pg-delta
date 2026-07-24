@@ -13,10 +13,19 @@
  * public subpath. `ResolvedProfile` remains the public safe-composition surface.
  * Bare `resolveView` (without scope) stays legitimate for diff/seed paths.
  */
-import type { FactBase } from "../core/fact.ts";
+import { diff, subjectOf, type Delta } from "../core/diff.ts";
+import type { DependencyEdge, FactBase } from "../core/fact.ts";
+import { encodeId, type StableId } from "../core/stable-id.ts";
 import type { ApplierCapability } from "./capability.ts";
 import { resolveView, type Policy } from "./policy.ts";
-import { projectManagementScope, type ManagementScope } from "./view.ts";
+import {
+  projectManagementScope,
+  type ManagementScope,
+  type ProjectionAuditClassification,
+  type ProjectionAuditStage,
+  type ProjectionAuditSubject,
+  type ProjectionSuppression,
+} from "./view.ts";
 
 interface ReconstructManagedViewOptions {
   // `| undefined` so call sites can forward optional plan/profile fields under
@@ -28,6 +37,11 @@ interface ReconstructManagedViewOptions {
   scope?: ManagementScope | undefined;
   /** Under database scope: owner edges to this role stay implicit (no OWNER TO). */
   defaultOwner?: string | undefined;
+  /** Optional attributed-suppression sink. Omitted on apply/prove/export hot
+   * paths; planning opts in while both raw sides are available. */
+  collectSuppression?:
+    | ((suppression: ProjectionSuppression) => void)
+    | undefined;
 }
 
 /**
@@ -39,10 +53,196 @@ export function reconstructManagedView(
   opts: ReconstructManagedViewOptions = {},
 ): FactBase {
   const scope = opts.scope ?? "cluster";
-  const view = resolveView(fb, opts.policy, opts.capability, opts.baseline);
-  return projectManagementScope(
-    view,
-    scope,
-    opts.defaultOwner !== undefined ? { defaultOwner: opts.defaultOwner } : {},
+  const view = resolveView(
+    fb,
+    opts.policy,
+    opts.capability,
+    opts.baseline,
+    opts.collectSuppression,
   );
+  return projectManagementScope(view, scope, {
+    ...(opts.defaultOwner !== undefined
+      ? { defaultOwner: opts.defaultOwner }
+      : {}),
+    ...(opts.collectSuppression !== undefined
+      ? { collectSuppression: opts.collectSuppression }
+      : {}),
+  });
+}
+
+export interface ProjectionAuditEntry {
+  /** Exact raw source↔desired difference hidden by this projection decision. */
+  delta: Delta;
+  /** Stable state identity, duplicated from `delta` for allowlisting/grouping. */
+  subject: ProjectionAuditSubject;
+  /** All source/desired projection decisions that hid this subject. */
+  suppressions: ProjectionAuditSuppression[];
+  /** Suspicious if any side/cause is suspicious; otherwise acknowledged. */
+  classification: ProjectionAuditClassification;
+}
+
+export interface ProjectionAuditSuppression {
+  side: "source" | "desired";
+  stage: ProjectionAuditStage;
+  reasonCode: string;
+  classification: ProjectionAuditClassification;
+  viaDescendantOf?: StableId;
+}
+
+export interface ProjectionAudit {
+  entries: ProjectionAuditEntry[];
+  summary: {
+    total: number;
+    suspicious: number;
+    acknowledged: number;
+    /** Baseline entries remain separately visible even though acknowledged. */
+    baseline: number;
+  };
+}
+
+function edgeKey(edge: DependencyEdge): string {
+  return `${encodeId(edge.from)}|${edge.kind}|${encodeId(edge.to)}`;
+}
+
+function subjectKey(subject: ProjectionAuditSubject): string {
+  return subject.kind === "fact"
+    ? `fact:${encodeId(subject.id)}`
+    : `edge:${edgeKey(subject.edge)}`;
+}
+
+function deltaSubject(delta: Delta): ProjectionAuditSubject {
+  return delta.verb === "link" || delta.verb === "unlink"
+    ? { kind: "edge", edge: delta.edge }
+    : { kind: "fact", id: subjectOf(delta) };
+}
+
+function deltaKey(delta: Delta): string {
+  switch (delta.verb) {
+    case "add":
+    case "remove":
+      return `${delta.verb}|${encodeId(delta.fact.id)}`;
+    case "set":
+      return `${delta.verb}|${encodeId(delta.id)}|${delta.attr}`;
+    case "link":
+    case "unlink":
+      return `${delta.verb}|${edgeKey(delta.edge)}`;
+  }
+}
+
+/** Compute the attributed audit while both raw fact bases are available.
+ *
+ * The unit is suppressed delta/state: fact payload, independently-pruned edge,
+ * reference-only payload/edge, and managedBy provenance. Suppression traces
+ * from either side join directly to the raw source↔desired diff, so a baseline
+ * that suppresses only one side remains visible even if managed drift survives.
+ */
+export function auditManagedViewProjection(
+  rawSource: FactBase,
+  rawDesired: FactBase,
+  opts: ReconstructManagedViewOptions = {},
+): ProjectionAudit {
+  const suppressions: Array<{
+    side: "source" | "desired";
+    suppression: ProjectionSuppression;
+  }> = [];
+  reconstructManagedView(rawSource, {
+    ...opts,
+    collectSuppression: (suppression) =>
+      suppressions.push({ side: "source", suppression }),
+  });
+  reconstructManagedView(rawDesired, {
+    ...opts,
+    collectSuppression: (suppression) =>
+      suppressions.push({ side: "desired", suppression }),
+  });
+
+  const bySubject = new Map<
+    string,
+    Array<{ side: "source" | "desired"; suppression: ProjectionSuppression }>
+  >();
+  for (const traced of suppressions) {
+    const { suppression } = traced;
+    const key = subjectKey(suppression.subject);
+    const list = bySubject.get(key) ?? [];
+    list.push(traced);
+    bySubject.set(key, list);
+  }
+
+  const entries: ProjectionAuditEntry[] = [];
+  for (const delta of diff(rawSource, rawDesired)) {
+    const subject = deltaSubject(delta);
+    const entrySuppressions: ProjectionAuditSuppression[] = [];
+    const seen = new Set<string>();
+    const tracedSuppressions = [
+      ...(bySubject.get(subjectKey(subject)) ?? []),
+      // diff() suppresses every outgoing edge delta when the edge's FROM fact is
+      // reference-only on EITHER side. The edge may exist only on the opposite,
+      // non-reference-only side, so no exact edge suppression record exists
+      // there. Join the fact-level reference-only decision as the cause or that
+      // asymmetric edge drift disappears from the audit entirely.
+      ...(subject.kind === "edge"
+        ? (
+            bySubject.get(
+              subjectKey({ kind: "fact", id: subject.edge.from }),
+            ) ?? []
+          ).filter(({ suppression }) => suppression.stage === "referenceOnly")
+        : []),
+    ];
+    for (const { side, suppression } of tracedSuppressions) {
+      const via = suppression.viaDescendantOf
+        ? encodeId(suppression.viaDescendantOf)
+        : "";
+      const key = `${side}|${suppression.stage}|${suppression.reasonCode}|${suppression.classification}|${via}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entrySuppressions.push({
+        side,
+        stage: suppression.stage,
+        reasonCode: suppression.reasonCode,
+        classification: suppression.classification,
+        ...(suppression.viaDescendantOf === undefined
+          ? {}
+          : { viaDescendantOf: suppression.viaDescendantOf }),
+      });
+    }
+    if (entrySuppressions.length === 0) continue;
+    entrySuppressions.sort((a, b) => {
+      const aKey = `${a.side}|${a.stage}|${a.reasonCode}|${a.viaDescendantOf ? encodeId(a.viaDescendantOf) : ""}`;
+      const bKey = `${b.side}|${b.stage}|${b.reasonCode}|${b.viaDescendantOf ? encodeId(b.viaDescendantOf) : ""}`;
+      return aKey < bKey ? -1 : aKey > bKey ? 1 : 0;
+    });
+    entries.push({
+      delta,
+      subject,
+      suppressions: entrySuppressions,
+      classification: entrySuppressions.some(
+        (suppression) => suppression.classification === "suspicious",
+      )
+        ? "suspicious"
+        : "acknowledged",
+    });
+  }
+  entries.sort((a, b) => {
+    const aKey = deltaKey(a.delta);
+    const bKey = deltaKey(b.delta);
+    return aKey < bKey ? -1 : aKey > bKey ? 1 : 0;
+  });
+
+  return {
+    entries,
+    summary: {
+      total: entries.length,
+      suspicious: entries.filter(
+        (entry) => entry.classification === "suspicious",
+      ).length,
+      acknowledged: entries.filter(
+        (entry) => entry.classification === "acknowledged",
+      ).length,
+      baseline: entries.filter((entry) =>
+        entry.suppressions.some(
+          (suppression) => suppression.stage === "baseline",
+        ),
+      ).length,
+    },
+  };
 }

@@ -78,13 +78,27 @@ export function renderPlanFiles(
       ? ""
       : "-- pg-delta: transaction=false\n";
     const statements: string[] = [];
-    // Scope the preamble session settings so a reused runner session (sequential
+    // Emit the preamble session settings EXCEPT search_path. A rendered file's
+    // DDL is already fully schema-qualified (extraction canonicalizes to
+    // pg_catalog before deparse), so pinning search_path is redundant for the
+    // migration statements — and it actively breaks third-party runners. dbmate
+    // (the platform's production deploy path) appends its OWN bookkeeping,
+    // `INSERT INTO schema_migrations ...` (UNqualified), inside the SAME
+    // transaction as this file; a pinned `search_path = pg_catalog` would
+    // resolve that insert to pg_catalog.schema_migrations and fail the
+    // migration. apply() keeps the pin on its own connection (no third-party
+    // bookkeeping shares it). check_function_bodies is retained — function
+    // bodies may legitimately need it and it does not affect name resolution of
+    // the runner's insert.
+    //
+    // Scope the remaining settings so a reused runner session (sequential
     // migration runners share a connection) does not silently inherit them —
     // mirroring apply() (src/apply/apply.ts): SET LOCAL inside a transactional
     // segment (reverts at COMMIT), plain SET + a trailing RESET ALL around a
     // standalone non-transactional action (SET LOCAL is a no-op outside a
     // transaction). A transactional dbmate file runs inside its own BEGIN/COMMIT.
-    for (const setting of plan.preamble) {
+    const settings = plan.preamble.filter((s) => s.name !== "search_path");
+    for (const setting of settings) {
       statements.push(
         segment.transactional
           ? `set local ${setting.name} = ${setting.value};`
@@ -95,8 +109,8 @@ export function renderPlanFiles(
       statements.push(terminate(plan.actions[i]!.sql));
     }
     // A non-transactional file cannot rely on COMMIT to drop its SETs, so reset
-    // them explicitly at the end (only when there was a preamble to reset).
-    if (!segment.transactional && plan.preamble.length > 0) {
+    // them explicitly at the end (only when a setting was actually emitted).
+    if (!segment.transactional && settings.length > 0) {
       statements.push("reset all;");
     }
     return {

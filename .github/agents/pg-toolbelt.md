@@ -380,6 +380,18 @@ All code changes must be covered by tests:
   exercises it in both directions, rather than a hand-rolled plan+apply assertion.
   Use a focused integration test only when validating engine internals the corpus
   cannot express.
+- **Seed corpus tables so the data-preservation proof has teeth.** The proof
+  loop auto-seeds each empty kept table with `INSERT … DEFAULT VALUES`, but a
+  table with a NOT NULL-without-default / FK / unique / check column cannot be
+  seeded that way and stays EMPTY — getting zero fingerprint/count coverage.
+  When you add or extend a scenario whose tables can't take the default insert,
+  ship seed files: `corpus/<name>/seed.sql` (INSERTs against `a.sql`, applied in
+  the FORWARD direction) and `corpus/<name>/seed-b.sql` (against `b.sql`, applied
+  in REVERSE) with one minimal row per such table, so the proof actually
+  fingerprints real data. Adding an `autoseed-allowlist.ts` entry is the
+  **fallback** for tables that genuinely cannot or should not be seeded (e.g. a
+  BEFORE INSERT trigger that suppresses the row, or a scenario whose whole point
+  is a constraint interplay) — not the default.
 - Author tests **before** the production change per **Test-Driven Fixes** above — a new test that has never failed does not prove the regression was real.
 
 ### Snapshot Assertions

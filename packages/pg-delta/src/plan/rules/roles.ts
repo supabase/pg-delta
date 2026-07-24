@@ -129,6 +129,10 @@ export const roleRules: Record<string, KindRules> = {
             sql: to
               ? `GRANT ${qid(id.role)} TO ${qid(id.member)} WITH ADMIN OPTION`
               : `REVOKE ADMIN OPTION FOR ${qid(id.role)} FROM ${qid(id.member)}`,
+            consumes: [
+              { kind: "role", name: id.role },
+              { kind: "role", name: id.member },
+            ],
           };
         },
       },

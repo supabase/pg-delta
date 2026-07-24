@@ -4,6 +4,7 @@
  * builders compose. Splitting the family builders into their own modules keeps
  * each catalog family local; this module is the one place the shared pieces
  * live (target-architecture §3.1–3.2).
+ * ACL identity/equality invariants: docs/architecture/identity-and-acl.md.
  */
 import type { PoolClient } from "pg";
 import type { Diagnostic } from "../core/diagnostic.ts";

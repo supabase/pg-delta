@@ -1,0 +1,10 @@
+{
+  "a-to-b": {
+    "require": ["alter:column"],
+    "forbid": ["replacement:column", "replacement:foreignTable"]
+  },
+  "b-to-a": {
+    "require": ["alter:column"],
+    "forbid": ["replacement:column", "replacement:foreignTable"]
+  }
+}

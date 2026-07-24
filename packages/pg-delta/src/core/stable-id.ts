@@ -4,6 +4,7 @@
  * The ONLY place the canonical string encoding exists (guardrail 1).
  * Extraction returns identity *parts*; this codec produces/parses strings,
  * which appear only in persisted artifacts, graph keys, and logs.
+ * Identity, rename, and ACL invariants: docs/architecture/identity-and-acl.md.
  */
 
 /** Kinds identified by a single name (cluster- or database-global). */
@@ -102,7 +103,7 @@ export function isSatelliteId(id: StableId): boolean {
 /** Every `FactKind`, as a runtime array. The `satisfies` + the `_exhaustive`
  *  assignment below make this a COMPILE error if a new `StableId` kind is added
  *  without listing it here — which in turn keeps the role-name-bearing registry
- *  (role-rename-carry.ts) honest (a new kind must be classified). */
+ *  (plan/identity-normalize.ts) honest (a new kind must be classified). */
 export const ALL_FACT_KINDS = [
   ...SIMPLE_KINDS,
   ...QUALIFIED_KINDS,

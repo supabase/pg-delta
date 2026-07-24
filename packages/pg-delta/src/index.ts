@@ -43,6 +43,12 @@ export {
   type Action,
   type PlanOptions,
   type SafetyReport,
+  type ProjectionAudit,
+  type ProjectionAuditClassification,
+  type ProjectionAuditEntry,
+  type ProjectionAuditStage,
+  type ProjectionAuditSubject,
+  type ProjectionAuditSuppression,
 } from "./plan/plan.ts";
 export { serializePlan, parsePlan } from "./plan/artifact.ts";
 export { type RenameCandidate, type RenameMode } from "./plan/renames.ts";

@@ -118,6 +118,180 @@ describe("accepted table rename + accepted owner-role rename (review P1 #2)", ()
     // ownership is carried by the renames — no ALTER … OWNER TO is needed
     expect(p.actions.filter((a) => a.sql.includes("OWNER TO"))).toHaveLength(0);
   });
+
+  test("canonical filtering can veto the table rename after owner normalization", () => {
+    const source = buildFactBase(
+      [
+        { id: role1, payload: rolePayload(false) },
+        { id: schema, payload: {} },
+        { id: oldTable, parent: schema, payload: tablePayload() },
+      ],
+      [{ from: oldTable, to: role1, kind: "owner" }],
+    );
+    const desired = buildFactBase(
+      [
+        { id: role2, payload: rolePayload(false) },
+        { id: schema, payload: {} },
+        { id: newTable, parent: schema, payload: tablePayload() },
+      ],
+      [{ from: newTable, to: role2, kind: "owner" }],
+    );
+
+    const p = plan(source, desired, {
+      renames: "auto",
+      compact: false,
+      policy: {
+        id: "canonical-owner-filter",
+        filter: [
+          {
+            match: {
+              all: [
+                { kind: "table" },
+                { name: "old_t" },
+                { owner: "r2" },
+                { verb: "remove" },
+              ],
+            },
+            action: "exclude",
+          },
+        ],
+      },
+    });
+    const sql = p.actions.map((action) => action.sql);
+
+    expect(sql).toContain('ALTER ROLE "r1" RENAME TO "r2"');
+    expect(
+      sql.some(
+        (statement) =>
+          statement.includes("ALTER TABLE") && statement.includes("RENAME TO"),
+      ),
+    ).toBe(false);
+    expect(sql).toContain('CREATE TABLE "app"."new_t" ()');
+    expect(p.acceptedRenames).toEqual([{ from: role1, to: role2 }]);
+  });
+});
+
+describe("canonical filtering vetoes partial subtree renames", () => {
+  test("a filtered desired column prevents its table rename", () => {
+    const oldColumn: StableId = {
+      kind: "column",
+      schema: "app",
+      table: "old_t",
+      name: "c",
+    };
+    const newColumn: StableId = {
+      kind: "column",
+      schema: "app",
+      table: "new_t",
+      name: "c",
+    };
+    const source = buildFactBase(
+      [
+        { id: schema, payload: {} },
+        { id: oldTable, parent: schema, payload: tablePayload() },
+        { id: oldColumn, parent: oldTable, payload: { type: "integer" } },
+      ],
+      [],
+    );
+    const desired = buildFactBase(
+      [
+        { id: schema, payload: {} },
+        { id: newTable, parent: schema, payload: tablePayload() },
+        { id: newColumn, parent: newTable, payload: { type: "integer" } },
+      ],
+      [],
+    );
+
+    const p = plan(source, desired, {
+      renames: "auto",
+      compact: false,
+      policy: {
+        id: "canonical-column-filter",
+        filter: [
+          {
+            match: {
+              all: [
+                { kind: "column" },
+                { name: "c" },
+                { idField: { field: "table", glob: "new_t" } },
+                { verb: "add" },
+              ],
+            },
+            action: "exclude",
+          },
+        ],
+      },
+    });
+
+    expect(
+      p.actions.some(
+        (action) =>
+          action.sql.includes("ALTER TABLE") &&
+          action.sql.includes("RENAME TO"),
+      ),
+    ).toBe(false);
+    expect(p.acceptedRenames).toBeUndefined();
+    expect(p.actions.map((action) => action.sql)).toContain(
+      'CREATE TABLE "app"."new_t" ()',
+    );
+  });
+
+  test("an orphaned filtered source child does not veto the table rename", () => {
+    const oldColumn: StableId = {
+      kind: "column",
+      schema: "app",
+      table: "old_t",
+      name: "c",
+    };
+    const newColumn: StableId = {
+      kind: "column",
+      schema: "app",
+      table: "new_t",
+      name: "c",
+    };
+    const source = buildFactBase(
+      [
+        { id: schema, payload: {} },
+        { id: oldTable, parent: schema, payload: tablePayload() },
+        { id: oldColumn, parent: oldTable, payload: { type: "integer" } },
+      ],
+      [],
+    );
+    const desired = buildFactBase(
+      [
+        { id: schema, payload: {} },
+        { id: newTable, parent: schema, payload: tablePayload() },
+        { id: newColumn, parent: newTable, payload: { type: "integer" } },
+      ],
+      [],
+    );
+
+    const p = plan(source, desired, {
+      renames: "auto",
+      compact: false,
+      policy: {
+        id: "orphaned-source-column-filter",
+        filter: [
+          {
+            match: {
+              all: [
+                { kind: "column" },
+                { name: "c" },
+                { idField: { field: "table", glob: "old_t" } },
+                { verb: "remove" },
+              ],
+            },
+            action: "exclude",
+          },
+        ],
+      },
+    });
+
+    expect(p.actions.map((action) => action.sql)).toEqual([
+      'ALTER TABLE "app"."old_t" RENAME TO "new_t"',
+    ]);
+    expect(p.acceptedRenames).toEqual([{ from: oldTable, to: newTable }]);
+  });
 });
 
 const stableTable: StableId = { kind: "table", schema: "app", name: "t" };
@@ -294,6 +468,10 @@ describe("role rename carries role-name-bearing facts with CHANGED payloads (rev
     // the old-name teardown (with CASCADE) must be gone
     expect(sql.some((s) => s.includes("CASCADE"))).toBe(false);
     expect(sql.some((s) => s.includes('FROM "r1"'))).toBe(false);
+    const membershipAlter = p.actions.find((action) =>
+      action.sql.includes("WITH ADMIN OPTION"),
+    );
+    expect(membershipAlter?.consumes).toContainEqual(role2);
   });
 
   test("membership.admin true→false: REVOKE ADMIN OPTION on r2, no drop/recreate", () => {
@@ -360,6 +538,43 @@ describe("role rename carries role-name-bearing facts with CHANGED payloads (rev
     ).toBe(true);
     expect(sql.some((s) => s.includes("DROP USER MAPPING"))).toBe(false);
     expect(sql.some((s) => s.includes("CREATE USER MAPPING"))).toBe(false);
+    const mappingAlter = p.actions.find((action) =>
+      action.sql.includes("ALTER USER MAPPING"),
+    );
+    expect(mappingAlter?.consumes).toContainEqual(role2);
+  });
+
+  test("userMapping removal after rename targets and consumes r2", () => {
+    const srv: StableId = { kind: "server", name: "srv" };
+    const source = buildFactBase(
+      [
+        { id: role1, payload: rolePayload(false) },
+        { id: srv, payload: { fdw: "postgres_fdw", options: [] } },
+        {
+          id: { kind: "userMapping", server: "srv", role: "r1" },
+          parent: srv,
+          payload: { options: [] },
+        },
+      ],
+      [],
+    );
+    const desired = buildFactBase(
+      [
+        { id: role2, payload: rolePayload(false) },
+        { id: srv, payload: { fdw: "postgres_fdw", options: [] } },
+      ],
+      [],
+    );
+
+    const p = plan(source, desired, { renames: "auto", compact: false });
+    const mappingDrop = p.actions.find((action) =>
+      action.sql.includes("DROP USER MAPPING"),
+    );
+    expect(mappingDrop?.sql).toContain('FOR "r2"');
+    expect(mappingDrop?.consumes).toContainEqual(role2);
+    expect(p.actions.indexOf(mappingDrop!)).toBeGreaterThan(
+      p.actions.findIndex((action) => action.sql.includes("RENAME TO")),
+    );
   });
 
   test("acl privilege change: no pre-rename REVOKE FROM r1; replacement targets r2", () => {

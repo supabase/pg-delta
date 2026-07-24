@@ -54,15 +54,19 @@
 
 import type { Delta } from "../core/diff.ts";
 import type { DependencyEdge, EdgeKind, Fact, FactBase } from "../core/fact.ts";
+import { contentHash, type PayloadValue } from "../core/hash.ts";
 import { buildFactBase, retainOwnerRoleDangling } from "../core/fact.ts";
 import type { FactKind, StableId } from "../core/stable-id.ts";
 import { encodeId } from "../core/stable-id.ts";
 import { KNOWN_PARAMS, type PlanParams } from "../plan/rules.ts";
 import { subtractBaseline } from "./baseline.ts";
 import {
-  excludeByProvenance,
+  collectRemovedSuppressions,
   excludeFactsAndDescendants,
-  extensionMemberReferenceOnly,
+  extensionMemberClosure,
+  type ProjectionAuditClassification,
+  type ProjectionSuppressionAttribution,
+  type ProjectionSuppressionCollector,
 } from "./view.ts";
 import {
   capabilityExcludedRoots,
@@ -202,6 +206,14 @@ export type Predicate =
 export interface FilterRule {
   match: Predicate;
   action: "exclude" | "include";
+  /** Stable projection-audit metadata. Optional for backward compatibility:
+   * unannotated rules receive a policy-id/semantic-hash reason code and are classified
+   * from their matcher (concrete named-object selector → acknowledged;
+   * generic/wildcard selector → suspicious). */
+  audit?: {
+    reasonCode?: string;
+    classification?: ProjectionAuditClassification;
+  };
 }
 
 /**
@@ -786,11 +798,11 @@ function containsVerb(predicate: Predicate): boolean {
  * KEEP (under-projection) is safe: the existing delta-level filter still runs;
  * erring toward remove would silently drop managed objects.
  */
-function factScopeExcluded(
+function factScopeExclusion(
   fact: Fact,
   rules: readonly FilterRule[],
   view: FactBase,
-): boolean {
+): FilterRule | undefined {
   for (const rule of rules) {
     if (containsVerb(rule.match)) {
       // operation rule: only an include that could match (with the verb free)
@@ -800,15 +812,102 @@ function factScopeExcluded(
         (factMatches(rule.match, fact, view, { verbAssumed: true }) ||
           factMatches(rule.match, fact, view))
       ) {
-        return false;
+        return undefined;
       }
       continue;
     }
     if (factMatches(rule.match, fact, view)) {
-      return rule.action === "exclude";
+      return rule.action === "exclude" ? rule : undefined;
     }
   }
+  return undefined;
+}
+
+function stringValues(value: string | string[]): string[] {
+  return Array.isArray(value) ? value : [value];
+}
+
+/** Whether a matcher names concrete objects rather than selecting a broad
+ * class. This implements the pinned policy default; explicit rule metadata
+ * always wins. Negation and any `*` keep the rule suspicious. */
+function isNamedObjectPredicate(predicate: Predicate): boolean {
+  if ("not" in predicate) return false;
+  if ("all" in predicate) {
+    return (
+      predicate.all.some(isNamedObjectPredicate) &&
+      !predicate.all.some(containsWildcardMatcher)
+    );
+  }
+  if ("any" in predicate) {
+    return (
+      predicate.any.length > 0 &&
+      predicate.any.every(isNamedObjectPredicate) &&
+      !predicate.any.some(containsWildcardMatcher)
+    );
+  }
+  if ("name" in predicate)
+    return stringValues(predicate.name).every(noWildcard);
+  if ("schema" in predicate)
+    return stringValues(predicate.schema).every(noWildcard);
+  if ("owner" in predicate)
+    return stringValues(predicate.owner).every(noWildcard);
+  if ("ownedByExtension" in predicate)
+    return noWildcard(predicate.ownedByExtension);
+  if ("idField" in predicate)
+    return stringValues(predicate.idField.glob).every(noWildcard);
+  if ("target" in predicate) {
+    const selectors = [predicate.target.name, predicate.target.schema].filter(
+      (value): value is string | string[] => value !== undefined,
+    );
+    return (
+      selectors.length > 0 &&
+      selectors.every((value) => stringValues(value).every(noWildcard))
+    );
+  }
   return false;
+}
+
+function noWildcard(value: string): boolean {
+  return !value.includes("*");
+}
+
+function containsWildcardMatcher(predicate: Predicate): boolean {
+  if ("not" in predicate) return true;
+  if ("all" in predicate) return predicate.all.some(containsWildcardMatcher);
+  if ("any" in predicate) return predicate.any.some(containsWildcardMatcher);
+  if ("name" in predicate)
+    return stringValues(predicate.name).some((value) => !noWildcard(value));
+  if ("schema" in predicate)
+    return stringValues(predicate.schema).some((value) => !noWildcard(value));
+  if ("owner" in predicate)
+    return stringValues(predicate.owner).some((value) => !noWildcard(value));
+  if ("ownedByExtension" in predicate)
+    return !noWildcard(predicate.ownedByExtension);
+  if ("idField" in predicate)
+    return stringValues(predicate.idField.glob).some(
+      (value) => !noWildcard(value),
+    );
+  if ("target" in predicate) {
+    return [predicate.target.name, predicate.target.schema]
+      .filter((value): value is string | string[] => value !== undefined)
+      .some((value) => stringValues(value).some((part) => !noWildcard(part)));
+  }
+  return false;
+}
+
+function policyRuleAttribution(
+  policyId: string,
+  rule: FilterRule,
+): ProjectionSuppressionAttribution {
+  return {
+    stage: "policyScopeRule",
+    reasonCode:
+      rule.audit?.reasonCode ??
+      `policy:${policyId}:rule:${contentHash(rule.match as PayloadValue)}`,
+    classification:
+      rule.audit?.classification ??
+      (isNamedObjectPredicate(rule.match) ? "acknowledged" : "suspicious"),
+  };
 }
 
 /**
@@ -827,6 +926,7 @@ export function resolveView(
   policy: Policy | undefined,
   capability?: ApplierCapability,
   baseline?: FactBase,
+  collectSuppression?: ProjectionSuppressionCollector,
 ): FactBase {
   // Extension members become REFERENCE-ONLY, not pruned: the member OBJECT (and
   // its non-satellite descendants) is kept but never diffed, while its satellite
@@ -835,19 +935,54 @@ export function resolveView(
   // `memberOfExtension` edge when it removes the (baseline-identical) extension
   // endpoint, which would otherwise leave a surviving customized member looking
   // like a plain diffable object. Intersected with survivors below.
-  const memberRefOnly = extensionMemberReferenceOnly(fb);
+  const memberClosure = extensionMemberClosure(fb);
+  const memberRefOnly = new Set(memberClosure.keys());
   // baseline subtraction (§3.9): facts present-and-identical in the platform
   // baseline drop out before anything else, so platform-managed objects are
   // invisible without a filter rule per object. Same fact-level projection as
   // extension-member / managed-object exclusion → the proof stays honest.
   let base = baseline ? subtractBaseline(fb, baseline) : fb;
+  if (baseline !== undefined && collectSuppression !== undefined) {
+    const attribution: ProjectionSuppressionAttribution = {
+      stage: "baseline",
+      reasonCode: "baseline.identical-state",
+      classification: "acknowledged",
+    };
+    const roots = new Map<string, ProjectionSuppressionAttribution>();
+    for (const fact of fb.facts()) {
+      if (!base.has(fact.id)) roots.set(encodeId(fact.id), attribution);
+    }
+    collectRemovedSuppressions(fb, base, roots, collectSuppression);
+  }
   // managed-object projection (P0): objects a stateful extension created
   // operationally (pg_partman children, pgmq queue tables) carry a `managedBy`
   // edge from a handler's snapshot-bound capture. They are HARD-projected out so
   // the default plan/prove/apply path never diffs them as drift (CLI-1555).
   // Unconditional: with bare extraction there are no `managedBy` edges, so this
   // is a no-op (corpus path unchanged).
-  base = excludeByProvenance(base, "managedBy");
+  const managedRoots = new Set<string>();
+  for (const fact of base.facts()) {
+    if (base.outgoingEdges(fact.id).some((e) => e.kind === "managedBy")) {
+      managedRoots.add(encodeId(fact.id));
+    }
+  }
+  if (managedRoots.size > 0) {
+    const before = base;
+    base = excludeFactsAndDescendants(base, managedRoots);
+    if (collectSuppression !== undefined) {
+      const attribution: ProjectionSuppressionAttribution = {
+        stage: "managedBy",
+        reasonCode: "managed-by.provenance",
+        classification: "acknowledged",
+      };
+      collectRemovedSuppressions(
+        before,
+        base,
+        new Map([...managedRoots].map((key) => [key, attribution])),
+        collectSuppression,
+      );
+    }
+  }
   // capability restriction (move 6): project out facts whose action the applier
   // cannot execute. Additive; default unrestricted. FDW ACLs are superuser-only
   // GRANTs and a leaf fact, so they project out cleanly. (The owner residue is
@@ -855,7 +990,23 @@ export function resolveView(
   // in plan() instead; see capability.canSetOwner.)
   if (capability !== undefined) {
     const capRoots = capabilityExcludedRoots(base, capability);
-    if (capRoots.size > 0) base = excludeFactsAndDescendants(base, capRoots);
+    if (capRoots.size > 0) {
+      const before = base;
+      base = excludeFactsAndDescendants(base, capRoots);
+      if (collectSuppression !== undefined) {
+        const attribution: ProjectionSuppressionAttribution = {
+          stage: "capability",
+          reasonCode: "capability.fdw-acl",
+          classification: "acknowledged",
+        };
+        collectRemovedSuppressions(
+          before,
+          base,
+          new Map([...capRoots].map((key) => [key, attribution])),
+          collectSuppression,
+        );
+      }
+    }
   }
 
   // policy scope (non-`verb`) rules: hard-prune the facts they exclude, EXCEPT
@@ -869,16 +1020,35 @@ export function resolveView(
     id.kind === "schema" ? getName(id) : getSchema(id);
   const hardRoots = new Set<string>();
   const policyRefOnly = new Set<string>();
+  const policyRootAttribution = new Map<
+    string,
+    ProjectionSuppressionAttribution
+  >();
   for (const fact of base.facts()) {
-    if (!factScopeExcluded(fact, rules, base)) continue;
+    const exclusion = factScopeExclusion(fact, rules, base);
+    if (exclusion === undefined) continue;
+    const attribution = policyRuleAttribution(
+      flat?.id ?? policy?.id ?? "unknown",
+      exclusion,
+    );
     const schema = assumedSchemaOf(fact.id);
     if (schema !== undefined && assumed.has(schema)) {
       policyRefOnly.add(encodeId(fact.id));
+      policyRootAttribution.set(encodeId(fact.id), attribution);
     } else {
       hardRoots.add(encodeId(fact.id));
+      policyRootAttribution.set(encodeId(fact.id), attribution);
     }
   }
   const pruned = excludeFactsAndDescendants(base, hardRoots);
+  if (collectSuppression !== undefined && hardRoots.size > 0) {
+    collectRemovedSuppressions(
+      base,
+      pruned,
+      policyRootAttribution,
+      collectSuppression,
+    );
+  }
 
   // Merge the reference-only sets (extension members + assumed-schema), keeping
   // only facts that actually survived pruning. This is the SINGLE projection
@@ -892,6 +1062,59 @@ export function resolveView(
   for (const key of policyRefOnly)
     if (surviving.has(key)) referenceOnly.add(key);
   if (referenceOnly.size === 0) return pruned;
+  if (collectSuppression !== undefined) {
+    const recordReferenceOnly = (
+      key: string,
+      attribution: ProjectionSuppressionAttribution,
+      viaDescendantOf?: StableId,
+    ): void => {
+      const fact = pruned.getByEncoded(key);
+      if (fact === undefined) return;
+      collectSuppression({
+        subject: { kind: "fact", id: fact.id },
+        ...attribution,
+        ...(viaDescendantOf === undefined ? {} : { viaDescendantOf }),
+      });
+      for (const edge of pruned.outgoingEdges(fact.id)) {
+        collectSuppression({
+          subject: { kind: "edge", edge },
+          ...attribution,
+          ...(viaDescendantOf === undefined ? {} : { viaDescendantOf }),
+        });
+      }
+    };
+    for (const key of memberRefOnly) {
+      if (!surviving.has(key)) continue;
+      const member = pruned.getByEncoded(key);
+      if (member === undefined) continue;
+      let root = member.id;
+      let cursor = member.parent;
+      while (cursor !== undefined && memberClosure.has(encodeId(cursor))) {
+        root = cursor;
+        cursor = fb.get(cursor)?.parent;
+      }
+      recordReferenceOnly(
+        key,
+        {
+          stage: "referenceOnly",
+          reasonCode: "reference-only.extension-member",
+          classification: "acknowledged",
+        },
+        encodeId(root) === key ? undefined : root,
+      );
+    }
+    for (const key of policyRefOnly) {
+      if (!surviving.has(key)) continue;
+      const ruleAttribution = policyRootAttribution.get(
+        key,
+      ) as ProjectionSuppressionAttribution;
+      recordReferenceOnly(key, {
+        stage: "referenceOnly",
+        reasonCode: `reference-only.assumed-schema:${ruleAttribution.reasonCode}`,
+        classification: ruleAttribution.classification,
+      });
+    }
+  }
   // Rebuild to attach the reference-only marks. This runs whenever the view has
   // extension members / assumed-schema facts — including when `resolveView` is
   // re-invoked (via `plan()`) on an ALREADY scope-projected view (the export

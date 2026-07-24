@@ -227,7 +227,7 @@ action-emitter seam — decision §2); remove carry; re-run:
 ```bash
 cd packages/pg-delta
 bun test src/plan/identity-*.test.ts src/plan/renames*.test.ts
-bun test tests/role-rename-column-grant-carry.test.ts tests/renames.test.ts
+bun test tests/role-rename-column-grant.test.ts tests/renames.test.ts
 PGDELTA_TEST_IMAGE=postgres:17-alpine bun test tests/engine.test.ts  # required
 ```
 

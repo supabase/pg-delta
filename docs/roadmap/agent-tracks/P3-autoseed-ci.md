@@ -56,11 +56,28 @@ stronger path.
    not-null without default, `23503` FK, `23505` unique, `23514` check →
    `skipped(reason=SQLSTATE)`. (Generated/identity `428C9` errors are
    unreachable via `DEFAULT VALUES` — do not allowlist what cannot occur.)
-   Everything else (connection, syntax, permission, unknown states) →
-   `failed(error)`. The skip-allowlist is keyed by
-   `{ scenario, direction, table, reasonCode }` — no bare table names. Strict
-   behavior: any `failed` outcome, or a `skipped` with a non-allowlisted key,
-   fails the scenario.
+   **One documented exception to "SQLSTATE only":** a `DEFAULT VALUES` insert
+   can *resolve* yet leave no row in the final pre-apply snapshot — a BEFORE
+   INSERT trigger returning NULL, a DO INSTEAD rule, or an AFTER INSERT trigger
+   deleting the row (possibly while seeding a later table). rowCount is the
+   command tag, not persisted state, so persistence is judged by reconciling
+   provisional seeds against that one snapshot, not a per-insert probe. That is
+   also `skipped`, with the **synthetic sentinel `reason=no_row`** — the one
+   non-SQLSTATE skip code. Everything else
+   (connection, syntax, permission, raised exceptions, unknown states) →
+   `failed(error)`; only class-23 and `no_row` are skips. The skip-allowlist is
+   keyed by `{ scenario, direction, table, reasonCode }` — no bare table names.
+   Strict behavior: any `failed` outcome, or a `skipped` with a non-allowlisted
+   key, fails the scenario.
+   Data on tables that were already populated stays anchored to the pre-seed
+   snapshot; only originally-empty tables take their baseline from the final
+   post-seed snapshot. This prevents seed-trigger side effects on existing data
+   from being silently accepted as the proof baseline. Populated kept tables are
+   also compared directly before and after seeding, before the plan runs, so a
+   later schema change cannot suppress detection of an equal-row-count mutation.
+   A schema-signature change caused by seeding itself fails the proof immediately.
+   Allowlist entries are checked in both directions: new skips fail, and declared
+   skips that are no longer observed fail as stale exemptions that must be removed.
 
 ## RED → GREEN
 

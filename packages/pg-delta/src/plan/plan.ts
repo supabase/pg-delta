@@ -8,6 +8,10 @@ import type { FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { flattenPolicy, type Policy } from "../policy/policy.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
+import {
+  auditManagedViewProjection,
+  type ProjectionAudit,
+} from "../policy/reconstruct.ts";
 import type { ManagementScope } from "../policy/view.ts";
 import { emitActions } from "./phases/action-emitter.ts";
 import { finalizeActions } from "./phases/action-graph.ts";
@@ -32,6 +36,16 @@ export const ENGINE_VERSION = "0.2.0";
 // must be real. Cycle-safe: artifact.ts's only import from this module is
 // ENGINE_VERSION, which it reads inside a function body, never at module-eval time.
 export { parsePlan, serializePlan } from "./artifact.ts";
+export type {
+  ProjectionAudit,
+  ProjectionAuditEntry,
+  ProjectionAuditSuppression,
+} from "../policy/reconstruct.ts";
+export type {
+  ProjectionAuditClassification,
+  ProjectionAuditStage,
+  ProjectionAuditSubject,
+} from "../policy/view.ts";
 
 export interface Action {
   sql: string;
@@ -89,6 +103,10 @@ export interface Plan {
    *  (§3.9): drift the user chose not to manage is still drift they can
    *  ask about */
   filteredDeltas: Delta[];
+  /** Raw source↔desired differences suppressed by managed-view projection,
+   * attributed to stable stage/rule reason codes. Generated plans always carry
+   * this field; optional only so pre-P2a v1 artifacts remain parseable. */
+  projectionAudit?: ProjectionAudit;
   /** the policy that shaped this plan, inlined for reproducibility */
   policy?: Policy;
   /** the applier capability the plan was produced with (move 6 / follow-up 2),
@@ -227,8 +245,8 @@ export function plan(
   options?: PlanOptions,
 ): Plan {
   // ── phase 1: change set (managed-view resolution, diff, filter, group,
-  // rename + role-rename cancellation) → ./phases/change-set.ts. `source` /
-  // `desired` below are the RESOLVED managed views. ────────────────────
+  // rename discovery + identity normalization) → ./phases/change-set.ts.
+  // `source` / `desired` below are canonical managed views. ────────────
   // A desired-side intent object the engine cannot key (an unnamed pg_cron job)
   // can never converge — refuse rather than silently drop it. The handler emits
   // this as a warning during capture; here, on the DESIRED side, it is fatal.
@@ -249,6 +267,7 @@ export function plan(
   const rulesForId = buildRuleResolver(options?.intentRules);
 
   const {
+    physicalSource,
     source,
     desired,
     projectedDesired,
@@ -259,10 +278,19 @@ export function plan(
     setsByFact,
     renameCandidates,
     acceptedRenames,
-    roleRenameMap,
-    carriedOwnerLinks,
-    changedRoleFacts,
   } = buildChangeSet(rawSource, rawDesired, options, rulesForId);
+
+  const projectionAudit = auditManagedViewProjection(rawSource, rawDesired, {
+    ...(options?.policy !== undefined ? { policy: options.policy } : {}),
+    ...(options?.capability !== undefined
+      ? { capability: options.capability }
+      : {}),
+    ...(options?.baseline !== undefined ? { baseline: options.baseline } : {}),
+    ...(options?.scope !== undefined ? { scope: options.scope } : {}),
+    ...(options?.defaultOwner !== undefined
+      ? { defaultOwner: options.defaultOwner }
+      : {}),
+  });
 
   // A user-mapping row whose options were unreadable via pg_user_mappings on
   // either side (extraction-time warning, USER_MAPPING_UNREADABLE — see
@@ -292,11 +320,11 @@ export function plan(
   // references) — refusing in plan() just surfaces that earlier and louder.
   //
   // KNOWN LIMITATION (deliberately not handled here, tracked as a follow-up):
-  // a role RENAME combined with a one-side-hidden mapping. Rename-carry logic
-  // cancels the resulting remove/add pair into a single rename action before
-  // this gate runs on raw deltas from the ORIGINAL role name, so a renamed
-  // role is invisible to the `unreadableRoles` name-set built below in that
-  // case. In the realistic direction (the mapping is hidden on the SOURCE
+  // a role RENAME combined with a one-side-hidden mapping. Identity
+  // normalization rewrites visible deltas into the desired role name, while
+  // the extraction diagnostic still names the physical role, so a renamed role
+  // can be invisible to the `unreadableRoles` name-set below. In the realistic
+  // direction (the mapping is hidden on the SOURCE
   // side), this still fails safely — apply cannot rename a role a hidden
   // mapping references, for the same FK-style reason as a DROP. The only
   // truly gap is a hidden mapping combined with a rename that requires an
@@ -457,9 +485,9 @@ export function plan(
   });
 
   // ── phase 3: emit actions (./phases/action-emitter.ts) ────────────────
-  // Rename actions, creates (parents first), default-privilege hygiene,
-  // drops, replaces, in-place alters, role-rename changed-pair mutations, and
-  // owner-edge ALTERs — with the emitter's own producer/destroyer/fold
+  // Rename actions, creates (parents first), default-privilege hygiene, drops,
+  // replaces, in-place alters, and owner-edge ALTERs — with the emitter's own
+  // producer/destroyer/fold
   // bookkeeping. Enforces the create-produces-its-fact invariant.
   const {
     actions,
@@ -478,9 +506,6 @@ export function plan(
     replaceIds,
     dropRootOf,
     acceptedRenames,
-    roleRenameMap,
-    carriedOwnerLinks,
-    changedRoleFacts,
     deltas,
     params,
     serializeRules,
@@ -513,7 +538,10 @@ export function plan(
   return {
     formatVersion: 1,
     engineVersion: ENGINE_VERSION,
-    source: { fingerprint: source.rootHash },
+    // Identity normalization rewrites source ids into desired-name space for
+    // planning. The apply gate must still fingerprint the physical pre-rename
+    // managed view that exists before the first action runs.
+    source: { fingerprint: physicalSource.rootHash },
     target: { fingerprint: projectedDesired.rootHash },
     preamble: [
       // Pin the applier's deparse/resolution path to `pg_catalog` so the
@@ -525,6 +553,7 @@ export function plan(
     ],
     deltas,
     filteredDeltas,
+    projectionAudit,
     ...(options?.policy ? { policy: options.policy } : {}),
     ...(options?.capability ? { capability: options.capability } : {}),
     ...(options?.profile ? { profile: options.profile } : {}),

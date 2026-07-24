@@ -26,6 +26,105 @@ import {
 } from "../core/fact.ts";
 import { encodeId, isSatelliteId, type StableId } from "../core/stable-id.ts";
 
+export type ProjectionAuditStage =
+  | "baseline"
+  | "policyScopeRule"
+  | "capability"
+  | "managementScope"
+  | "referenceOnly"
+  | "managedBy";
+
+export type ProjectionAuditClassification = "acknowledged" | "suspicious";
+
+export type ProjectionAuditSubject =
+  | { kind: "fact"; id: StableId }
+  | { kind: "edge"; edge: DependencyEdge };
+
+export interface ProjectionSuppression {
+  subject: ProjectionAuditSubject;
+  stage: ProjectionAuditStage;
+  reasonCode: string;
+  classification: ProjectionAuditClassification;
+  viaDescendantOf?: StableId;
+}
+
+export type ProjectionSuppressionCollector = (
+  suppression: ProjectionSuppression,
+) => void;
+
+export type ProjectionSuppressionAttribution = Omit<
+  ProjectionSuppression,
+  "subject" | "viaDescendantOf"
+>;
+
+const edgeKey = (edge: DependencyEdge): string =>
+  `${encodeId(edge.from)}|${edge.kind}|${encodeId(edge.to)}`;
+
+/** Emit fact + independently-pruned-edge suppression records for a projection.
+ * The root map names the actual exclusion decisions; collateral descendants
+ * point back to that decision through `viaDescendantOf`. Kept off the normal
+ * projection hot path unless a caller explicitly supplies a collector. */
+export function collectRemovedSuppressions(
+  before: FactBase,
+  after: FactBase,
+  roots: ReadonlyMap<string, ProjectionSuppressionAttribution>,
+  collect: ProjectionSuppressionCollector,
+): void {
+  const rootFor = (
+    id: StableId,
+  ):
+    | { id: StableId; attribution: ProjectionSuppressionAttribution }
+    | undefined => {
+    let cursor: StableId | undefined = id;
+    while (cursor !== undefined) {
+      const attribution = roots.get(encodeId(cursor));
+      if (attribution !== undefined) return { id: cursor, attribution };
+      cursor = before.get(cursor)?.parent;
+    }
+    return undefined;
+  };
+
+  for (const fact of before.facts()) {
+    if (after.has(fact.id)) continue;
+    const root = rootFor(fact.id);
+    if (root === undefined) continue;
+    collect({
+      subject: { kind: "fact", id: fact.id },
+      ...root.attribution,
+      ...(encodeId(root.id) === encodeId(fact.id)
+        ? {}
+        : { viaDescendantOf: root.id }),
+    });
+  }
+
+  const survivingEdges = new Set(after.edges.map(edgeKey));
+  for (const edge of before.edges) {
+    if (survivingEdges.has(edgeKey(edge))) continue;
+    const rootsForEdge = [rootFor(edge.from), rootFor(edge.to)].filter(
+      (
+        root,
+      ): root is {
+        id: StableId;
+        attribution: ProjectionSuppressionAttribution;
+      } => root !== undefined,
+    );
+    const emitted = new Set<string>();
+    for (const root of rootsForEdge) {
+      const causeKey = `${encodeId(root.id)}|${root.attribution.stage}|${root.attribution.reasonCode}`;
+      if (emitted.has(causeKey)) continue;
+      emitted.add(causeKey);
+      const directlyTouchesRoot =
+        encodeId(edge.from) === encodeId(root.id) ||
+        encodeId(edge.to) === encodeId(root.id);
+      collect({
+        subject: { kind: "edge", edge },
+        ...root.attribution,
+        ...(directlyTouchesRoot ? {} : { viaDescendantOf: root.id }),
+      });
+    }
+  }
+}
+
 /**
  * Return a new FactBase with `rootIds` and their entire descendant subtrees
  * removed; edges with a removed endpoint are pruned. If `rootIds` is empty, `fb`
@@ -152,7 +251,10 @@ function removedClosure(
 export function projectManagementScope(
   fb: FactBase,
   scope: ManagementScope,
-  opts: { defaultOwner?: string } = {},
+  opts: {
+    defaultOwner?: string;
+    collectSuppression?: ProjectionSuppressionCollector;
+  } = {},
 ): FactBase {
   if (scope === "cluster") return fb;
   const roots = new Set<string>();
@@ -195,9 +297,69 @@ export function projectManagementScope(
   const referenceOnly = new Set(
     [...fb.referenceOnly].filter((key) => survives.has(key)),
   );
-  return buildFactBase(keptFacts, keptEdges, fb.source, referenceOnly, {
-    allowDangling: retainOwnerRoleDangling,
-  });
+  const projected = buildFactBase(
+    keptFacts,
+    keptEdges,
+    fb.source,
+    referenceOnly,
+    {
+      allowDangling: retainOwnerRoleDangling,
+    },
+  );
+  if (opts.collectSuppression !== undefined) {
+    const attribution: ProjectionSuppressionAttribution = {
+      stage: "managementScope",
+      reasonCode: "management-scope.database.cluster-object",
+      classification: "acknowledged",
+    };
+    const defaultOwnerEdgeKeys = new Set<string>();
+    if (defaultOwner !== undefined) {
+      for (const edge of fb.edges) {
+        if (
+          edge.kind === "owner" &&
+          edge.to.kind === "role" &&
+          (edge.to as { kind: "role"; name: string }).name === defaultOwner &&
+          survives.has(encodeId(edge.from))
+        ) {
+          defaultOwnerEdgeKeys.add(edgeKey(edge));
+        }
+      }
+    }
+    collectRemovedSuppressions(
+      fb,
+      projected,
+      new Map([...roots].map((key) => [key, attribution])),
+      (suppression) => {
+        if (
+          suppression.subject.kind === "edge" &&
+          defaultOwnerEdgeKeys.has(edgeKey(suppression.subject.edge))
+        ) {
+          return;
+        }
+        opts.collectSuppression?.(suppression);
+      },
+    );
+    if (defaultOwner !== undefined) {
+      const projectedEdges = new Set(projected.edges.map(edgeKey));
+      for (const edge of fb.edges) {
+        if (
+          edge.kind === "owner" &&
+          edge.to.kind === "role" &&
+          (edge.to as { kind: "role"; name: string }).name === defaultOwner &&
+          survives.has(encodeId(edge.from)) &&
+          !projectedEdges.has(edgeKey(edge))
+        ) {
+          opts.collectSuppression({
+            subject: { kind: "edge", edge },
+            stage: "managementScope",
+            reasonCode: "management-scope.database.default-owner",
+            classification: "acknowledged",
+          });
+        }
+      }
+    }
+  }
+  return projected;
 }
 
 /**

@@ -47,4 +47,24 @@ describe("renderPlanSql", () => {
   test("returns an empty string for an empty plan (no preamble, no actions)", () => {
     expect(renderPlanSql({ preamble: [], actions: [] })).toBe("");
   });
+
+  test("filters search_path out of the rendered preamble (redundant for fully qualified DDL; would misresolve a replayer's unqualified statements)", () => {
+    const sql = renderPlanSql({
+      preamble: [
+        { name: "search_path", value: "pg_catalog" },
+        { name: "check_function_bodies", value: "off" },
+      ],
+      actions: [{ sql: "CREATE SCHEMA app" }],
+    });
+    // search_path is neither SET nor RESET — only check_function_bodies is.
+    expect(sql).not.toContain("search_path");
+    expect(sql).toMatchInlineSnapshot(`
+      "SET check_function_bodies = off;
+
+      CREATE SCHEMA app;
+
+      RESET check_function_bodies;
+      "
+    `);
+  });
 });

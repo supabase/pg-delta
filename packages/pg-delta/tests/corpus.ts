@@ -1,6 +1,8 @@
 /** Corpus loader (stage 0): one directory per scenario, a.sql + b.sql. */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import type { RenameMode } from "../src/plan/renames.ts";
+import { parseActionShapeBudget } from "./action-shape-budgets.ts";
 
 export interface ScenarioMeta {
   /** Cluster-level state differs (roles/memberships/default privileges):
@@ -8,6 +10,8 @@ export interface ScenarioMeta {
   isolatedCluster?: boolean;
   /** Minimum PostgreSQL major version this scenario's DDL needs. */
   minVersion?: number;
+  /** Rename-candidate handling for this scenario's plans. */
+  renames?: RenameMode;
 }
 
 export interface Scenario {
@@ -15,6 +19,8 @@ export interface Scenario {
   a: string;
   b: string;
   seed?: string;
+  seedB?: string;
+  actionShapeBudget?: ReturnType<typeof parseActionShapeBudget>;
   meta: ScenarioMeta;
 }
 
@@ -55,12 +61,25 @@ export function loadCorpus(): Scenario[] {
   return selectScenarios(names).map((name) => {
     const dir = join(CORPUS_DIR, name);
     const seedPath = join(dir, "seed.sql");
+    const seedBPath = join(dir, "seed-b.sql");
+    const budgetPath = join(dir, "budget.json");
     const metaPath = join(dir, "meta.json");
     return {
       name,
       a: readFileSync(join(dir, "a.sql"), "utf8"),
       b: readFileSync(join(dir, "b.sql"), "utf8"),
       ...(existsSync(seedPath) ? { seed: readFileSync(seedPath, "utf8") } : {}),
+      ...(existsSync(seedBPath)
+        ? { seedB: readFileSync(seedBPath, "utf8") }
+        : {}),
+      ...(existsSync(budgetPath)
+        ? {
+            actionShapeBudget: parseActionShapeBudget(
+              JSON.parse(readFileSync(budgetPath, "utf8")) as unknown,
+              `corpus/${name}/budget.json`,
+            ),
+          }
+        : {}),
       meta: existsSync(metaPath)
         ? (JSON.parse(readFileSync(metaPath, "utf8")) as ScenarioMeta)
         : {},
