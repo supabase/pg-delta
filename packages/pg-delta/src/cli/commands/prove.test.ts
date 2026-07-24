@@ -69,6 +69,37 @@ describe("assertProofCloneEndpoint", () => {
       ),
     ).toThrow("the clone resolves to the plan's source endpoint");
   });
+
+  test("observed identity catches a TCP source reused through a Unix socket alias", () => {
+    const tcpSource = "postgres://localhost:5432/app";
+    const socketAlias =
+      "postgres:///app?host=%2Fvar%2Frun%2Fpostgresql&port=5432";
+    expect(connectionEndpointHash(socketAlias)).not.toBe(
+      connectionEndpointHash(tcpSource),
+    );
+    expect(() =>
+      assertProofCloneEndpoint(
+        socketAlias,
+        connectionEndpointHash(tcpSource),
+        [],
+        false,
+      ),
+    ).not.toThrow();
+
+    const sameObservedDatabase = {
+      scheme: "pg-system-identifier-v1" as const,
+      lineageHash: "a".repeat(64),
+      databaseHash: "b".repeat(64),
+    };
+    expect(() =>
+      assertProofCloneIdentity(
+        sameObservedDatabase,
+        sameObservedDatabase,
+        "database",
+        false,
+      ),
+    ).toThrow(/same observed database/i);
+  });
 });
 
 describe("assertProofCloneIdentity", () => {

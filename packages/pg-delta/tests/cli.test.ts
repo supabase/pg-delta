@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { loadSnapshot } from "../src/frontends/snapshot-file.ts";
 import { isolatedClusterPair, sharedCluster } from "./containers.ts";
@@ -97,6 +97,25 @@ describe("CLI: --help", () => {
       "schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>",
     );
   }, 30_000);
+
+  test("shows identity override and schema shadow scope flags", async () => {
+    const res = await runCli(["--help"]);
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toContain("--allow-unverified-source-identity");
+    expect(res.stdout).toContain("--scope database|cluster");
+    expect(res.stdout).toContain("--isolated-shadow");
+
+    const gettingStarted = readFileSync(
+      resolve(PKG_DIR, "../../docs/getting-started.md"),
+      "utf8",
+    );
+    expect(gettingStarted).toMatch(
+      /\| `prove` .*`\[--allow-unverified-source-identity\]`/,
+    );
+    expect(gettingStarted).toMatch(
+      /\| `schema apply` .*`\[--scope\]`.*`\[--isolated-shadow\]`/,
+    );
+  }, 30_000);
 });
 
 describe("CLI: --version", () => {
@@ -138,6 +157,8 @@ describe("CLI: schema --help", () => {
     expect(res.stdout).toContain(
       "schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>",
     );
+    expect(res.stdout).toContain("--scope database|cluster");
+    expect(res.stdout).toContain("--isolated-shadow");
     expect(res.stderr).not.toContain("Unknown schema subcommand");
   }, 30_000);
 
@@ -884,6 +905,24 @@ describe("CLI: schema apply --scope database (ambient roles)", () => {
       code: 2,
     });
     expect(res.stderr).toMatch(/isolated-shadow/i);
+  }, 30_000);
+
+  test("--isolated-shadow requires an explicit --shadow in database scope", async () => {
+    const dir = join(tmpdir(), `pg-delta-isolated-shadow-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "schema.sql"), "CREATE SCHEMA app;");
+    const res = await runCli([
+      "schema",
+      "apply",
+      "--dir",
+      dir,
+      "--target",
+      "postgres://unused.invalid:5432/t",
+      "--isolated-shadow",
+    ]);
+    expect(res.exitCode).toBe(2);
+    expect(res.stderr).toMatch(/--isolated-shadow requires.*--shadow/i);
+    expect(res.stderr).not.toContain("creating a co-located shadow");
   }, 30_000);
 });
 

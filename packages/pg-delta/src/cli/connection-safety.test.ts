@@ -205,4 +205,25 @@ describe("connection safety", () => {
       /GRANT EXECUTE ON FUNCTION pg_catalog\.pg_control_system\(\)/,
     );
   });
+
+  test("missing pg_control_system is reported as unsupported, not grantable", async () => {
+    const pool = {
+      query: async () => {
+        throw Object.assign(new Error("undefined function"), { code: "42883" });
+      },
+    } as unknown as Pool;
+
+    let error: unknown;
+    try {
+      await observeDatabaseIdentityForMutation(
+        pool,
+        "schema apply target safety",
+      );
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/unavailable|unsupported/i);
+    expect((error as Error).message).not.toContain("GRANT EXECUTE");
+  });
 });
