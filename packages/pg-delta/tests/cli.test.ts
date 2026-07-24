@@ -220,6 +220,7 @@ describe("CLI: prove redaction guard", () => {
         planFile,
         "--clone",
         "postgres://unused.invalid:5432/nope",
+        "--allow-remote-clone",
         "--desired-snapshot",
         snapFile,
       ]);
@@ -277,6 +278,7 @@ describe("CLI: prove redaction guard", () => {
         planFile,
         "--clone",
         "postgres://unused.invalid:5432/nope",
+        "--allow-remote-clone",
         "--desired-snapshot",
         snapFile,
       ]);
