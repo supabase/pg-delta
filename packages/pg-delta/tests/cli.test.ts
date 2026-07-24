@@ -2313,6 +2313,57 @@ describe("CLI: schema apply debugging", () => {
     }
   }, 90_000);
 
+  test("warns before attempting to write an unredacted plan artifact", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_apply_warn_order_shadow");
+    const target = await cluster.createDb("cli_apply_warn_order_tgt");
+    const dir = mkdtempSync(join(tmpdir(), "pg-delta-next-warn-order-"));
+    const unwritablePlanPath = join(dir, "plan.json");
+    try {
+      writeFileSync(
+        join(dir, "01_schema.sql"),
+        `CREATE SCHEMA app;\nCREATE TABLE app.t (id integer PRIMARY KEY);\n`,
+      );
+      writeFileSync(
+        join(dir, ".pgdelta-export.json"),
+        JSON.stringify({ formatVersion: 1, redactSecrets: false }),
+        "utf8",
+      );
+      // A directory at the output path makes writeFileSync fail. The warning
+      // must already be on stderr before that attempted exposure can fail or
+      // partially write an artifact.
+      mkdirSync(unwritablePlanPath);
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+        "--dry-run",
+        "--out-plan",
+        unwritablePlanPath,
+      ]);
+
+      expect(res.exitCode).toBe(1);
+      expect(res.stderr).toContain(
+        "the plan artifact may contain unredacted credentials.",
+      );
+      expect(res.stderr).not.toContain(
+        "the dry-run script may contain unredacted credentials.",
+      );
+      expect(res.stdout).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 90_000);
+
   test("--verbose logs per-statement progress to stderr during a real apply", async () => {
     const cluster = await sharedCluster();
     const shadow = await cluster.createDb("cli_apply_verbose_shadow");
