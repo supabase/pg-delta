@@ -472,7 +472,7 @@ function warnIfUnredactedOutput(
 ): void {
   if (!redactSecrets) {
     process.stderr.write(
-      `  WARNING: secrets are unredacted (--unsafe-show-secrets or the export manifest) — the ${output} contains UNREDACTED credentials.\n`,
+      `  WARNING: secrets are unredacted (--unsafe-show-secrets or the export manifest) — the ${output} may contain unredacted credentials.\n`,
     );
   }
 }

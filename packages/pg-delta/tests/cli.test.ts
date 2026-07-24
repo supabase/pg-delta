@@ -1786,7 +1786,7 @@ describe("CLI: secret redaction surface", () => {
 
       expect(res.exitCode).toBe(0);
       const warningText =
-        "WARNING: secrets are unredacted (--unsafe-show-secrets or the export manifest) — the verbose output contains UNREDACTED credentials.";
+        "WARNING: secrets are unredacted (--unsafe-show-secrets or the export manifest) — the verbose output may contain unredacted credentials.";
       expect(res.stderr).toContain(warningText);
       const warningLine =
         res.stderr.split("\n").find((line) => line.includes(warningText)) ?? "";
@@ -2373,7 +2373,7 @@ describe("CLI: schema apply debugging", () => {
       // both unredacted output channels warn: the plan artifact and the script
       const warnings = res.stderr
         .split("\n")
-        .filter((l) => l.includes("UNREDACTED"));
+        .filter((l) => l.includes("may contain unredacted credentials"));
       expect(warnings.length).toBe(2);
       expectDryRunStdoutIsScript(res.stdout);
       expect(res.stdout).toContain(secret);
