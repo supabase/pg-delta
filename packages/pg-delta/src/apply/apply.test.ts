@@ -3,8 +3,11 @@
  * lists exercise maximal transactional runs, lone nonTransactional
  * actions, and commitBoundaryAfter boundaries.
  */
-import { describe, expect, test } from "bun:test";
-import { segmentActions } from "./apply.ts";
+import { describe, expect, spyOn, test } from "bun:test";
+import type { Pool } from "pg";
+import type { Action, Plan } from "../plan/plan.ts";
+import { ENGINE_VERSION } from "../plan/plan.ts";
+import { apply, type ApplyEvent, segmentActions } from "./apply.ts";
 
 const txn = (newSegmentBefore = false) => ({
   transactionality: "transactional" as const,
@@ -62,5 +65,86 @@ describe("segmentActions", () => {
 
   test("empty plans yield no segments", () => {
     expect(segmentActions([])).toEqual([]);
+  });
+});
+
+function planWithAction(transactionality: Action["transactionality"]): Plan {
+  return {
+    formatVersion: 1,
+    engineVersion: ENGINE_VERSION,
+    source: { fingerprint: "source" },
+    target: { fingerprint: "target" },
+    preamble: [],
+    deltas: [],
+    filteredDeltas: [],
+    renameCandidates: [],
+    actions: [
+      {
+        sql: "SELECT 42",
+        verb: "create",
+        produces: [],
+        consumes: [],
+        destroys: [],
+        releases: [],
+        transactionality,
+        lockClass: "none",
+        newSegmentBefore: false,
+        dataLoss: "none",
+        rewriteRisk: false,
+      } as Action,
+    ],
+    safetyReport: {
+      destructiveActions: 0,
+      rewriteRiskActions: 0,
+      nonTransactionalActions: transactionality === "nonTransactional" ? 1 : 0,
+      lockClasses: {},
+    },
+  } as Plan;
+}
+
+async function expectObserverLatencyExcluded(
+  transactionality: Action["transactionality"],
+): Promise<void> {
+  let now = 1_000;
+  const nowSpy = spyOn(Date, "now").mockImplementation(() => now);
+  const events: ApplyEvent[] = [];
+  const client = {
+    query: (sql: string) => {
+      if (sql === "SELECT 42") now += 7;
+      return Promise.resolve({ rows: [] });
+    },
+    release: () => {},
+  };
+  const pool = {
+    connect: () => Promise.resolve(client),
+  } as unknown as Pool;
+
+  try {
+    const report = await apply(planWithAction(transactionality), pool, {
+      fingerprintGate: false,
+      onEvent: (event) => {
+        events.push(event);
+        if (event.kind === "actionStart") now += 100;
+      },
+    });
+
+    expect(report.status).toBe("applied");
+    const actionEnd = events.find(
+      (event): event is Extract<ApplyEvent, { kind: "actionEnd" }> =>
+        event.kind === "actionEnd",
+    );
+    expect(actionEnd?.ms).toBe(7);
+  } finally {
+    nowSpy.mockRestore();
+  }
+}
+
+describe("apply action timing", () => {
+  test("transactional actionEnd excludes synchronous actionStart observer latency", async () => {
+    await expectObserverLatencyExcluded("transactional");
+  });
+
+  test("non-transactional actionEnd excludes synchronous actionStart observer latency", async () => {
+    await expectObserverLatencyExcluded("nonTransactional");
   });
 });
