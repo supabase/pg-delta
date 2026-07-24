@@ -3,7 +3,7 @@
  *
  * Parse the plan artifact and apply it to the target database.
  * --force disables the fingerprint gate.
- * On failure, print the per-action failure report.
+ * On failure, print the attributed action or control failure report.
  */
 import { readFileSync } from "node:fs";
 import { parsePlan } from "../../plan/artifact.ts";
@@ -97,9 +97,11 @@ export async function cmdApply(args: string[]): Promise<void> {
     } else {
       process.stderr.write(`Apply failed!\n`);
       if (report.error) {
-        process.stderr.write(
-          `  action[${report.error.actionIndex}]: ${report.error.message}\n`,
-        );
+        const subject =
+          report.error.statementKind === "action"
+            ? `action[${report.error.actionIndex}]`
+            : "control";
+        process.stderr.write(`  ${subject}: ${report.error.message}\n`);
         process.stderr.write(`  sql: ${report.error.sql}\n`);
       }
       const applied = report.actionStatuses.filter(

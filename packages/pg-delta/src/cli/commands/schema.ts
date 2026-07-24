@@ -889,9 +889,11 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     } else {
       process.stderr.write("Apply failed!\n");
       if (report.error) {
-        process.stderr.write(
-          `  action[${report.error.actionIndex}]: ${report.error.message}\n`,
-        );
+        const subject =
+          report.error.statementKind === "action"
+            ? `action[${report.error.actionIndex}]`
+            : "control";
+        process.stderr.write(`  ${subject}: ${report.error.message}\n`);
         process.stderr.write(`  sql: ${report.error.sql}\n`);
       }
       // The finally below releases resources (drops any co-located shadow);

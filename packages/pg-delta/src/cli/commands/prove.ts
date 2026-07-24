@@ -52,9 +52,11 @@ export function formatProofFailure(verdict: ProofVerdict): string {
     );
   }
   if (verdict.applyError) {
-    lines.push(
-      `  apply error at action[${verdict.applyError.actionIndex}]: ${verdict.applyError.message}`,
-    );
+    const subject =
+      verdict.applyError.statementKind === "action"
+        ? `action[${verdict.applyError.actionIndex}]`
+        : "control";
+    lines.push(`  apply error at ${subject}: ${verdict.applyError.message}`);
   }
   if (verdict.driftDeltas.length > 0) {
     lines.push(`  drift deltas (${verdict.driftDeltas.length}):`);

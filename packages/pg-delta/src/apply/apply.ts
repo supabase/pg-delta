@@ -6,10 +6,11 @@
  * Segmentation changes transaction boundaries only, never order.
  *
  * Mid-plan failure semantics are explicit: every action is reported
- * applied / unapplied / inDoubt. A failure inside a transaction segment
- * rolls that segment back (its actions report unapplied); earlier
- * segments are committed (applied); a failure AT commit reports the
- * segment inDoubt.
+ * applied / unapplied / inDoubt, and the error identifies whether an action
+ * or an executor control statement failed. A failure inside a transaction
+ * segment rolls that segment back (its actions report unapplied); earlier
+ * segments are committed (applied); a failure AT commit reports the segment
+ * inDoubt.
  */
 import type { Pool } from "pg";
 import type { FactBase } from "../core/fact.ts";
@@ -20,13 +21,21 @@ import { buildApplyPreamble } from "./apply-preamble.ts";
 
 export type ActionStatus = "applied" | "unapplied" | "inDoubt";
 
+export interface ApplyError {
+  /** First affected action for controls; exact failing action otherwise. */
+  actionIndex: number;
+  statementKind: "action" | "control";
+  sql: string;
+  message: string;
+}
+
 export interface ApplyReport {
   status: "applied" | "failed";
   /** count of actions in committed segments */
   appliedActions: number;
   /** one entry per plan action, in plan order */
   actionStatuses: ActionStatus[];
-  error?: { actionIndex: number; sql: string; message: string };
+  error?: ApplyError;
 }
 
 /** Observability events emitted during `apply()` (statement-level debugging
@@ -54,7 +63,7 @@ export type ApplyEvent =
   | {
       kind: "segmentEnd";
       segmentIndex: number;
-      outcome: "committed" | "rolledBack" | "inDoubt";
+      outcome: "committed" | "rolledBack" | "inDoubt" | "failed";
     }
   | { kind: "control"; sql: string };
 
@@ -132,11 +141,13 @@ export function segmentActions(
 
 function errorEntry(
   actionIndex: number,
+  statementKind: ApplyError["statementKind"],
   sql: string,
   error: unknown,
 ): NonNullable<ApplyReport["error"]> {
   return {
     actionIndex,
+    statementKind,
     sql,
     message: error instanceof Error ? error.message : String(error),
   };
@@ -245,6 +256,7 @@ export async function apply(
   let appliedActions = 0;
 
   const client = await target.connect();
+  let destroyClient = false;
   try {
     const onEvent = options?.onEvent;
     for (let segIdx = 0; segIdx < segments.length; segIdx++) {
@@ -267,14 +279,20 @@ export async function apply(
         // the failure return is deferred past the finally so segmentEnd stays
         // the segment's LAST event — after the RESET ALL control — on every
         // path; a trace must never show wire traffic after the outcome line.
-        let failure: NonNullable<ApplyReport["error"]> | undefined;
+        let failure: ApplyError | undefined;
+        let currentKind: ApplyError["statementKind"] = "control";
+        let currentSql = "";
         try {
           // session-level preamble SETs hit the wire BEFORE the action; a
           // preamble failure emits NO action events (the action never ran).
           for (const sql of buildApplyPreamble(thePlan, options, false)) {
+            currentKind = "control";
+            currentSql = sql;
             emit(onEvent, { kind: "control", sql });
             await client.query(sql);
           }
+          currentKind = "action";
+          currentSql = action.sql;
           emit(onEvent, {
             kind: "actionStart",
             actionIndex: index,
@@ -303,24 +321,34 @@ export async function apply(
             throw error;
           }
         } catch (error) {
-          // a failed non-transactional DDL is NOT safely unapplied — it can
-          // leave durable side effects (e.g. an INVALID index from a cancelled
-          // CREATE INDEX CONCURRENTLY). Report it inDoubt so the caller knows
-          // the database must be re-extracted before retry (review P1).
-          statuses[index] = "inDoubt";
-          failure = errorEntry(index, action.sql, error);
-        } finally {
-          // ALWAYS restore session state before the client returns to the pool,
-          // on success or failure — RESET ALL must not be skipped on the
-          // failure path, and a reset failure must not flip the action's outcome.
-          emit(onEvent, { kind: "control", sql: "RESET ALL" });
-          await client.query("RESET ALL").catch(() => {});
+          if (currentKind === "action") {
+            // A failed non-transactional DDL is NOT safely unapplied — it can
+            // leave durable side effects (e.g. an INVALID index from a
+            // cancelled CREATE INDEX CONCURRENTLY).
+            statuses[index] = "inDoubt";
+          }
+          failure = errorEntry(index, currentKind, currentSql, error);
         }
+
+        // ALWAYS restore session state before the client returns to the pool,
+        // on success or failure. A cleanup failure never replaces the primary
+        // failure, and its connection is destroyed instead of being reused.
+        emit(onEvent, { kind: "control", sql: "RESET ALL" });
+        let resetFailed = false;
+        let resetError: unknown;
+        try {
+          await client.query("RESET ALL");
+        } catch (error) {
+          resetFailed = true;
+          resetError = error;
+          destroyClient = true;
+        }
+
         if (failure !== undefined) {
           emit(onEvent, {
             kind: "segmentEnd",
             segmentIndex: segIdx,
-            outcome: "inDoubt",
+            outcome: failure.statementKind === "action" ? "inDoubt" : "failed",
           });
           return {
             status: "failed",
@@ -329,8 +357,23 @@ export async function apply(
             error: failure,
           };
         }
+        // The action completed in autocommit before RESET ALL ran, so a RESET
+        // failure cannot relabel that durable action inDoubt or unapplied.
         statuses[index] = "applied";
         appliedActions += 1;
+        if (resetFailed) {
+          emit(onEvent, {
+            kind: "segmentEnd",
+            segmentIndex: segIdx,
+            outcome: "failed",
+          });
+          return {
+            status: "failed",
+            appliedActions,
+            actionStatuses: statuses,
+            error: errorEntry(index, "control", "RESET ALL", resetError),
+          };
+        }
         emit(onEvent, {
           kind: "segmentEnd",
           segmentIndex: segIdx,
@@ -339,26 +382,32 @@ export async function apply(
         continue;
       }
 
+      let setupSql = "BEGIN";
       try {
         emit(onEvent, { kind: "control", sql: "BEGIN" });
         await client.query("BEGIN");
         for (const sql of buildApplyPreamble(thePlan, options, true)) {
+          setupSql = sql;
           emit(onEvent, { kind: "control", sql });
           await client.query(sql);
         }
       } catch (error) {
         emit(onEvent, { kind: "control", sql: "ROLLBACK" });
-        await client.query("ROLLBACK").catch(() => {});
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          destroyClient = true;
+        }
         emit(onEvent, {
           kind: "segmentEnd",
           segmentIndex: segIdx,
-          outcome: "rolledBack",
+          outcome: "failed",
         });
         return {
           status: "failed",
           appliedActions,
           actionStatuses: statuses,
-          error: errorEntry(segment.start, "BEGIN", error),
+          error: errorEntry(segment.start, "control", setupSql, error),
         };
       }
       for (let i = segment.start; i < segment.end; i++) {
@@ -376,17 +425,23 @@ export async function apply(
             ms: actionElapsedMs,
           });
           emit(onEvent, { kind: "control", sql: "ROLLBACK" });
-          await client.query("ROLLBACK").catch(() => {});
+          let rollbackSucceeded = true;
+          try {
+            await client.query("ROLLBACK");
+          } catch {
+            rollbackSucceeded = false;
+            destroyClient = true;
+          }
           emit(onEvent, {
             kind: "segmentEnd",
             segmentIndex: segIdx,
-            outcome: "rolledBack",
+            outcome: rollbackSucceeded ? "rolledBack" : "failed",
           });
           return {
             status: "failed",
             appliedActions,
             actionStatuses: statuses,
-            error: errorEntry(i, action.sql, error),
+            error: errorEntry(i, "action", action.sql, error),
           };
         }
         const actionElapsedMs = Date.now() - actionStartedAt;
@@ -405,7 +460,11 @@ export async function apply(
         for (let i = segment.start; i < segment.end; i++)
           statuses[i] = "inDoubt";
         emit(onEvent, { kind: "control", sql: "ROLLBACK" });
-        await client.query("ROLLBACK").catch(() => {});
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          destroyClient = true;
+        }
         emit(onEvent, {
           kind: "segmentEnd",
           segmentIndex: segIdx,
@@ -415,7 +474,7 @@ export async function apply(
           status: "failed",
           appliedActions,
           actionStatuses: statuses,
-          error: errorEntry(segment.start, "COMMIT", error),
+          error: errorEntry(segment.start, "control", "COMMIT", error),
         };
       }
       for (let i = segment.start; i < segment.end; i++) statuses[i] = "applied";
@@ -427,7 +486,8 @@ export async function apply(
       });
     }
   } finally {
-    client.release();
+    if (destroyClient) client.release(true);
+    else client.release();
   }
   return {
     status: "applied",

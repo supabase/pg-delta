@@ -197,14 +197,10 @@ describe("apply control-error attribution", () => {
     const scripted = scriptedApplyClient(new Set(["BEGIN"]));
     const events: ApplyEvent[] = [];
 
-    const report = await apply(
-      planWithAction("transactional"),
-      scripted.pool,
-      {
-        fingerprintGate: false,
-        onEvent: (event) => events.push(event),
-      },
-    );
+    const report = await apply(planWithAction("transactional"), scripted.pool, {
+      fingerprintGate: false,
+      onEvent: (event) => events.push(event),
+    });
 
     expect(scripted.queries).toEqual(["BEGIN", "ROLLBACK"]);
     expect(report).toMatchObject({
@@ -266,14 +262,10 @@ describe("apply control-error attribution", () => {
     const scripted = scriptedApplyClient(new Set(["SELECT 42"]));
     const events: ApplyEvent[] = [];
 
-    const report = await apply(
-      planWithAction("transactional"),
-      scripted.pool,
-      {
-        fingerprintGate: false,
-        onEvent: (event) => events.push(event),
-      },
-    );
+    const report = await apply(planWithAction("transactional"), scripted.pool, {
+      fingerprintGate: false,
+      onEvent: (event) => events.push(event),
+    });
 
     expect(scripted.queries).toEqual(["BEGIN", "SELECT 42", "ROLLBACK"]);
     expect(report).toMatchObject({
@@ -294,14 +286,10 @@ describe("apply control-error attribution", () => {
     const scripted = scriptedApplyClient(new Set(["COMMIT"]));
     const events: ApplyEvent[] = [];
 
-    const report = await apply(
-      planWithAction("transactional"),
-      scripted.pool,
-      {
-        fingerprintGate: false,
-        onEvent: (event) => events.push(event),
-      },
-    );
+    const report = await apply(planWithAction("transactional"), scripted.pool, {
+      fingerprintGate: false,
+      onEvent: (event) => events.push(event),
+    });
 
     expect(scripted.queries).toEqual([
       "BEGIN",

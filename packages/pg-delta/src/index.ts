@@ -57,6 +57,7 @@ export { type LockClass } from "./plan/locks.ts";
 // ── apply ────────────────────────────────────────────────────────────────────
 export {
   apply,
+  type ApplyError,
   type ApplyReport,
   type ApplyOptions,
   type ApplyEvent,
