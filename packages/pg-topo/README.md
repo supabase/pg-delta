@@ -2,7 +2,10 @@
 
 _deterministic dependency sorting for declarative PostgreSQL schemas_
 
-`pg-topo` sorts declarative PostgreSQL schema statements into a deterministic, dependency-safe execution order.
+For acyclic inputs, `pg-topo` sorts declarative PostgreSQL schema statements
+into a deterministic, dependency-safe execution order. When cycles remain, it
+returns a deterministic cycles-last fallback; callers must handle
+`CYCLE_DETECTED` before executing the result directly.
 
 It is designed for SQL-first projects where schema lives in many `.sql` files and statement order is not guaranteed.
 

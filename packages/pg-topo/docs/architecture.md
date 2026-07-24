@@ -194,7 +194,17 @@ Current class priority by phase (high -> low):
 - `post_data`: `CREATE_VIEW`, `CREATE_MATERIALIZED_VIEW`, `CREATE_INDEX`, `CREATE_TRIGGER`, `CREATE_EVENT_TRIGGER`, `CREATE_POLICY`, `CREATE_PUBLICATION`, `CREATE_SUBSCRIPTION`, `SELECT`, `UPDATE`
 - `privileges`: `ALTER_OWNER`, `COMMENT`, `GRANT`, `REVOKE`, `ALTER_DEFAULT_PRIVILEGES`
 
-Cycles are detected using SCC and emitted as `CYCLE_DETECTED` diagnostics with statement/object details.
+The sorter first uses Kahn's algorithm to drain the maximal acyclic prefix. If
+nodes remain, it computes SCCs over that residual and emits the components in
+condensation-DAG order, preserving dependencies between components. Components
+that are ready together, and statements within a cycle, use the deterministic
+ordering above. Intra-cycle order is deterministic but not topological; acyclic
+descendants blocked by a cycle also remain in the residual suffix.
+
+Cycles are emitted as `CYCLE_DETECTED` diagnostics with statement/object
+details. Callers must inspect that diagnostic before direct sequential
+execution because a cyclic result is a deterministic fallback, not a valid
+execution-order guarantee.
 
 ### 5.7 Test-support Postgres validation (`test/support/`)
 
