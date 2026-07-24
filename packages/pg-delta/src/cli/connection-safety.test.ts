@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import type { Pool } from "pg";
 import {
   connectionEndpointHash,
+  databaseIdentityStamp,
+  isDatabaseIdentityObservationUnavailable,
   isSameDatabase,
-  isSamePostgresCluster,
+  isSamePostgresLineage,
   isTrustedLocalConnection,
   type ObservedDatabaseIdentity,
+  observeDatabaseIdentityForMutation,
 } from "./connection-safety.ts";
 
 describe("connection safety", () => {
@@ -15,9 +19,7 @@ describe("connection safety", () => {
   ): ObservedDatabaseIdentity => ({
     database,
     databaseOid,
-    serverAddress: "127.0.0.1",
-    serverPort: "5432",
-    postmasterStartedAt: "123.456",
+    systemIdentifier: "7612345678901234567",
     ...overrides,
   });
 
@@ -146,18 +148,61 @@ describe("connection safety", () => {
     );
   });
 
-  test("compares observed database and cluster identity", () => {
+  test("hashes lineage and database identity opaquely with separate domains", () => {
+    const observed = identity("app", "16384");
+    const stamp = databaseIdentityStamp(observed);
+
+    expect(stamp).toEqual({
+      scheme: "pg-system-identifier-v1",
+      lineageHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      databaseHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    expect(stamp.lineageHash).not.toBe(stamp.databaseHash);
+    expect(JSON.stringify(stamp)).not.toContain(observed.systemIdentifier);
+    expect(JSON.stringify(stamp)).not.toContain(observed.databaseOid);
+    expect(databaseIdentityStamp(observed)).toEqual(stamp);
+  });
+
+  test("compares observed database and PostgreSQL lineage identity", () => {
     const target = identity("target", "16384");
     const same = identity("target", "16384");
     const sibling = identity("shadow", "16385");
     const isolated = identity("shadow", "16384", {
-      serverAddress: "127.0.0.2",
-      postmasterStartedAt: "789.012",
+      systemIdentifier: "7699999999999999999",
     });
 
     expect(isSameDatabase(target, same)).toBe(true);
     expect(isSameDatabase(target, sibling)).toBe(false);
-    expect(isSamePostgresCluster(target, sibling)).toBe(true);
-    expect(isSamePostgresCluster(target, isolated)).toBe(false);
+    expect(isSamePostgresLineage(target, sibling)).toBe(true);
+    expect(isSamePostgresLineage(target, isolated)).toBe(false);
+  });
+
+  test("classifies only unavailable identity observations as recoverable", () => {
+    expect(isDatabaseIdentityObservationUnavailable({ code: "42501" })).toBe(
+      true,
+    );
+    expect(isDatabaseIdentityObservationUnavailable({ code: "42883" })).toBe(
+      true,
+    );
+    expect(isDatabaseIdentityObservationUnavailable({ code: "08006" })).toBe(
+      false,
+    );
+    expect(isDatabaseIdentityObservationUnavailable(new Error("boom"))).toBe(
+      false,
+    );
+  });
+
+  test("required mutation identity fails closed with grant remediation", async () => {
+    const pool = {
+      query: async () => {
+        throw Object.assign(new Error("permission denied"), { code: "42501" });
+      },
+    } as unknown as Pool;
+
+    expect(
+      observeDatabaseIdentityForMutation(pool, "schema apply shadow safety"),
+    ).rejects.toThrow(
+      /GRANT EXECUTE ON FUNCTION pg_catalog\.pg_control_system\(\)/,
+    );
   });
 });

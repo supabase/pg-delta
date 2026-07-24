@@ -23,8 +23,8 @@ function destructivePlan(): string {
     JSON.stringify({
       formatVersion: 1,
       engineVersion: ENGINE_VERSION,
-      source: { fingerprint: "source" },
-      target: { fingerprint: "target" },
+source: { fingerprint: "a".repeat(64) },
+target: { fingerprint: "b".repeat(64) },
       preamble: [],
       deltas: [],
       filteredDeltas: [],

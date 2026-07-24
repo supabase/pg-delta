@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   assertProofCloneEndpoint,
+  assertProofCloneIdentity,
   cmdProve,
   formatProofFailure,
   formatProofPassCaveat,
@@ -67,6 +68,53 @@ describe("assertProofCloneEndpoint", () => {
         true,
       ),
     ).toThrow("the clone resolves to the plan's source endpoint");
+  });
+});
+
+describe("assertProofCloneIdentity", () => {
+  const source = {
+    scheme: "pg-system-identifier-v1" as const,
+    lineageHash: "a".repeat(64),
+    databaseHash: "b".repeat(64),
+  };
+
+  test("legacy and direct-library plans fail closed unless explicitly allowed", () => {
+    const clone = {
+      ...source,
+      lineageHash: "c".repeat(64),
+      databaseHash: "d".repeat(64),
+    };
+    expect(() =>
+      assertProofCloneIdentity(undefined, clone, undefined, false),
+    ).toThrow(/allow-unverified-source-identity/);
+    expect(assertProofCloneIdentity(undefined, clone, undefined, true)).toBe(
+      "unverified",
+    );
+    expect(() =>
+      assertProofCloneIdentity(source, undefined, undefined, false),
+    ).toThrow(/could not observe/i);
+    expect(assertProofCloneIdentity(source, undefined, undefined, true)).toBe(
+      "unverified",
+    );
+  });
+
+  test("a confirmed source database match cannot be overridden", () => {
+    expect(() =>
+      assertProofCloneIdentity(source, source, "database", true),
+    ).toThrow(/same observed database/i);
+  });
+
+  test("same-lineage siblings are scope-aware", () => {
+    const sibling = { ...source, databaseHash: "c".repeat(64) };
+    expect(() =>
+      assertProofCloneIdentity(source, sibling, undefined, true),
+    ).toThrow(/same PostgreSQL lineage/i);
+    expect(() =>
+      assertProofCloneIdentity(source, sibling, "cluster", true),
+    ).toThrow(/same PostgreSQL lineage/i);
+    expect(assertProofCloneIdentity(source, sibling, "database", false)).toBe(
+      "verified",
+    );
   });
 });
 
@@ -232,8 +280,8 @@ describe("cmdProve — desired-snapshot profile reconciliation", () => {
         safetyReport: { level: "safe", findings: [] },
         redactSecrets: true,
         profile: { id: planProfileId },
-        source: { fingerprint: "aaa" },
-        target: { fingerprint: "bbb" },
+        source: { fingerprint: "a".repeat(64) },
+        target: { fingerprint: "b".repeat(64) },
       }),
       "utf8",
     );
@@ -277,7 +325,28 @@ describe("cmdProve — desired-snapshot profile reconciliation", () => {
     expect(stderr.join("")).not.toContain("WARNING");
   });
 
-  test("warns that a validated clone may be mutated", async () => {
+  test("a legacy plan refuses proof before connecting by default", async () => {
+    const { planPath, snapPath } = writeArtifacts("raw", "raw");
+    let error: unknown;
+    try {
+      await cmdProve([
+        "--plan",
+        planPath,
+        "--clone",
+        "postgres://localhost:1/none",
+        "--desired-snapshot",
+        snapPath,
+      ]);
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(UsageError);
+    expect((error as Error).message).toContain(
+      "--allow-unverified-source-identity",
+    );
+  });
+
+  test("the explicit legacy override warns before attempting the connection", async () => {
     const { planPath, snapPath } = writeArtifacts("raw", "raw");
     let error: unknown;
     const stderr: string[] = [];
@@ -293,6 +362,7 @@ describe("cmdProve — desired-snapshot profile reconciliation", () => {
         "postgres://localhost:1/none",
         "--desired-snapshot",
         snapPath,
+        "--allow-unverified-source-identity",
       ]);
     } catch (e) {
       error = e;
@@ -302,6 +372,9 @@ describe("cmdProve — desired-snapshot profile reconciliation", () => {
     expect(error).toBeDefined();
     expect(stderr.join("")).toContain(
       "WARNING: prove may mutate the --clone database",
+    );
+    expect(stderr.join("")).toContain(
+      "source database identity could not be verified",
     );
   });
 });

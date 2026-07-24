@@ -81,7 +81,7 @@ test("schema apply observes same-database aliases before loading SQL", async () 
   }
 }, 60_000);
 
-test("cluster scope rejects a sibling database on the target cluster", async () => {
+test("cluster scope rejects a sibling database from the same PostgreSQL lineage", async () => {
   const cluster = await sharedCluster();
   const target = await cluster.createDb("shadow_guard_cluster_target");
   const shadow = await cluster.createDb("shadow_guard_cluster_shadow");
@@ -103,7 +103,7 @@ test("cluster scope rejects a sibling database on the target cluster", async () 
     );
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain(
-      "requires a shadow on a different PostgreSQL cluster",
+      "requires a shadow from a different PostgreSQL lineage",
     );
     expect(
       await target.pool.query(
@@ -111,6 +111,35 @@ test("cluster scope rejects a sibling database on the target cluster", async () 
         [role],
       ),
     ).toMatchObject({ rows: [{ n: 0 }] });
+  } finally {
+    await Promise.all([target.drop(), shadow.drop()]);
+  }
+}, 60_000);
+
+test("database scope allows a sibling database from the same lineage", async () => {
+  const cluster = await sharedCluster();
+  const target = await cluster.createDb("shadow_guard_database_target");
+  const shadow = await cluster.createDb("shadow_guard_database_shadow");
+  try {
+    const dir = sqlDir(
+      "shadow-guard-database",
+      "CREATE SCHEMA same_lineage_database_scope;",
+    );
+    await cmdSchemaApply([
+      "--dir",
+      dir,
+      "--shadow",
+      shadow.uri,
+      "--target",
+      target.uri,
+      "--scope",
+      "database",
+    ]);
+    expect(
+      await target.pool.query(
+        `SELECT to_regnamespace('same_lineage_database_scope') IS NOT NULL AS present`,
+      ),
+    ).toMatchObject({ rows: [{ present: true }] });
   } finally {
     await Promise.all([target.drop(), shadow.drop()]);
   }

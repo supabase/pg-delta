@@ -415,6 +415,11 @@ describe("CLI: plan", () => {
 
       expect(thePlan.actions.length).toBeGreaterThan(0);
       expect(thePlan.formatVersion).toBe(1);
+      expect(thePlan.source.identity).toEqual({
+        scheme: "pg-system-identifier-v1",
+        lineageHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        databaseHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      });
     } finally {
       await Promise.all([source.drop(), desired.drop()]);
     }

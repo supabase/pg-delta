@@ -36,8 +36,8 @@ function makePlan(actions: Action[]): Plan {
   return {
     formatVersion: 1,
     engineVersion: ENGINE_VERSION,
-    source: { fingerprint: "a" },
-    target: { fingerprint: "b" },
+source: { fingerprint: "a".repeat(64) },
+target: { fingerprint: "b".repeat(64) },
     preamble: [],
     deltas: [],
     filteredDeltas: [],

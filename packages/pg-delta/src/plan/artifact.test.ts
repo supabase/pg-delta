@@ -122,6 +122,83 @@ describe("plan artifact v1", () => {
     ).toBeUndefined();
   });
 
+  test("round-trips an opaque PostgreSQL source-lineage stamp", () => {
+    const stamped: Plan = {
+      ...samplePlan,
+      source: {
+        ...samplePlan.source,
+        endpointHash: "c".repeat(64),
+        identity: {
+          scheme: "pg-system-identifier-v1",
+          lineageHash: "d".repeat(64),
+          databaseHash: "e".repeat(64),
+        },
+      },
+    };
+
+    expect(parsePlan(serializePlan(stamped)).source).toEqual(stamped.source);
+  });
+
+  test("rejects malformed source fingerprints, endpoint hashes, and identity stamps", () => {
+    const cases: Array<
+      [path: string, mutate: (value: Record<string, unknown>) => void]
+    > = [
+      ["source.fingerprint", (value) => (value["fingerprint"] = "short")],
+      [
+        "target.fingerprint",
+        (value) => (value["fingerprint"] = "z".repeat(64)),
+      ],
+      [
+        "source.endpointHash",
+        (value) => (value["endpointHash"] = "g".repeat(64)),
+      ],
+      [
+        "source.identity.scheme",
+        (value) =>
+          ((value["identity"] as Record<string, unknown>)["scheme"] = "v2"),
+      ],
+      [
+        "source.identity.lineageHash",
+        (value) =>
+          ((value["identity"] as Record<string, unknown>)["lineageHash"] = ""),
+      ],
+      [
+        "source.identity.databaseHash",
+        (value) =>
+          delete (value["identity"] as Record<string, unknown>)["databaseHash"],
+      ],
+      [
+        "source.identity.extra",
+        (value) =>
+          ((value["identity"] as Record<string, unknown>)["extra"] = true),
+      ],
+    ];
+
+    for (const [path, mutate] of cases) {
+      const artifact = JSON.parse(
+        serializePlan({
+          ...samplePlan,
+          source: {
+            ...samplePlan.source,
+            endpointHash: "c".repeat(64),
+            identity: {
+              scheme: "pg-system-identifier-v1",
+              lineageHash: "d".repeat(64),
+              databaseHash: "e".repeat(64),
+            },
+          },
+        } as Plan),
+      ) as Record<string, unknown>;
+      const target = path.startsWith("target.")
+        ? (artifact["target"] as Record<string, unknown>)
+        : (artifact["source"] as Record<string, unknown>);
+      mutate(target);
+      expect(() => parsePlan(JSON.stringify(artifact)), path).toThrow(
+        new RegExp(path.replace(".", "\\.")),
+      );
+    }
+  });
+
   test("round-trips the stamped redaction mode so apply/prove re-extract identically", () => {
     // a plan produced with --unsafe-show-secrets fingerprints over unredacted
     // secrets; the artifact must carry redactSecrets:false so apply/prove
