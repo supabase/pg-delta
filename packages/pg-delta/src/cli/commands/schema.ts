@@ -94,7 +94,10 @@ import {
   readExportManifest,
   writeExportManifest,
 } from "../../frontends/export-manifest.ts";
-import { type SqlFile } from "../../frontends/load-sql-files.ts";
+import {
+  ShadowLoadError,
+  type SqlFile,
+} from "../../frontends/load-sql-files.ts";
 import { analyzeForShadow } from "../../frontends/sql-order.ts";
 import { buildSchemaExport } from "../../frontends/schema-export.ts";
 import {
@@ -482,6 +485,22 @@ function warnIfUnredactedOutput(
   }
 }
 
+/** True only when a shadow-load failure can surface an authored statement.
+ *  Early policy/connection/empty-shadow failures do not carry statement text
+ *  and therefore do not need the unredacted-output warning. */
+function hasShadowStatementDiagnostic(
+  error: unknown,
+): error is ShadowLoadError {
+  return (
+    error instanceof ShadowLoadError &&
+    error.details.some(
+      (detail) =>
+        detail.code === "stuck_statement" ||
+        detail.code === "max_rounds_exceeded",
+    )
+  );
+}
+
 export async function cmdSchemaApply(args: string[]): Promise<void> {
   let parsed;
   try {
@@ -753,7 +772,9 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         return enriched;
       },
     }).catch((error: unknown) => {
-      warnIfUnredactedOutput(redactSecrets, "planning failure diagnostic");
+      if (hasShadowStatementDiagnostic(error)) {
+        warnIfUnredactedOutput(redactSecrets, "planning failure diagnostic");
+      }
       throw error;
     });
 
