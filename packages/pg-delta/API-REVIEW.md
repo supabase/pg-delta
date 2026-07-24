@@ -31,7 +31,7 @@ the documented vocabulary.
 | `contentHash` | function | `PayloadValue → ContentHash` — SHA-256 of the canonical form. | ✓ | — | — | — |
 | `Fact` | type | `{ id: StableId; parent?: StableId; payload: Payload }` — the atomic unit of schema knowledge. | ✓ | ✓ | ✓ | ✓ |
 | `DependencyEdge` | type | `{ from, to: StableId; kind: EdgeKind }` — a directed dependency between two facts (tear-down / build-up order). | ✓ | ✓ | ✓ | — |
-| `EdgeKind` | type | `"depends" \| "owner" \| "memberOfExtension"` — semantic type of a `DependencyEdge`. | ✓ | — | — | — |
+| `EdgeKind` | type | `"depends" \| "owner" \| "memberOfExtension" \| "managedBy"` — semantic type of a `DependencyEdge`. | ✓ | — | — | — |
 | `FactBase` | class | Immutable, content-addressed collection of `Fact`s and `DependencyEdge`s. The canonical in-memory schema representation. | ✓ | ✓ | ✓ | ✓ |
 | `buildFactBase` | function | Construct a `FactBase` from arrays of facts and edges. Entry point for test fixtures and snapshot deserialization. | ✓ | — | — | — |
 | `serializeSnapshot` | function | `(FactBase, { pgVersion }) → string` — format-v1 bigint-safe JSON, includes digest. | ✓ | — | — | — |
@@ -54,12 +54,18 @@ the documented vocabulary.
 
 | Name | Kind | Contract | facts | deltas | actions | proof |
 |------|------|----------|:-----:|:------:|:-------:|:-----:|
-| `ENGINE_VERSION` | const | `"0.1.0"` — stamped into plan artifacts; `apply` refuses artifacts from other engines. | — | — | ✓ | — |
+| `ENGINE_VERSION` | const | Current engine compatibility version stamped into plan artifacts; `apply` refuses artifacts from other engines. | — | — | ✓ | — |
 | `Action` | type | One executable DDL statement with `sql`, `verb`, `produces/consumes/destroys/releases`, `transactionality`, `lockClass`, `dataLoss`, `rewriteRisk`. The unit the executor runs. | — | — | ✓ | ✓ |
-| `Plan` | type | `{ actions, deltas, filteredDeltas, renameCandidates, safetyReport, source/target fingerprints, … }` — the complete output of the planner. | ✓ | ✓ | ✓ | ✓ |
+| `Plan` | type | Complete planner artifact: actions, managed/filtered deltas, optional compatibility `projectionAudit?`, policy/profile/scope metadata, rename decisions, safety report, and source/target fingerprints. Newly produced plans carry the audit; optionality permits legacy v1 parsing. | ✓ | ✓ | ✓ | ✓ |
 | `SafetyReport` | type | Aggregated per-plan counts: destructive, rewriteRisk, nonTransactional actions; lock class histogram. | — | — | ✓ | — |
 | `PlanOptions` | type | `{ params?, policy?, baseline?, renames?, acceptRenames?, compact?, capability? }` — the complete option bag for `plan()`. `baseline?` is the resolved platform `FactBase` whose facts are subtracted before diffing; `capability?` is the `ApplierCapability` that projects out operations the applier cannot execute. | — | — | ✓ | — |
 | `plan` | function | `(source, desired: FactBase, options?: PlanOptions) → Plan` — the planner: deltas × rule table → topologically sorted actions. | ✓ | ✓ | ✓ | — |
+| `ProjectionAudit` | type | Complete attributed raw differences hidden by managed-view projection: ordered `entries` plus recomputed suspicious/acknowledged/baseline summary counts. | ✓ | ✓ | — | ✓ |
+| `ProjectionAuditEntry` | type | One hidden `Delta`, its fact/edge subject, all source/desired suppression causes, and the derived classification. | ✓ | ✓ | — | ✓ |
+| `ProjectionAuditSuppression` | type | Stable attribution for one suppression: side, stage, reason code, classification, and optional excluded ancestor. | ✓ | ✓ | — | ✓ |
+| `ProjectionAuditStage` | type | Projection boundary that caused suppression: `baseline`, `policyScopeRule`, `capability`, `managementScope`, `referenceOnly`, or `managedBy`. | ✓ | ✓ | — | ✓ |
+| `ProjectionAuditClassification` | type | `"acknowledged" \| "suspicious"`; entry classification is recomputed from its suppressions at artifact/API boundaries. | — | ✓ | — | ✓ |
+| `ProjectionAuditSubject` | type | Stable fact or dependency-edge identity duplicated from the delta for grouping and allowlisting. | ✓ | ✓ | — | ✓ |
 | `serializePlan` | function | `Plan → string` — bigint-safe JSON artifact, version-tagged. | — | — | ✓ | — |
 | `parsePlan` | function | `string → Plan` — validates formatVersion/engineVersion; throws on mismatch. | — | — | ✓ | — |
 | `RenameCandidate` | type | `{ kind, from, to: StableId; status: "unambiguous"\|"ambiguous"\|"nearMiss"; reason? }` — one detected rename candidate with its disposition. | ✓ | ✓ | — | — |
@@ -83,8 +89,10 @@ the documented vocabulary.
 
 | Name | Kind | Contract | facts | deltas | actions | proof |
 |------|------|----------|:-----:|:------:|:-------:|:-----:|
-| `ProofVerdict` | type | `{ ok, applyError?, driftDeltas, dataViolations }` — full proof result including state check and data preservation. | ✓ | ✓ | ✓ | ✓ |
-| `provePlan` | function | `(Plan, clonePool: Pool, desired: FactBase) → Promise<ProofVerdict>` — apply to sacrificial clone, re-extract, diff against desired, check row counts. | ✓ | ✓ | ✓ | ✓ |
+| `ProofVerdict` | type | Public compatibility shape for consumer-authored verdicts. Includes proof failures/coverage plus optional `projectionAudit?`, `projectionAuditStatus?`, and `strictAuditFailure?` additive fields. | ✓ | ✓ | ✓ | ✓ |
+| `ProducedProofVerdict` | type | Required result shape from `provePlan`: complete normalized `projectionAudit` and explicit `projectionAuditStatus: "available" \| "unavailable"`, plus all state/data/rewrite/coverage fields. | ✓ | ✓ | ✓ | ✓ |
+| `ProveOptions` | type | Proof configuration: strict projection-audit enforcement, optional auto-seeding, managed-view policy/capability/baseline inputs, and a profile-aware re-extractor. | ✓ | ✓ | ✓ | ✓ |
+| `provePlan` | function | `(Plan, clonePool: Pool, desired: FactBase, options?) → Promise<ProducedProofVerdict>` — applies to a sacrificial clone, proves state/data/rewrite claims, always returns audit status/data, and optionally makes suspicious or unavailable audits blocking through `strictAudit`. | ✓ | ✓ | ✓ | ✓ |
 
 ---
 

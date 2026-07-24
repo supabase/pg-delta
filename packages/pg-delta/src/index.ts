@@ -64,7 +64,12 @@ export {
 } from "./apply/apply.ts";
 
 // ── proof ────────────────────────────────────────────────────────────────────
-export { provePlan, type ProofVerdict } from "./proof/prove.ts";
+export {
+  provePlan,
+  type ProducedProofVerdict,
+  type ProveOptions,
+  type ProofVerdict,
+} from "./proof/prove.ts";
 
 // ── frontends ────────────────────────────────────────────────────────────────
 export {

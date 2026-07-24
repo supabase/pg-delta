@@ -9,6 +9,7 @@
  * as {"$bigint": "…"} exactly like fact snapshots (stage 1).
  */
 import { ENGINE_VERSION, type Plan } from "./plan.ts";
+import { normalizeProjectionAudit } from "../policy/reconstruct.ts";
 
 function replacer(_key: string, value: unknown): unknown {
   if (typeof value === "bigint") return { $bigint: value.toString() };
@@ -66,6 +67,17 @@ export function parsePlan(json: string): Plan {
     artifact.target?.fingerprint === undefined
   ) {
     throw new Error("plan artifact: missing source/target fingerprints");
+  }
+  if (artifact.projectionAudit !== undefined) {
+    try {
+      artifact.projectionAudit = normalizeProjectionAudit(
+        artifact.projectionAudit,
+      );
+    } catch (error) {
+      throw new Error(
+        `plan artifact: invalid projectionAudit — ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
   return artifact as Plan;
 }

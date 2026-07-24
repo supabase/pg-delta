@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { parsePlan, serializePlan } from "./artifact.ts";
 import { ENGINE_VERSION, type Plan } from "./plan.ts";
+import { normalizeProjectionAudit } from "../policy/reconstruct.ts";
 
 const samplePlan: Plan = {
   formatVersion: 1,
@@ -120,6 +121,451 @@ describe("plan artifact v1", () => {
     expect(
       parsePlan(serializePlan(samplePlan)).projectionAudit,
     ).toBeUndefined();
+  });
+
+  test("rejects null and malformed projection audits", () => {
+    for (const projectionAudit of [
+      null,
+      { entries: null, summary: {} },
+      {
+        entries: [{ classification: "suspicious", suppressions: [] }],
+        summary: { total: 1, suspicious: 1, acknowledged: 0, baseline: 0 },
+      },
+    ]) {
+      expect(() =>
+        parsePlan(
+          serializePlan({ ...samplePlan, projectionAudit } as unknown as Plan),
+        ),
+      ).toThrow(/plan artifact: invalid projectionAudit/);
+    }
+  });
+
+  test("rejects malformed projection-audit entries by validation family", () => {
+    const id = { kind: "table" as const, schema: "app", name: "hidden" };
+    const otherId = { kind: "table" as const, schema: "app", name: "other" };
+    const validEntry = {
+      delta: { verb: "set", id, attr: "persistence", from: "p", to: "u" },
+      subject: { kind: "fact", id },
+      suppressions: [
+        {
+          side: "desired",
+          stage: "policyScopeRule",
+          reasonCode: "policy:test:hidden-table",
+          classification: "suspicious",
+        },
+      ],
+      classification: "suspicious",
+    };
+    const edge = {
+      from: id,
+      to: { kind: "schema" as const, name: "app" },
+      kind: "depends" as const,
+    };
+    const cases: Array<{ name: string; entry: unknown; path: RegExp }> = [
+      {
+        name: "invalid suppression side",
+        entry: {
+          ...validEntry,
+          suppressions: [{ ...validEntry.suppressions[0], side: "both" }],
+        },
+        path: /suppressions\[0\]\.side/,
+      },
+      {
+        name: "invalid suppression stage",
+        entry: {
+          ...validEntry,
+          suppressions: [{ ...validEntry.suppressions[0], stage: "unknown" }],
+        },
+        path: /suppressions\[0\]\.stage/,
+      },
+      {
+        name: "invalid entry classification",
+        entry: { ...validEntry, classification: "unknown" },
+        path: /entries\[0\]\.classification/,
+      },
+      {
+        name: "invalid suppression classification",
+        entry: {
+          ...validEntry,
+          suppressions: [
+            { ...validEntry.suppressions[0], classification: "unknown" },
+          ],
+        },
+        path: /suppressions\[0\]\.classification/,
+      },
+      {
+        name: "subject does not match delta",
+        entry: { ...validEntry, subject: { kind: "fact", id: otherId } },
+        path: /entries\[0\]\.subject/,
+      },
+      {
+        name: "invalid stable id",
+        entry: {
+          ...validEntry,
+          delta: {
+            ...validEntry.delta,
+            id: { kind: "table", schema: "app" },
+          },
+        },
+        path: /entries\[0\]\.delta\.id/,
+      },
+      {
+        name: "stable id with hidden extra key",
+        entry: {
+          ...validEntry,
+          delta: {
+            ...validEntry.delta,
+            id: { ...id, _hidden: "must not be ignored" },
+          },
+        },
+        path: /entries\[0\]\.delta\.id/,
+      },
+      {
+        name: "invalid edge kind",
+        entry: {
+          ...validEntry,
+          delta: { verb: "link", edge: { ...edge, kind: "contains" } },
+          subject: { kind: "edge", edge: { ...edge, kind: "contains" } },
+        },
+        path: /entries\[0\]\.delta\.edge\.kind/,
+      },
+      {
+        name: "set delta with neither endpoint serialized",
+        entry: {
+          ...validEntry,
+          delta: { verb: "set", id, attr: "persistence" },
+        },
+        path: /entries\[0\]\.delta\.(from|to)/,
+      },
+      {
+        name: "malformed link delta",
+        entry: {
+          ...validEntry,
+          delta: { verb: "link", edge: { from: id, kind: "depends" } },
+        },
+        path: /entries\[0\]\.delta\.edge\.to/,
+      },
+      {
+        name: "empty suppressions",
+        entry: { ...validEntry, suppressions: [] },
+        path: /entries\[0\]\.suppressions/,
+      },
+    ];
+
+    for (const testCase of cases) {
+      expect(
+        () =>
+          parsePlan(
+            serializePlan({
+              ...samplePlan,
+              projectionAudit: {
+                entries: [testCase.entry],
+                summary: {
+                  total: 1,
+                  suspicious: 1,
+                  acknowledged: 0,
+                  baseline: 0,
+                },
+              },
+            } as unknown as Plan),
+          ),
+        testCase.name,
+      ).toThrow(testCase.path);
+    }
+  });
+
+  test("accepts a set audit delta with one serialized endpoint", () => {
+    const id = { kind: "table" as const, schema: "app", name: "hidden" };
+    const parsed = parsePlan(
+      serializePlan({
+        ...samplePlan,
+        projectionAudit: {
+          entries: [
+            {
+              delta: {
+                verb: "set",
+                id,
+                attr: "new_attribute",
+                from: undefined,
+                to: "value",
+              },
+              subject: { kind: "fact", id },
+              suppressions: [
+                {
+                  side: "desired",
+                  stage: "policyScopeRule",
+                  reasonCode: "policy:test:hidden-table",
+                  classification: "suspicious",
+                },
+              ],
+              classification: "suspicious",
+            },
+          ],
+          summary: {
+            total: 1,
+            suspicious: 1,
+            acknowledged: 0,
+            baseline: 0,
+          },
+        },
+      }),
+    );
+
+    expect(parsed.projectionAudit?.entries[0]?.delta as unknown).toEqual({
+      verb: "set",
+      id,
+      attr: "new_attribute",
+      to: "value",
+    });
+  });
+
+  test("validates audit payload values recursively without rejecting payload metadata", () => {
+    const id = { kind: "table" as const, schema: "app", name: "hidden" };
+    const valid = serializePlan({
+      ...samplePlan,
+      projectionAudit: {
+        entries: [
+          {
+            delta: {
+              verb: "add",
+              fact: {
+                id,
+                payload: {
+                  _metadata: { nested: ["ok", 1, true, null, 2n] },
+                },
+              },
+            },
+            subject: { kind: "fact", id },
+            suppressions: [
+              {
+                side: "desired",
+                stage: "policyScopeRule",
+                reasonCode: "policy:test:hidden-table",
+                classification: "suspicious",
+              },
+            ],
+            classification: "suspicious",
+          },
+        ],
+        summary: {
+          total: 1,
+          suspicious: 1,
+          acknowledged: 0,
+          baseline: 0,
+        },
+      },
+    });
+
+    expect(parsePlan(valid).projectionAudit?.entries).toHaveLength(1);
+    expect(() =>
+      parsePlan(valid.replace('"nested": [', '"bad": 1e400, "nested": [')),
+    ).toThrow(/projectionAudit.*delta\.fact\.payload\._metadata\.bad/);
+  });
+
+  test("validates direct-API StableIds without ignoring extra undefined keys", () => {
+    const table = { kind: "table" as const, schema: "app", name: "hidden" };
+    const acl = {
+      kind: "acl" as const,
+      target: {
+        kind: "acl" as const,
+        target: table,
+        grantee: "nested_reader",
+        column: undefined,
+      },
+      grantee: "reader",
+      column: undefined,
+    };
+    const makeAudit = (id: unknown) => ({
+      entries: [
+        {
+          delta: { verb: "add", fact: { id, payload: {} } },
+          subject: { kind: "fact", id },
+          suppressions: [
+            {
+              side: "desired",
+              stage: "policyScopeRule",
+              reasonCode: "policy:test:hidden",
+              classification: "suspicious",
+            },
+          ],
+          classification: "suspicious",
+        },
+      ],
+      summary: { total: 1, suspicious: 1, acknowledged: 0, baseline: 0 },
+    });
+
+    expect(normalizeProjectionAudit(makeAudit(acl)).entries).toHaveLength(1);
+    expect(() =>
+      normalizeProjectionAudit(makeAudit({ ...table, extra: undefined })),
+    ).toThrow(/entries\[0\]\.delta\.fact\.id/);
+  });
+
+  test("accepts only JSON-like record containers in direct-API payloads", () => {
+    const id = { kind: "table" as const, schema: "app", name: "hidden" };
+    const makeAudit = (payloadValue: unknown) => ({
+      entries: [
+        {
+          delta: {
+            verb: "add",
+            fact: { id, payload: { _metadata: payloadValue } },
+          },
+          subject: { kind: "fact", id },
+          suppressions: [
+            {
+              side: "desired",
+              stage: "policyScopeRule",
+              reasonCode: "policy:test:hidden-table",
+              classification: "suspicious",
+            },
+          ],
+          classification: "suspicious",
+        },
+      ],
+      summary: { total: 1, suspicious: 1, acknowledged: 0, baseline: 0 },
+    });
+    const nullPrototype = Object.assign(Object.create(null) as object, {
+      nested: "ok",
+      omitted: undefined,
+    });
+
+    expect(
+      normalizeProjectionAudit(
+        makeAudit({ nested: { allowed: undefined }, nullPrototype }),
+      ).entries,
+    ).toHaveLength(1);
+    for (const value of [
+      new Date(),
+      new Map([["key", "value"]]),
+      new Set(["value"]),
+      new (class PayloadClass {
+        value = "not plain";
+      })(),
+    ]) {
+      expect(() => normalizeProjectionAudit(makeAudit(value))).toThrow(
+        /entries\[0\]\.delta\.fact\.payload\._metadata/,
+      );
+    }
+    expect(() =>
+      normalizeProjectionAudit(makeAudit(["ok", undefined])),
+    ).toThrow(/entries\[0\]\.delta\.fact\.payload\._metadata\[1\]/);
+  });
+
+  test("accepts only plain root payload records for add and remove deltas", () => {
+    const id = { kind: "table" as const, schema: "app", name: "hidden" };
+    const makeAudit = (verb: "add" | "remove", payload: unknown) => ({
+      entries: [
+        {
+          delta: { verb, fact: { id, payload } },
+          subject: { kind: "fact", id },
+          suppressions: [
+            {
+              side: "desired",
+              stage: "policyScopeRule",
+              reasonCode: "policy:test:hidden-table",
+              classification: "suspicious",
+            },
+          ],
+          classification: "suspicious",
+        },
+      ],
+      summary: { total: 1, suspicious: 1, acknowledged: 0, baseline: 0 },
+    });
+    const nullPrototype = Object.assign(Object.create(null) as object, {
+      nested: { allowed: undefined },
+    });
+    const invalidPayloads = [
+      new Date(),
+      new Map([["key", "value"]]),
+      new Set(["value"]),
+      new (class PayloadClass {
+        value = "not plain";
+      })(),
+    ];
+
+    for (const verb of ["add", "remove"] as const) {
+      expect(
+        normalizeProjectionAudit(makeAudit(verb, nullPrototype)).entries,
+      ).toHaveLength(1);
+      for (const payload of invalidPayloads) {
+        expect(() =>
+          normalizeProjectionAudit(makeAudit(verb, payload)),
+        ).toThrow(/entries\[0\]\.delta\.fact\.payload/);
+      }
+    }
+  });
+
+  test("rejects a non-finite projection-audit set endpoint", () => {
+    const id = { kind: "table" as const, schema: "app", name: "hidden" };
+    const json = serializePlan({
+      ...samplePlan,
+      projectionAudit: {
+        entries: [
+          {
+            delta: { verb: "set", id, attr: "setting", from: 1, to: 2 },
+            subject: { kind: "fact", id },
+            suppressions: [
+              {
+                side: "desired",
+                stage: "policyScopeRule",
+                reasonCode: "policy:test:hidden-table",
+                classification: "suspicious",
+              },
+            ],
+            classification: "suspicious",
+          },
+        ],
+        summary: {
+          total: 1,
+          suspicious: 1,
+          acknowledged: 0,
+          baseline: 0,
+        },
+      },
+    }).replace('"to": 2', '"to": 1e400');
+
+    expect(() => parsePlan(json)).toThrow(/projectionAudit.*delta\.to/);
+  });
+
+  test("recomputes an inconsistent projection-audit summary from entries", () => {
+    const schemaId = { kind: "schema" as const, name: "hidden" };
+    const parsed = parsePlan(
+      serializePlan({
+        ...samplePlan,
+        projectionAudit: {
+          entries: [
+            {
+              delta: {
+                verb: "remove",
+                fact: { id: schemaId, payload: {} },
+              },
+              subject: { kind: "fact", id: schemaId },
+              suppressions: [
+                {
+                  side: "source",
+                  stage: "policyScopeRule",
+                  reasonCode: "policy:test:hidden-schema",
+                  classification: "suspicious",
+                },
+              ],
+              classification: "suspicious",
+            },
+          ],
+          summary: {
+            total: 0,
+            suspicious: 0,
+            acknowledged: 0,
+            baseline: 0,
+          },
+        },
+      }),
+    );
+
+    expect(parsed.projectionAudit?.summary).toEqual({
+      total: 1,
+      suspicious: 1,
+      acknowledged: 0,
+      baseline: 0,
+    });
   });
 
   test("round-trips the stamped redaction mode so apply/prove re-extract identically", () => {

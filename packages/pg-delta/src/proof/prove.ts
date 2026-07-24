@@ -15,10 +15,13 @@ import { diff, type Delta } from "../core/diff.ts";
 import type { FactBase } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
 import { extract } from "../extract/extract.ts";
-import type { Action, Plan } from "../plan/plan.ts";
+import type { Action, Plan, ProjectionAudit } from "../plan/plan.ts";
 import { projectTarget } from "../plan/project.ts";
 import type { Policy } from "../policy/policy.ts";
-import { reconstructManagedView } from "../policy/reconstruct.ts";
+import {
+  normalizeProjectionAudit,
+  reconstructManagedView,
+} from "../policy/reconstruct.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
 
 /** Structured table identity on the verdict: a collision-free { schema, name }
@@ -73,6 +76,17 @@ export interface SeedStateViolation {
 
 export interface ProofVerdict {
   ok: boolean;
+  /** Whether `projectionAudit` came from the plan artifact. Optional for source
+   * compatibility; every result returned by `provePlan` carries it. */
+  projectionAuditStatus?: "available" | "unavailable";
+  /** Raw source↔desired differences hidden by the managed-view projection.
+   * Optional for source compatibility with verdicts constructed before P2b;
+   * results returned by `provePlan` use `ProducedProofVerdict` and always carry
+   * this field (legacy plan artifacts normalize to an empty audit). */
+  projectionAudit?: ProjectionAudit;
+  /** Why opt-in strict projection-audit enforcement failed. Absent when strict
+   * audit was not requested or its requirements passed. */
+  strictAuditFailure?: "unavailable" | "suspicious";
   applyError?: { actionIndex: number; sql: string; message: string };
   driftDeltas: Delta[];
   /** a kept table whose data changed: row count differs, OR (on a table the
@@ -101,6 +115,13 @@ export interface ProofVerdict {
   seedOutcomes?: SeedOutcome[];
 }
 
+/** The fully populated verdict produced by `provePlan`. Unlike the public
+ * compatibility shape, a produced result always exposes its projection audit. */
+export interface ProducedProofVerdict extends ProofVerdict {
+  projectionAuditStatus: "available" | "unavailable";
+  projectionAudit: ProjectionAudit;
+}
+
 export interface TableCoverage {
   table: TableRef;
   /** how this table's data was checked:
@@ -124,6 +145,9 @@ export interface ProofCoverage {
 }
 
 export interface ProveOptions {
+  /** Treat suspicious projection-audit entries as proof failures. Acknowledged
+   * entries (including baseline suppressions) remain visible but non-blocking. */
+  strictAudit?: boolean;
   /** best-effort seed empty kept tables with a synthetic row before
    *  applying, so the data-preservation check has teeth even for scenarios
    *  that ship no seed.sql. Default false (opt-in): enabling it surfaces
@@ -561,7 +585,27 @@ export async function provePlan(
   clonePool: Pool,
   desired: FactBase,
   options: ProveOptions = {},
-): Promise<ProofVerdict> {
+): Promise<ProducedProofVerdict> {
+  const auditAvailable = thePlan.projectionAudit !== undefined;
+  const projectionAuditStatus = auditAvailable ? "available" : "unavailable";
+  const projectionAudit: ProjectionAudit = auditAvailable
+    ? normalizeProjectionAudit(thePlan.projectionAudit)
+    : {
+        entries: [],
+        summary: { total: 0, suspicious: 0, acknowledged: 0, baseline: 0 },
+      };
+  const strictAuditFailure: ProofVerdict["strictAuditFailure"] =
+    !options.strictAudit
+      ? undefined
+      : !auditAvailable
+        ? "unavailable"
+        : projectionAudit.entries.some(
+              (entry) => entry.classification === "suspicious",
+            )
+          ? "suspicious"
+          : undefined;
+  const strictAuditFields =
+    strictAuditFailure === undefined ? {} : { strictAuditFailure };
   // tables the plan tears down (drop or replace) are NOT "kept"; relfilenode
   // and row-count changes on them are expected, not violations
   const recreatedTables = new Set<string>();
@@ -655,6 +699,9 @@ export async function provePlan(
   if (seedSideEffects.length > 0) {
     return {
       ok: false,
+      projectionAuditStatus,
+      projectionAudit,
+      ...strictAuditFields,
       driftDeltas: [],
       dataViolations: seedSideEffects,
       seedSideEffects,
@@ -673,6 +720,9 @@ export async function provePlan(
     if (postSeedState.rootHash !== thePlan.source.fingerprint) {
       return {
         ok: false,
+        projectionAuditStatus,
+        projectionAudit,
+        ...strictAuditFields,
         driftDeltas: [],
         dataViolations: [],
         seedStateViolation: {
@@ -699,6 +749,9 @@ export async function provePlan(
   if (report.status !== "applied") {
     return {
       ok: false,
+      projectionAuditStatus,
+      projectionAudit,
+      ...strictAuditFields,
       ...(report.error ? { applyError: report.error } : {}),
       driftDeltas: [],
       dataViolations: [],
@@ -743,7 +796,11 @@ export async function provePlan(
     ok:
       driftDeltas.length === 0 &&
       dataViolations.length === 0 &&
-      rewriteViolations.length === 0,
+      rewriteViolations.length === 0 &&
+      strictAuditFailure === undefined,
+    projectionAuditStatus,
+    projectionAudit,
+    ...strictAuditFields,
     driftDeltas,
     dataViolations,
     rewriteViolations,

@@ -13,7 +13,12 @@ import {
   type ProofVerdict,
   type TableRef,
 } from "../../proof/prove.ts";
+import type {
+  ProjectionAudit,
+  ProjectionAuditSubject,
+} from "../../plan/plan.ts";
 import { loadSnapshot } from "../../frontends/snapshot-file.ts";
+import { canonicalize, type PayloadValue } from "../../core/hash.ts";
 import { encodeId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
@@ -37,6 +42,15 @@ import {
  */
 export function formatProofFailure(verdict: ProofVerdict): string {
   const lines: string[] = [];
+  if (verdict.strictAuditFailure === "suspicious") {
+    lines.push(
+      "  strict projection audit failed: suspicious suppressions were found",
+    );
+  } else if (verdict.strictAuditFailure === "unavailable") {
+    lines.push(
+      "  strict projection audit failed: this legacy plan has no projection audit; re-plan before using --strict-audit",
+    );
+  }
   if (verdict.applyError) {
     lines.push(
       `  apply error at action[${verdict.applyError.actionIndex}]: ${verdict.applyError.message}`,
@@ -71,6 +85,182 @@ export function formatProofFailure(verdict: ProofVerdict): string {
     }
   }
   return lines.length > 0 ? `${lines.join("\n")}\n` : "";
+}
+
+/** Keep every artifact-controlled field on its intended terminal line and
+ * neutralize terminal directionality/formatting controls. */
+function escapeAuditField(value: string): string {
+  let escaped = "";
+  for (const character of value) {
+    const code = character.codePointAt(0) as number;
+    escaped +=
+      code <= 0x1f ||
+      (code >= 0x7f && code <= 0x9f) ||
+      code === 0x2028 ||
+      code === 0x2029 ||
+      /\p{Cf}/u.test(character)
+        ? code <= 0xffff
+          ? `\\u${code.toString(16).padStart(4, "0")}`
+          : `\\u{${code.toString(16)}}`
+        : character;
+  }
+  return escaped;
+}
+
+const DEFAULT_PROJECTION_AUDIT_ENTRY_LIMIT = 50;
+const DEFAULT_PROJECTION_AUDIT_SUPPRESSION_LIMIT = 10;
+const PROJECTION_AUDIT_FIELD_LIMIT = 240;
+
+function truncateAuditField(value: string): string {
+  const characters = Array.from(value);
+  if (characters.length <= PROJECTION_AUDIT_FIELD_LIMIT) return value;
+  return `${characters.slice(0, PROJECTION_AUDIT_FIELD_LIMIT).join("")}… [truncated]`;
+}
+
+function formatAuditField(value: string): string {
+  return truncateAuditField(escapeAuditField(value));
+}
+
+function formatAuditSubject(subject: ProjectionAuditSubject): string {
+  if (subject.kind === "fact") return formatAuditField(encodeId(subject.id));
+  const { edge } = subject;
+  return `${formatAuditField(encodeId(edge.from))} -[${formatAuditField(edge.kind)}]-> ${formatAuditField(encodeId(edge.to))}`;
+}
+
+function formatAuditEndpoint(
+  delta: Extract<ProjectionAudit["entries"][number]["delta"], { verb: "set" }>,
+  endpoint: "from" | "to",
+): string {
+  if (!Object.hasOwn(delta, endpoint)) return "<absent>";
+  const value = delta[endpoint] as PayloadValue;
+  // An own `undefined` can exist in an in-memory Delta but cannot cross the JSON
+  // artifact boundary. Keep it distinct from a genuinely omitted endpoint and
+  // avoid passing it to canonicalize, which deliberately rejects top-level
+  // undefined.
+  if (value === undefined) return "<undefined>";
+  return formatAuditField(canonicalize(value));
+}
+
+interface ProjectionAuditFormatOptions {
+  /** Print every entry rather than the bounded human-readable projection. */
+  auditAll?: boolean;
+  /** Distinguishes a normalized legacy empty audit from an audited zero. */
+  auditStatus?: "available" | "unavailable";
+  /** Exact artifact path supplied to `--plan`, for truncation discoverability. */
+  planPath?: string;
+}
+
+function isBaselineAuditEntry(
+  entry: ProjectionAudit["entries"][number],
+): boolean {
+  return entry.suppressions.some(
+    (suppression) => suppression.stage === "baseline",
+  );
+}
+
+/** Select the bounded human projection deterministically. Reserve one baseline
+ * entry and one non-baseline acknowledged entry when present, then fill with
+ * suspicious, baseline, and other acknowledged entries in that priority order.
+ * Artifact order is preserved within each bucket. */
+function selectProjectionAuditEntries(
+  audit: ProjectionAudit,
+): ProjectionAudit["entries"] {
+  if (audit.entries.length <= DEFAULT_PROJECTION_AUDIT_ENTRY_LIMIT) {
+    return audit.entries;
+  }
+
+  const selected = new Set<ProjectionAudit["entries"][number]>();
+  const reserve = (
+    entry: ProjectionAudit["entries"][number] | undefined,
+  ): void => {
+    if (entry !== undefined) selected.add(entry);
+  };
+  reserve(audit.entries.find(isBaselineAuditEntry));
+  reserve(
+    audit.entries.find(
+      (entry) =>
+        entry.classification === "acknowledged" && !isBaselineAuditEntry(entry),
+    ),
+  );
+
+  const buckets = [
+    audit.entries.filter((entry) => entry.classification === "suspicious"),
+    audit.entries.filter(isBaselineAuditEntry),
+    audit.entries.filter((entry) => entry.classification === "acknowledged"),
+  ];
+  for (const bucket of buckets) {
+    for (const entry of bucket) {
+      if (selected.size === DEFAULT_PROJECTION_AUDIT_ENTRY_LIMIT) break;
+      selected.add(entry);
+    }
+    if (selected.size === DEFAULT_PROJECTION_AUDIT_ENTRY_LIMIT) break;
+  }
+
+  const bucketPriority = (entry: ProjectionAudit["entries"][number]): number =>
+    entry.classification === "suspicious"
+      ? 0
+      : isBaselineAuditEntry(entry)
+        ? 1
+        : 2;
+  return audit.entries
+    .filter((entry) => selected.has(entry))
+    .sort((a, b) => bucketPriority(a) - bucketPriority(b));
+}
+
+/** Render suppressed raw differences and their stable attribution. This is
+ * emitted for passing and failing proofs alike: strictness changes exit status,
+ * never visibility. Human detail is bounded by default; the audit artifact and
+ * summary always remain complete. */
+export function formatProjectionAudit(
+  audit: ProjectionAudit,
+  options: ProjectionAuditFormatOptions = {},
+): string {
+  if (options.auditStatus === "unavailable") {
+    return "Projection audit: unavailable for this legacy plan; re-plan.\n";
+  }
+  const { summary } = audit;
+  const difference = summary.total === 1 ? "difference" : "differences";
+  const lines = [
+    `Projection audit: ${summary.total} suppressed ${difference} (${summary.suspicious} suspicious, ${summary.acknowledged} acknowledged, ${summary.baseline} baseline)`,
+  ];
+  const entries = options.auditAll
+    ? audit.entries
+    : selectProjectionAuditEntries(audit);
+  for (const entry of entries) {
+    const verb = formatAuditField(entry.delta.verb);
+    const classification = formatAuditField(entry.classification);
+    const detail =
+      entry.delta.verb === "set"
+        ? `.${formatAuditField(entry.delta.attr)} ${formatAuditEndpoint(entry.delta, "from")} → ${formatAuditEndpoint(entry.delta, "to")}`
+        : "";
+    lines.push(
+      `  ${verb} ${formatAuditSubject(entry.subject)}${detail} [${classification}]`,
+    );
+    const suppressions = options.auditAll
+      ? entry.suppressions
+      : entry.suppressions.slice(0, DEFAULT_PROJECTION_AUDIT_SUPPRESSION_LIMIT);
+    for (const suppression of suppressions) {
+      lines.push(
+        `    ${formatAuditField(suppression.side)} ${formatAuditField(suppression.stage)} ${formatAuditField(suppression.reasonCode)} [${formatAuditField(suppression.classification)}]${
+          suppression.viaDescendantOf === undefined
+            ? ""
+            : ` via ${formatAuditField(encodeId(suppression.viaDescendantOf))}`
+        }`,
+      );
+    }
+    if (suppressions.length < entry.suppressions.length) {
+      lines.push(
+        `    ... ${entry.suppressions.length - suppressions.length} more suppressions; rerun with --audit-all`,
+      );
+    }
+  }
+  if (entries.length < audit.entries.length) {
+    const planPath = formatAuditField(options.planPath ?? "<plan artifact>");
+    lines.push(
+      `Showing ${entries.length} of ${audit.entries.length} entries. Full audit: ${planPath} → projectionAudit; rerun with --audit-all to print every entry.`,
+    );
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 /**
@@ -136,11 +326,13 @@ export async function cmdProve(args: string[]): Promise<void> {
       clone: { type: "value", required: true },
       "desired-snapshot": { type: "value", required: true },
       profile: { type: "value" },
+      "strict-audit": { type: "boolean" },
+      "audit-all": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       throw new UsageError(
-        `${err.message}\nUsage: pgdelta prove --plan <plan.json> --clone <pg-url> --desired-snapshot <file> [--profile ${PROFILE_IDS}]`,
+        `${err.message}\nUsage: pgdelta prove --plan <plan.json> --clone <pg-url> --desired-snapshot <file> [--profile ${PROFILE_IDS}] [--strict-audit] [--audit-all]`,
       );
     }
     throw err;
@@ -157,6 +349,21 @@ export async function cmdProve(args: string[]): Promise<void> {
 
   const json = readFileSync(planPath, "utf8");
   const thePlan = parsePlan(json);
+  const planAuditStatus =
+    thePlan.projectionAudit === undefined ? "unavailable" : "available";
+  process.stderr.write(
+    formatProjectionAudit(
+      thePlan.projectionAudit ?? {
+        entries: [],
+        summary: { total: 0, suspicious: 0, acknowledged: 0, baseline: 0 },
+      },
+      {
+        auditAll: flags["audit-all"],
+        auditStatus: planAuditStatus,
+        planPath,
+      },
+    ),
+  );
   const {
     factBase: desiredFb,
     redactSecrets: snapshotRedactSecrets,
@@ -249,8 +456,8 @@ export async function cmdProve(args: string[]): Promise<void> {
     const verdict = await provePlan(thePlan, clone.pool, desiredFb, {
       ...ctx.proveOptions,
       reextract: (p) => ctx.extract(p, { redactSecrets: planRedactSecrets }),
+      strictAudit: flags["strict-audit"],
     });
-
     if (verdict.ok) {
       process.stderr.write(
         `Proof passed: state and data preservation verified.` +
