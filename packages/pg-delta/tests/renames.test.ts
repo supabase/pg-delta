@@ -615,9 +615,7 @@ describe("stage 9: renames", () => {
       expect(thePlan.actions[0]?.sql).toContain("ALTER SCHEMA");
       const verdict = await provePlan(thePlan, dbs.source.pool, d.factBase);
       expect(verdict.ok).toBe(true);
-      expect(
-        verdict.coverage.perTable.map((entry) => entry.table),
-      ).toEqual([
+      expect(verdict.coverage.perTable.map((entry) => entry.table)).toEqual([
         { schema: "news", name: "mv" },
         { schema: "news", name: "t" },
       ]);

@@ -328,11 +328,7 @@ describe("destruction metadata integrity", () => {
   });
 
   test("accepts generated relation renames that carry their column subtree", () => {
-    for (const kind of [
-      "view",
-      "materializedView",
-      "foreignTable",
-    ] as const) {
+    for (const kind of ["view", "materializedView", "foreignTable"] as const) {
       const generated = generatedRenamePlan(
         [schemaFact, ...relationFacts(kind, "old_relation")],
         [schemaFact, ...relationFacts(kind, "new_relation")],

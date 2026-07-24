@@ -17,7 +17,10 @@ import type { StableId } from "../core/stable-id.ts";
 import { extract } from "../extract/extract.ts";
 import type { Action, Plan } from "../plan/plan.ts";
 import { projectTarget } from "../plan/project.ts";
-import { findDestructionMetadataViolations } from "../plan/safety.ts";
+import {
+  deriveAcceptedRenameMappings,
+  findDestructionMetadataViolations,
+} from "../plan/safety.ts";
 import type { Policy } from "../policy/policy.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
@@ -639,7 +642,10 @@ export async function provePlan(
   // old key as recreated, so the renamed table is compared before(old) vs
   // after(new) instead of being silently skipped (F7).
   const renamedTables = new Map<string, string>();
-  for (const r of thePlan.acceptedRenames ?? []) {
+  for (const r of deriveAcceptedRenameMappings(
+    thePlan.actions,
+    thePlan.acceptedRenames,
+  )) {
     if (
       (r.from.kind === "table" || r.from.kind === "materializedView") &&
       (r.to.kind === "table" || r.to.kind === "materializedView")

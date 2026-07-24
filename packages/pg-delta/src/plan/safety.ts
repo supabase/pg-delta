@@ -25,6 +25,12 @@ export interface DestructionMetadataViolation {
   relation: IntrinsicallyDataBearingId;
 }
 
+export interface DerivedAcceptedRename {
+  actionIndex: number;
+  from: StableId;
+  to: StableId;
+}
+
 function intrinsicallyDataBearing(
   id: StableId,
 ): id is IntrinsicallyDataBearingId {
@@ -36,30 +42,63 @@ function intrinsicallyDataBearing(
   );
 }
 
-/** Project one data-bearing ID through an accepted root rename. Rename actions
+const RELATION_KINDS = new Set<StableId["kind"]>([
+  "table",
+  "view",
+  "materializedView",
+  "foreignTable",
+]);
+
+type RelationId = {
+  kind: "table" | "view" | "materializedView" | "foreignTable";
+  schema: string;
+  name: string;
+};
+
+function isRelationId(id: StableId): id is RelationId {
+  return RELATION_KINDS.has(id.kind);
+}
+
+/** Project one structured ID through an accepted root rename. Rename actions
  * destroy/produce the whole structural subtree, while Plan.acceptedRenames
- * deliberately stamps only the accepted root pair. Derive the descendant ID
- * change from structured identity fields, then let the caller require that the
- * projected ID is produced by this exact action. */
+ * deliberately stamps only the accepted root pair. */
 function projectThroughAcceptedRename(
-  id: IntrinsicallyDataBearingId,
+  id: StableId,
   rename: { from: StableId; to: StableId },
-): IntrinsicallyDataBearingId | undefined {
+): StableId | undefined {
   const { from, to } = rename;
   if (from.kind !== to.kind) return undefined;
 
   if (encodeId(id) === encodeId(from)) {
-    return intrinsicallyDataBearing(to) ? to : undefined;
+    return to;
+  }
+
+  if (id.kind === "comment") {
+    const target = projectThroughAcceptedRename(id.target, rename);
+    return target === undefined ? undefined : { ...id, target };
+  }
+  if (id.kind === "acl") {
+    const target = projectThroughAcceptedRename(id.target, rename);
+    return target === undefined ? undefined : { ...id, target };
+  }
+  if (id.kind === "securityLabel") {
+    const target = projectThroughAcceptedRename(id.target, rename);
+    return target === undefined ? undefined : { ...id, target };
   }
 
   if (from.kind === "schema" && to.kind === "schema") {
-    if (id.schema !== from.name) return undefined;
-    return { ...id, schema: to.name };
+    if (!("schema" in id) || id.schema !== from.name) return undefined;
+    return { ...id, schema: to.name } as StableId;
   }
 
-  if (from.kind === "table" && to.kind === "table" && id.kind === "column") {
+  if (
+    isRelationId(from) &&
+    isRelationId(to) &&
+    "schema" in id &&
+    "table" in id
+  ) {
     if (id.schema !== from.schema || id.table !== from.name) return undefined;
-    return { ...id, schema: to.schema, table: to.name };
+    return { ...id, schema: to.schema, table: to.name } as StableId;
   }
 
   if (
@@ -74,6 +113,58 @@ function projectThroughAcceptedRename(
   return undefined;
 }
 
+/** Expand stamped accepted roots into the exact old→new IDs carried by each
+ * rename action. Both roots and each projected descendant must occur in that
+ * same action, so callers cannot borrow a rename declaration from elsewhere. */
+export function deriveAcceptedRenameMappings(
+  actions: readonly Action[],
+  acceptedRenames: ReadonlyArray<{ from: StableId; to: StableId }> = [],
+): DerivedAcceptedRename[] {
+  const mappings: DerivedAcceptedRename[] = [];
+  const seen = new Set<string>();
+  actions.forEach((action, actionIndex) => {
+    const destroyed = new Set(action.destroys.map(encodeId));
+    const produced = new Set(action.produces.map(encodeId));
+    for (const rename of acceptedRenames) {
+      if (
+        !destroyed.has(encodeId(rename.from)) ||
+        !produced.has(encodeId(rename.to))
+      ) {
+        continue;
+      }
+      for (const from of action.destroys) {
+        const to = projectThroughAcceptedRename(from, rename);
+        if (to === undefined || !produced.has(encodeId(to))) continue;
+        const key = `${actionIndex}:${encodeId(from)}:${encodeId(to)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        mappings.push({ actionIndex, from, to });
+      }
+    }
+  });
+  return mappings;
+}
+
+function destroyedWithOwningRoot(id: StableId, action: Action): boolean {
+  if (id.kind === "column") {
+    return action.destroys.some(
+      (candidate) =>
+        isRelationId(candidate) &&
+        candidate.schema === id.schema &&
+        candidate.name === id.table,
+    );
+  }
+  if (id.kind === "typeAttribute") {
+    return action.destroys.some(
+      (candidate) =>
+        candidate.kind === "type" &&
+        candidate.schema === id.schema &&
+        candidate.name === id.type,
+    );
+  }
+  return false;
+}
+
 /** Find contradictions between executable, intrinsically data-bearing object
  * destruction and the action's data-loss declaration. An accepted rename is
  * exempt only when the same action preserves the same kind under the accepted
@@ -83,28 +174,24 @@ export function findDestructionMetadataViolations(
   acceptedRenames: ReadonlyArray<{ from: StableId; to: StableId }> = [],
 ): DestructionMetadataViolation[] {
   const violations: DestructionMetadataViolation[] = [];
+  const acceptedMappings = deriveAcceptedRenameMappings(
+    actions,
+    acceptedRenames,
+  );
   actions.forEach((action, actionIndex) => {
     if (action.dataLoss === "destructive") return;
     for (const destroyed of action.destroys) {
       if (!intrinsicallyDataBearing(destroyed)) continue;
-      const preservedByRename = acceptedRenames.some((rename) => {
-        const actionCarriesRename =
-          action.destroys.some(
-            (id) => encodeId(id) === encodeId(rename.from),
-          ) &&
-          action.produces.some((id) => encodeId(id) === encodeId(rename.to));
-        if (!actionCarriesRename) return false;
-        const renamedTo = projectThroughAcceptedRename(destroyed, rename);
-        return (
-          renamedTo !== undefined &&
-          action.produces.some(
-            (produced) =>
-              intrinsicallyDataBearing(produced) &&
-              produced.kind === destroyed.kind &&
-              encodeId(produced) === encodeId(renamedTo),
-          )
-        );
-      });
+      // Cascading parent DDL owns the child's safety classification. A table or
+      // materialized-view parent is checked below as its own root; views,
+      // foreign tables, and standalone composite types hold no local row data.
+      if (destroyedWithOwningRoot(destroyed, action)) continue;
+      const preservedByRename = acceptedMappings.some(
+        (mapping) =>
+          mapping.actionIndex === actionIndex &&
+          mapping.from.kind === destroyed.kind &&
+          encodeId(mapping.from) === encodeId(destroyed),
+      );
       if (preservedByRename) {
         continue;
       }
