@@ -16,6 +16,7 @@ import type { Pool } from "pg";
 import type { FactBase } from "../core/fact.ts";
 import { extract } from "../extract/extract.ts";
 import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
+import { assertDestructionMetadataIntegrity } from "../plan/safety.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
 import { buildApplyPreamble } from "./apply-preamble.ts";
 
@@ -200,6 +201,11 @@ export async function apply(
       `apply: plan was produced by engine ${thePlan.engineVersion}, this engine is ${ENGINE_VERSION} — re-plan`,
     );
   }
+  assertDestructionMetadataIntegrity(
+    thePlan.actions,
+    thePlan.acceptedRenames,
+    "apply",
+  );
   if (options?.fingerprintGate !== false) {
     // Gate against the SAME managed view the plan was produced from (P0-2).
     // plan() fingerprints the resolveView'd source (extension-member + policy +

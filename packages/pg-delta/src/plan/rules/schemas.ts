@@ -83,13 +83,16 @@ export const schemaRules: Record<string, KindRules> = {
     // Reference-only members survive in the resolved view with their
     // `memberOfExtension` edges intact, so `incomingEdges` sees them.
     drop: (fact, view) => {
-      const destructive = (view?.incomingEdges(fact.id) ?? []).some(
-        (e) =>
-          e.kind === "memberOfExtension" &&
-          (e.from.kind === "table" || e.from.kind === "materializedView"),
+      const members = (view?.incomingEdges(fact.id) ?? [])
+        .filter((edge) => edge.kind === "memberOfExtension")
+        .map((edge) => edge.from);
+      const destructive = members.some(
+        (member) =>
+          member.kind === "table" || member.kind === "materializedView",
       );
       return {
         sql: `DROP EXTENSION ${qid((fact.id as { name: string }).name)}`,
+        ...(members.length > 0 ? { alsoDestroys: members } : {}),
         ...(destructive ? { dataLoss: "destructive" as const } : {}),
       };
     },

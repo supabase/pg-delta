@@ -434,3 +434,58 @@ describe("apply control-error attribution", () => {
     expect(scripted.releases).toEqual([true]);
   });
 });
+
+describe("apply plan integrity", () => {
+  test("rejects contradictory destructive metadata before connecting or mutating", async () => {
+    let connected = false;
+    const target = {
+      connect: async () => {
+        connected = true;
+        throw new Error("must not connect");
+      },
+    } as unknown as Pool;
+    const thePlan = {
+      formatVersion: 1,
+      engineVersion: ENGINE_VERSION,
+      source: { fingerprint: "a".repeat(64) },
+      target: { fingerprint: "b".repeat(64) },
+      preamble: [],
+      deltas: [],
+      filteredDeltas: [],
+      renameCandidates: [],
+      actions: [
+        {
+          sql: "DROP TABLE app.t",
+          verb: "drop",
+          produces: [],
+          consumes: [],
+          destroys: [{ kind: "table", schema: "app", name: "t" }],
+          releases: [],
+          transactionality: "transactional",
+          lockClass: "accessExclusive",
+          newSegmentBefore: false,
+          dataLoss: "none",
+          rewriteRisk: false,
+        },
+      ],
+      safetyReport: {
+        destructiveActions: 0,
+        rewriteRiskActions: 0,
+        nonTransactionalActions: 0,
+        lockClasses: { accessExclusive: 1 },
+      },
+    } satisfies Plan;
+
+    let error: unknown;
+    try {
+      await apply(thePlan, target, { fingerprintGate: false });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(
+      /destroys.*table:app\.t.*dataLoss:none/,
+    );
+    expect(connected).toBe(false);
+  });
+});

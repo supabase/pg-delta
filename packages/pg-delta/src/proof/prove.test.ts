@@ -8,10 +8,14 @@
  * proof reports honest per-table coverage instead of a bare boolean.
  */
 import { describe, expect, test } from "bun:test";
+import type { Pool } from "pg";
+import { buildFactBase } from "../core/fact.ts";
+import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
 import {
   composeAutoSeedBaseline,
   detectAutoSeedSideEffects,
   detectViolations,
+  provePlan,
   reconcileSeedOutcomes,
   relKey,
   type SeedOutcome,
@@ -27,6 +31,7 @@ type Stat = {
 
 const ctx = (over: Partial<Parameters<typeof detectViolations>[2]> = {}) => ({
   recreatedTables: new Set<string>(),
+  explicitlyDestroyedRelations: new Set<string>(),
   declaredRewriteTables: new Set<string>(),
   ...over,
 });
@@ -37,6 +42,59 @@ const m = (entries: Array<[schema: string, name: string, stat: Stat]>) =>
   new Map<string, Stat>(entries.map(([s, n, stat]) => [relKey(s, n), stat]));
 
 const SIG = "id:23"; // a stable column signature
+
+describe("provePlan — destruction metadata preflight", () => {
+  test("a mislabeled column drop cannot reach the clone or false-green", async () => {
+    const empty = buildFactBase([], []);
+    const column = {
+      kind: "column" as const,
+      schema: "app",
+      table: "t",
+      name: "secret",
+    };
+    const thePlan: Plan = {
+      formatVersion: 1,
+      engineVersion: ENGINE_VERSION,
+      source: { fingerprint: empty.rootHash },
+      target: { fingerprint: empty.rootHash },
+      preamble: [],
+      deltas: [],
+      filteredDeltas: [],
+      renameCandidates: [],
+      actions: [
+        {
+          sql: `ALTER TABLE app.t DROP COLUMN secret`,
+          verb: "drop",
+          produces: [],
+          consumes: [],
+          destroys: [column],
+          releases: [],
+          transactionality: "transactional",
+          lockClass: "accessExclusive",
+          newSegmentBefore: false,
+          dataLoss: "none",
+          rewriteRisk: false,
+        },
+      ],
+      safetyReport: {
+        destructiveActions: 0,
+        rewriteRiskActions: 0,
+        nonTransactionalActions: 0,
+        lockClasses: { accessExclusive: 1 },
+      },
+    };
+    const verdict = await provePlan(thePlan, {} as Pool, empty, {
+      reextract: () => {
+        throw new Error("proof touched the clone before rejecting metadata");
+      },
+    });
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.safetyMetadataViolations).toEqual([
+      { actionIndex: 0, object: column },
+    ]);
+  });
+});
 
 describe("detectViolations — content + coverage (review #3)", () => {
   test("row count change is a data violation", () => {
@@ -189,7 +247,10 @@ describe("detectViolations — content + coverage (review #3)", () => {
     const baseline = detectViolations(
       before,
       after,
-      ctx({ recreatedTables: new Set([OLD]) }),
+      ctx({
+        recreatedTables: new Set([OLD]),
+        explicitlyDestroyedRelations: new Set([OLD]),
+      }),
     );
     expect(baseline.coverage.tablesChecked).toBe(0);
     expect(baseline.coverage.tablesSkipped.map((s) => s.table.name)).toContain(
@@ -238,7 +299,10 @@ describe("detectViolations — content + coverage (review #3)", () => {
     const v = detectViolations(
       before,
       after,
-      ctx({ recreatedTables: new Set([relKey("public", "t")]) }),
+      ctx({
+        recreatedTables: new Set([relKey("public", "t")]),
+        explicitlyDestroyedRelations: new Set([relKey("public", "t")]),
+      }),
     );
     expect(v.dataViolations).toEqual([]); // recreated → row/content change expected
     expect(v.coverage.tablesChecked).toBe(0);
@@ -246,6 +310,36 @@ describe("detectViolations — content + coverage (review #3)", () => {
       {
         table: { schema: "public", name: "t" },
         reason: "recreated by the plan",
+      },
+    ]);
+  });
+
+  test("a preexisting empty relation missing afterward fails unless explicitly destroyed", () => {
+    const key = relKey("public", "empty");
+    const before = m([
+      ["public", "empty", { rows: 0, relfilenode: "1", schemaSig: SIG }],
+    ]);
+    const undeclared = detectViolations(before, new Map(), ctx());
+    expect(undeclared.dataViolations).toEqual([
+      {
+        table: { schema: "public", name: "empty" },
+        before: 0,
+        after: 0,
+        missingAfter: true,
+      },
+    ]);
+    expect(undeclared.coverage.tablesSkipped).toEqual([]);
+
+    const declared = detectViolations(
+      before,
+      new Map(),
+      ctx({ explicitlyDestroyedRelations: new Set([key]) }),
+    );
+    expect(declared.dataViolations).toEqual([]);
+    expect(declared.coverage.tablesSkipped).toEqual([
+      {
+        table: { schema: "public", name: "empty" },
+        reason: "dropped by the plan",
       },
     ]);
   });

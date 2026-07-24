@@ -7,17 +7,20 @@
  * print only "Proof FAILED." for that case, hiding the offending table. The
  * formatter must surface every failure category, mirroring the corpus runner.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  assertProofCloneEndpoint,
+  assertProofCloneIdentity,
   cmdProve,
   formatProjectionAudit,
   formatProofFailure,
   formatProofPassCaveat,
   formatProofPassCoverage,
 } from "./prove.ts";
+import { connectionEndpointHash } from "../connection-safety.ts";
 import type { ProofCoverage } from "../../proof/prove.ts";
 import { buildFactBase } from "../../core/fact.ts";
 import { serializeSnapshot } from "../../core/snapshot.ts";
@@ -41,6 +44,158 @@ const baseVerdict = (): ProofVerdict => ({
   dataViolations: [],
   rewriteViolations: [],
   coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+});
+
+describe("assertProofCloneEndpoint", () => {
+  const remote = "postgres://db.example.com/app";
+
+  test("remote clones need an explicit opt-in", () => {
+    expect(() =>
+      assertProofCloneEndpoint(remote, undefined, [], false),
+    ).toThrow(UsageError);
+    expect(() =>
+      assertProofCloneEndpoint(remote, undefined, [], true),
+    ).not.toThrow();
+  });
+
+  test("an exact custom local host is accepted on any port", () => {
+    expect(() =>
+      assertProofCloneEndpoint(
+        "postgres://postgres.orb.local:6543/app",
+        undefined,
+        ["postgres.orb.local"],
+        false,
+      ),
+    ).not.toThrow();
+  });
+
+  test("the plan source endpoint is always rejected as the clone", () => {
+    const source = "postgres://prod.example.com/app";
+    expect(() =>
+      assertProofCloneEndpoint(
+        source,
+        connectionEndpointHash(source),
+        [],
+        true,
+      ),
+    ).toThrow("the clone resolves to the plan's source endpoint");
+  });
+
+  test("observed identity catches a TCP source reused through a Unix socket alias", () => {
+    const tcpSource = "postgres://localhost:5432/app";
+    const socketAlias =
+      "postgres:///app?host=%2Fvar%2Frun%2Fpostgresql&port=5432";
+    expect(connectionEndpointHash(socketAlias)).not.toBe(
+      connectionEndpointHash(tcpSource),
+    );
+    expect(() =>
+      assertProofCloneEndpoint(
+        socketAlias,
+        connectionEndpointHash(tcpSource),
+        [],
+        false,
+      ),
+    ).not.toThrow();
+
+    const sameObservedDatabase = {
+      scheme: "pg-system-identifier-v1" as const,
+      lineageHash: "a".repeat(64),
+      databaseHash: "b".repeat(64),
+    };
+    expect(() =>
+      assertProofCloneIdentity(
+        sameObservedDatabase,
+        sameObservedDatabase,
+        "database",
+        false,
+      ),
+    ).toThrow(/same observed database/i);
+  });
+});
+
+describe("assertProofCloneIdentity", () => {
+  const source = {
+    scheme: "pg-system-identifier-v1" as const,
+    lineageHash: "a".repeat(64),
+    databaseHash: "b".repeat(64),
+  };
+
+  test("legacy and direct-library plans fail closed unless explicitly allowed", () => {
+    const clone = {
+      ...source,
+      lineageHash: "c".repeat(64),
+      databaseHash: "d".repeat(64),
+    };
+    let missingSource: unknown;
+    try {
+      assertProofCloneIdentity(undefined, clone, undefined, false);
+    } catch (error) {
+      missingSource = error;
+    }
+    expect(missingSource).toBeInstanceOf(UsageError);
+    expect((missingSource as Error).message).toContain(
+      "--allow-unverified-source-identity",
+    );
+    expect((missingSource as Error).message).toMatch(
+      /server where .*pg_control_system\(\).*(?:exists|available)/i,
+    );
+    expect((missingSource as Error).message).toMatch(/role.*access/i);
+    expect(assertProofCloneIdentity(undefined, clone, undefined, true)).toBe(
+      "unverified",
+    );
+    expect(() =>
+      assertProofCloneIdentity(source, undefined, undefined, false),
+    ).toThrow(/could not observe/i);
+    expect(assertProofCloneIdentity(source, undefined, undefined, true)).toBe(
+      "unverified",
+    );
+  });
+
+  test("clone identity failures preserve permission-denied versus unsupported guidance", () => {
+    let denied: unknown;
+    let unsupported: unknown;
+    try {
+      assertProofCloneIdentity(source, undefined, undefined, false, "42501");
+    } catch (error) {
+      denied = error;
+    }
+    try {
+      assertProofCloneIdentity(source, undefined, undefined, false, "42883");
+    } catch (error) {
+      unsupported = error;
+    }
+
+    expect(denied).toBeInstanceOf(UsageError);
+    expect((denied as Error).message).toMatch(/GRANT EXECUTE/i);
+    expect((denied as Error).message).toContain(
+      "--allow-unverified-source-identity",
+    );
+    expect(unsupported).toBeInstanceOf(UsageError);
+    expect((unsupported as Error).message).toMatch(/unavailable|unsupported/i);
+    expect((unsupported as Error).message).toContain(
+      "--allow-unverified-source-identity",
+    );
+    expect((unsupported as Error).message).not.toMatch(/grant/i);
+  });
+
+  test("a confirmed source database match cannot be overridden", () => {
+    expect(() =>
+      assertProofCloneIdentity(source, source, "database", true),
+    ).toThrow(/same observed database/i);
+  });
+
+  test("same-lineage siblings are scope-aware", () => {
+    const sibling = { ...source, databaseHash: "c".repeat(64) };
+    expect(() =>
+      assertProofCloneIdentity(source, sibling, undefined, true),
+    ).toThrow(/same PostgreSQL lineage/i);
+    expect(() =>
+      assertProofCloneIdentity(source, sibling, "cluster", true),
+    ).toThrow(/same PostgreSQL lineage/i);
+    expect(assertProofCloneIdentity(source, sibling, "database", false)).toBe(
+      "verified",
+    );
+  });
 });
 
 describe("formatProjectionAudit", () => {
@@ -542,6 +697,27 @@ describe("formatProofFailure (review P2)", () => {
     );
   });
 
+  test("renders an intrinsically destructive subobject metadata failure", () => {
+    const verdict: ProofVerdict = {
+      ...baseVerdict(),
+      safetyMetadataViolations: [
+        {
+          actionIndex: 2,
+          object: {
+            kind: "column",
+            schema: "app",
+            table: "accounts",
+            name: "secret",
+          },
+        },
+      ],
+    };
+
+    expect(formatProofFailure(verdict)).toContain(
+      "action[2] destroys column:app.accounts.secret but declares dataLoss:none",
+    );
+  });
+
   test("renders a rewrite-only failure with the offending table", () => {
     const verdict: ProofVerdict = {
       ...baseVerdict(),
@@ -705,8 +881,8 @@ describe("cmdProve — desired-snapshot profile reconciliation", () => {
         safetyReport: { level: "safe", findings: [] },
         redactSecrets: true,
         profile: { id: planProfileId },
-        source: { fingerprint: "aaa" },
-        target: { fingerprint: "bbb" },
+        source: { fingerprint: "a".repeat(64) },
+        target: { fingerprint: "b".repeat(64) },
         ...(projectionAudit === undefined ? {} : { projectionAudit }),
       }),
       "utf8",
@@ -731,33 +907,93 @@ describe("cmdProve — desired-snapshot profile reconciliation", () => {
     // would compare a different managed view; reject up front (UsageError), so
     // the clone URL is never even opened.
     const { planPath, snapPath } = writeArtifacts("raw", "supabase");
-    const originalStderrWrite = process.stderr.write.bind(process.stderr);
-    let stderr = "";
-    process.stderr.write = ((chunk: string | Uint8Array) => {
-      stderr +=
-        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
-      return true;
-    }) as typeof process.stderr.write;
     let error: unknown;
+    const stderr: string[] = [];
+    const write = spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
     try {
       await cmdProve([
         "--plan",
         planPath,
         "--clone",
         "postgres://invalid.invalid:1/none",
+        "--allow-remote-clone",
         "--desired-snapshot",
         snapPath,
       ]);
     } catch (e) {
       error = e;
     } finally {
-      process.stderr.write = originalStderrWrite;
+      write.mockRestore();
     }
     // fails closed with a UsageError, NOT a connection error — the guard runs
     // before makePool opens the clone.
     expect(error).toBeInstanceOf(UsageError);
-    expect(stderr).toContain(
+    expect(stderr.join("")).not.toContain("WARNING");
+  });
+
+  test("a legacy plan refuses proof before connecting by default", async () => {
+    const { planPath, snapPath } = writeArtifacts("raw", "raw");
+    let error: unknown;
+    const stderr: string[] = [];
+    const write = spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+    try {
+      await cmdProve([
+        "--plan",
+        planPath,
+        "--clone",
+        "postgres://localhost:1/none",
+        "--desired-snapshot",
+        snapPath,
+      ]);
+    } catch (e) {
+      error = e;
+    } finally {
+      write.mockRestore();
+    }
+    expect(error).toBeInstanceOf(UsageError);
+    expect((error as Error).message).toContain(
+      "--allow-unverified-source-identity",
+    );
+    expect(stderr.join("")).toContain(
       "Projection audit: unavailable for this legacy plan; re-plan.",
+    );
+  });
+
+  test("the explicit legacy override warns before attempting the connection", async () => {
+    const { planPath, snapPath } = writeArtifacts("raw", "raw");
+    let error: unknown;
+    const stderr: string[] = [];
+    const write = spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+    try {
+      await cmdProve([
+        "--plan",
+        planPath,
+        "--clone",
+        "postgres://localhost:1/none",
+        "--desired-snapshot",
+        snapPath,
+        "--allow-unverified-source-identity",
+      ]);
+    } catch (e) {
+      error = e;
+    } finally {
+      write.mockRestore();
+    }
+    expect(error).toBeDefined();
+    expect(stderr.join("")).toContain(
+      "WARNING: prove may mutate the --clone database",
+    );
+    expect(stderr.join("")).toContain(
+      "source database identity could not be verified",
     );
   });
 
@@ -770,6 +1006,7 @@ describe("cmdProve — desired-snapshot profile reconciliation", () => {
         planPath,
         "--clone",
         "postgres://invalid.invalid:1/none",
+        "--allow-remote-clone",
         "--desired-snapshot",
         snapPath,
         "--strict-audit",
@@ -815,20 +1052,19 @@ describe("cmdProve — desired-snapshot profile reconciliation", () => {
         baseline: 0,
       },
     });
-    const originalStderrWrite = process.stderr.write.bind(process.stderr);
-    let stderr = "";
-    process.stderr.write = ((chunk: string | Uint8Array) => {
-      stderr +=
-        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
-      return true;
-    }) as typeof process.stderr.write;
     let error: unknown;
+    const stderr: string[] = [];
+    const write = spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
     try {
       await cmdProve([
         "--plan",
         planPath,
         "--clone",
         "postgres://invalid.invalid:1/none",
+        "--allow-remote-clone",
         "--desired-snapshot",
         snapPath,
         "--audit-all",
@@ -836,16 +1072,16 @@ describe("cmdProve — desired-snapshot profile reconciliation", () => {
     } catch (e) {
       error = e;
     } finally {
-      process.stderr.write = originalStderrWrite;
+      write.mockRestore();
     }
     expect(error).toBeInstanceOf(UsageError);
     expect((error as Error).message).not.toContain("Unknown flag");
     expect((error as Error).message).toContain("desired snapshot was captured");
-    expect(stderr.match(/^  add /gm)).toHaveLength(51);
-    expect(stderr).not.toContain("Showing 50 of 51 entries");
+    expect(stderr.join("").match(/^  add /gm)).toHaveLength(51);
+    expect(stderr.join("")).not.toContain("Showing 50 of 51 entries");
   });
 
-  test("command usage lists both projection-audit flags", async () => {
+  test("command usage lists all proof safety and projection-audit flags", async () => {
     let error: unknown;
     try {
       await cmdProve(["--unknown"]);
@@ -854,7 +1090,7 @@ describe("cmdProve — desired-snapshot profile reconciliation", () => {
     }
     expect(error).toBeInstanceOf(UsageError);
     expect((error as Error).message).toContain(
-      "[--strict-audit] [--audit-all]",
+      "[--allow-unverified-source-identity] [--strict-audit] [--audit-all]",
     );
   });
 });

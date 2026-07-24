@@ -123,6 +123,83 @@ describe("plan artifact v1", () => {
     ).toBeUndefined();
   });
 
+  test("round-trips an opaque PostgreSQL source-lineage stamp", () => {
+    const stamped: Plan = {
+      ...samplePlan,
+      source: {
+        ...samplePlan.source,
+        endpointHash: "c".repeat(64),
+        identity: {
+          scheme: "pg-system-identifier-v1",
+          lineageHash: "d".repeat(64),
+          databaseHash: "e".repeat(64),
+        },
+      },
+    };
+
+    expect(parsePlan(serializePlan(stamped)).source).toEqual(stamped.source);
+  });
+
+  test("rejects malformed source fingerprints, endpoint hashes, and identity stamps", () => {
+    const cases: Array<
+      [path: string, mutate: (value: Record<string, unknown>) => void]
+    > = [
+      ["source.fingerprint", (value) => (value["fingerprint"] = "short")],
+      [
+        "target.fingerprint",
+        (value) => (value["fingerprint"] = "z".repeat(64)),
+      ],
+      [
+        "source.endpointHash",
+        (value) => (value["endpointHash"] = "g".repeat(64)),
+      ],
+      [
+        "source.identity.scheme",
+        (value) =>
+          ((value["identity"] as Record<string, unknown>)["scheme"] = "v2"),
+      ],
+      [
+        "source.identity.lineageHash",
+        (value) =>
+          ((value["identity"] as Record<string, unknown>)["lineageHash"] = ""),
+      ],
+      [
+        "source.identity.databaseHash",
+        (value) =>
+          delete (value["identity"] as Record<string, unknown>)["databaseHash"],
+      ],
+      [
+        "source.identity.extra",
+        (value) =>
+          ((value["identity"] as Record<string, unknown>)["extra"] = true),
+      ],
+    ];
+
+    for (const [path, mutate] of cases) {
+      const artifact = JSON.parse(
+        serializePlan({
+          ...samplePlan,
+          source: {
+            ...samplePlan.source,
+            endpointHash: "c".repeat(64),
+            identity: {
+              scheme: "pg-system-identifier-v1",
+              lineageHash: "d".repeat(64),
+              databaseHash: "e".repeat(64),
+            },
+          },
+        } as Plan),
+      ) as Record<string, unknown>;
+      const target = path.startsWith("target.")
+        ? (artifact["target"] as Record<string, unknown>)
+        : (artifact["source"] as Record<string, unknown>);
+      mutate(target);
+      expect(() => parsePlan(JSON.stringify(artifact)), path).toThrow(
+        new RegExp(path.replace(".", "\\.")),
+      );
+    }
+  });
+
   test("rejects null and malformed projection audits", () => {
     for (const projectionAudit of [
       null,
@@ -598,5 +675,72 @@ describe("plan artifact v1", () => {
     expect(() =>
       parsePlan(`{"formatVersion": 1, "engineVersion": "${ENGINE_VERSION}"}`),
     ).toThrow(/missing actions/);
+  });
+
+  test("rejects missing or unknown action data-loss metadata", () => {
+    const missing = JSON.parse(serializePlan(samplePlan)) as Record<
+      string,
+      unknown
+    >;
+    delete (missing["actions"] as Array<Record<string, unknown>>)[0]![
+      "dataLoss"
+    ];
+    expect(() => parsePlan(JSON.stringify(missing))).toThrow(
+      /actions\[0\]\.dataLoss/,
+    );
+
+    const unknown = JSON.parse(serializePlan(samplePlan)) as Record<
+      string,
+      unknown
+    >;
+    (unknown["actions"] as Array<Record<string, unknown>>)[0]!["dataLoss"] =
+      "unknown";
+    expect(() => parsePlan(JSON.stringify(unknown))).toThrow(
+      /actions\[0\]\.dataLoss/,
+    );
+  });
+
+  test("strictly validates every required action field and enum", () => {
+    const invalid: Array<[field: string, value: unknown]> = [
+      ["sql", 1],
+      ["verb", "truncate"],
+      ["produces", null],
+      ["consumes", {}],
+      ["destroys", "table:app.t"],
+      ["releases", 1],
+      ["transactionality", "sometimes"],
+      ["lockClass", "rowExclusive"],
+      ["newSegmentBefore", "false"],
+      ["rewriteRisk", 0],
+    ];
+    for (const [field, value] of invalid) {
+      const artifact = JSON.parse(serializePlan(samplePlan)) as Record<
+        string,
+        unknown
+      >;
+      (artifact["actions"] as Array<Record<string, unknown>>)[0]![field] =
+        value;
+      expect(() => parsePlan(JSON.stringify(artifact)), field).toThrow(
+        new RegExp(`actions\\[0\\]\\.${field}`),
+      );
+    }
+  });
+
+  test("strictly validates stable IDs in action metadata", () => {
+    for (const badId of [
+      { kind: "unknown", name: "t" },
+      { kind: "table", name: "t" },
+      { kind: "function", schema: "app", name: "f", args: "integer" },
+    ]) {
+      const artifact = JSON.parse(serializePlan(samplePlan)) as Record<
+        string,
+        unknown
+      >;
+      (artifact["actions"] as Array<Record<string, unknown>>)[0]!["destroys"] =
+        [badId];
+      expect(() => parsePlan(JSON.stringify(artifact))).toThrow(
+        /actions\[0\]\.destroys\[0\]/,
+      );
+    }
   });
 });

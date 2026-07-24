@@ -17,6 +17,10 @@ import type { StableId } from "../core/stable-id.ts";
 import { extract } from "../extract/extract.ts";
 import type { Action, Plan, ProjectionAudit } from "../plan/plan.ts";
 import { projectTarget } from "../plan/project.ts";
+import {
+  deriveAcceptedRenameMappings,
+  findDestructionMetadataViolations,
+} from "../plan/safety.ts";
 import type { Policy } from "../policy/policy.ts";
 import {
   normalizeProjectionAudit,
@@ -65,6 +69,8 @@ export interface DataViolation {
   /** autoSeed changed the table's schema before the plan ran, so row content
    *  cannot be compared safely (including a table that started empty) */
   schemaChanged?: boolean;
+  /** the relation vanished without action metadata declaring its destruction */
+  missingAfter?: boolean;
 }
 
 export interface SeedStateViolation {
@@ -88,6 +94,21 @@ export interface ProofVerdict {
    * audit was not requested or its requirements passed. */
   strictAuditFailure?: "unavailable" | "suspicious";
   applyError?: ApplyError;
+  /** Clone state did not match the state the plan was produced from. The proof
+   *  refuses before auto-seeding or applying any action. */
+  sourceStateViolation?: {
+    expectedFingerprint: string;
+    actualFingerprint: string;
+  };
+  /** The supplied desired snapshot is not the target stamped on the plan. The
+   *  proof refuses before opening the mutation phase. */
+  desiredStateViolation?: {
+    expectedFingerprint: string;
+    actualFingerprint: string;
+  };
+  /** A table-destroying action claimed dataLoss:none. This is a rule/artifact
+   *  safety contradiction, so proof refuses rather than skipping that table. */
+  safetyMetadataViolations?: UndeclaredDataDestruction[];
   driftDeltas: Delta[];
   /** a kept table whose data changed: row count differs, OR (on a table the
    *  plan did NOT touch) content changed though the count held — drop+recreate
@@ -177,6 +198,20 @@ export interface ProveOptions {
   baseline?: FactBase;
 }
 
+export interface UndeclaredTableDestruction {
+  actionIndex: number;
+  table: TableRef;
+}
+
+export interface UndeclaredObjectDestruction {
+  actionIndex: number;
+  object: StableId;
+}
+
+export type UndeclaredDataDestruction =
+  | UndeclaredTableDestruction
+  | UndeclaredObjectDestruction;
+
 interface TableStat {
   rows: number;
   relfilenode: string;
@@ -187,6 +222,8 @@ interface TableStat {
   /** deterministic content fingerprint, present only for non-empty tables
    *  (md5 over order-independent row text). Undefined ⇒ empty ⇒ not checked. */
   content?: string;
+  /** false for materialized views, which cannot accept synthetic rows */
+  seedable?: boolean;
 }
 
 const qte = (s: string): string => `"${s.replaceAll('"', '""')}"`;
@@ -198,9 +235,12 @@ async function tableStats(pool: Pool): Promise<Map<string, TableStat>> {
     name: string;
     relfilenode: string;
     schemasig: string | null;
+    relkind: string;
+    relispopulated: boolean;
   }>(`
     SELECT n.nspname AS schema, c.relname AS name,
            c.relfilenode::text AS relfilenode,
+           c.relkind, c.relispopulated,
            (SELECT string_agg(
                      -- atttypmod captures precision/scale/length (numeric(p,s),
                      -- varchar(n)): a typmod change rewrites stored text
@@ -230,7 +270,7 @@ async function tableStats(pool: Pool): Promise<Map<string, TableStat>> {
              WHERE a.attrelid = c.oid AND a.attnum > 0
                AND NOT a.attisdropped) AS schemasig
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE c.relkind = 'r'
+    WHERE c.relkind IN ('r', 'm')
       AND n.nspname NOT IN ('pg_catalog', 'information_schema')
       AND n.nspname NOT LIKE 'pg\\_%'
     ORDER BY 1, 2`);
@@ -238,9 +278,10 @@ async function tableStats(pool: Pool): Promise<Map<string, TableStat>> {
   if (rels.rows.length === 0) return stats;
   // a single wide SELECT of all counts avoids the per-table N+1
   const counts = rels.rows
-    .map(
-      (r, i) =>
-        `(SELECT count(*) FROM ${qte(r.schema)}.${qte(r.name)}) AS c${i}`,
+    .map((r, i) =>
+      r.relkind === "m" && !r.relispopulated
+        ? `0::bigint AS c${i}`
+        : `(SELECT count(*) FROM ${qte(r.schema)}.${qte(r.name)}) AS c${i}`,
     )
     .join(", ");
   const countRow = (await pool.query(`SELECT ${counts}`)).rows[0] as Record<
@@ -252,6 +293,7 @@ async function tableStats(pool: Pool): Promise<Map<string, TableStat>> {
       rows: Number(countRow[`c${i}`]),
       relfilenode: r.relfilenode,
       schemaSig: r.schemasig ?? "",
+      seedable: r.relkind === "r",
     });
   });
 
@@ -487,6 +529,7 @@ export function detectViolations(
   after: Map<string, TableStat>,
   ctx: {
     recreatedTables: Set<string>;
+    explicitlyDestroyedRelations: Set<string>;
     declaredRewriteTables: Set<string>;
     /** oldRelKey → newRelKey for accepted table renames. The data lives under
      *  the NEW key in `after`, so a renamed table is compared before(old) vs
@@ -517,7 +560,16 @@ export function detectViolations(
     const ref: TableRef = { schema, name };
     const afterStat = after.get(afterKey);
     if (afterStat === undefined) {
-      tablesSkipped.push({ table: ref, reason: "dropped by the plan" });
+      if (ctx.explicitlyDestroyedRelations.has(table)) {
+        tablesSkipped.push({ table: ref, reason: "dropped by the plan" });
+      } else {
+        dataViolations.push({
+          table: ref,
+          before: beforeStat.rows,
+          after: 0,
+          missingAfter: true,
+        });
+      }
       continue;
     }
     if (ctx.recreatedTables.has(table)) {
@@ -609,6 +661,7 @@ export async function provePlan(
   // tables the plan tears down (drop or replace) are NOT "kept"; relfilenode
   // and row-count changes on them are expected, not violations
   const recreatedTables = new Set<string>();
+  const explicitlyDestroyedRelations = new Set<string>();
   const declaredRewriteTables = new Set<string>();
   for (const action of thePlan.actions) {
     for (const id of action.destroys) {
@@ -616,8 +669,10 @@ export async function provePlan(
       if (
         rel !== undefined &&
         (id.kind === "table" || id.kind === "materializedView")
-      )
+      ) {
         recreatedTables.add(rel);
+        explicitlyDestroyedRelations.add(rel);
+      }
     }
     if (action.rewriteRisk) {
       for (const rel of tablesReferencedBy(action))
@@ -631,7 +686,10 @@ export async function provePlan(
   // old key as recreated, so the renamed table is compared before(old) vs
   // after(new) instead of being silently skipped (F7).
   const renamedTables = new Map<string, string>();
-  for (const r of thePlan.acceptedRenames ?? []) {
+  for (const r of deriveAcceptedRenameMappings(
+    thePlan.actions,
+    thePlan.acceptedRenames,
+  )) {
     if (
       (r.from.kind === "table" || r.from.kind === "materializedView") &&
       (r.to.kind === "table" || r.to.kind === "materializedView")
@@ -641,7 +699,10 @@ export async function provePlan(
       if (from !== undefined && to !== undefined) renamedTables.set(from, to);
     }
   }
-  for (const from of renamedTables.keys()) recreatedTables.delete(from);
+  for (const from of renamedTables.keys()) {
+    recreatedTables.delete(from);
+    explicitlyDestroyedRelations.delete(from);
+  }
 
   // Reconstruct the exact managed view the plan fingerprinted. The same helper
   // serves both the post-autoSeed pre-apply guard and the final convergence
@@ -669,6 +730,74 @@ export async function provePlan(
   const managedView = (factBase: FactBase): FactBase =>
     reconstructManagedView(factBase, viewOpts);
 
+  // Validate every immutable input before table scans, auto-seeding, or DDL.
+  // A stale/wrong desired snapshot used to be discovered only after the clone
+  // had already been mutated; a stale clone bypassed apply's normal gate
+  // entirely because provePlan called apply({ fingerprintGate:false }).
+  const safetyMetadataViolations = findDestructionMetadataViolations(
+    thePlan.actions,
+    thePlan.acceptedRenames,
+  ).map(({ actionIndex, relation }): UndeclaredDataDestruction => {
+    if (relation.kind === "table" || relation.kind === "materializedView") {
+      return {
+        actionIndex,
+        table: { schema: relation.schema, name: relation.name },
+      };
+    }
+    return { actionIndex, object: relation };
+  });
+  if (safetyMetadataViolations.length > 0) {
+    return {
+      ok: false,
+      projectionAuditStatus,
+      projectionAudit,
+      ...strictAuditFields,
+      safetyMetadataViolations,
+      driftDeltas: [],
+      dataViolations: [],
+      rewriteViolations: [],
+      coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+    };
+  }
+
+  // The plan target is the managed, projected desired view. Reconstruct it
+  // exactly as the final convergence comparison does, but before mutation.
+  const target = managedView(projectTarget(desired, thePlan.filteredDeltas));
+  if (target.rootHash !== thePlan.target.fingerprint) {
+    return {
+      ok: false,
+      projectionAuditStatus,
+      projectionAudit,
+      ...strictAuditFields,
+      desiredStateViolation: {
+        expectedFingerprint: thePlan.target.fingerprint,
+        actualFingerprint: target.rootHash,
+      },
+      driftDeltas: [],
+      dataViolations: [],
+      rewriteViolations: [],
+      coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+    };
+  }
+
+  const initialClone = managedView((await reextractClone()).factBase);
+  if (initialClone.rootHash !== thePlan.source.fingerprint) {
+    return {
+      ok: false,
+      projectionAuditStatus,
+      projectionAudit,
+      ...strictAuditFields,
+      sourceStateViolation: {
+        expectedFingerprint: thePlan.source.fingerprint,
+        actualFingerprint: initialClone.rootHash,
+      },
+      driftDeltas: [],
+      dataViolations: [],
+      rewriteViolations: [],
+      coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+    };
+  }
+
   // populated only when autoSeed ran, so it stays out of the verdict entirely
   // on the default opt-out path (present ⇒ autoSeed was requested).
   let seedOutcomes: SeedOutcome[] | undefined;
@@ -676,7 +805,10 @@ export async function provePlan(
   if (options.autoSeed) {
     preSeedStats = await tableStats(clonePool);
     const empty = [...preSeedStats]
-      .filter(([t, s]) => s.rows === 0 && !recreatedTables.has(t))
+      .filter(
+        ([t, s]) =>
+          s.rows === 0 && s.seedable !== false && !recreatedTables.has(t),
+      )
       .map(([t]) => t);
     seedOutcomes = await autoSeedEmptyTables(clonePool, empty);
   }
@@ -782,14 +914,18 @@ export async function provePlan(
   const provenFb = managedView(proven.factBase);
   // target the PROJECTED desired: the plan only applies kept deltas, so it
   // converges to `desired` minus the policy-filtered changes (review #2).
-  const target = managedView(projectTarget(desired, thePlan.filteredDeltas));
   const driftDeltas = diff(provenFb, target);
   const after = await tableStats(clonePool);
 
   const { dataViolations, rewriteViolations, coverage } = detectViolations(
     before,
     after,
-    { recreatedTables, declaredRewriteTables, renamedTables },
+    {
+      recreatedTables,
+      explicitlyDestroyedRelations,
+      declaredRewriteTables,
+      renamedTables,
+    },
   );
 
   return {

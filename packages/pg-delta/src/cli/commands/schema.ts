@@ -19,7 +19,7 @@
  *     the formatter (frontends/sql-format), e.g. '{"keywordCase":"upper","maxWidth":180}'.
  *     Off by default (raw renderer output). Cosmetic — load(export) ≡ db still holds.
  *
- * schema apply --dir <dir> --shadow <pg-url> --target <pg-url>
+ * schema apply --dir <dir> [--shadow <pg-url>] --target <pg-url>
  *              [--renames auto|prompt|off] [--force]
  *              [--accept-rename <from>=<to>] (repeatable) [--no-reorder]
  *              [--dry-run] [--verbose] [--out-plan <plan.json>]
@@ -76,6 +76,7 @@
  *     path right after planning, before apply (or the --dry-run script). Useful
  *     for inspecting/archiving the exact plan a `schema apply` run executed.
  */
+import type { Pool } from "pg";
 import {
   mkdirSync,
   readdirSync,
@@ -125,6 +126,35 @@ import {
 import { CliExit, parseFlags, UsageError } from "../flags.ts";
 import { effectiveProfileId, PROFILE_IDS, profileById } from "../profile.ts";
 import type { RenameMode } from "../../plan/renames.ts";
+import { assertDataLossAllowed } from "../data-loss-safety.ts";
+import {
+  connectionEndpointHash,
+  isSameDatabase,
+  isSamePostgresLineage,
+  isTrustedLocalConnection,
+  observeDatabaseIdentityForMutation,
+  type ObservedDatabaseIdentity,
+} from "../connection-safety.ts";
+
+export async function observeExplicitShadowIdentities(
+  targetPool: Pool,
+  shadowPool: Pool,
+): Promise<{
+  targetIdentity: ObservedDatabaseIdentity;
+  shadowIdentity: ObservedDatabaseIdentity;
+}> {
+  // Probe sequentially so a failure always names one connection and two denied
+  // roles cannot race to produce a nondeterministic remediation message.
+  const targetIdentity = await observeDatabaseIdentityForMutation(
+    targetPool,
+    "schema apply target safety",
+  );
+  const shadowIdentity = await observeDatabaseIdentityForMutation(
+    shadowPool,
+    "schema apply shadow safety",
+  );
+  return { targetIdentity, shadowIdentity };
+}
 
 /** Recursively collect *.sql files in lexicographic order. Exported for tests. */
 export function collectSqlFiles(dir: string): SqlFile[] {
@@ -524,13 +554,17 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       "dry-run": { type: "boolean" },
       verbose: { type: "boolean" },
       "out-plan": { type: "value" },
+      "allow-data-loss": { type: "boolean" },
+      "trusted-local-host": { type: "multi" },
+      "allow-remote-shadow": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       throw new UsageError(
         `${err.message}\nUsage: pgdelta schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
-          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow]\n` +
+          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow] [--allow-data-loss] ` +
+          `[--trusted-local-host <hostname>]... [--allow-remote-shadow]\n` +
           `  [--dry-run] (print the portable apply script to stdout; apply nothing; see pgdelta --help for execution requirements) [--verbose] (stream per-statement progress to stderr) [--out-plan <plan.json>] (write the plan artifact)\n` +
           `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.`,
       );
@@ -587,6 +621,11 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   if (scope === "cluster" && !flags["isolated-shadow"]) {
     throw new UsageError(
       `--scope cluster manages cluster-global roles and must run against a dedicated shadow cluster; pass --isolated-shadow.`,
+    );
+  }
+  if (flags["isolated-shadow"] && shadowFlag === undefined) {
+    throw new UsageError(
+      `--isolated-shadow requires an explicit --shadow; omit --isolated-shadow to use the co-located database-scope shadow.`,
     );
   }
 
@@ -665,6 +704,30 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   let coLocated: CoLocatedShadow | undefined;
   let shadowUrl: string;
   if (shadowFlag !== undefined) {
+    let shadowIsLocal: boolean;
+    try {
+      if (
+        connectionEndpointHash(shadowFlag) === connectionEndpointHash(targetUrl)
+      ) {
+        throw new UsageError(
+          "schema apply: --shadow resolves to the target endpoint; refusing to load declarative SQL into the target database",
+        );
+      }
+      shadowIsLocal = isTrustedLocalConnection(
+        shadowFlag,
+        flags["trusted-local-host"],
+      );
+    } catch (error) {
+      if (error instanceof UsageError) throw error;
+      throw new UsageError(
+        `schema apply: invalid shadow endpoint safety option — ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!shadowIsLocal && !flags["allow-remote-shadow"]) {
+      throw new UsageError(
+        "schema apply: an explicit --shadow must use localhost, a loopback address, a Unix socket, or an exact --trusted-local-host; pass --allow-remote-shadow only for an intentional remote shadow",
+      );
+    }
     shadowUrl = shadowFlag;
   } else {
     if (scope === "cluster") {
@@ -709,6 +772,31 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     }
   };
   try {
+    if (shadowFlag !== undefined) {
+      const { targetIdentity, shadowIdentity } =
+        await observeExplicitShadowIdentities(tgt.pool, shadow.pool);
+      if (isSameDatabase(targetIdentity, shadowIdentity)) {
+        throw new UsageError(
+          `schema apply: shadow and target are the same observed database (${targetIdentity.database}); refusing to load declarative SQL`,
+        );
+      }
+      if (
+        scope === "cluster" &&
+        isSamePostgresLineage(targetIdentity, shadowIdentity)
+      ) {
+        throw new UsageError(
+          "schema apply: --scope cluster requires a shadow from a different PostgreSQL lineage; the supplied shadow shares the target lineage",
+        );
+      }
+      if (
+        flags["isolated-shadow"] &&
+        isSamePostgresLineage(targetIdentity, shadowIdentity)
+      ) {
+        throw new UsageError(
+          "schema apply: an isolated shadow (--isolated-shadow) requires a different PostgreSQL lineage; the supplied shadow shares the target lineage",
+        );
+      }
+    }
     const redactSecrets =
       manifest?.redactSecrets ?? !flags["unsafe-show-secrets"];
     const profile = profileById(profileId);
@@ -846,6 +934,17 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         );
       }
       return;
+    }
+
+    const destructive = assertDataLossAllowed(
+      thePlan.actions,
+      flags["allow-data-loss"],
+      "schema apply",
+    );
+    if (destructive.length > 0) {
+      process.stderr.write(
+        "WARNING: --allow-data-loss permits actions that can permanently destroy data.\n",
+      );
     }
 
     // A real verbose apply writes every action SQL to stderr. Warn after the

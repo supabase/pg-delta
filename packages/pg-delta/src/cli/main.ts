@@ -26,7 +26,7 @@
  *   drift          --env <pg-url> --snapshot <file>
  *   snapshot       --source <pg-url> --out <file>
  *   schema export  --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
- *   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
+ *   schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>
  *                  [--renames auto|prompt|off] [--force]
  *                  [--accept-rename <from>=<to>] ... [--no-reorder]
  *                  [--dry-run] [--verbose] [--out-plan <plan.json>]
@@ -64,9 +64,12 @@ Commands:
   plan           --source <pg-url> --desired <pg-url>
                  [--renames auto|prompt|off] [--no-compact] [--out <plan.json>]
                  [--accept-rename <from>=<to>] ...
-  apply          --plan <plan.json> --target <pg-url> [--force]
+  apply          --plan <plan.json> --target <pg-url> [--force] [--allow-data-loss]
   render         --plan <plan.json> --out <base>.sql [--allow-drops]
-  prove          --plan <plan.json> --clone <pg-url> --desired-snapshot <file> [--strict-audit] [--audit-all]
+  prove          --plan <plan.json> --clone <pg-url> --desired-snapshot <file>
+                 [--strict-audit] [--audit-all]
+                 [--trusted-local-host <hostname>]... [--allow-remote-clone]
+                 [--allow-unverified-source-identity]
   diff           --source <pg-url> --desired <pg-url>
   drift          --env <pg-url> --snapshot <file>
   snapshot       --source <pg-url> --out <file>
@@ -74,8 +77,10 @@ Commands:
                  [--format-options <json>]   (pretty-print SQL; any layout)
                  grouped adds: [--grouping-mode single-file|subdirectory]
                  [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
-  schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
-                 [--renames auto|prompt|off] [--force]
+  schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>
+                 [--renames auto|prompt|off] [--force] [--allow-data-loss]
+                 [--scope database|cluster] [--isolated-shadow]
+                 [--trusted-local-host <hostname>]... [--allow-remote-shadow]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
                  [--dry-run] [--verbose] [--out-plan <plan.json>]
   schema lint    --dir <dir>
@@ -115,6 +120,19 @@ Notes:
     goes to stderr only.
   --renames defaults to "prompt" for the CLI (library default is "off").
   --accept-rename: confirm a rename from a prior prompt run; repeatable.
+  Safety: prove accepts local clone endpoints by default. Add an exact custom
+    hostname with --trusted-local-host, or explicitly opt into a disposable
+    remote clone with --allow-remote-clone. CLI plans stamp an opaque PostgreSQL
+    lineage/database identity; prove rejects the original database and, for
+    cluster-scoped plans, its lineage. Physical/base-backup clones are unsupported.
+    Legacy/direct-library plans need --allow-unverified-source-identity; that flag
+    never overrides a confirmed identity match. Explicit schema shadows follow
+    the same endpoint and identity rules via --allow-remote-shadow. Clone and
+    explicit-shadow URLs must stay pinned to one database and physical lineage;
+    multi-cluster transaction/load-balancing endpoints are unsupported.
+    apply/schema apply refuse actions marked
+    dataLoss:"destructive" unless --allow-data-loss is supplied; --force only
+    skips the source fingerprint gate and never implies data-loss approval.
   --no-reorder (schema apply): skip the statement-reordering assist and load
     raw files at file granularity. Reorder is on by default — it splits files
     into one-statement units and topologically pre-sorts them so authoring
@@ -173,8 +191,10 @@ Subcommands:
                  [--format-options <json>]   (pretty-print SQL; any layout)
                  grouped adds: [--grouping-mode single-file|subdirectory]
                  [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
-  schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
-                 [--renames auto|prompt|off] [--force]
+  schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>
+                 [--renames auto|prompt|off] [--force] [--allow-data-loss]
+                 [--scope database|cluster] [--isolated-shadow]
+                 [--trusted-local-host <hostname>]... [--allow-remote-shadow]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
                  [--dry-run] [--verbose] [--out-plan <plan.json>]
   schema lint    --dir <dir>

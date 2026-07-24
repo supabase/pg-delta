@@ -16,6 +16,7 @@ import {
   reconcileBaselineDigest,
   resolveCliProfile,
 } from "../profile.ts";
+import { assertDataLossAllowed } from "../data-loss-safety.ts";
 
 export async function cmdApply(args: string[]): Promise<void> {
   let parsed;
@@ -25,11 +26,12 @@ export async function cmdApply(args: string[]): Promise<void> {
       target: { type: "value", required: true },
       profile: { type: "value" },
       force: { type: "boolean" },
+      "allow-data-loss": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       throw new UsageError(
-        `${err.message}\nUsage: pgdelta apply --plan <plan.json> --target <pg-url> [--profile ${PROFILE_IDS}] [--force]`,
+        `${err.message}\nUsage: pgdelta apply --plan <plan.json> --target <pg-url> [--profile ${PROFILE_IDS}] [--force] [--allow-data-loss]`,
       );
     }
     throw err;
@@ -42,6 +44,11 @@ export async function cmdApply(args: string[]): Promise<void> {
 
   const json = readFileSync(planPath, "utf8");
   const thePlan = parsePlan(json);
+  const destructive = assertDataLossAllowed(
+    thePlan.actions,
+    flags["allow-data-loss"],
+    "apply",
+  );
 
   // The profile MUST match the one used to plan: it supplies the handler-aware
   // re-extractor + baseline the fingerprint gate needs to reconstruct the same
@@ -61,6 +68,11 @@ export async function cmdApply(args: string[]): Promise<void> {
     if (force) {
       process.stderr.write(
         "WARNING: --force disables the fingerprint gate. Applying without state verification.\n",
+      );
+    }
+    if (destructive.length > 0) {
+      process.stderr.write(
+        "WARNING: --allow-data-loss permits actions that can permanently destroy data.\n",
       );
     }
     // Reconstruct the fingerprint with the SAME redaction mode the plan used

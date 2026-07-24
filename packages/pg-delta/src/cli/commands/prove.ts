@@ -6,6 +6,7 @@
  */
 import { readFileSync } from "node:fs";
 import { parsePlan } from "../../plan/artifact.ts";
+import type { SourceDatabaseIdentity } from "../../plan/plan.ts";
 import { rel } from "../../plan/render.ts";
 import {
   provePlan,
@@ -22,6 +23,14 @@ import { canonicalize, type PayloadValue } from "../../core/hash.ts";
 import { encodeId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
+import {
+  connectionEndpointHash,
+  databaseIdentityObservationUnavailableCode,
+  databaseIdentityStamp,
+  isTrustedLocalConnection,
+  observeDatabaseIdentity,
+  type DatabaseIdentityObservationUnavailableCode,
+} from "../connection-safety.ts";
 import { CliExit, parseFlags, UsageError } from "../flags.ts";
 import {
   effectiveProfileId,
@@ -42,6 +51,32 @@ import {
  */
 export function formatProofFailure(verdict: ProofVerdict): string {
   const lines: string[] = [];
+  if (verdict.sourceStateViolation !== undefined) {
+    lines.push(
+      `  clone state mismatch: expected ${verdict.sourceStateViolation.expectedFingerprint.slice(0, 12)}… ` +
+        `but observed ${verdict.sourceStateViolation.actualFingerprint.slice(0, 12)}…; the clone was not mutated`,
+    );
+  }
+  if (verdict.desiredStateViolation !== undefined) {
+    lines.push(
+      `  desired snapshot mismatch: expected ${verdict.desiredStateViolation.expectedFingerprint.slice(0, 12)}… ` +
+        `but observed ${verdict.desiredStateViolation.actualFingerprint.slice(0, 12)}…; the clone was not mutated`,
+    );
+  }
+  if ((verdict.safetyMetadataViolations?.length ?? 0) > 0) {
+    lines.push(
+      `  undeclared data destruction (${verdict.safetyMetadataViolations!.length}):`,
+    );
+    for (const violation of verdict.safetyMetadataViolations!) {
+      const subject =
+        "table" in violation
+          ? rel(violation.table.schema, violation.table.name)
+          : encodeId(violation.object);
+      lines.push(
+        `    action[${violation.actionIndex}] destroys ${subject} but declares dataLoss:none`,
+      );
+    }
+  }
   if (verdict.strictAuditFailure === "suspicious") {
     lines.push(
       "  strict projection audit failed: suspicious suppressions were found",
@@ -320,6 +355,74 @@ export function formatProofPassCoverage(coverage: ProofCoverage): string {
   return ` — ${segments.join(", ")}`;
 }
 
+export function assertProofCloneEndpoint(
+  cloneUrl: string,
+  sourceEndpointHash: string | undefined,
+  trustedLocalHosts: readonly string[],
+  allowRemoteClone: boolean,
+): void {
+  let cloneEndpointHash: string;
+  let local: boolean;
+  try {
+    cloneEndpointHash = connectionEndpointHash(cloneUrl);
+    local = isTrustedLocalConnection(cloneUrl, trustedLocalHosts);
+  } catch (error) {
+    throw new UsageError(
+      `prove: invalid clone endpoint safety option — ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (
+    sourceEndpointHash !== undefined &&
+    cloneEndpointHash === sourceEndpointHash
+  ) {
+    throw new UsageError(
+      "prove: the clone resolves to the plan's source endpoint; refusing to mutate the original source database",
+    );
+  }
+  if (!local && !allowRemoteClone) {
+    throw new UsageError(
+      "prove: --clone must use localhost, a loopback address, a Unix socket, or an exact --trusted-local-host; pass --allow-remote-clone only for an intentional remote disposable clone",
+    );
+  }
+}
+
+export function assertProofCloneIdentity(
+  source: SourceDatabaseIdentity | undefined,
+  clone: SourceDatabaseIdentity | undefined,
+  scope: "database" | "cluster" | undefined,
+  allowUnverified: boolean,
+  cloneUnavailableCode?: DatabaseIdentityObservationUnavailableCode,
+): "verified" | "unverified" {
+  if (source === undefined) {
+    if (allowUnverified) return "unverified";
+    throw new UsageError(
+      "prove: the plan has no observed source database identity (legacy/direct-library or unavailable at plan time); re-plan against a server where pg_catalog.pg_control_system() exists and the source role has EXECUTE access, or pass --allow-unverified-source-identity only for an independently verified disposable clone",
+    );
+  }
+  if (clone === undefined) {
+    if (allowUnverified) return "unverified";
+    if (cloneUnavailableCode === "42883") {
+      throw new UsageError(
+        "prove: pg_catalog.pg_control_system() is unavailable on the clone PostgreSQL server, so its lineage/database identity cannot be verified; pass --allow-unverified-source-identity only for an independently verified disposable clone, or use a supported server",
+      );
+    }
+    throw new UsageError(
+      "prove: could not observe the clone PostgreSQL lineage/database identity; grant EXECUTE on pg_catalog.pg_control_system() to the connection role, or pass --allow-unverified-source-identity only for an independently verified disposable clone",
+    );
+  }
+  if (source.databaseHash === clone.databaseHash) {
+    throw new UsageError(
+      "prove: the clone is the same observed database as the plan source; refusing to mutate it. Physical/base-backup clones retain this identity and are not supported",
+    );
+  }
+  if (scope !== "database" && source.lineageHash === clone.lineageHash) {
+    throw new UsageError(
+      "prove: the clone has the same PostgreSQL lineage as the source; a cluster-scoped plan requires a different lineage",
+    );
+  }
+  return "verified";
+}
+
 export async function cmdProve(args: string[]): Promise<void> {
   let parsed;
   try {
@@ -328,13 +431,18 @@ export async function cmdProve(args: string[]): Promise<void> {
       clone: { type: "value", required: true },
       "desired-snapshot": { type: "value", required: true },
       profile: { type: "value" },
+      "trusted-local-host": { type: "multi" },
+      "allow-remote-clone": { type: "boolean" },
+      "allow-unverified-source-identity": { type: "boolean" },
       "strict-audit": { type: "boolean" },
       "audit-all": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       throw new UsageError(
-        `${err.message}\nUsage: pgdelta prove --plan <plan.json> --clone <pg-url> --desired-snapshot <file> [--profile ${PROFILE_IDS}] [--strict-audit] [--audit-all]`,
+        `${err.message}\nUsage: pgdelta prove --plan <plan.json> --clone <pg-url> --desired-snapshot <file> [--profile ${PROFILE_IDS}] ` +
+          `[--trusted-local-host <hostname>]... [--allow-remote-clone] ` +
+          `[--allow-unverified-source-identity] [--strict-audit] [--audit-all]`,
       );
     }
     throw err;
@@ -345,12 +453,14 @@ export async function cmdProve(args: string[]): Promise<void> {
   const cloneUrl = flags["clone"];
   const snapshotPath = flags["desired-snapshot"];
 
-  process.stderr.write(
-    "WARNING: The --clone database will be mutated and can no longer be used as a source.\n",
-  );
-
   const json = readFileSync(planPath, "utf8");
   const thePlan = parsePlan(json);
+  assertProofCloneEndpoint(
+    cloneUrl,
+    thePlan.source.endpointHash,
+    flags["trusted-local-host"],
+    flags["allow-remote-clone"],
+  );
   const planAuditStatus =
     thePlan.projectionAudit === undefined ? "unavailable" : "available";
   process.stderr.write(
@@ -434,8 +544,52 @@ export async function cmdProve(args: string[]): Promise<void> {
     );
   }
 
+  const allowUnverifiedIdentity =
+    flags["allow-unverified-source-identity"] === true;
+  let identityStatus: "verified" | "unverified";
+  if (thePlan.source.identity === undefined) {
+    identityStatus = assertProofCloneIdentity(
+      undefined,
+      undefined,
+      thePlan.scope,
+      allowUnverifiedIdentity,
+    );
+  } else {
+    identityStatus = "verified";
+  }
+
   const clone = makePool(cloneUrl);
   try {
+    if (thePlan.source.identity !== undefined) {
+      let cloneIdentity: SourceDatabaseIdentity | undefined;
+      let cloneUnavailableCode:
+        | DatabaseIdentityObservationUnavailableCode
+        | undefined;
+      try {
+        cloneIdentity = databaseIdentityStamp(
+          await observeDatabaseIdentity(clone.pool),
+        );
+      } catch (error) {
+        cloneUnavailableCode =
+          databaseIdentityObservationUnavailableCode(error);
+        if (cloneUnavailableCode === undefined) throw error;
+      }
+      identityStatus = assertProofCloneIdentity(
+        thePlan.source.identity,
+        cloneIdentity,
+        thePlan.scope,
+        allowUnverifiedIdentity,
+        cloneUnavailableCode,
+      );
+    }
+    if (identityStatus === "unverified") {
+      process.stderr.write(
+        "WARNING: source database identity could not be verified; proceeding only because --allow-unverified-source-identity was supplied.\n",
+      );
+    }
+    process.stderr.write(
+      "WARNING: prove may mutate the --clone database; use only a disposable clone.\n",
+    );
     process.stderr.write(
       `Proving plan (${thePlan.actions.length} action(s))...\n`,
     );

@@ -78,6 +78,30 @@ pgdelta prove --plan plan.json --clone "$CLONE_URL" --desired-snapshot desired.s
 pgdelta apply --plan plan.json --target "$SOURCE_URL"
 ```
 
+`prove` accepts localhost, loopback addresses, and Unix sockets by default. For
+a local container DNS name, add its exact host with
+`--trusted-local-host postgres.orb.local`. Any port on that exact host is
+accepted, which accommodates dynamically allocated container ports. An
+intentional remote clone requires `--allow-remote-clone`. The command refuses
+the plan's original source endpoint and observed PostgreSQL database identity,
+and verifies both the clone fingerprint and desired snapshot before auto-seeding
+or applying any DDL. Cluster-scoped plans also require a clone from a different
+PostgreSQL lineage. Physical/base-backup clones retain the source lineage and
+database identity and are therefore unsupported; use a logical/reinitialized
+clone. Legacy and direct-library plans carry no identity stamp, so CLI proof of
+those artifacts fails closed unless `--allow-unverified-source-identity` is
+supplied. The same explicit override is available when the clone role cannot
+execute `pg_catalog.pg_control_system()`. That flag cannot override a confirmed
+identity match.
+
+Clone URLs must remain pinned to one database and one physical PostgreSQL
+lineage for the entire command. Multi-cluster transaction/load-balancing
+endpoints that can switch backends are unsupported.
+
+Plans containing actions marked `dataLoss:"destructive"` require the separate
+`--allow-data-loss` flag at `apply` time. `--force` only bypasses the source
+fingerprint check; it never authorizes data loss.
+
 `plan` writes the JSON plan to stdout (or `--out <file>`) and a summary
 (action count, filtered deltas, safety report, rename candidates) to stderr.
 
@@ -112,7 +136,6 @@ migrates the target to match:
 ```bash
 pgdelta schema apply \
   --dir ./schema \
-  --shadow "$SHADOW_URL" \   # a fresh, empty database the files are loaded into
   --target "$TARGET_URL"     # the database to migrate
 ```
 
@@ -137,6 +160,21 @@ settings) and run:
 psql -X -v ON_ERROR_STOP=1 -f apply.sql
 ```
 
+Add `--shadow "$SHADOW_URL"` to use an explicit fresh database; otherwise,
+database scope creates and later drops a co-located shadow automatically.
+
+Explicit shadows follow the same endpoint policy as proof clones: local by
+default, an exact custom hostname via `--trusted-local-host`, or an
+intentional remote database via `--allow-remote-shadow`. pg-delta observes both
+connections before loading SQL and refuses when shadow and target are the same
+database. Cluster scope additionally requires a different PostgreSQL lineage.
+If the server denies `pg_catalog.pg_control_system()`, explicit-shadow apply
+fails closed with a grant-remediation hint.
+
+Explicit shadow and target URLs must each remain pinned to one database and one
+physical PostgreSQL lineage for the entire command. Multi-cluster
+transaction/load-balancing endpoints that can switch backends are unsupported.
+
 Export the inverse — a live database back out to `.sql` files:
 
 ```bash
@@ -159,9 +197,9 @@ pgdelta schema export --source "$SOURCE_URL" --out-dir ./schema
 # (formatSqlStatements).
 ```
 
-> The shadow database must be a fresh, empty Postgres. Auto-provisioning an
-> ephemeral shadow (so `--shadow` becomes optional) is a designed-but-deferred
-> feature — see [roadmap/ephemeral-shadow-design.md](roadmap/ephemeral-shadow-design.md).
+> The shadow database must be fresh and empty. When `--shadow` is omitted in
+> database scope, pg-delta creates and later drops a co-located scratch database.
+> Cluster scope requires an explicit shadow from an isolated PostgreSQL lineage.
 
 ### Detect drift from a saved snapshot
 
@@ -179,12 +217,12 @@ has drifted (and prints the deltas) — handy in CI.
 |---|---|---|
 | `diff` | Print the deltas between two live DBs | `--source` `--desired` `[--strict-coverage]` |
 | `plan` | Produce a plan artifact (JSON) | `--source` `--desired` `[--out]` `[--profile]` `[--renames]` `[--no-compact]` `[--accept-rename]` `[--restrict-to-applier]` `[--strict-coverage]` |
-| `apply` | Apply a plan to a target | `--plan` `--target` `[--profile]` `[--force]` |
-| `prove` | Apply a plan to a clone and verify convergence + data preservation | `--plan` `--clone` `--desired-snapshot` `[--profile]` `[--strict-audit]` `[--audit-all]` |
+| `apply` | Apply a plan to a target | `--plan` `--target` `[--profile]` `[--force]` `[--allow-data-loss]` |
+| `prove` | Apply a plan to a clone and verify convergence + data preservation | `--plan` `--clone` `--desired-snapshot` `[--profile]` `[--strict-audit]` `[--audit-all]` `[--trusted-local-host]` `[--allow-remote-clone]` `[--allow-unverified-source-identity]` |
 | `snapshot` | Save a database's fact base to a file | `--source` `--out` `[--strict-coverage]` |
 | `drift` | Compare a live DB against a saved snapshot | `--env` `--snapshot` `[--strict-coverage]` |
 | `schema export` | Export a live DB to `.sql` files | `--source` `--out-dir` `[--layout]` `[--profile]` `[--strict-coverage]` |
-| `schema apply` | Load `.sql` files via a shadow DB and migrate a target | `--dir` `--shadow` `--target` `[--renames]` `[--accept-rename]` `[--force]` `[--profile]` `[--restrict-to-applier]` `[--strict-coverage]` `[--dry-run]` `[--verbose]` `[--out-plan]` |
+| `schema apply` | Load `.sql` files via a shadow DB and migrate a target | `--dir` `[--shadow]` `--target` `[--scope]` `[--isolated-shadow]` `[--renames]` `[--accept-rename]` `[--force]` `[--allow-data-loss]` `[--trusted-local-host]` `[--allow-remote-shadow]` `[--profile]` `[--restrict-to-applier]` `[--strict-coverage]` `[--dry-run]` `[--verbose]` `[--out-plan]` |
 
 Common flags, explained:
 

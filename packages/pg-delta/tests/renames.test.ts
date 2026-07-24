@@ -599,9 +599,11 @@ describe("stage 9: renames", () => {
       "ren_schema",
       `CREATE SCHEMA olds;
        CREATE TABLE olds.t (id integer DEFAULT 7);
-       INSERT INTO olds.t VALUES (1);`,
+       INSERT INTO olds.t VALUES (1);
+       CREATE MATERIALIZED VIEW olds.mv AS SELECT 9 AS n;`,
       `CREATE SCHEMA news;
-       CREATE TABLE news.t (id integer DEFAULT 7);`,
+       CREATE TABLE news.t (id integer DEFAULT 7);
+       CREATE MATERIALIZED VIEW news.mv AS SELECT 9 AS n;`,
     );
     try {
       const [s, d] = [
@@ -613,6 +615,11 @@ describe("stage 9: renames", () => {
       expect(thePlan.actions[0]?.sql).toContain("ALTER SCHEMA");
       const verdict = await provePlan(thePlan, dbs.source.pool, d.factBase);
       expect(verdict.ok).toBe(true);
+      expect(verdict.coverage.perTable.map((entry) => entry.table)).toEqual([
+        { schema: "news", name: "mv" },
+        { schema: "news", name: "t" },
+      ]);
+      expect(verdict.coverage.tablesSkipped).toEqual([]);
       const rows = await dbs.source.pool.query(`SELECT id FROM news.t`);
       expect((rows.rows[0] as { id: number }).id).toBe(1);
     } finally {

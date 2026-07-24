@@ -24,6 +24,13 @@ import { parseFlags, UsageError } from "../flags.ts";
 import { PROFILE_IDS, resolveCliProfile } from "../profile.ts";
 import type { RenameMode } from "../../plan/renames.ts";
 import { writeFileSync } from "node:fs";
+import {
+  connectionEndpointHash,
+  databaseIdentityObservationUnavailableCode,
+  databaseIdentityStamp,
+  observeDatabaseIdentity,
+  type DatabaseIdentityObservationUnavailableCode,
+} from "../connection-safety.ts";
 
 const USAGE =
   "Usage: pgdelta plan --source <pg-url> --desired <pg-url> " +
@@ -31,6 +38,25 @@ const USAGE =
   "[--renames auto|prompt|off] [--no-compact] [--out <plan.json>] " +
   "[--accept-rename <from>=<to>] ... [--restrict-to-applier] [--strict-coverage] " +
   "[--unsafe-show-secrets]\n";
+
+export function formatPlanIdentityWarning(
+  code: DatabaseIdentityObservationUnavailableCode,
+): string {
+  if (code === "42883") {
+    return (
+      "WARNING: plan could not observe the source PostgreSQL lineage/database identity because " +
+      "pg_catalog.pg_control_system() is unavailable on this server. The plan remains applicable, " +
+      "but CLI prove will require --allow-unverified-source-identity. To retain verified identity " +
+      "checks, re-plan against a PostgreSQL server that provides pg_catalog.pg_control_system().\n"
+    );
+  }
+  return (
+    "WARNING: plan could not observe the source PostgreSQL lineage/database identity. " +
+    "The plan remains applicable, but CLI prove will require " +
+    "--allow-unverified-source-identity. To retain verified identity checks, grant " +
+    "EXECUTE on pg_catalog.pg_control_system() to the connection role and re-plan.\n"
+  );
+}
 
 export async function cmdPlan(args: string[]): Promise<void> {
   let parsed;
@@ -115,6 +141,16 @@ export async function cmdPlan(args: string[]): Promise<void> {
       ctx.extract(src.pool, { redactSecrets }),
       ctx.extract(dst.pool, { redactSecrets }),
     ]);
+    let sourceIdentity;
+    try {
+      sourceIdentity = databaseIdentityStamp(
+        await observeDatabaseIdentity(src.pool),
+      );
+    } catch (error) {
+      const code = databaseIdentityObservationUnavailableCode(error);
+      if (code === undefined) throw error;
+      process.stderr.write(formatPlanIdentityWarning(code));
+    }
 
     // surface extraction diagnostics (review finding 2); --strict-coverage
     // refuses to plan while user objects the engine cannot manage exist
@@ -143,6 +179,12 @@ export async function cmdPlan(args: string[]): Promise<void> {
       desiredResult.factBase,
       planOptions,
     );
+    // Credential-free origin stamp: prove uses this only to reject the most
+    // dangerous endpoint mixup (`--clone` accidentally receives SOURCE_URL).
+    thePlan.source.endpointHash = connectionEndpointHash(sourceUrl);
+    if (sourceIdentity !== undefined) {
+      thePlan.source.identity = sourceIdentity;
+    }
 
     // human summary → stderr
     process.stderr.write(`\nPlan summary:\n`);

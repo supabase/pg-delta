@@ -10,6 +10,7 @@
  */
 import { segmentActions } from "../apply/apply.ts";
 import type { Plan } from "../plan/plan.ts";
+import { assertDestructionMetadataIntegrity } from "../plan/safety.ts";
 
 export interface RenderPlanFilesOptions {
   /** allow destructive actions to be rendered. Off by default: rendering a
@@ -55,6 +56,11 @@ export function renderPlanFiles(
   plan: Plan,
   opts: RenderPlanFilesOptions,
 ): RenderPlanFilesResult {
+  assertDestructionMetadataIntegrity(
+    plan.actions,
+    plan.acceptedRenames,
+    "render",
+  );
   if (plan.actions.length === 0) {
     return { changes: false, files: [] };
   }

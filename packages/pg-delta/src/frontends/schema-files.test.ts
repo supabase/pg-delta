@@ -3,13 +3,16 @@
  * database-scope cluster-DDL preflight, manifest reconciliation).
  */
 import { describe, expect, test } from "bun:test";
+import type { Pool } from "pg";
 import {
+  planSchemaFiles,
   prepareSchemaFiles,
   reconcileSchemaManifest,
   SchemaFrontendError,
 } from "./schema-plan.ts";
 import type { ExportManifest } from "./export-manifest.ts";
 import type { SqlFile } from "./load-sql-files.ts";
+import { rawProfile } from "../integrations/profile.ts";
 
 function files(entries: Record<string, string>): SqlFile[] {
   return Object.entries(entries).map(([name, sql]) => ({ name, sql }));
@@ -151,5 +154,34 @@ describe("reconcileSchemaManifest", () => {
     expect(ok.scope).toBe("cluster");
     expect(ok.redactSecrets).toBe(false);
     expect(ok.baselineDigest).toBe("digest1");
+  });
+});
+
+describe("planSchemaFiles identity preflight", () => {
+  test("reports target identity permission failures before querying the shadow", async () => {
+    let shadowQueries = 0;
+    const target = {
+      query: async () => {
+        throw Object.assign(new Error("permission denied"), { code: "42501" });
+      },
+    } as unknown as Pool;
+    const shadow = {
+      query: async () => {
+        shadowQueries += 1;
+        throw new Error("shadow must not be queried");
+      },
+    } as unknown as Pool;
+
+    expect(
+      planSchemaFiles(
+        target,
+        shadow,
+        [{ name: "schema.sql", sql: "CREATE SCHEMA identity_probe;" }],
+        { profile: rawProfile, scope: "database" },
+      ),
+    ).rejects.toThrow(
+      /planSchemaFiles target safety.*GRANT EXECUTE ON FUNCTION pg_catalog\.pg_control_system\(\)/i,
+    );
+    expect(shadowQueries).toBe(0);
   });
 });
