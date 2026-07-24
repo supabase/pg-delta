@@ -104,6 +104,7 @@ describe("CLI: --help", () => {
     expect(res.stdout).toContain("--allow-unverified-source-identity");
     expect(res.stdout).toContain("--scope database|cluster");
     expect(res.stdout).toContain("--isolated-shadow");
+    expect(res.stdout).toMatch(/load-balanc|pinned to one database/i);
 
     const gettingStarted = readFileSync(
       resolve(PKG_DIR, "../../docs/getting-started.md"),
@@ -114,6 +115,9 @@ describe("CLI: --help", () => {
     );
     expect(gettingStarted).toMatch(
       /\| `schema apply` .*`\[--scope\]`.*`\[--isolated-shadow\]`/,
+    );
+    expect(gettingStarted).toMatch(
+      /pinned to one database.*multi-cluster.*unsupported/is,
     );
   }, 30_000);
 });
