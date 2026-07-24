@@ -7,6 +7,11 @@ import type { Pool } from "pg";
 import type { ApplyOptions } from "../apply/apply.ts";
 import type { Diagnostic } from "../core/diagnostic.ts";
 import type { StableId } from "../core/stable-id.ts";
+import {
+  isSameDatabase,
+  isSamePostgresLineage,
+  observeDatabaseIdentityForMutation,
+} from "../database-identity.ts";
 import type { ExtractOptions, ExtractResult } from "../extract/extract.ts";
 import {
   type IntegrationProfile,
@@ -294,6 +299,32 @@ export async function planSchemaFiles(
     throw new SchemaFrontendError(prepared.message);
   }
   const files = prepared.files;
+
+  // This public frontend owns mutation of the supplied shadow. Observe both
+  // pools before profile resolution or SQL loading so a target alias cannot be
+  // used as its own shadow, and an isolation assertion cannot disable shared-
+  // cluster containment on a sibling database from the target lineage.
+  const targetIdentity = await observeDatabaseIdentityForMutation(
+    targetPool,
+    "planSchemaFiles target safety",
+  );
+  const shadowIdentity = await observeDatabaseIdentityForMutation(
+    shadowPool,
+    "planSchemaFiles shadow safety",
+  );
+  if (isSameDatabase(targetIdentity, shadowIdentity)) {
+    throw new SchemaFrontendError(
+      `planSchemaFiles: shadow and target are the same observed database (${targetIdentity.database}); refusing to load declarative SQL`,
+    );
+  }
+  if (
+    options.isolatedShadow === true &&
+    isSamePostgresLineage(targetIdentity, shadowIdentity)
+  ) {
+    throw new SchemaFrontendError(
+      "planSchemaFiles: an isolated shadow requires a different PostgreSQL lineage; the supplied shadow shares the target lineage",
+    );
+  }
 
   const redactSecrets = pre.redactSecrets;
   const ctx = await resolveProfile(targetPool, options.profile, {
