@@ -119,10 +119,11 @@ Each item includes:
 For the core `analyzeAndSort`, `filePath` uses synthetic source labels (e.g. `<input:0>`, `<input:1>`).  
 For `analyzeAndSortFromFiles`, `filePath` is the relative path to the source `.sql` file.
 
-`ordered` is a **total order**: it always contains every input statement exactly
-once. Statements trapped in a dependency cycle are appended after the acyclic
-prefix in deterministic tie-break order rather than being dropped. The cycle is
-still reported through `CYCLE_DETECTED` and `graph.cycleGroups`.
+`ordered` is a **total order**: it always contains every successfully parsed
+statement exactly once. Statements trapped in a dependency cycle are emitted as
+an atomic component in dependency order, with deterministic tie-break ordering
+within the component. The cycle is still reported through `CYCLE_DETECTED` and
+`graph.cycleGroups`.
 
 ### `diagnostics`
 

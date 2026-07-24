@@ -110,7 +110,7 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
       - name: Check types (pg-delta)
-        if: needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
+        if: needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true'
         run: bun run --filter '@supabase/pg-delta' check-types
       - name: Check types (pg-topo)
         if: needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
@@ -154,7 +154,7 @@ jobs:
     if: >-
       needs.detect-changes.outputs.is-release-pr != 'true' &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
+      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-delta: Unit tests"
     runs-on: ubuntu-latest
@@ -183,7 +183,7 @@ jobs:
     if: >-
       needs.detect-changes.outputs.is-release-pr != 'true' &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
+      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-delta: Compute test image hash"
     runs-on: ubuntu-latest
@@ -298,7 +298,7 @@ jobs:
     if: >-
       needs.detect-changes.outputs.is-release-pr != 'true' &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true') &&
+      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true') &&
       !cancelled() &&
       (
         needs.pg-delta-build-test-images.result == 'success' ||
