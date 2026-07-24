@@ -24,10 +24,14 @@ export type ActionStatus = "applied" | "unapplied" | "inDoubt";
 export interface ApplyError {
   /** First affected action for controls; exact failing action otherwise. */
   actionIndex: number;
-  statementKind: "action" | "control";
+  /** Absent on legacy consumer-authored errors; interpreted as `"action"`. */
+  statementKind?: "action" | "control";
   sql: string;
   message: string;
 }
+
+type ApplyStatementKind = NonNullable<ApplyError["statementKind"]>;
+type ProducedApplyError = ApplyError & { statementKind: ApplyStatementKind };
 
 export interface ApplyReport {
   status: "applied" | "failed";
@@ -141,10 +145,10 @@ export function segmentActions(
 
 function errorEntry(
   actionIndex: number,
-  statementKind: ApplyError["statementKind"],
+  statementKind: ApplyStatementKind,
   sql: string,
   error: unknown,
-): NonNullable<ApplyReport["error"]> {
+): ProducedApplyError {
   return {
     actionIndex,
     statementKind,
@@ -279,8 +283,8 @@ export async function apply(
         // the failure return is deferred past the finally so segmentEnd stays
         // the segment's LAST event — after the RESET ALL control — on every
         // path; a trace must never show wire traffic after the outcome line.
-        let failure: ApplyError | undefined;
-        let currentKind: ApplyError["statementKind"] = "control";
+        let failure: ProducedApplyError | undefined;
+        let currentKind: ApplyStatementKind = "control";
         let currentSql = "";
         try {
           // session-level preamble SETs hit the wire BEFORE the action; a

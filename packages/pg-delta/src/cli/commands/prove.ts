@@ -53,7 +53,7 @@ export function formatProofFailure(verdict: ProofVerdict): string {
   }
   if (verdict.applyError) {
     const subject =
-      verdict.applyError.statementKind === "action"
+      (verdict.applyError.statementKind ?? "action") === "action"
         ? `action[${verdict.applyError.actionIndex}]`
         : "control";
     lines.push(`  apply error at ${subject}: ${verdict.applyError.message}`);

@@ -79,7 +79,9 @@ the documented vocabulary.
 | Name | Kind | Contract | facts | deltas | actions | proof |
 |------|------|----------|:-----:|:------:|:-------:|:-----:|
 | `ActionStatus` | type | `"applied" \| "unapplied" \| "inDoubt"` — per-action outcome after execution. | — | — | ✓ | ✓ |
-| `ApplyOptions` | type | `{ fingerprintGate?, lockTimeoutMs?, statementTimeoutMs? }` — executor configuration. | — | — | ✓ | — |
+| `ApplyEvent` | type | Statement-level observer event emitted at segment/action boundaries and for executor control SQL. | — | — | ✓ | — |
+| `ApplyError` | type | `{ actionIndex, statementKind?, sql, message }` — attributed action/control failure; an absent legacy `statementKind` means `"action"`. | — | — | ✓ | ✓ |
+| `ApplyOptions` | type | Executor configuration including optional `onEvent(event: ApplyEvent)` statement-level observation. | — | — | ✓ | — |
 | `ApplyReport` | type | `{ status, appliedActions, actionStatuses, error? }` — execution outcome with per-action status and a structured error entry. | — | — | ✓ | ✓ |
 | `apply` | function | `(Plan, Pool, options?) → Promise<ApplyReport>` — sequential, segmented, lock-aware execution. | — | — | ✓ | ✓ |
 

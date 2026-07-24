@@ -925,7 +925,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
           warnIfUnredactedOutput(redactSecrets, "failure diagnostic");
         }
         const subject =
-          report.error.statementKind === "action"
+          (report.error.statementKind ?? "action") === "action"
             ? `action[${report.error.actionIndex}]`
             : "control";
         process.stderr.write(`  ${subject}: ${report.error.message}\n`);

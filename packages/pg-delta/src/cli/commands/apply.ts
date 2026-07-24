@@ -98,7 +98,7 @@ export async function cmdApply(args: string[]): Promise<void> {
       process.stderr.write(`Apply failed!\n`);
       if (report.error) {
         const subject =
-          report.error.statementKind === "action"
+          (report.error.statementKind ?? "action") === "action"
             ? `action[${report.error.actionIndex}]`
             : "control";
         process.stderr.write(`  ${subject}: ${report.error.message}\n`);
