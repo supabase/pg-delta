@@ -97,6 +97,91 @@ describe("public schema frontends", () => {
     }
   }, 90_000);
 
+  test("planSchemaFiles rejects the target database reused as its shadow before loading SQL", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_same_shadow");
+    try {
+      const files: SqlFile[] = [
+        {
+          name: "schema.sql",
+          sql: "CREATE SCHEMA must_not_reach_target;\n",
+        },
+      ];
+      expect(
+        planSchemaFiles(target.pool, target.pool, files, {
+          profile: rawProfile,
+          scope: "database",
+        }),
+      ).rejects.toThrow(/same observed database/i);
+      expect(
+        await target.pool.query(
+          `SELECT to_regnamespace('must_not_reach_target') IS NULL AS absent`,
+        ),
+      ).toMatchObject({ rows: [{ absent: true }] });
+    } finally {
+      await target.drop();
+    }
+  }, 90_000);
+
+  test("planSchemaFiles rejects an isolated sibling from the target lineage before cluster DDL", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_lineage_target");
+    const shadow = await cluster.createDb("frontend_lineage_shadow");
+    const rolesBefore = await cluster.listRoles();
+    const role = `frontend_lineage_role_${Date.now().toString(36)}`;
+    try {
+      const files: SqlFile[] = [
+        { name: "role.sql", sql: `CREATE ROLE ${role};\n` },
+      ];
+      expect(
+        planSchemaFiles(target.pool, shadow.pool, files, {
+          profile: rawProfile,
+          scope: "cluster",
+          isolatedShadow: true,
+        }),
+      ).rejects.toThrow(/different PostgreSQL lineage/i);
+      expect(
+        await target.pool.query(
+          `SELECT count(*)::int AS n FROM pg_roles WHERE rolname = $1`,
+          [role],
+        ),
+      ).toMatchObject({ rows: [{ n: 0 }] });
+    } finally {
+      await Promise.all([target.drop(), shadow.drop()]);
+      await cluster.dropRolesExcept(rolesBefore, { strict: true });
+    }
+  }, 90_000);
+
+  test("planSchemaFiles permits a non-isolated database-scope sibling from the same lineage", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_sibling_target");
+    const shadow = await cluster.createDb("frontend_sibling_shadow");
+    try {
+      const files: SqlFile[] = [
+        {
+          name: "schema.sql",
+          sql: "CREATE SCHEMA allowed_same_lineage_sibling;\n",
+        },
+      ];
+      const planned = await planSchemaFiles(target.pool, shadow.pool, files, {
+        profile: rawProfile,
+        scope: "database",
+      });
+      expect(
+        planned.plan.actions.some((action) =>
+          action.sql.includes("allowed_same_lineage_sibling"),
+        ),
+      ).toBe(true);
+      expect(
+        await target.pool.query(
+          `SELECT to_regnamespace('allowed_same_lineage_sibling') IS NULL AS absent`,
+        ),
+      ).toMatchObject({ rows: [{ absent: true }] });
+    } finally {
+      await Promise.all([target.drop(), shadow.drop()]);
+    }
+  }, 90_000);
+
   test("planSchemaFiles + renderPlanFiles preserve preamble and apply converges", async () => {
     const cluster = await sharedCluster();
     const source = await cluster.createDb("frontend_plan_src");
