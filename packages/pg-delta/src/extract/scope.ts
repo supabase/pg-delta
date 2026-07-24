@@ -241,7 +241,7 @@ export const aclJson = (
  * lets the DROP path RESTORE the install state instead of a blind `REVOKE ALL`
  * (see the `acl` rule in plan/rules/metadata.ts).
  */
-const memberAclDeltaJson = (
+export const memberAclDeltaJson = (
   aclColumn: string,
   objtype: string,
   ownerColumn: string,

@@ -60,7 +60,7 @@ import type { ApplierCapability } from "../policy/capability.ts";
 import { type Policy, resolveView } from "../policy/policy.ts";
 import { extensionMemberReferenceOnly } from "../policy/view.ts";
 
-interface AssumedSchemaSeed {
+export interface AssumedSchemaSeed {
   /** Replayable SQL that creates the assumed-schema objects; `""` when nothing
    *  needs seeding (raw profile, or the view kept no assumed-schema facts). */
   sql: string;

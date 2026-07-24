@@ -138,7 +138,7 @@ export function roleFlagSql(payload: Fact["payload"]): string {
 
 /** A backing identity sequence's parameters (mirrors the sequence payload,
  *  minus dataType — that is fixed by the column type). */
-interface IdentityOptions {
+export interface IdentityOptions {
   increment: string;
   start: string;
   minValue: string;
@@ -187,7 +187,7 @@ const IDENTITY_TYPE_MAX: Record<string, string> = {
 /** true when the identity sequence carries exactly the parameters PostgreSQL
  *  picks for a bare `GENERATED … AS IDENTITY` of the given column type, so the
  *  clause can stay bare (no churn for ordinary identity columns). */
-function isDefaultIdentityOptions(
+export function isDefaultIdentityOptions(
   options: IdentityOptions,
   columnType: string,
 ): boolean {
@@ -676,7 +676,7 @@ function defaclObjType(objtype: string): string {
   return rendered;
 }
 
-function defaultPrivPrefix(id: {
+export function defaultPrivPrefix(id: {
   role: string;
   schema: string | null;
 }): string {
@@ -685,7 +685,7 @@ function defaultPrivPrefix(id: {
   return sql;
 }
 
-function defaultPrivConsumes(id: {
+export function defaultPrivConsumes(id: {
   role: string;
   schema: string | null;
   grantee: string;

@@ -181,7 +181,7 @@ export interface KindRules {
  * is their composition. Family files import the types above type-only, so the
  * runtime import graph (rules → family → helpers → render) carries no cycle.
  */
-const RULES: Record<string, KindRules> = {
+export const RULES: Record<string, KindRules> = {
   ...roleRules,
   ...schemaRules,
   ...tableRules,
@@ -239,7 +239,7 @@ export interface IntentKindRule {
 
 /** Later than every schema kind's weight (the max schema weight is far below
  *  this), so intent replays sort after all schema DDL on ties (docs §4.5). */
-const INTENT_DEFAULT_WEIGHT = 90;
+export const INTENT_DEFAULT_WEIGHT = 90;
 
 /** An intent-rule index keyed by `${ext}\x00${intentKind}`, each value a
  *  `KindRules` adapter the generic planner dispatches exactly like a schema

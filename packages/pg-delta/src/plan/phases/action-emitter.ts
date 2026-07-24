@@ -24,7 +24,7 @@ import { cascadesToChildren, ruleFlag } from "../rule-flags.ts";
 import { type ActionSpec, type PlanParams, type RulesForId } from "../rules.ts";
 import type { AcceptedRename } from "./change-set.ts";
 
-interface ActionEmitterInput {
+export interface ActionEmitterInput {
   /** resolved source / desired views + the projected plan target */
   source: FactBase;
   desired: FactBase;
@@ -48,7 +48,7 @@ interface ActionEmitterInput {
   rulesForId: RulesForId;
 }
 
-interface ActionEmitterOutput {
+export interface ActionEmitterOutput {
   actions: Action[];
   producerOf: Map<string, number>;
   destroyerOf: Map<string, number>;

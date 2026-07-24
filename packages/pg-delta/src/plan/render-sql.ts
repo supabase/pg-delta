@@ -18,7 +18,7 @@
  */
 import type { Plan } from "./plan.ts";
 
-type RenderablePlan = Pick<Plan, "preamble"> & {
+export type RenderablePlan = Pick<Plan, "preamble"> & {
   actions: ReadonlyArray<Pick<Plan["actions"][number], "sql">>;
 };
 

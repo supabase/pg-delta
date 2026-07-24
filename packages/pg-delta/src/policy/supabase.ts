@@ -86,7 +86,7 @@ import type { Policy } from "./policy.ts";
 // ---------------------------------------------------------------------------
 
 /** Supabase system schemas that should be excluded from user plans. */
-const SUPABASE_SYSTEM_SCHEMAS = [
+export const SUPABASE_SYSTEM_SCHEMAS = [
   "_analytics",
   "_realtime",
   "_supavisor",
@@ -112,7 +112,7 @@ const SUPABASE_SYSTEM_SCHEMAS = [
 ] as const;
 
 /** Supabase system roles that should be excluded from user plans. */
-const SUPABASE_SYSTEM_ROLES = [
+export const SUPABASE_SYSTEM_ROLES = [
   "anon",
   "authenticated",
   "authenticator",
@@ -143,7 +143,7 @@ const SUPABASE_SYSTEM_ROLES = [
  *  users can still manage them. The comprehensive mechanism is the committed
  *  Supabase baseline (a v1 gate — see the `baseline` note below); this name
  *  list mirrors SUPABASE_SYSTEM_SCHEMAS/ROLES until that lands. */
-const SUPABASE_SYSTEM_EXTENSIONS = [
+export const SUPABASE_SYSTEM_EXTENSIONS = [
   "pg_graphql",
   "pg_stat_statements",
   "pgsodium",

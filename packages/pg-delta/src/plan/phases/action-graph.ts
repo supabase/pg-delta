@@ -26,7 +26,7 @@ import {
   foldCoCreateOwnership,
 } from "../internal.ts";
 
-interface FinalizeInput {
+export interface FinalizeInput {
   actions: Action[];
   producerOf: ReadonlyMap<string, number>;
   destroyerOf: ReadonlyMap<string, number>;
@@ -63,7 +63,7 @@ interface FinalizeInput {
   rulesForId: RulesForId;
 }
 
-interface FinalizeOutput {
+export interface FinalizeOutput {
   actions: Action[];
   safetyReport: SafetyReport;
 }
