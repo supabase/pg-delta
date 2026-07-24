@@ -46,15 +46,13 @@
  *   between the shadow (desired) and target (current) states. --verbose shows
  *   every statement actually executed on the target connection — including
  *   transaction framing (BEGIN/COMMIT/ROLLBACK) and session SETs — never the
- *   authored files; --dry-run prints the same statements, split on the same
- *   segment boundaries, without applying them (transaction framing and
- *   RESET ALL are shown by --verbose only; the preamble appears as plain
- *   session `set`s repeated per segment).
+ *   authored files; --dry-run prints a portable executable script containing
+ *   the same successful-path statements and segment boundaries, without
+ *   applying them.
  *
  *   --dry-run
- *     Plan as usual, then print the executable script (reusing the `render`
- *     command's renderer, so it splits on the same segment boundaries apply()
- *     executes) to STDOUT instead of calling apply() — no fingerprint gate
+ *     Plan as usual, then print the executable portable SQL script to STDOUT
+ *     instead of calling apply() — no fingerprint gate
  *     runs, nothing is applied. A stderr summary reports the action count and
  *     flags any destructive actions. Composes with --out-plan; --force is a
  *     no-op since the gate never runs, and --verbose has no effect (nothing
@@ -106,7 +104,8 @@ import {
 import { serializePlan } from "../../plan/artifact.ts";
 import type { ManagementScope } from "../../policy/view.ts";
 import { apply, type ApplyEvent } from "../../apply/apply.ts";
-import { isDestructiveAction, renderPlan } from "../render.ts";
+import { renderApplyScript } from "../../apply/render-apply-script.ts";
+import { isDestructiveAction } from "../render.ts";
 import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
@@ -783,24 +782,14 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     }
 
     if (dryRun) {
-      // Reuse the `render` command's renderer so the printed script splits on
-      // the SAME segment boundaries apply() uses at execution time —
-      // faithfully mirroring what a real apply would run, statement for
-      // statement. allowDrops:true: --dry-run is inspection only, so the
-      // render-time destructive-action gate (meant for `render`'s file-writing
-      // path) does not apply here; destructiveness is instead surfaced in the
-      // summary below.
-      const rendered = renderPlan(thePlan, { allowDrops: true });
-      const multi = rendered.files.length > 1;
-      const script = rendered.files
-        .map((file, i) => {
-          if (!multi) return file.contents;
-          const header = `-- pg-delta segment ${i + 1}/${rendered.files.length} (${
-            file.transactional ? "transactional" : "non-transactional"
-          })\n`;
-          return `${header}${file.contents}`;
-        })
-        .join("\n");
+      const script = renderApplyScript(thePlan, {
+        ...(planned.applyOptions.lockTimeoutMs !== undefined
+          ? { lockTimeoutMs: planned.applyOptions.lockTimeoutMs }
+          : {}),
+        ...(planned.applyOptions.statementTimeoutMs !== undefined
+          ? { statementTimeoutMs: planned.applyOptions.statementTimeoutMs }
+          : {}),
+      });
       process.stdout.write(script);
       process.stderr.write(
         `Dry run: ${thePlan.actions.length} action(s) planned; nothing applied.\n`,

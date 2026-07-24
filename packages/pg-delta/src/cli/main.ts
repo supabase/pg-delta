@@ -170,6 +170,7 @@ Subcommands:
   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
                  [--renames auto|prompt|off] [--force]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
+                 [--dry-run] [--verbose] [--out-plan <plan.json>]
   schema lint    --dir <dir>
                  Statically check the SQL files (pg-topo) for shadow-load
                  cycles and other issues, without touching a database.

@@ -16,6 +16,7 @@ import type { FactBase } from "../core/fact.ts";
 import { extract } from "../extract/extract.ts";
 import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
+import { buildApplyPreamble } from "./apply-preamble.ts";
 
 export type ActionStatus = "applied" | "unapplied" | "inDoubt";
 
@@ -245,22 +246,6 @@ export async function apply(
 
   const client = await target.connect();
   try {
-    const preamble = (local: boolean): string[] => [
-      ...(options?.lockTimeoutMs !== undefined
-        ? [
-            `SET ${local ? "LOCAL " : ""}lock_timeout = ${options.lockTimeoutMs}`,
-          ]
-        : []),
-      ...(options?.statementTimeoutMs !== undefined
-        ? [
-            `SET ${local ? "LOCAL " : ""}statement_timeout = ${options.statementTimeoutMs}`,
-          ]
-        : []),
-      ...thePlan.preamble.map(
-        (s) => `SET ${local ? "LOCAL " : ""}${s.name} = ${s.value}`,
-      ),
-    ];
-
     const onEvent = options?.onEvent;
     for (let segIdx = 0; segIdx < segments.length; segIdx++) {
       const segment = segments[segIdx]!;
@@ -286,32 +271,34 @@ export async function apply(
         try {
           // session-level preamble SETs hit the wire BEFORE the action; a
           // preamble failure emits NO action events (the action never ran).
-          for (const sql of preamble(false)) {
+          for (const sql of buildApplyPreamble(thePlan, options, false)) {
             emit(onEvent, { kind: "control", sql });
             await client.query(sql);
           }
-          const actionStartedAt = Date.now();
           emit(onEvent, {
             kind: "actionStart",
             actionIndex: index,
             sql: action.sql,
           });
+          const actionStartedAt = Date.now();
           try {
             await client.query(action.sql);
             // actionEnd fires as the action settles, so `ms` measures only the
             // action's round-trip (not the RESET ALL below).
+            const actionElapsedMs = Date.now() - actionStartedAt;
             emit(onEvent, {
               kind: "actionEnd",
               actionIndex: index,
               ok: true,
-              ms: Date.now() - actionStartedAt,
+              ms: actionElapsedMs,
             });
           } catch (error) {
+            const actionElapsedMs = Date.now() - actionStartedAt;
             emit(onEvent, {
               kind: "actionEnd",
               actionIndex: index,
               ok: false,
-              ms: Date.now() - actionStartedAt,
+              ms: actionElapsedMs,
             });
             throw error;
           }
@@ -355,7 +342,7 @@ export async function apply(
       try {
         emit(onEvent, { kind: "control", sql: "BEGIN" });
         await client.query("BEGIN");
-        for (const sql of preamble(true)) {
+        for (const sql of buildApplyPreamble(thePlan, options, true)) {
           emit(onEvent, { kind: "control", sql });
           await client.query(sql);
         }
@@ -376,16 +363,17 @@ export async function apply(
       }
       for (let i = segment.start; i < segment.end; i++) {
         const action = thePlan.actions[i]!;
-        const actionStartedAt = Date.now();
         emit(onEvent, { kind: "actionStart", actionIndex: i, sql: action.sql });
+        const actionStartedAt = Date.now();
         try {
           await client.query(action.sql);
         } catch (error) {
+          const actionElapsedMs = Date.now() - actionStartedAt;
           emit(onEvent, {
             kind: "actionEnd",
             actionIndex: i,
             ok: false,
-            ms: Date.now() - actionStartedAt,
+            ms: actionElapsedMs,
           });
           emit(onEvent, { kind: "control", sql: "ROLLBACK" });
           await client.query("ROLLBACK").catch(() => {});
@@ -401,11 +389,12 @@ export async function apply(
             error: errorEntry(i, action.sql, error),
           };
         }
+        const actionElapsedMs = Date.now() - actionStartedAt;
         emit(onEvent, {
           kind: "actionEnd",
           actionIndex: i,
           ok: true,
-          ms: Date.now() - actionStartedAt,
+          ms: actionElapsedMs,
         });
       }
       try {
