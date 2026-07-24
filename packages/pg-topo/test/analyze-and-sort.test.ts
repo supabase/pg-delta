@@ -311,4 +311,47 @@ describe("analyzeAndSort", () => {
       ),
     );
   });
+
+  test("keeps a cyclic component before its downstream consumer", async () => {
+    const sql = [
+      "create view public.v_downstream as select * from public.v1;",
+      "create view public.v1 as select * from public.v2;",
+      "create view public.v2 as select * from public.v1;",
+    ];
+
+    const result = await analyzeAndSort(sql);
+    const orderedIds = result.ordered.map(
+      (statement) => `${statement.id.filePath}:${statement.id.statementIndex}`,
+    );
+
+    expect(result.ordered).toHaveLength(3);
+    expect(new Set(orderedIds).size).toBe(3);
+    expect(result.graph.cycleGroups).toEqual([
+      [
+        { filePath: "<input:1>", statementIndex: 0, sourceOffset: 0 },
+        { filePath: "<input:2>", statementIndex: 0, sourceOffset: 0 },
+      ],
+    ]);
+
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const downstreamIndex = orderedSql.findIndex((statement) =>
+      statement.includes("v_downstream"),
+    );
+    expect(
+      orderedSql.findIndex((statement) => statement.includes("view public.v1")),
+    ).toBeLessThan(downstreamIndex);
+    expect(
+      orderedSql.findIndex((statement) => statement.includes("view public.v2")),
+    ).toBeLessThan(downstreamIndex);
+
+    const again = await analyzeAndSort(sql);
+    expect(
+      again.ordered.map(
+        (statement) =>
+          `${statement.id.filePath}:${statement.id.statementIndex}`,
+      ),
+    ).toEqual(orderedIds);
+  });
 });

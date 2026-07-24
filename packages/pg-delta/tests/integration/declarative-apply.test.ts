@@ -112,19 +112,15 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             {
               filePath: "cycle-a.sql",
               sql: `
-                CREATE TABLE public.cycle_a (
-                  id integer PRIMARY KEY,
-                  b_id integer REFERENCES public.cycle_b(id)
-                );
+                CREATE VIEW public.cycle_a AS
+                SELECT * FROM public.cycle_b;
               `,
             },
             {
               filePath: "cycle-b.sql",
               sql: `
-                CREATE TABLE public.cycle_b (
-                  id integer PRIMARY KEY,
-                  a_id integer REFERENCES public.cycle_a(id)
-                );
+                CREATE VIEW public.cycle_b AS
+                SELECT * FROM public.cycle_a;
               `,
             },
           ],
@@ -140,7 +136,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ),
         ).toBe(true);
         expect(result.apply.status).toBe("stuck");
+        expect(result.apply.totalApplied).toBe(0);
         expect(result.apply.stuckStatements).toHaveLength(2);
+        expect(
+          result.apply.stuckStatements
+            ?.map((statement) => statement.statement.id)
+            .sort(),
+        ).toEqual(["cycle-a.sql:0", "cycle-b.sql:0"]);
       }),
     );
 
