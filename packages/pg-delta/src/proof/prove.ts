@@ -17,6 +17,7 @@ import type { StableId } from "../core/stable-id.ts";
 import { extract } from "../extract/extract.ts";
 import type { Action, Plan } from "../plan/plan.ts";
 import { projectTarget } from "../plan/project.ts";
+import { findDestructionMetadataViolations } from "../plan/safety.ts";
 import type { Policy } from "../policy/policy.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
@@ -62,6 +63,8 @@ export interface DataViolation {
   /** autoSeed changed the table's schema before the plan ran, so row content
    *  cannot be compared safely (including a table that started empty) */
   schemaChanged?: boolean;
+  /** the relation vanished without action metadata declaring its destruction */
+  missingAfter?: boolean;
 }
 
 export interface SeedStateViolation {
@@ -183,6 +186,8 @@ interface TableStat {
   /** deterministic content fingerprint, present only for non-empty tables
    *  (md5 over order-independent row text). Undefined ⇒ empty ⇒ not checked. */
   content?: string;
+  /** false for materialized views, which cannot accept synthetic rows */
+  seedable?: boolean;
 }
 
 const qte = (s: string): string => `"${s.replaceAll('"', '""')}"`;
@@ -194,9 +199,12 @@ async function tableStats(pool: Pool): Promise<Map<string, TableStat>> {
     name: string;
     relfilenode: string;
     schemasig: string | null;
+    relkind: string;
+    relispopulated: boolean;
   }>(`
     SELECT n.nspname AS schema, c.relname AS name,
            c.relfilenode::text AS relfilenode,
+           c.relkind, c.relispopulated,
            (SELECT string_agg(
                      -- atttypmod captures precision/scale/length (numeric(p,s),
                      -- varchar(n)): a typmod change rewrites stored text
@@ -226,7 +234,7 @@ async function tableStats(pool: Pool): Promise<Map<string, TableStat>> {
              WHERE a.attrelid = c.oid AND a.attnum > 0
                AND NOT a.attisdropped) AS schemasig
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE c.relkind = 'r'
+    WHERE c.relkind IN ('r', 'm')
       AND n.nspname NOT IN ('pg_catalog', 'information_schema')
       AND n.nspname NOT LIKE 'pg\\_%'
     ORDER BY 1, 2`);
@@ -234,9 +242,10 @@ async function tableStats(pool: Pool): Promise<Map<string, TableStat>> {
   if (rels.rows.length === 0) return stats;
   // a single wide SELECT of all counts avoids the per-table N+1
   const counts = rels.rows
-    .map(
-      (r, i) =>
-        `(SELECT count(*) FROM ${qte(r.schema)}.${qte(r.name)}) AS c${i}`,
+    .map((r, i) =>
+      r.relkind === "m" && !r.relispopulated
+        ? `0::bigint AS c${i}`
+        : `(SELECT count(*) FROM ${qte(r.schema)}.${qte(r.name)}) AS c${i}`,
     )
     .join(", ");
   const countRow = (await pool.query(`SELECT ${counts}`)).rows[0] as Record<
@@ -248,6 +257,7 @@ async function tableStats(pool: Pool): Promise<Map<string, TableStat>> {
       rows: Number(countRow[`c${i}`]),
       relfilenode: r.relfilenode,
       schemaSig: r.schemasig ?? "",
+      seedable: r.relkind === "r",
     });
   });
 
@@ -313,56 +323,6 @@ function tablesReferencedBy(action: Action): Set<string> {
     if (rel !== undefined) out.add(rel);
   }
   return out;
-}
-
-/**
- * A table teardown is only allowed to escape data-preservation comparison when
- * the action honestly declares data loss. Accepted renames are the exception:
- * their old table identity is destroyed, but provePlan follows the data to the
- * accepted new identity and compares it there.
- */
-export function findUndeclaredTableDestruction(
-  actions: readonly Action[],
-  acceptedRenames: ReadonlyArray<{ from: StableId; to: StableId }> = [],
-): UndeclaredTableDestruction[] {
-  const acceptedTableRenames = new Map(
-    acceptedRenames
-      .filter(
-        (rename) => rename.from.kind === "table" && rename.to.kind === "table",
-      )
-      .map((rename) => {
-        const from = rename.from as { schema: string; name: string };
-        const to = rename.to as { schema: string; name: string };
-        return [
-          relKey(from.schema, from.name),
-          relKey(to.schema, to.name),
-        ] as const;
-      }),
-  );
-  const violations: UndeclaredTableDestruction[] = [];
-  actions.forEach((action, actionIndex) => {
-    if (action.dataLoss === "destructive") return;
-    for (const id of action.destroys) {
-      if (id.kind !== "table") continue;
-      const table = id as { schema: string; name: string };
-      const renamedTo = acceptedTableRenames.get(
-        relKey(table.schema, table.name),
-      );
-      const isAcceptedRenameAction =
-        renamedTo !== undefined &&
-        action.produces.some((produced) => {
-          if (produced.kind !== "table") return false;
-          const target = produced as { schema: string; name: string };
-          return relKey(target.schema, target.name) === renamedTo;
-        });
-      if (isAcceptedRenameAction) continue;
-      violations.push({
-        actionIndex,
-        table: { schema: table.schema, name: table.name },
-      });
-    }
-  });
-  return violations;
 }
 
 async function autoSeedEmptyTables(
@@ -533,6 +493,7 @@ export function detectViolations(
   after: Map<string, TableStat>,
   ctx: {
     recreatedTables: Set<string>;
+    explicitlyDestroyedRelations: Set<string>;
     declaredRewriteTables: Set<string>;
     /** oldRelKey → newRelKey for accepted table renames. The data lives under
      *  the NEW key in `after`, so a renamed table is compared before(old) vs
@@ -563,7 +524,16 @@ export function detectViolations(
     const ref: TableRef = { schema, name };
     const afterStat = after.get(afterKey);
     if (afterStat === undefined) {
-      tablesSkipped.push({ table: ref, reason: "dropped by the plan" });
+      if (ctx.explicitlyDestroyedRelations.has(table)) {
+        tablesSkipped.push({ table: ref, reason: "dropped by the plan" });
+      } else {
+        dataViolations.push({
+          table: ref,
+          before: beforeStat.rows,
+          after: 0,
+          missingAfter: true,
+        });
+      }
       continue;
     }
     if (ctx.recreatedTables.has(table)) {
@@ -635,6 +605,7 @@ export async function provePlan(
   // tables the plan tears down (drop or replace) are NOT "kept"; relfilenode
   // and row-count changes on them are expected, not violations
   const recreatedTables = new Set<string>();
+  const explicitlyDestroyedRelations = new Set<string>();
   const declaredRewriteTables = new Set<string>();
   for (const action of thePlan.actions) {
     for (const id of action.destroys) {
@@ -642,8 +613,10 @@ export async function provePlan(
       if (
         rel !== undefined &&
         (id.kind === "table" || id.kind === "materializedView")
-      )
+      ) {
         recreatedTables.add(rel);
+        explicitlyDestroyedRelations.add(rel);
+      }
     }
     if (action.rewriteRisk) {
       for (const rel of tablesReferencedBy(action))
@@ -667,7 +640,10 @@ export async function provePlan(
       if (from !== undefined && to !== undefined) renamedTables.set(from, to);
     }
   }
-  for (const from of renamedTables.keys()) recreatedTables.delete(from);
+  for (const from of renamedTables.keys()) {
+    recreatedTables.delete(from);
+    explicitlyDestroyedRelations.delete(from);
+  }
 
   // Reconstruct the exact managed view the plan fingerprinted. The same helper
   // serves both the post-autoSeed pre-apply guard and the final convergence
@@ -699,10 +675,13 @@ export async function provePlan(
   // A stale/wrong desired snapshot used to be discovered only after the clone
   // had already been mutated; a stale clone bypassed apply's normal gate
   // entirely because provePlan called apply({ fingerprintGate:false }).
-  const safetyMetadataViolations = findUndeclaredTableDestruction(
+  const safetyMetadataViolations = findDestructionMetadataViolations(
     thePlan.actions,
     thePlan.acceptedRenames,
-  );
+  ).map(({ actionIndex, relation }) => ({
+    actionIndex,
+    table: { schema: relation.schema, name: relation.name },
+  }));
   if (safetyMetadataViolations.length > 0) {
     return {
       ok: false,
@@ -753,7 +732,10 @@ export async function provePlan(
   if (options.autoSeed) {
     preSeedStats = await tableStats(clonePool);
     const empty = [...preSeedStats]
-      .filter(([t, s]) => s.rows === 0 && !recreatedTables.has(t))
+      .filter(
+        ([t, s]) =>
+          s.rows === 0 && s.seedable !== false && !recreatedTables.has(t),
+      )
       .map(([t]) => t);
     seedOutcomes = await autoSeedEmptyTables(clonePool, empty);
   }
@@ -856,7 +838,12 @@ export async function provePlan(
   const { dataViolations, rewriteViolations, coverage } = detectViolations(
     before,
     after,
-    { recreatedTables, declaredRewriteTables, renamedTables },
+    {
+      recreatedTables,
+      explicitlyDestroyedRelations,
+      declaredRewriteTables,
+      renamedTables,
+    },
   );
 
   return {

@@ -190,7 +190,10 @@ describe("detectViolations — content + coverage (review #3)", () => {
     const baseline = detectViolations(
       before,
       after,
-      ctx({ recreatedTables: new Set([OLD]) }),
+      ctx({
+        recreatedTables: new Set([OLD]),
+        explicitlyDestroyedRelations: new Set([OLD]),
+      }),
     );
     expect(baseline.coverage.tablesChecked).toBe(0);
     expect(baseline.coverage.tablesSkipped.map((s) => s.table.name)).toContain(
