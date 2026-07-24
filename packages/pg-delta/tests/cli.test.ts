@@ -7,7 +7,13 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { loadSnapshot } from "../src/frontends/snapshot-file.ts";
 import { parsePlan } from "../src/plan/artifact.ts";
 import { isolatedClusterPair, sharedCluster } from "./containers.ts";
@@ -19,6 +25,17 @@ interface SpawnResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+}
+
+function expectDryRunStdoutIsScript(stdout: string): void {
+  for (const diagnostic of [
+    "Dry run:",
+    "WARNING:",
+    "Plan artifact written",
+    "UNREDACTED",
+  ]) {
+    expect(stdout).not.toContain(diagnostic);
+  }
 }
 
 async function runCli(args: string[]): Promise<SpawnResult> {
@@ -1805,17 +1822,210 @@ describe("CLI: schema apply debugging", () => {
       expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
         code: 0,
       });
+      expect(res.stdout).toStartWith(
+        "-- pg-delta schema apply --dry-run\n" +
+          "-- Execute statements one at a time, in order, on one database session.\n",
+      );
       expect(res.stdout).toContain("CREATE TABLE");
       expect(res.stdout).toContain('"app"."t"');
+      const beginIndex = res.stdout.indexOf("BEGIN;");
+      const searchPathIndex = res.stdout.indexOf(
+        "SET LOCAL search_path = pg_catalog;",
+      );
+      const actionIndex = res.stdout.indexOf("CREATE TABLE");
+      const commitIndex = res.stdout.indexOf("COMMIT;", actionIndex);
+      expect(beginIndex).toBeGreaterThan(-1);
+      expect(searchPathIndex).toBeGreaterThan(beginIndex);
+      expect(actionIndex).toBeGreaterThan(searchPathIndex);
+      expect(commitIndex).toBeGreaterThan(actionIndex);
       expect(res.stderr).toMatch(
         /Dry run: \d+ action\(s\) planned; nothing applied\./,
       );
+      expectDryRunStdoutIsScript(res.stdout);
 
       // the target must be UNCHANGED — nothing was applied
       const { rows } = await target.pool.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'app'`,
       );
       expect(rows[0]?.n).toBe(0);
+    } finally {
+      await target.drop();
+    }
+  }, 90_000);
+
+  test("--dry-run stdout executes through psql with every transactionality boundary intact", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("cli_apply_dryrun_psql_tgt");
+    const dir = mkdtempSync(join(tmpdir(), "pg-delta-next-dryrun-psql-"));
+    try {
+      await target.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TYPE app.mood AS ENUM ('sad');
+        CREATE TABLE app.items (
+          id integer PRIMARY KEY,
+          mood app.mood NOT NULL DEFAULT 'sad',
+          label text NOT NULL
+        );
+        INSERT INTO app.items (id, label) VALUES (1, 'kept');
+      `);
+      writeFileSync(
+        join(dir, "01_schema.sql"),
+        `
+          CREATE SCHEMA app;
+          CREATE TYPE app.mood AS ENUM ('sad', 'ok');
+          CREATE TABLE app.items (
+            id integer PRIMARY KEY,
+            mood app.mood NOT NULL DEFAULT 'sad',
+            label text NOT NULL
+          );
+          CREATE INDEX items_label_idx ON app.items (label);
+        `,
+      );
+      const profilePath = join(dir, "concurrent-indexes.json");
+      writeFileSync(
+        profilePath,
+        JSON.stringify({
+          id: "cli-dryrun-concurrent-indexes",
+          handlers: [],
+          policy: {
+            id: "cli-dryrun-concurrent-indexes-policy",
+            serialize: [
+              {
+                match: { all: [] },
+                params: { concurrentIndexes: true },
+              },
+            ],
+          },
+        }),
+      );
+
+      const dryRun = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--target",
+        target.uri,
+        "--profile",
+        profilePath,
+        "--renames",
+        "off",
+        "--dry-run",
+      ]);
+      expect({ code: dryRun.exitCode, stderr: dryRun.stderr }).toMatchObject({
+        code: 0,
+      });
+      expectDryRunStdoutIsScript(dryRun.stdout);
+      expect(dryRun.stdout).toContain(`ALTER TYPE "app"."mood" ADD VALUE 'ok'`);
+      expect(dryRun.stdout).toContain("CREATE INDEX CONCURRENTLY");
+
+      const psql = Bun.spawn(
+        [
+          "docker",
+          "exec",
+          "-i",
+          cluster.container.getId(),
+          "psql",
+          "-X",
+          "-v",
+          "ON_ERROR_STOP=1",
+          "-U",
+          "test",
+          "-d",
+          target.name,
+          "-f",
+          "-",
+        ],
+        { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+      );
+      await psql.stdin.write(dryRun.stdout);
+      await psql.stdin.end();
+      const [psqlStdout, psqlStderr, psqlExitCode] = await Promise.all([
+        new Response(psql.stdout).text(),
+        new Response(psql.stderr).text(),
+        psql.exited,
+      ]);
+      expect({ psqlExitCode, psqlStdout, psqlStderr }).toMatchObject({
+        psqlExitCode: 0,
+      });
+
+      const state = await target.pool.query<{
+        default_expression: string;
+        enum_values: string[];
+        index_valid: boolean;
+        kept_rows: number;
+      }>(`
+        SELECT
+          pg_get_expr(d.adbin, d.adrelid) AS default_expression,
+          enum_range(NULL::app.mood)::text[] AS enum_values,
+          (SELECT i.indisvalid
+             FROM pg_index i
+             JOIN pg_class c ON c.oid = i.indexrelid
+            WHERE c.oid = 'app.items_label_idx'::regclass) AS index_valid,
+          (SELECT count(*)::int FROM app.items WHERE id = 1 AND label = 'kept') AS kept_rows
+        FROM pg_attrdef d
+        JOIN pg_attribute a
+          ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+        WHERE d.adrelid = 'app.items'::regclass AND a.attname = 'mood'
+      `);
+      expect(state.rows[0]).toMatchObject({
+        default_expression: "'sad'::app.mood",
+        enum_values: ["sad", "ok"],
+        index_valid: true,
+        kept_rows: 1,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      await target.drop();
+    }
+  }, 90_000);
+
+  test("--dry-run reports destructive actions without applying them", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("cli_apply_dryrun_drop_tgt");
+    try {
+      await target.pool.query(
+        `CREATE SCHEMA app; CREATE TABLE app.obsolete (id integer PRIMARY KEY);`,
+      );
+      const dir = join(tmpdir(), `pg-delta-next-dryrun-drop-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "01_schema.sql"), `CREATE SCHEMA app;\n`);
+      const planPath = join(dir, "plan.json");
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+        "--dry-run",
+        "--out-plan",
+        planPath,
+      ]);
+
+      expect({
+        code: res.exitCode,
+        stdout: res.stdout,
+        stderr: res.stderr,
+      }).toMatchObject({ code: 0 });
+      expect(res.stdout).toContain("DROP TABLE");
+      expect(res.stdout).toContain('"app"."obsolete"');
+      expectDryRunStdoutIsScript(res.stdout);
+      const destructiveWarning = res.stderr.match(
+        /WARNING: plan contains (\d+) destructive action\(s\)\./,
+      );
+      expect(destructiveWarning).not.toBeNull();
+      const warningCount = Number(destructiveWarning?.[1]);
+      const parsed = parsePlan(readFileSync(planPath, "utf8"));
+      expect(warningCount).toBeGreaterThan(0);
+      expect(warningCount).toBe(parsed.safetyReport.destructiveActions);
+      const { rows } = await target.pool.query<{ exists: boolean }>(
+        `SELECT to_regclass('app.obsolete') IS NOT NULL AS exists`,
+      );
+      expect(rows[0]?.exists).toBe(true);
     } finally {
       await target.drop();
     }
@@ -1850,6 +2060,7 @@ describe("CLI: schema apply debugging", () => {
         code: 0,
       });
       expect(res.stderr).toContain(`Plan artifact written to ${planPath}`);
+      expectDryRunStdoutIsScript(res.stdout);
 
       const parsed = parsePlan(readFileSync(planPath, "utf8"));
       expect(parsed.actions.length).toBeGreaterThan(0);
@@ -1905,6 +2116,7 @@ describe("CLI: schema apply debugging", () => {
       // distinct from `[i/total] <action sql>` lines.
       expect(res.stderr).toContain("  ; BEGIN");
       expect(res.stderr).toContain("  ; COMMIT");
+      expect(res.stdout).toBe("");
 
       const { rows } = await target.pool.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'app'`,
@@ -1926,9 +2138,12 @@ describe("CLI: schema apply debugging", () => {
     const source = await cluster.createDb("cli_apply_dryrun_unred_src");
     const target = await cluster.createDb("cli_apply_dryrun_unred_tgt");
     try {
-      await source.pool.query(
-        `CREATE SCHEMA app; CREATE TABLE app.t (id integer PRIMARY KEY);`,
-      );
+      const secret = "cli-dryrun-secret-xyz";
+      await source.pool.query(`
+        CREATE FOREIGN DATA WRAPPER cli_dryrun_fdw;
+        CREATE SERVER cli_dryrun_srv FOREIGN DATA WRAPPER cli_dryrun_fdw
+          OPTIONS (host 'h.example.com', password '${secret}');
+      `);
       const dir = join(tmpdir(), `pg-delta-next-dryrun-unred-${Date.now()}`);
       const exported = await runCli([
         "schema",
@@ -1964,12 +2179,19 @@ describe("CLI: schema apply debugging", () => {
         .split("\n")
         .filter((l) => l.includes("UNREDACTED"));
       expect(warnings.length).toBe(2);
+      expectDryRunStdoutIsScript(res.stdout);
+      expect(res.stdout).toContain(secret);
+      expect(res.stdout).not.toContain("__OPTION_PASSWORD__");
+      expect(res.stderr).not.toContain(secret);
 
       // and the artifact STAMPS the unredacted mode: its fingerprint was taken
       // from unredacted extracts, so `pgdelta apply --plan` must re-extract
       // unredacted too — an absent field reads as redacted and the gate would
       // spuriously reject an unchanged target.
-      const parsed = parsePlan(readFileSync(planPath, "utf8"));
+      const serializedPlan = readFileSync(planPath, "utf8");
+      expect(serializedPlan).toContain(secret);
+      expect(serializedPlan).not.toContain("__OPTION_PASSWORD__");
+      const parsed = parsePlan(serializedPlan);
       expect(parsed.redactSecrets).toBe(false);
     } finally {
       await Promise.all([source.drop(), target.drop()]);
