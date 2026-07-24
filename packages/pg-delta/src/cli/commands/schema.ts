@@ -87,9 +87,9 @@ import { assertDataLossAllowed } from "../data-loss-safety.ts";
 import {
   connectionEndpointHash,
   isSameDatabase,
-  isSamePostgresCluster,
+  isSamePostgresLineage,
   isTrustedLocalConnection,
-  observeDatabaseIdentity,
+  observeDatabaseIdentityForMutation,
 } from "../connection-safety.ts";
 
 /** Recursively collect *.sql files in lexicographic order. Exported for tests. */
@@ -663,8 +663,14 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   try {
     if (shadowFlag !== undefined) {
       const [targetIdentity, shadowIdentity] = await Promise.all([
-        observeDatabaseIdentity(tgt.pool),
-        observeDatabaseIdentity(shadow.pool),
+        observeDatabaseIdentityForMutation(
+          tgt.pool,
+          "schema apply target/shadow safety",
+        ),
+        observeDatabaseIdentityForMutation(
+          shadow.pool,
+          "schema apply target/shadow safety",
+        ),
       ]);
       if (isSameDatabase(targetIdentity, shadowIdentity)) {
         throw new UsageError(
@@ -673,10 +679,10 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       }
       if (
         scope === "cluster" &&
-        isSamePostgresCluster(targetIdentity, shadowIdentity)
+        isSamePostgresLineage(targetIdentity, shadowIdentity)
       ) {
         throw new UsageError(
-          "schema apply: --scope cluster requires a shadow on a different PostgreSQL cluster; the supplied shadow shares the target cluster",
+          "schema apply: --scope cluster requires a shadow from a different PostgreSQL lineage; the supplied shadow shares the target lineage",
         );
       }
     }

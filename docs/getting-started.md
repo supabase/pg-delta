@@ -83,8 +83,14 @@ a local container DNS name, add its exact host with
 `--trusted-local-host postgres.orb.local`. Any port on that exact host is
 accepted, which accommodates dynamically allocated container ports. An
 intentional remote clone requires `--allow-remote-clone`. The command refuses
-the plan's original source endpoint and verifies both the clone fingerprint and
-desired snapshot before auto-seeding or applying any DDL.
+the plan's original source endpoint and observed PostgreSQL database identity,
+and verifies both the clone fingerprint and desired snapshot before auto-seeding
+or applying any DDL. Cluster-scoped plans also require a clone from a different
+PostgreSQL lineage. Physical/base-backup clones retain the source lineage and
+database identity and are therefore unsupported; use a logical/reinitialized
+clone. Legacy and direct-library plans carry no identity stamp, so CLI proof of
+those artifacts fails closed unless `--allow-unverified-source-identity` is
+supplied. That flag cannot override a confirmed identity match.
 
 Plans containing actions marked `dataLoss:"destructive"` require the separate
 `--allow-data-loss` flag at `apply` time. `--force` only bypasses the source
@@ -113,7 +119,9 @@ Explicit shadows follow the same endpoint policy as proof clones: local by
 default, an exact custom hostname via `--trusted-local-host`, or an
 intentional remote database via `--allow-remote-shadow`. pg-delta observes both
 connections before loading SQL and refuses when shadow and target are the same
-database. Cluster scope additionally requires a different PostgreSQL cluster.
+database. Cluster scope additionally requires a different PostgreSQL lineage.
+If the server denies `pg_catalog.pg_control_system()`, explicit-shadow apply
+fails closed with a grant-remediation hint.
 
 Export the inverse — a live database back out to `.sql` files:
 
@@ -139,7 +147,7 @@ pgdelta schema export --source "$SOURCE_URL" --out-dir ./schema
 
 > The shadow database must be fresh and empty. When `--shadow` is omitted in
 > database scope, pg-delta creates and later drops a co-located scratch database.
-> Cluster scope requires an explicit shadow on an isolated PostgreSQL cluster.
+> Cluster scope requires an explicit shadow from an isolated PostgreSQL lineage.
 
 ### Detect drift from a saved snapshot
 

@@ -24,7 +24,12 @@ import { parseFlags, UsageError } from "../flags.ts";
 import { PROFILE_IDS, resolveCliProfile } from "../profile.ts";
 import type { RenameMode } from "../../plan/renames.ts";
 import { writeFileSync } from "node:fs";
-import { connectionEndpointHash } from "../connection-safety.ts";
+import {
+  connectionEndpointHash,
+  databaseIdentityStamp,
+  isDatabaseIdentityObservationUnavailable,
+  observeDatabaseIdentity,
+} from "../connection-safety.ts";
 
 const USAGE =
   "Usage: pgdelta plan --source <pg-url> --desired <pg-url> " +
@@ -116,6 +121,20 @@ export async function cmdPlan(args: string[]): Promise<void> {
       ctx.extract(src.pool, { redactSecrets }),
       ctx.extract(dst.pool, { redactSecrets }),
     ]);
+    let sourceIdentity;
+    try {
+      sourceIdentity = databaseIdentityStamp(
+        await observeDatabaseIdentity(src.pool),
+      );
+    } catch (error) {
+      if (!isDatabaseIdentityObservationUnavailable(error)) throw error;
+      process.stderr.write(
+        "WARNING: plan could not observe the source PostgreSQL lineage/database identity. " +
+          "The plan remains applicable, but CLI prove will require " +
+          "--allow-unverified-source-identity unless the connection role is granted " +
+          "EXECUTE on pg_catalog.pg_control_system().\n",
+      );
+    }
 
     // surface extraction diagnostics (review finding 2); --strict-coverage
     // refuses to plan while user objects the engine cannot manage exist
@@ -147,6 +166,9 @@ export async function cmdPlan(args: string[]): Promise<void> {
     // Credential-free origin stamp: prove uses this only to reject the most
     // dangerous endpoint mixup (`--clone` accidentally receives SOURCE_URL).
     thePlan.source.endpointHash = connectionEndpointHash(sourceUrl);
+    if (sourceIdentity !== undefined) {
+      thePlan.source.identity = sourceIdentity;
+    }
 
     // human summary → stderr
     process.stderr.write(`\nPlan summary:\n`);

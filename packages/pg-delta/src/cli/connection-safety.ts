@@ -8,6 +8,7 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
 import { parse as parseConnectionString } from "pg-connection-string";
+import type { SourceDatabaseIdentity } from "../plan/plan.ts";
 
 interface ConnectionEndpoint {
   host: string;
@@ -161,9 +162,7 @@ export function connectionEndpointHash(connectionString: string): string {
 export interface ObservedDatabaseIdentity {
   database: string;
   databaseOid: string;
-  serverAddress: string | null;
-  serverPort: string | null;
-  postmasterStartedAt: string;
+  systemIdentifier: string;
 }
 
 /** Observe identity through PostgreSQL so URL aliases cannot hide same-DB use. */
@@ -173,11 +172,9 @@ export async function observeDatabaseIdentity(
   const result = await pool.query<ObservedDatabaseIdentity>(`
     SELECT current_database() AS database,
            d.oid::text AS "databaseOid",
-           inet_server_addr()::text AS "serverAddress",
-           inet_server_port()::text AS "serverPort",
-           extract(epoch FROM pg_postmaster_start_time())::text
-             AS "postmasterStartedAt"
-      FROM pg_database d
+           c.system_identifier::text AS "systemIdentifier"
+      FROM pg_catalog.pg_database d
+      CROSS JOIN pg_catalog.pg_control_system() c
      WHERE d.datname = current_database()
   `);
   const identity = result.rows[0];
@@ -187,15 +184,57 @@ export async function observeDatabaseIdentity(
   return identity;
 }
 
-export function isSamePostgresCluster(
+export function databaseIdentityStamp(
+  identity: ObservedDatabaseIdentity,
+): SourceDatabaseIdentity {
+  const hash = (domain: string, values: string[]): string =>
+    createHash("sha256")
+      .update(`${domain}\0${values.join("\0")}`)
+      .digest("hex");
+  return {
+    scheme: "pg-system-identifier-v1",
+    lineageHash: hash("pgdelta:postgres-lineage:v1", [
+      identity.systemIdentifier,
+    ]),
+    databaseHash: hash("pgdelta:postgres-database:v1", [
+      identity.systemIdentifier,
+      identity.databaseOid,
+    ]),
+  };
+}
+
+export function isDatabaseIdentityObservationUnavailable(
+  error: unknown,
+): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
+  }
+  const code = (error as { code?: unknown }).code;
+  return code === "42501" || code === "42883";
+}
+
+export async function observeDatabaseIdentityForMutation(
+  pool: Pool,
+  context: string,
+): Promise<ObservedDatabaseIdentity> {
+  try {
+    return await observeDatabaseIdentity(pool);
+  } catch (error) {
+    if (!isDatabaseIdentityObservationUnavailable(error)) throw error;
+    throw new Error(
+      `${context}: could not observe the PostgreSQL lineage/database identity; ` +
+        `grant the connection role access with GRANT EXECUTE ON FUNCTION ` +
+        `pg_catalog.pg_control_system() TO <role>, then retry`,
+      { cause: error },
+    );
+  }
+}
+
+export function isSamePostgresLineage(
   left: ObservedDatabaseIdentity,
   right: ObservedDatabaseIdentity,
 ): boolean {
-  return (
-    left.postmasterStartedAt === right.postmasterStartedAt &&
-    left.serverAddress === right.serverAddress &&
-    left.serverPort === right.serverPort
-  );
+  return left.systemIdentifier === right.systemIdentifier;
 }
 
 export function isSameDatabase(
@@ -203,6 +242,6 @@ export function isSameDatabase(
   right: ObservedDatabaseIdentity,
 ): boolean {
   return (
-    isSamePostgresCluster(left, right) && left.databaseOid === right.databaseOid
+    isSamePostgresLineage(left, right) && left.databaseOid === right.databaseOid
   );
 }

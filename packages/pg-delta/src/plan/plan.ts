@@ -83,6 +83,16 @@ export interface SafetyReport {
   lockClasses: Partial<Record<LockClass, number>>;
 }
 
+/** Opaque, transport-independent identity stamped only by the CLI. PostgreSQL's
+ * system identifier names a physical-replication lineage (base backups retain
+ * it), not necessarily one running server, so the field deliberately says
+ * lineage rather than cluster. */
+export interface SourceDatabaseIdentity {
+  scheme: "pg-system-identifier-v1";
+  lineageHash: string;
+  databaseHash: string;
+}
+
 export interface Plan {
   formatVersion: 1;
   engineVersion: string;
@@ -92,6 +102,10 @@ export interface Plan {
      *  the common `prove --clone "$SOURCE_URL"` mistake. Absent on direct
      *  library plans and legacy artifacts. */
     endpointHash?: string;
+    /** Opaque hashes of the observed PostgreSQL lineage and database. CLI
+     * `prove` uses these to reject source aliases before mutation. Absent on
+     * legacy/direct-library plans and when the server denies pg_control_system. */
+    identity?: SourceDatabaseIdentity;
   };
   target: { fingerprint: string };
   /** whether the source/desired fact bases were extracted with secret redaction

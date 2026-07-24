@@ -25,6 +25,7 @@ const LOCK_CLASSES = new Set([
   "accessExclusive",
 ]);
 const DATA_LOSS = new Set(["none", "destructive"]);
+const SHA256 = /^[0-9a-f]{64}$/;
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -56,6 +57,16 @@ function exactKeys(
   const allowed = new Set([...required, ...optional]);
   const extra = Object.keys(value).find((key) => !allowed.has(key));
   if (extra !== undefined) fail(`${path}.${extra}`, "a recognized field");
+}
+
+function sha256Field(
+  value: Record<string, unknown>,
+  field: string,
+  path: string,
+): string {
+  const digest = stringField(value, field, path);
+  if (!SHA256.test(digest)) fail(`${path}.${field}`, "a SHA-256 hex digest");
+  return digest;
 }
 
 function assertStableId(
@@ -285,11 +296,38 @@ export function parsePlan(json: string): Plan {
       assertStableId(rename["to"], `acceptedRenames[${index}].to`);
     });
   }
-  if (
-    artifact.source?.fingerprint === undefined ||
-    artifact.target?.fingerprint === undefined
-  ) {
+  if (!record(artifact.source) || !record(artifact.target)) {
     throw new Error("plan artifact: missing source/target fingerprints");
   }
+  exactKeys(
+    artifact.source,
+    ["fingerprint"],
+    ["endpointHash", "identity"],
+    "source",
+  );
+  sha256Field(artifact.source, "fingerprint", "source");
+  if (artifact.source["endpointHash"] !== undefined) {
+    sha256Field(artifact.source, "endpointHash", "source");
+  }
+  const identity = artifact.source["identity"];
+  if (identity !== undefined) {
+    if (!record(identity)) fail("source.identity", "an object");
+    exactKeys(
+      identity,
+      ["scheme", "lineageHash", "databaseHash"],
+      [],
+      "source.identity",
+    );
+    if (
+      stringField(identity, "scheme", "source.identity") !==
+      "pg-system-identifier-v1"
+    ) {
+      fail("source.identity.scheme", "pg-system-identifier-v1");
+    }
+    sha256Field(identity, "lineageHash", "source.identity");
+    sha256Field(identity, "databaseHash", "source.identity");
+  }
+  exactKeys(artifact.target, ["fingerprint"], [], "target");
+  sha256Field(artifact.target, "fingerprint", "target");
   return artifact as Plan;
 }

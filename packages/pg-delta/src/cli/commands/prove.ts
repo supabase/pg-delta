@@ -6,6 +6,7 @@
  */
 import { readFileSync } from "node:fs";
 import { parsePlan } from "../../plan/artifact.ts";
+import type { SourceDatabaseIdentity } from "../../plan/plan.ts";
 import { rel } from "../../plan/render.ts";
 import {
   provePlan,
@@ -19,7 +20,10 @@ import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
 import {
   connectionEndpointHash,
+  databaseIdentityStamp,
+  isDatabaseIdentityObservationUnavailable,
   isTrustedLocalConnection,
+  observeDatabaseIdentity,
 } from "../connection-safety.ts";
 import { CliExit, parseFlags, UsageError } from "../flags.ts";
 import {
@@ -189,6 +193,37 @@ export function assertProofCloneEndpoint(
   }
 }
 
+export function assertProofCloneIdentity(
+  source: SourceDatabaseIdentity | undefined,
+  clone: SourceDatabaseIdentity | undefined,
+  scope: "database" | "cluster" | undefined,
+  allowUnverified: boolean,
+): "verified" | "unverified" {
+  if (source === undefined) {
+    if (allowUnverified) return "unverified";
+    throw new UsageError(
+      "prove: the plan has no observed source database identity (legacy/direct-library or unavailable at plan time); re-plan with a role that can execute pg_catalog.pg_control_system(), or pass --allow-unverified-source-identity only for an independently verified disposable clone",
+    );
+  }
+  if (clone === undefined) {
+    if (allowUnverified) return "unverified";
+    throw new UsageError(
+      "prove: could not observe the clone PostgreSQL lineage/database identity; grant EXECUTE on pg_catalog.pg_control_system() to the connection role, or pass --allow-unverified-source-identity only for an independently verified disposable clone",
+    );
+  }
+  if (source.databaseHash === clone.databaseHash) {
+    throw new UsageError(
+      "prove: the clone is the same observed database as the plan source; refusing to mutate it. Physical/base-backup clones retain this identity and are not supported",
+    );
+  }
+  if (scope !== "database" && source.lineageHash === clone.lineageHash) {
+    throw new UsageError(
+      "prove: the clone has the same PostgreSQL lineage as the source; a cluster-scoped plan requires a different lineage",
+    );
+  }
+  return "verified";
+}
+
 export async function cmdProve(args: string[]): Promise<void> {
   let parsed;
   try {
@@ -199,12 +234,14 @@ export async function cmdProve(args: string[]): Promise<void> {
       profile: { type: "value" },
       "trusted-local-host": { type: "multi" },
       "allow-remote-clone": { type: "boolean" },
+      "allow-unverified-source-identity": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       throw new UsageError(
         `${err.message}\nUsage: pgdelta prove --plan <plan.json> --clone <pg-url> --desired-snapshot <file> [--profile ${PROFILE_IDS}] ` +
-          `[--trusted-local-host <hostname>]... [--allow-remote-clone]`,
+          `[--trusted-local-host <hostname>]... [--allow-remote-clone] ` +
+          `[--allow-unverified-source-identity]`,
       );
     }
     throw err;
@@ -291,11 +328,46 @@ export async function cmdProve(args: string[]): Promise<void> {
     );
   }
 
-  process.stderr.write(
-    "WARNING: prove may mutate the --clone database; use only a disposable clone.\n",
-  );
+  const allowUnverifiedIdentity =
+    flags["allow-unverified-source-identity"] === true;
+  let identityStatus: "verified" | "unverified";
+  if (thePlan.source.identity === undefined) {
+    identityStatus = assertProofCloneIdentity(
+      undefined,
+      undefined,
+      thePlan.scope,
+      allowUnverifiedIdentity,
+    );
+  } else {
+    identityStatus = "verified";
+  }
+
   const clone = makePool(cloneUrl);
   try {
+    if (thePlan.source.identity !== undefined) {
+      let cloneIdentity: SourceDatabaseIdentity | undefined;
+      try {
+        cloneIdentity = databaseIdentityStamp(
+          await observeDatabaseIdentity(clone.pool),
+        );
+      } catch (error) {
+        if (!isDatabaseIdentityObservationUnavailable(error)) throw error;
+      }
+      identityStatus = assertProofCloneIdentity(
+        thePlan.source.identity,
+        cloneIdentity,
+        thePlan.scope,
+        allowUnverifiedIdentity,
+      );
+    }
+    if (identityStatus === "unverified") {
+      process.stderr.write(
+        "WARNING: source database identity could not be verified; proceeding only because --allow-unverified-source-identity was supplied.\n",
+      );
+    }
+    process.stderr.write(
+      "WARNING: prove may mutate the --clone database; use only a disposable clone.\n",
+    );
     process.stderr.write(
       `Proving plan (${thePlan.actions.length} action(s))...\n`,
     );

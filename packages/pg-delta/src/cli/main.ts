@@ -117,8 +117,12 @@ Notes:
   --accept-rename: confirm a rename from a prior prompt run; repeatable.
   Safety: prove accepts local clone endpoints by default. Add an exact custom
     hostname with --trusted-local-host, or explicitly opt into a disposable
-    remote clone with --allow-remote-clone. Explicit schema shadows follow the
-    same rule via --allow-remote-shadow. apply/schema apply refuse actions marked
+    remote clone with --allow-remote-clone. CLI plans stamp an opaque PostgreSQL
+    lineage/database identity; prove rejects the original database and, for
+    cluster-scoped plans, its lineage. Physical/base-backup clones are unsupported.
+    Legacy/direct-library plans need --allow-unverified-source-identity; that flag
+    never overrides a confirmed identity match. Explicit schema shadows follow
+    the same endpoint and identity rules via --allow-remote-shadow. apply/schema apply refuse actions marked
     dataLoss:"destructive" unless --allow-data-loss is supplied; --force only
     skips the source fingerprint gate and never implies data-loss approval.
   --no-reorder (schema apply): skip the statement-reordering assist and load
