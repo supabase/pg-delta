@@ -1,6 +1,6 @@
 {
   "name": "@supabase/pg-delta",
-  "version": "1.0.0-alpha.32",
+  "version": "1.0.0-alpha.33",
   "description": "PostgreSQL migrations made easy",
   "keywords": [
     "diff",
