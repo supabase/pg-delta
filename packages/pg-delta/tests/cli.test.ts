@@ -56,6 +56,36 @@ async function runCli(args: string[]): Promise<SpawnResult> {
   return { stdout, stderr, exitCode };
 }
 
+async function runCliAfterStderr(
+  args: string[],
+  marker: string,
+  afterMarker: () => Promise<void>,
+): Promise<SpawnResult> {
+  const proc = Bun.spawn(["bun", CLI, ...args], {
+    cwd: PKG_DIR,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stdoutPromise = new Response(proc.stdout).text();
+  const reader = proc.stderr.getReader();
+  const decoder = new TextDecoder();
+  let stderr = "";
+  let markerSeen = false;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    stderr += decoder.decode(value, { stream: true });
+    if (!markerSeen && stderr.includes(marker)) {
+      markerSeen = true;
+      await afterMarker();
+    }
+  }
+  stderr += decoder.decode();
+  const [stdout, exitCode] = await Promise.all([stdoutPromise, proc.exited]);
+  expect(markerSeen).toBe(true);
+  return { stdout, stderr, exitCode };
+}
+
 const SCHEMA_SQL = `
   CREATE SCHEMA clitest;
   CREATE TABLE clitest.items (
@@ -2511,27 +2541,55 @@ describe("CLI: schema apply debugging", () => {
       ]);
       expect(exported.exitCode).toBe(0);
 
-      // New target connections inherit read-only mode, so planning succeeds
-      // but the only planned action (the secret-bearing CREATE SERVER) fails.
-      await target.pool.query(
-        `ALTER DATABASE ${target.name} SET default_transaction_read_only = on`,
-      );
-
       // No --unsafe-show-secrets and no --verbose: the export manifest alone
       // selects unredacted extraction, and only the final failure diagnostic
       // exposes the action SQL.
-      const res = await runCli([
-        "schema",
-        "apply",
-        "--dir",
-        dir,
-        "--shadow",
-        shadow.uri,
-        "--target",
-        target.uri,
-        "--renames",
-        "off",
-      ]);
+      const blocker = await target.pool.connect();
+      let blockerReleased = false;
+      let res: SpawnResult;
+      try {
+        await blocker.query("BEGIN");
+        // Allows planning's catalog SELECT but holds CREATE SERVER until the
+        // target-only event trigger is installed after extraction completes.
+        await blocker.query(
+          "LOCK TABLE pg_catalog.pg_foreign_server IN SHARE MODE",
+        );
+        res = await runCliAfterStderr(
+          [
+            "schema",
+            "apply",
+            "--dir",
+            dir,
+            "--shadow",
+            shadow.uri,
+            "--target",
+            target.uri,
+            "--renames",
+            "off",
+          ],
+          "Planning:",
+          async () => {
+            await target.pool.query(`
+              CREATE FUNCTION public.cli_fail_secret_ddl() RETURNS event_trigger
+              LANGUAGE plpgsql AS $$
+              BEGIN
+                IF TG_TAG = 'CREATE SERVER' THEN
+                  RAISE EXCEPTION 'blocked secret-bearing DDL: %', current_query();
+                END IF;
+              END
+              $$;
+              CREATE EVENT TRIGGER cli_fail_secret_ddl
+                ON ddl_command_start
+                EXECUTE FUNCTION public.cli_fail_secret_ddl();
+            `);
+            await blocker.query("COMMIT");
+            blockerReleased = true;
+          },
+        );
+      } finally {
+        if (!blockerReleased) await blocker.query("ROLLBACK");
+        blocker.release();
+      }
 
       expect(res.exitCode).toBe(1);
       expect(res.stdout).toBe("");
@@ -2542,9 +2600,13 @@ describe("CLI: schema apply debugging", () => {
       expect(warning).not.toContain(secret);
       const warningIndex = res.stderr.indexOf(warning!);
       const failedSqlIndex = res.stderr.indexOf(`  sql: `);
-      const secretIndex = res.stderr.indexOf(secret);
+      const firstSecretIndex = res.stderr.indexOf(secret);
+      expect(firstSecretIndex).toBeGreaterThanOrEqual(0);
+      expect(warningIndex).toBeLessThan(firstSecretIndex);
       expect(failedSqlIndex).toBeGreaterThan(warningIndex);
-      expect(secretIndex).toBeGreaterThan(failedSqlIndex);
+      expect(res.stderr.indexOf(secret, firstSecretIndex + 1)).toBeGreaterThan(
+        failedSqlIndex,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
       await Promise.all([source.drop(), shadow.drop(), target.drop()]);
