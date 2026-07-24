@@ -43,8 +43,8 @@ describe("connection safety", () => {
     expect(isTrustedLocalConnection("postgres://0.0.0.0/app", [])).toBe(false);
   });
 
-  test("accepts an exact custom local endpoint without trusting other ports", () => {
-    const trusted = ["postgres.orb.local:5432"];
+  test("accepts an exact custom local host across dynamic ports", () => {
+    const trusted = ["postgres.orb.local"];
     expect(
       isTrustedLocalConnection(
         "postgres://postgres.orb.local:5432/app",
@@ -56,7 +56,23 @@ describe("connection safety", () => {
         "postgres://postgres.orb.local:6543/app",
         trusted,
       ),
+    ).toBe(true);
+    expect(
+      isTrustedLocalConnection("postgres://other.orb.local:5432/app", trusted),
     ).toBe(false);
+  });
+
+  test("custom local hosts reject endpoint and wildcard syntax", () => {
+    expect(() =>
+      isTrustedLocalConnection("postgres://postgres.orb.local/app", [
+        "postgres.orb.local:5432",
+      ]),
+    ).toThrow(/exact hostname/);
+    expect(() =>
+      isTrustedLocalConnection("postgres://postgres.orb.local/app", [
+        "*.orb.local",
+      ]),
+    ).toThrow(/exact hostname/);
   });
 
   test("source endpoint hash ignores credentials but includes the database", () => {

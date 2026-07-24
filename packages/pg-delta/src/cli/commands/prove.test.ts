@@ -46,12 +46,12 @@ describe("assertProofCloneEndpoint", () => {
     ).not.toThrow();
   });
 
-  test("an exact custom local endpoint is accepted", () => {
+  test("an exact custom local host is accepted on any port", () => {
     expect(() =>
       assertProofCloneEndpoint(
-        "postgres://postgres.orb.local:5432/app",
+        "postgres://postgres.orb.local:6543/app",
         undefined,
-        ["postgres.orb.local:5432"],
+        ["postgres.orb.local"],
         false,
       ),
     ).not.toThrow();
