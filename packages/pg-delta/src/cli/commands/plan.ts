@@ -26,9 +26,10 @@ import type { RenameMode } from "../../plan/renames.ts";
 import { writeFileSync } from "node:fs";
 import {
   connectionEndpointHash,
+  databaseIdentityObservationUnavailableCode,
   databaseIdentityStamp,
-  isDatabaseIdentityObservationUnavailable,
   observeDatabaseIdentity,
+  type DatabaseIdentityObservationUnavailableCode,
 } from "../connection-safety.ts";
 
 const USAGE =
@@ -38,7 +39,17 @@ const USAGE =
   "[--accept-rename <from>=<to>] ... [--restrict-to-applier] [--strict-coverage] " +
   "[--unsafe-show-secrets]\n";
 
-export function formatPlanIdentityWarning(): string {
+export function formatPlanIdentityWarning(
+  code: DatabaseIdentityObservationUnavailableCode,
+): string {
+  if (code === "42883") {
+    return (
+      "WARNING: plan could not observe the source PostgreSQL lineage/database identity because " +
+      "pg_catalog.pg_control_system() is unavailable on this server. The plan remains applicable, " +
+      "but CLI prove will require --allow-unverified-source-identity. To retain verified identity " +
+      "checks, re-plan against a PostgreSQL server that provides pg_catalog.pg_control_system().\n"
+    );
+  }
   return (
     "WARNING: plan could not observe the source PostgreSQL lineage/database identity. " +
     "The plan remains applicable, but CLI prove will require " +
@@ -136,8 +147,9 @@ export async function cmdPlan(args: string[]): Promise<void> {
         await observeDatabaseIdentity(src.pool),
       );
     } catch (error) {
-      if (!isDatabaseIdentityObservationUnavailable(error)) throw error;
-      process.stderr.write(formatPlanIdentityWarning());
+      const code = databaseIdentityObservationUnavailableCode(error);
+      if (code === undefined) throw error;
+      process.stderr.write(formatPlanIdentityWarning(code));
     }
 
     // surface extraction diagnostics (review finding 2); --strict-coverage

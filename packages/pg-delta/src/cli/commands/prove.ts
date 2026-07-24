@@ -20,10 +20,11 @@ import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
 import {
   connectionEndpointHash,
+  databaseIdentityObservationUnavailableCode,
   databaseIdentityStamp,
-  isDatabaseIdentityObservationUnavailable,
   isTrustedLocalConnection,
   observeDatabaseIdentity,
+  type DatabaseIdentityObservationUnavailableCode,
 } from "../connection-safety.ts";
 import { CliExit, parseFlags, UsageError } from "../flags.ts";
 import {
@@ -198,6 +199,7 @@ export function assertProofCloneIdentity(
   clone: SourceDatabaseIdentity | undefined,
   scope: "database" | "cluster" | undefined,
   allowUnverified: boolean,
+  cloneUnavailableCode?: DatabaseIdentityObservationUnavailableCode,
 ): "verified" | "unverified" {
   if (source === undefined) {
     if (allowUnverified) return "unverified";
@@ -207,6 +209,11 @@ export function assertProofCloneIdentity(
   }
   if (clone === undefined) {
     if (allowUnverified) return "unverified";
+    if (cloneUnavailableCode === "42883") {
+      throw new UsageError(
+        "prove: pg_catalog.pg_control_system() is unavailable on the clone PostgreSQL server, so its lineage/database identity cannot be verified; pass --allow-unverified-source-identity only for an independently verified disposable clone, or use a supported server",
+      );
+    }
     throw new UsageError(
       "prove: could not observe the clone PostgreSQL lineage/database identity; grant EXECUTE on pg_catalog.pg_control_system() to the connection role, or pass --allow-unverified-source-identity only for an independently verified disposable clone",
     );
@@ -346,18 +353,24 @@ export async function cmdProve(args: string[]): Promise<void> {
   try {
     if (thePlan.source.identity !== undefined) {
       let cloneIdentity: SourceDatabaseIdentity | undefined;
+      let cloneUnavailableCode:
+        | DatabaseIdentityObservationUnavailableCode
+        | undefined;
       try {
         cloneIdentity = databaseIdentityStamp(
           await observeDatabaseIdentity(clone.pool),
         );
       } catch (error) {
-        if (!isDatabaseIdentityObservationUnavailable(error)) throw error;
+        cloneUnavailableCode =
+          databaseIdentityObservationUnavailableCode(error);
+        if (cloneUnavailableCode === undefined) throw error;
       }
       identityStatus = assertProofCloneIdentity(
         thePlan.source.identity,
         cloneIdentity,
         thePlan.scope,
         allowUnverifiedIdentity,
+        cloneUnavailableCode,
       );
     }
     if (identityStatus === "unverified") {

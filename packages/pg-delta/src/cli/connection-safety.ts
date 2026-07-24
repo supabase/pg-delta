@@ -165,6 +165,8 @@ export interface ObservedDatabaseIdentity {
   systemIdentifier: string;
 }
 
+export type DatabaseIdentityObservationUnavailableCode = "42501" | "42883";
+
 /** Observe identity through PostgreSQL so URL aliases cannot hide same-DB use. */
 export async function observeDatabaseIdentity(
   pool: Pool,
@@ -206,11 +208,17 @@ export function databaseIdentityStamp(
 export function isDatabaseIdentityObservationUnavailable(
   error: unknown,
 ): boolean {
+  return databaseIdentityObservationUnavailableCode(error) !== undefined;
+}
+
+export function databaseIdentityObservationUnavailableCode(
+  error: unknown,
+): DatabaseIdentityObservationUnavailableCode | undefined {
   if (typeof error !== "object" || error === null || !("code" in error)) {
-    return false;
+    return undefined;
   }
   const code = (error as { code?: unknown }).code;
-  return code === "42501" || code === "42883";
+  return code === "42501" || code === "42883" ? code : undefined;
 }
 
 export async function observeDatabaseIdentityForMutation(
@@ -220,8 +228,8 @@ export async function observeDatabaseIdentityForMutation(
   try {
     return await observeDatabaseIdentity(pool);
   } catch (error) {
-    if (!isDatabaseIdentityObservationUnavailable(error)) throw error;
-    const code = (error as { code?: unknown }).code;
+    const code = databaseIdentityObservationUnavailableCode(error);
+    if (code === undefined) throw error;
     if (code === "42883") {
       throw new Error(
         `${context}: pg_catalog.pg_control_system() is unavailable; ` +
