@@ -133,4 +133,40 @@ describe("proof target safety", () => {
       await clone.drop();
     }
   }, 60_000);
+
+  test("an undeclared SQL-side drop fails the post-check even for an empty table", async () => {
+    const cluster = await sharedCluster();
+    const clone = await cluster.createDb("proof_guard_missing_clone");
+    try {
+      await clone.pool.query(`CREATE SCHEMA app; CREATE TABLE app.empty ();`);
+      const state = await extract(clone.pool);
+      const thePlan = plan(state.factBase, state.factBase);
+      thePlan.actions.push({
+        sql: `DROP TABLE app.empty`,
+        verb: "drop",
+        produces: [],
+        consumes: [],
+        destroys: [],
+        releases: [],
+        transactionality: "transactional",
+        lockClass: "accessExclusive",
+        newSegmentBefore: false,
+        dataLoss: "none",
+        rewriteRisk: false,
+      });
+
+      const verdict = await provePlan(thePlan, clone.pool, state.factBase);
+      expect(verdict.ok).toBe(false);
+      expect(verdict.dataViolations).toEqual([
+        {
+          table: { schema: "app", name: "empty" },
+          before: 0,
+          after: 0,
+          missingAfter: true,
+        },
+      ]);
+    } finally {
+      await clone.drop();
+    }
+  }, 60_000);
 });

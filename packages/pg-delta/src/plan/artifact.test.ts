@@ -153,4 +153,71 @@ describe("plan artifact v1", () => {
       parsePlan(`{"formatVersion": 1, "engineVersion": "${ENGINE_VERSION}"}`),
     ).toThrow(/missing actions/);
   });
+
+  test("rejects missing or unknown action data-loss metadata", () => {
+    const missing = JSON.parse(serializePlan(samplePlan)) as Record<
+      string,
+      unknown
+    >;
+    delete (missing["actions"] as Array<Record<string, unknown>>)[0]![
+      "dataLoss"
+    ];
+    expect(() => parsePlan(JSON.stringify(missing))).toThrow(
+      /actions\[0\]\.dataLoss/,
+    );
+
+    const unknown = JSON.parse(serializePlan(samplePlan)) as Record<
+      string,
+      unknown
+    >;
+    (unknown["actions"] as Array<Record<string, unknown>>)[0]!["dataLoss"] =
+      "unknown";
+    expect(() => parsePlan(JSON.stringify(unknown))).toThrow(
+      /actions\[0\]\.dataLoss/,
+    );
+  });
+
+  test("strictly validates every required action field and enum", () => {
+    const invalid: Array<[field: string, value: unknown]> = [
+      ["sql", 1],
+      ["verb", "truncate"],
+      ["produces", null],
+      ["consumes", {}],
+      ["destroys", "table:app.t"],
+      ["releases", 1],
+      ["transactionality", "sometimes"],
+      ["lockClass", "rowExclusive"],
+      ["newSegmentBefore", "false"],
+      ["rewriteRisk", 0],
+    ];
+    for (const [field, value] of invalid) {
+      const artifact = JSON.parse(serializePlan(samplePlan)) as Record<
+        string,
+        unknown
+      >;
+      (artifact["actions"] as Array<Record<string, unknown>>)[0]![field] =
+        value;
+      expect(() => parsePlan(JSON.stringify(artifact)), field).toThrow(
+        new RegExp(`actions\\[0\\]\\.${field}`),
+      );
+    }
+  });
+
+  test("strictly validates stable IDs in action metadata", () => {
+    for (const badId of [
+      { kind: "unknown", name: "t" },
+      { kind: "table", name: "t" },
+      { kind: "function", schema: "app", name: "f", args: "integer" },
+    ]) {
+      const artifact = JSON.parse(serializePlan(samplePlan)) as Record<
+        string,
+        unknown
+      >;
+      (artifact["actions"] as Array<Record<string, unknown>>)[0]!["destroys"] =
+        [badId];
+      expect(() => parsePlan(JSON.stringify(artifact))).toThrow(
+        /actions\[0\]\.destroys\[0\]/,
+      );
+    }
+  });
 });

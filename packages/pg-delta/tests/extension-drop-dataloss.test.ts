@@ -51,6 +51,11 @@ describe("DROP EXTENSION data-loss (member closure, live extract)", () => {
       expect(citextDrop).toBeDefined();
       // owns a data-bearing member table → destructive
       expect(hstoreDrop!.dataLoss).toBe("destructive");
+      expect(hstoreDrop!.destroys).toContainEqual({
+        kind: "table",
+        schema: "public",
+        name: "ext_data",
+      });
       // functions/type only → not destructive
       expect(citextDrop!.dataLoss).toBe("none");
       // the aggregate safety report reflects exactly the one destructive drop

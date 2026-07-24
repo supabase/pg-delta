@@ -58,6 +58,7 @@ describe("DROP EXTENSION data-loss (member closure)", () => {
     );
     expect(spec.sql).toBe(`DROP EXTENSION "x"`);
     expect(spec.dataLoss).toBe("destructive");
+    expect(spec.alsoDestroys).toEqual([tableMember, fnMember]);
   });
 
   test("extension owning a materialized-view member → destructive", () => {
@@ -66,6 +67,7 @@ describe("DROP EXTENSION data-loss (member closure)", () => {
       viewWithMembers([matviewMember]),
     );
     expect(spec.dataLoss).toBe("destructive");
+    expect(spec.alsoDestroys).toEqual([matviewMember]);
   });
 
   test("functions-only extension → non-destructive", () => {
@@ -74,6 +76,7 @@ describe("DROP EXTENSION data-loss (member closure)", () => {
       viewWithMembers([fnMember]),
     );
     expect(spec.dataLoss ?? "none").toBe("none");
+    expect(spec.alsoDestroys).toEqual([fnMember]);
   });
 
   test("no view supplied (member closure unknown) → non-destructive", () => {

@@ -4,7 +4,9 @@
  * actions, and commitBoundaryAfter boundaries.
  */
 import { describe, expect, test } from "bun:test";
-import { segmentActions } from "./apply.ts";
+import type { Pool } from "pg";
+import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
+import { apply, segmentActions } from "./apply.ts";
 
 const txn = (newSegmentBefore = false) => ({
   transactionality: "transactional" as const,
@@ -62,5 +64,53 @@ describe("segmentActions", () => {
 
   test("empty plans yield no segments", () => {
     expect(segmentActions([])).toEqual([]);
+  });
+});
+
+describe("apply plan integrity", () => {
+  test("rejects contradictory destructive metadata before connecting or mutating", async () => {
+    let connected = false;
+    const target = {
+      connect: async () => {
+        connected = true;
+        throw new Error("must not connect");
+      },
+    } as unknown as Pool;
+    const thePlan = {
+      formatVersion: 1,
+      engineVersion: ENGINE_VERSION,
+      source: { fingerprint: "a".repeat(64) },
+      target: { fingerprint: "b".repeat(64) },
+      preamble: [],
+      deltas: [],
+      filteredDeltas: [],
+      renameCandidates: [],
+      actions: [
+        {
+          sql: "DROP TABLE app.t",
+          verb: "drop",
+          produces: [],
+          consumes: [],
+          destroys: [{ kind: "table", schema: "app", name: "t" }],
+          releases: [],
+          transactionality: "transactional",
+          lockClass: "accessExclusive",
+          newSegmentBefore: false,
+          dataLoss: "none",
+          rewriteRisk: false,
+        },
+      ],
+      safetyReport: {
+        destructiveActions: 0,
+        rewriteRiskActions: 0,
+        nonTransactionalActions: 0,
+        lockClasses: { accessExclusive: 1 },
+      },
+    } satisfies Plan;
+
+    await expect(
+      apply(thePlan, target, { fingerprintGate: false }),
+    ).rejects.toThrow(/destroys.*table:app\.t.*dataLoss:none/);
+    expect(connected).toBe(false);
   });
 });

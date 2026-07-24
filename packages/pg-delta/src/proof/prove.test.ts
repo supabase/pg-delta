@@ -12,12 +12,10 @@ import {
   composeAutoSeedBaseline,
   detectAutoSeedSideEffects,
   detectViolations,
-  findUndeclaredTableDestruction,
   reconcileSeedOutcomes,
   relKey,
   type SeedOutcome,
 } from "./prove.ts";
-import type { Action } from "../plan/plan.ts";
 
 // TableStat is module-internal; the tests only need its shape.
 type Stat = {
@@ -29,6 +27,7 @@ type Stat = {
 
 const ctx = (over: Partial<Parameters<typeof detectViolations>[2]> = {}) => ({
   recreatedTables: new Set<string>(),
+  explicitlyDestroyedRelations: new Set<string>(),
   declaredRewriteTables: new Set<string>(),
   ...over,
 });
@@ -39,70 +38,6 @@ const m = (entries: Array<[schema: string, name: string, stat: Stat]>) =>
   new Map<string, Stat>(entries.map(([s, n, stat]) => [relKey(s, n), stat]));
 
 const SIG = "id:23"; // a stable column signature
-
-const destructiveAction = (overrides: Partial<Action> = {}): Action => ({
-  sql: 'DROP TABLE "public"."t"',
-  verb: "drop",
-  produces: [],
-  consumes: [],
-  destroys: [{ kind: "table", schema: "public", name: "t" }],
-  releases: [],
-  transactionality: "transactional",
-  lockClass: "accessExclusive",
-  newSegmentBefore: false,
-  dataLoss: "none",
-  rewriteRisk: false,
-  ...overrides,
-});
-
-describe("findUndeclaredTableDestruction", () => {
-  test("rejects table destruction declared as dataLoss none", () => {
-    expect(findUndeclaredTableDestruction([destructiveAction()])).toEqual([
-      {
-        actionIndex: 0,
-        table: { schema: "public", name: "t" },
-      },
-    ]);
-  });
-
-  test("allows declared data loss and accepted table renames", () => {
-    expect(
-      findUndeclaredTableDestruction([
-        destructiveAction({ dataLoss: "destructive" }),
-      ]),
-    ).toEqual([]);
-    expect(
-      findUndeclaredTableDestruction(
-        [
-          destructiveAction({
-            verb: "alter",
-            produces: [{ kind: "table", schema: "public", name: "renamed" }],
-          }),
-        ],
-        [
-          {
-            from: { kind: "table", schema: "public", name: "t" },
-            to: { kind: "table", schema: "public", name: "renamed" },
-          },
-        ],
-      ),
-    ).toEqual([]);
-  });
-
-  test("does not exempt an unrelated drop merely because that table is renamed elsewhere", () => {
-    expect(
-      findUndeclaredTableDestruction(
-        [destructiveAction()],
-        [
-          {
-            from: { kind: "table", schema: "public", name: "t" },
-            to: { kind: "table", schema: "public", name: "renamed" },
-          },
-        ],
-      ),
-    ).toHaveLength(1);
-  });
-});
 
 describe("detectViolations — content + coverage (review #3)", () => {
   test("row count change is a data violation", () => {
@@ -304,7 +239,10 @@ describe("detectViolations — content + coverage (review #3)", () => {
     const v = detectViolations(
       before,
       after,
-      ctx({ recreatedTables: new Set([relKey("public", "t")]) }),
+      ctx({
+        recreatedTables: new Set([relKey("public", "t")]),
+        explicitlyDestroyedRelations: new Set([relKey("public", "t")]),
+      }),
     );
     expect(v.dataViolations).toEqual([]); // recreated → row/content change expected
     expect(v.coverage.tablesChecked).toBe(0);
@@ -312,6 +250,36 @@ describe("detectViolations — content + coverage (review #3)", () => {
       {
         table: { schema: "public", name: "t" },
         reason: "recreated by the plan",
+      },
+    ]);
+  });
+
+  test("a preexisting empty relation missing afterward fails unless explicitly destroyed", () => {
+    const key = relKey("public", "empty");
+    const before = m([
+      ["public", "empty", { rows: 0, relfilenode: "1", schemaSig: SIG }],
+    ]);
+    const undeclared = detectViolations(before, new Map(), ctx());
+    expect(undeclared.dataViolations).toEqual([
+      {
+        table: { schema: "public", name: "empty" },
+        before: 0,
+        after: 0,
+        missingAfter: true,
+      },
+    ]);
+    expect(undeclared.coverage.tablesSkipped).toEqual([]);
+
+    const declared = detectViolations(
+      before,
+      new Map(),
+      ctx({ explicitlyDestroyedRelations: new Set([key]) }),
+    );
+    expect(declared.dataViolations).toEqual([]);
+    expect(declared.coverage.tablesSkipped).toEqual([
+      {
+        table: { schema: "public", name: "empty" },
+        reason: "dropped by the plan",
       },
     ]);
   });
