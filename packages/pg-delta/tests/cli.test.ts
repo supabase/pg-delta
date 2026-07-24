@@ -2482,4 +2482,75 @@ describe("CLI: schema apply debugging", () => {
       await Promise.all([source.drop(), target.drop()]);
     }
   }, 90_000);
+
+  test("warns before a manifest-unredacted failed action diagnostic without --verbose", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_apply_failure_unred_src");
+    const shadow = await cluster.createDb("cli_apply_failure_unred_shadow");
+    const target = await cluster.createDb("cli_apply_failure_unred_tgt");
+    const secret = "cli-apply-failure-secret-xyz";
+    const dir = join(
+      tmpdir(),
+      `pg-delta-next-failure-unred-${Date.now()}`,
+    );
+    try {
+      await Promise.all([
+        source.pool.query(`
+          CREATE FOREIGN DATA WRAPPER cli_failure_fdw;
+          CREATE SERVER cli_failure_srv FOREIGN DATA WRAPPER cli_failure_fdw
+            OPTIONS (host 'h.example.com', password '${secret}');
+        `),
+        target.pool.query(`CREATE FOREIGN DATA WRAPPER cli_failure_fdw`),
+      ]);
+
+      const exported = await runCli([
+        "schema",
+        "export",
+        "--source",
+        source.uri,
+        "--out-dir",
+        dir,
+        "--unsafe-show-secrets",
+      ]);
+      expect(exported.exitCode).toBe(0);
+
+      // New target connections inherit read-only mode, so planning succeeds
+      // but the only planned action (the secret-bearing CREATE SERVER) fails.
+      await target.pool.query(
+        `ALTER DATABASE ${target.name} SET default_transaction_read_only = on`,
+      );
+
+      // No --unsafe-show-secrets and no --verbose: the export manifest alone
+      // selects unredacted extraction, and only the final failure diagnostic
+      // exposes the action SQL.
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+      ]);
+
+      expect(res.exitCode).toBe(1);
+      expect(res.stdout).toBe("");
+      const warning = res.stderr
+        .split("\n")
+        .find((line) => line.includes("may contain unredacted credentials"));
+      expect(warning).toBeDefined();
+      expect(warning).not.toContain(secret);
+      const warningIndex = res.stderr.indexOf(warning!);
+      const failedSqlIndex = res.stderr.indexOf(`  sql: `);
+      const secretIndex = res.stderr.indexOf(secret);
+      expect(failedSqlIndex).toBeGreaterThan(warningIndex);
+      expect(secretIndex).toBeGreaterThan(failedSqlIndex);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      await Promise.all([source.drop(), shadow.drop(), target.drop()]);
+    }
+  }, 90_000);
 });
