@@ -89,6 +89,14 @@ describe("CLI: --help", () => {
     expect(res.stdout).not.toMatch(/requires\s+"?apply --force/i);
     expect(res.stdout).toContain("re-extract");
   }, 30_000);
+
+  test("shows schema apply's shadow as optional", async () => {
+    const res = await runCli(["--help"]);
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toContain(
+      "schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>",
+    );
+  }, 30_000);
 });
 
 describe("CLI: --version", () => {
@@ -127,6 +135,9 @@ describe("CLI: schema --help", () => {
     expect(res.stdout).toContain("schema export");
     expect(res.stdout).toContain("schema apply");
     expect(res.stdout).toContain("schema lint");
+    expect(res.stdout).toContain(
+      "schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>",
+    );
     expect(res.stderr).not.toContain("Unknown schema subcommand");
   }, 30_000);
 

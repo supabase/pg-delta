@@ -7,7 +7,7 @@
  * print only "Proof FAILED." for that case, hiding the offending table. The
  * formatter must surface every failure category, mirroring the corpus runner.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -230,6 +230,11 @@ describe("cmdProve — desired-snapshot profile reconciliation", () => {
     // the clone URL is never even opened.
     const { planPath, snapPath } = writeArtifacts("raw", "supabase");
     let error: unknown;
+    const stderr: string[] = [];
+    const write = spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
     try {
       await cmdProve([
         "--plan",
@@ -242,9 +247,40 @@ describe("cmdProve — desired-snapshot profile reconciliation", () => {
       ]);
     } catch (e) {
       error = e;
+    } finally {
+      write.mockRestore();
     }
     // fails closed with a UsageError, NOT a connection error — the guard runs
     // before makePool opens the clone.
     expect(error).toBeInstanceOf(UsageError);
+    expect(stderr.join("")).not.toContain("WARNING");
+  });
+
+  test("warns that a validated clone may be mutated", async () => {
+    const { planPath, snapPath } = writeArtifacts("raw", "raw");
+    let error: unknown;
+    const stderr: string[] = [];
+    const write = spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+    try {
+      await cmdProve([
+        "--plan",
+        planPath,
+        "--clone",
+        "postgres://localhost:1/none",
+        "--desired-snapshot",
+        snapPath,
+      ]);
+    } catch (e) {
+      error = e;
+    } finally {
+      write.mockRestore();
+    }
+    expect(error).toBeDefined();
+    expect(stderr.join("")).toContain(
+      "WARNING: prove may mutate the --clone database",
+    );
   });
 });

@@ -35,6 +35,21 @@ describe("connection safety", () => {
     ).toBe(true);
   });
 
+  test("uses query host overrides exactly as pg does", () => {
+    expect(
+      isTrustedLocalConnection(
+        "postgres://localhost/app?host=db.example.com",
+        [],
+      ),
+    ).toBe(false);
+    expect(
+      isTrustedLocalConnection(
+        "postgres://db.example.com/app?host=localhost",
+        [],
+      ),
+    ).toBe(true);
+  });
+
   test("rejects remote and merely private endpoints", () => {
     expect(isTrustedLocalConnection("postgres://db.example.com/app", [])).toBe(
       false,
@@ -75,6 +90,31 @@ describe("connection safety", () => {
     ).toThrow(/exact hostname/);
   });
 
+  test("validates every trusted host even when locality is already established", () => {
+    expect(() =>
+      isTrustedLocalConnection("postgres://localhost/app", [
+        "postgres.orb.local:5432",
+      ]),
+    ).toThrow(/exact hostname/);
+    expect(() =>
+      isTrustedLocalConnection("postgres://postgres.orb.local/app", [
+        "postgres.orb.local",
+        "*.orb.local",
+      ]),
+    ).toThrow(/exact hostname/);
+  });
+
+  test("rejects duplicate safety-sensitive query parameters", () => {
+    for (const key of ["host", "port", "database"]) {
+      expect(() =>
+        isTrustedLocalConnection(
+          `postgres://localhost/app?${key}=first&${key}=second`,
+          [],
+        ),
+      ).toThrow(new RegExp(`duplicate.*${key}`, "i"));
+    }
+  });
+
   test("source endpoint hash ignores credentials but includes the database", () => {
     expect(
       connectionEndpointHash("postgres://alice:secret@db.example.com:5432/app"),
@@ -82,6 +122,26 @@ describe("connection safety", () => {
     expect(
       connectionEndpointHash("postgres://alice@db.example.com/another"),
     ).not.toBe(connectionEndpointHash("postgres://alice@db.example.com/app"));
+  });
+
+  test("source endpoint hash uses pg's effective host, port, and database", () => {
+    expect(
+      connectionEndpointHash(
+        "postgres://authority.example:1111/app?host=query.example&port=2222",
+      ),
+    ).toBe(connectionEndpointHash("postgres://query.example:2222/app"));
+    expect(
+      connectionEndpointHash(
+        "postgres://query.example:2222/app?database=ignored-by-pg",
+      ),
+    ).toBe(connectionEndpointHash("postgres://query.example:2222/app"));
+    expect(
+      connectionEndpointHash("postgres:///app?host=%2Ftmp%2Fpostgres&port=6543"),
+    ).toBe(
+      connectionEndpointHash(
+        "postgres://ignored.example/app?host=%2Ftmp%2Fpostgres&port=6543",
+      ),
+    );
   });
 
   test("compares observed database and cluster identity", () => {
