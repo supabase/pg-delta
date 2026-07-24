@@ -2568,4 +2568,67 @@ describe("CLI: schema apply debugging", () => {
       await Promise.all([source.drop(), shadow.drop(), target.drop()]);
     }
   }, 90_000);
+
+  test("warns before a manifest-unredacted planning failure can expose a secret", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_plan_failure_unred_shadow");
+    const target = await cluster.createDb("cli_plan_failure_unred_tgt");
+    const secret = "cli-planning-failure-secret-xyz";
+    const secretStatement =
+      `CREATE SERVER cli_planning_secret_srv ` +
+      `FOREIGN DATA WRAPPER cli_planning_secret_fdw ` +
+      `OPTIONS (password '${secret}')`;
+    const dir = mkdtempSync(
+      join(tmpdir(), "pg-delta-next-planning-failure-unred-"),
+    );
+    try {
+      // PostgreSQL itself puts the credential-bearing statement in
+      // DatabaseError.message, exercising the generic planning-error path
+      // rather than a later action report assembled by the CLI.
+      writeFileSync(
+        join(dir, "01_rejected.sql"),
+        `DO $body$\n` +
+          `BEGIN\n` +
+          `  RAISE EXCEPTION 'shadow rejected statement: ${secretStatement.replaceAll("'", "''")}';\n` +
+          `END\n` +
+          `$body$;\n`,
+      );
+      writeFileSync(
+        join(dir, ".pgdelta-export.json"),
+        JSON.stringify({ formatVersion: 1, redactSecrets: false }),
+        "utf8",
+      );
+
+      // No --unsafe-show-secrets: the manifest selects unredacted planning.
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+      ]);
+
+      expect(res.exitCode).toBe(1);
+      expect(res.stdout).toBe("");
+      const warningNeedle = "may contain unredacted credentials";
+      const warning = res.stderr
+        .split("\n")
+        .find((line) => line.includes(warningNeedle));
+      const warningIndex = res.stderr.indexOf(warningNeedle);
+      const firstSecretIndex = res.stderr.indexOf(secret);
+      expect(firstSecretIndex).toBeGreaterThanOrEqual(0);
+      expect(warningIndex).toBeGreaterThanOrEqual(0);
+      expect(warning).toBeDefined();
+      expect(warning).not.toContain(secret);
+      expect(warningIndex).toBeLessThan(firstSecretIndex);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 90_000);
 });
