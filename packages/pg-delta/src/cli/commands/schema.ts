@@ -783,9 +783,9 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     // --out-plan: archive the plan artifact right after planning, regardless
     // of whether the run goes on to --dry-run's script or a real apply.
     if (outPlanPath !== undefined) {
+      warnIfUnredactedOutput(redactSecrets, "plan artifact");
       writeFileSync(outPlanPath, serializePlan(thePlan), "utf8");
       process.stderr.write(`Plan artifact written to ${outPlanPath}\n`);
-      warnIfUnredactedOutput(redactSecrets, "plan artifact");
     }
 
     if (thePlan.actions.length === 0) {
@@ -802,13 +802,13 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
           ? { statementTimeoutMs: planned.applyOptions.statementTimeoutMs }
           : {}),
       });
+      // The script is routinely redirected to a file, making it as persistent
+      // as an archived plan artifact. Warn before stdout can expose it.
+      warnIfUnredactedOutput(redactSecrets, "dry-run script");
       process.stdout.write(script);
       process.stderr.write(
         `Dry run: ${thePlan.actions.length} action(s) planned; nothing applied.\n`,
       );
-      // The script is routinely redirected to a file, making it as persistent
-      // as an archived plan artifact.
-      warnIfUnredactedOutput(redactSecrets, "dry-run script");
       const destructiveCount =
         thePlan.actions.filter(isDestructiveAction).length;
       if (destructiveCount > 0) {
