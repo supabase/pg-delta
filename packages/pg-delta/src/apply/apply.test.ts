@@ -105,12 +105,19 @@ function planWithAction(transactionality: Action["transactionality"]): Plan {
 async function expectObserverLatencyExcluded(
   transactionality: Action["transactionality"],
 ): Promise<void> {
-  let now = 1_000;
-  const nowSpy = spyOn(Date, "now").mockImplementation(() => now);
+  let monotonicNow = 1_000;
+  let wallNow = 10_000;
+  const monotonicNowSpy = spyOn(performance, "now").mockImplementation(
+    () => monotonicNow,
+  );
+  const wallNowSpy = spyOn(Date, "now").mockImplementation(() => wallNow);
   const events: ApplyEvent[] = [];
   const client = {
     query: (sql: string) => {
-      if (sql === "SELECT 42") now += 7;
+      if (sql === "SELECT 42") {
+        monotonicNow += 7;
+        wallNow -= 50;
+      }
       return Promise.resolve({ rows: [] });
     },
     release: () => {},
@@ -124,7 +131,10 @@ async function expectObserverLatencyExcluded(
       fingerprintGate: false,
       onEvent: (event) => {
         events.push(event);
-        if (event.kind === "actionStart") now += 100;
+        if (event.kind === "actionStart") {
+          monotonicNow += 100;
+          wallNow += 100;
+        }
       },
     });
 
@@ -133,18 +143,20 @@ async function expectObserverLatencyExcluded(
       (event): event is Extract<ApplyEvent, { kind: "actionEnd" }> =>
         event.kind === "actionEnd",
     );
+    expect(actionEnd?.ms).toBeGreaterThanOrEqual(0);
     expect(actionEnd?.ms).toBe(7);
   } finally {
-    nowSpy.mockRestore();
+    monotonicNowSpy.mockRestore();
+    wallNowSpy.mockRestore();
   }
 }
 
 describe("apply action timing", () => {
-  test("transactional actionEnd excludes synchronous actionStart observer latency", async () => {
+  test("transactional actionEnd is monotonic and excludes synchronous actionStart observer latency", async () => {
     await expectObserverLatencyExcluded("transactional");
   });
 
-  test("non-transactional actionEnd excludes synchronous actionStart observer latency", async () => {
+  test("non-transactional actionEnd is monotonic and excludes synchronous actionStart observer latency", async () => {
     await expectObserverLatencyExcluded("nonTransactional");
   });
 });
