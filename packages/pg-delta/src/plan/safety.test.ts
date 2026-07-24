@@ -45,6 +45,35 @@ function generatedRenamePlan(sourceFacts: Fact[], desiredFacts: Fact[]): Plan {
   });
 }
 
+const schemaFact: Fact = {
+  id: { kind: "schema", name: "app" },
+  payload: {},
+};
+
+function relationFacts(
+  kind: "view" | "materializedView" | "foreignTable",
+  name: string,
+): Fact[] {
+  const root: StableId = { kind, schema: "app", name };
+  const payload =
+    kind === "foreignTable"
+      ? { server: "remote", options: [] }
+      : { def: " SELECT 1 AS payload;", reloptions: null };
+  return [
+    { id: root, parent: schemaFact.id, payload },
+    {
+      id: {
+        kind: "column",
+        schema: "app",
+        table: name,
+        name: "payload",
+      },
+      parent: root,
+      payload: { type: "integer", notNull: false },
+    },
+  ];
+}
+
 describe("destruction metadata integrity", () => {
   test("rejects intrinsically data-bearing destruction marked dataLoss:none", () => {
     expect(
@@ -207,6 +236,121 @@ describe("destruction metadata integrity", () => {
         }),
       ]),
     ).toEqual([]);
+  });
+
+  test("accepts generated metadata-only drops whose child IDs die with the parent", () => {
+    const composite: StableId = {
+      kind: "type",
+      schema: "app",
+      name: "record_t",
+    };
+    const sourceFacts: Fact[] = [
+      schemaFact,
+      ...relationFacts("view", "old_view"),
+      ...relationFacts("foreignTable", "old_foreign"),
+      {
+        id: composite,
+        parent: schemaFact.id,
+        payload: { variant: "composite" },
+      },
+      {
+        id: {
+          kind: "typeAttribute",
+          schema: "app",
+          type: "record_t",
+          name: "payload",
+        },
+        parent: composite,
+        payload: { type: "integer", collation: null, _position: 1 },
+      },
+    ];
+    const generated = generatedRenamePlan(sourceFacts, [schemaFact]);
+    const drops = generated.actions.filter((candidate) =>
+      /DROP (VIEW|FOREIGN TABLE|TYPE)/.test(candidate.sql),
+    );
+
+    expect(drops).toHaveLength(3);
+    expect(drops.map((drop) => drop.dataLoss)).toEqual([
+      "none",
+      "none",
+      "none",
+    ]);
+    expect(findDestructionMetadataViolations(drops)).toEqual([]);
+  });
+
+  test("generated standalone child drops remain explicitly destructive", () => {
+    const table: StableId = { kind: "table", schema: "app", name: "records" };
+    const composite: StableId = {
+      kind: "type",
+      schema: "app",
+      name: "record_t",
+    };
+    const columnFact: Fact = {
+      id: { kind: "column", schema: "app", table: "records", name: "gone" },
+      parent: table,
+      payload: { type: "integer" },
+    };
+    const attributeFact: Fact = {
+      id: {
+        kind: "typeAttribute",
+        schema: "app",
+        type: "record_t",
+        name: "gone",
+      },
+      parent: composite,
+      payload: { type: "integer", collation: null, _position: 1 },
+    };
+    const roots: Fact[] = [
+      schemaFact,
+      { id: table, parent: schemaFact.id, payload: {} },
+      {
+        id: composite,
+        parent: schemaFact.id,
+        payload: { variant: "composite" },
+      },
+    ];
+    const generated = generatedRenamePlan(
+      [...roots, columnFact, attributeFact],
+      roots,
+    );
+    const drops = generated.actions.filter(
+      (candidate) =>
+        candidate.sql.includes("DROP COLUMN") ||
+        candidate.sql.includes("DROP ATTRIBUTE"),
+    );
+
+    expect(drops).toHaveLength(2);
+    expect(drops.map((drop) => drop.dataLoss)).toEqual([
+      "destructive",
+      "destructive",
+    ]);
+    expect(findDestructionMetadataViolations(drops)).toEqual([]);
+  });
+
+  test("accepts generated relation renames that carry their column subtree", () => {
+    for (const kind of [
+      "view",
+      "materializedView",
+      "foreignTable",
+    ] as const) {
+      const generated = generatedRenamePlan(
+        [schemaFact, ...relationFacts(kind, "old_relation")],
+        [schemaFact, ...relationFacts(kind, "new_relation")],
+      );
+
+      expect(generated.acceptedRenames).toEqual([
+        {
+          from: { kind, schema: "app", name: "old_relation" },
+          to: { kind, schema: "app", name: "new_relation" },
+        },
+      ]);
+      expect(
+        findDestructionMetadataViolations(
+          generated.actions,
+          generated.acceptedRenames,
+        ),
+      ).toEqual([]);
+    }
   });
 
   test("accepts a generated table rename that preserves its column subtree", () => {
