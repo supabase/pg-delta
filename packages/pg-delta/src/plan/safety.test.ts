@@ -38,10 +38,7 @@ const action = (overrides: Partial<Action> = {}): Action => ({
   ...overrides,
 });
 
-function generatedRenamePlan(
-  sourceFacts: Fact[],
-  desiredFacts: Fact[],
-): Plan {
+function generatedRenamePlan(sourceFacts: Fact[], desiredFacts: Fact[]): Plan {
   return plan(buildFactBase(sourceFacts, []), buildFactBase(desiredFacts, []), {
     renames: "auto",
     compact: false,
@@ -167,6 +164,35 @@ describe("destruction metadata integrity", () => {
         [{ from, to }],
       ),
     ).toHaveLength(1);
+  });
+
+  test("does not let a separate action borrow an accepted ancestor rename", () => {
+    const oldSchema = { kind: "schema" as const, name: "old_app" };
+    const newSchema = { kind: "schema" as const, name: "new_app" };
+    const oldTable = {
+      kind: "table" as const,
+      schema: "old_app",
+      name: "records",
+    };
+    const newTable = { ...oldTable, schema: "new_app" };
+
+    expect(
+      findDestructionMetadataViolations(
+        [
+          action({
+            verb: "alter",
+            destroys: [oldSchema],
+            produces: [newSchema],
+          }),
+          action({
+            verb: "alter",
+            destroys: [oldTable],
+            produces: [newTable],
+          }),
+        ],
+        [{ from: oldSchema, to: newSchema }],
+      ),
+    ).toEqual([{ actionIndex: 1, relation: oldTable }]);
   });
 
   test("does not classify non-data stable IDs as intrinsically destructive", () => {
@@ -298,9 +324,7 @@ describe("destruction metadata integrity", () => {
       ],
     );
 
-    expect(generated.acceptedRenames).toEqual([
-      { from: oldType, to: newType },
-    ]);
+    expect(generated.acceptedRenames).toEqual([{ from: oldType, to: newType }]);
     expect(
       findDestructionMetadataViolations(
         generated.actions,
