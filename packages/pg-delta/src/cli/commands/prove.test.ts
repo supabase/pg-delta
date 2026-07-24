@@ -115,9 +115,20 @@ describe("assertProofCloneIdentity", () => {
       lineageHash: "c".repeat(64),
       databaseHash: "d".repeat(64),
     };
-    expect(() =>
-      assertProofCloneIdentity(undefined, clone, undefined, false),
-    ).toThrow(/allow-unverified-source-identity/);
+    let missingSource: unknown;
+    try {
+      assertProofCloneIdentity(undefined, clone, undefined, false);
+    } catch (error) {
+      missingSource = error;
+    }
+    expect(missingSource).toBeInstanceOf(UsageError);
+    expect((missingSource as Error).message).toContain(
+      "--allow-unverified-source-identity",
+    );
+    expect((missingSource as Error).message).toMatch(
+      /server where .*pg_control_system\(\).*(?:exists|available)/i,
+    );
+    expect((missingSource as Error).message).toMatch(/role.*access/i);
     expect(assertProofCloneIdentity(undefined, clone, undefined, true)).toBe(
       "unverified",
     );

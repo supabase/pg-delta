@@ -116,7 +116,7 @@ test("cluster scope rejects a sibling database from the same PostgreSQL lineage"
   }
 }, 60_000);
 
-test("database scope allows a sibling database from the same lineage", async () => {
+test("database scope without isolation allows a sibling database from the same lineage", async () => {
   const cluster = await sharedCluster();
   const target = await cluster.createDb("shadow_guard_database_target");
   const shadow = await cluster.createDb("shadow_guard_database_shadow");
@@ -140,6 +140,42 @@ test("database scope allows a sibling database from the same lineage", async () 
         `SELECT to_regnamespace('same_lineage_database_scope') IS NOT NULL AS present`,
       ),
     ).toMatchObject({ rows: [{ present: true }] });
+  } finally {
+    await Promise.all([target.drop(), shadow.drop()]);
+  }
+}, 60_000);
+
+test("database scope rejects a same-lineage sibling requested as isolated before loading SQL", async () => {
+  const cluster = await sharedCluster();
+  const target = await cluster.createDb("shadow_guard_isolated_target");
+  const shadow = await cluster.createDb("shadow_guard_isolated_shadow");
+  try {
+    const dir = sqlDir(
+      "shadow-guard-isolated",
+      "CREATE SCHEMA must_not_reach_isolated_shadow;",
+    );
+    const error = await captureError(
+      cmdSchemaApply([
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--scope",
+        "database",
+        "--isolated-shadow",
+      ]),
+    );
+    expect(error).toBeInstanceOf(UsageError);
+    expect((error as Error).message).toMatch(
+      /isolated shadow.*different PostgreSQL lineage/i,
+    );
+    expect(
+      await shadow.pool.query(
+        `SELECT to_regnamespace('must_not_reach_isolated_shadow') IS NULL AS absent`,
+      ),
+    ).toMatchObject({ rows: [{ absent: true }] });
   } finally {
     await Promise.all([target.drop(), shadow.drop()]);
   }
