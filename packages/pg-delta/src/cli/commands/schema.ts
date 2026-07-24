@@ -463,6 +463,20 @@ export function prepareApplyFiles(
   return prepared;
 }
 
+/** Warn whenever a schema-apply output surface can expose cleartext secrets.
+ *  The caller passes the EFFECTIVE redaction mode, already reconciled with the
+ *  export manifest, so flag- and manifest-driven unsafe modes cannot drift. */
+function warnIfUnredactedOutput(
+  redactSecrets: boolean,
+  output: "plan artifact" | "dry-run script" | "verbose output",
+): void {
+  if (!redactSecrets) {
+    process.stderr.write(
+      `  WARNING: secrets are unredacted (--unsafe-show-secrets or the export manifest) — the ${output} contains UNREDACTED credentials.\n`,
+    );
+  }
+}
+
 export async function cmdSchemaApply(args: string[]): Promise<void> {
   let parsed;
   try {
@@ -771,14 +785,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     if (outPlanPath !== undefined) {
       writeFileSync(outPlanPath, serializePlan(thePlan), "utf8");
       process.stderr.write(`Plan artifact written to ${outPlanPath}\n`);
-      // key on the EFFECTIVE mode, not the flag: the export manifest can
-      // carry redactSecrets:false without the operator re-passing
-      // --unsafe-show-secrets (and a redacted manifest overrides the flag).
-      if (!redactSecrets) {
-        process.stderr.write(
-          `  WARNING: secrets are unredacted (--unsafe-show-secrets or the export manifest) — the plan artifact contains UNREDACTED credentials.\n`,
-        );
-      }
+      warnIfUnredactedOutput(redactSecrets, "plan artifact");
     }
 
     if (thePlan.actions.length === 0) {
@@ -799,14 +806,9 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       process.stderr.write(
         `Dry run: ${thePlan.actions.length} action(s) planned; nothing applied.\n`,
       );
-      if (!redactSecrets) {
-        // the dry-run script is routinely redirected to a file, making it as
-        // persistent as the --out-plan artifact warned about above; same
-        // effective-mode (manifest-aware) gate as that warning.
-        process.stderr.write(
-          `  WARNING: secrets are unredacted (--unsafe-show-secrets or the export manifest) — the dry-run script contains UNREDACTED credentials.\n`,
-        );
-      }
+      // The script is routinely redirected to a file, making it as persistent
+      // as an archived plan artifact.
+      warnIfUnredactedOutput(redactSecrets, "dry-run script");
       const destructiveCount =
         thePlan.actions.filter(isDestructiveAction).length;
       if (destructiveCount > 0) {
@@ -815,6 +817,13 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         );
       }
       return;
+    }
+
+    // A real verbose apply writes every action SQL to stderr. Warn after the
+    // dry-run early return (where --verbose has no effect) and before the first
+    // action can expose a credential.
+    if (verbose) {
+      warnIfUnredactedOutput(redactSecrets, "verbose output");
     }
 
     if (force) {
