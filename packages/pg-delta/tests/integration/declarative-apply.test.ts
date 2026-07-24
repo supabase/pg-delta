@@ -105,6 +105,46 @@ async function testDeclarativeApply(options: {
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`declarative-apply round-based (pg${pgVersion})`, () => {
     test(
+      "reports dependency cycles as stuck without dropping statements",
+      withDb(pgVersion, async (db) => {
+        const result = await applyDeclarativeSchema({
+          content: [
+            {
+              filePath: "cycle-a.sql",
+              sql: `
+                CREATE TABLE public.cycle_a (
+                  id integer PRIMARY KEY,
+                  b_id integer REFERENCES public.cycle_b(id)
+                );
+              `,
+            },
+            {
+              filePath: "cycle-b.sql",
+              sql: `
+                CREATE TABLE public.cycle_b (
+                  id integer PRIMARY KEY,
+                  a_id integer REFERENCES public.cycle_a(id)
+                );
+              `,
+            },
+          ],
+          pool: db.main,
+          maxRounds: 3,
+          validateFunctionBodies: false,
+        });
+
+        expect(result.totalStatements).toBe(2);
+        expect(
+          result.diagnostics.some(
+            (diagnostic) => diagnostic.code === "CYCLE_DETECTED",
+          ),
+        ).toBe(true);
+        expect(result.apply.status).toBe("stuck");
+        expect(result.apply.stuckStatements).toHaveLength(2);
+      }),
+    );
+
+    test(
       "simple table with index",
       withDb(pgVersion, async (db) => {
         const result = await testDeclarativeApply({
