@@ -12,11 +12,13 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  assertProofCloneEndpoint,
   cmdProve,
   formatProofFailure,
   formatProofPassCaveat,
   formatProofPassCoverage,
 } from "./prove.ts";
+import { connectionEndpointHash } from "../connection-safety.ts";
 import type { ProofCoverage } from "../../proof/prove.ts";
 import { buildFactBase } from "../../core/fact.ts";
 import { serializeSnapshot } from "../../core/snapshot.ts";
@@ -30,6 +32,42 @@ const baseVerdict = (): ProofVerdict => ({
   dataViolations: [],
   rewriteViolations: [],
   coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+});
+
+describe("assertProofCloneEndpoint", () => {
+  const remote = "postgres://db.example.com/app";
+
+  test("remote clones need an explicit opt-in", () => {
+    expect(() =>
+      assertProofCloneEndpoint(remote, undefined, [], false),
+    ).toThrow(UsageError);
+    expect(() =>
+      assertProofCloneEndpoint(remote, undefined, [], true),
+    ).not.toThrow();
+  });
+
+  test("an exact custom local endpoint is accepted", () => {
+    expect(() =>
+      assertProofCloneEndpoint(
+        "postgres://postgres.orb.local:5432/app",
+        undefined,
+        ["postgres.orb.local:5432"],
+        false,
+      ),
+    ).not.toThrow();
+  });
+
+  test("the plan source endpoint is always rejected as the clone", () => {
+    const source = "postgres://prod.example.com/app";
+    expect(() =>
+      assertProofCloneEndpoint(
+        source,
+        connectionEndpointHash(source),
+        [],
+        true,
+      ),
+    ).toThrow("the clone resolves to the plan's source endpoint");
+  });
 });
 
 describe("formatProofFailure (review P2)", () => {
@@ -198,6 +236,7 @@ describe("cmdProve — desired-snapshot profile reconciliation", () => {
         planPath,
         "--clone",
         "postgres://invalid.invalid:1/none",
+        "--allow-remote-clone",
         "--desired-snapshot",
         snapPath,
       ]);
