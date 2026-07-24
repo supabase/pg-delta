@@ -124,14 +124,20 @@ Notes:
     catalog diff between the shadow and target states). --verbose shows every
     statement actually executed on the target connection, including
     transaction framing and session SETs; --dry-run prints the same
-    statements, split on the same segment boundaries, without applying them
-    (transaction framing is shown by --verbose only).
-  --dry-run (schema apply): plan as usual, then print the executable script
-    to stdout (reusing "render"'s segment splitter, so it splits on the same
-    boundaries apply() executes) instead of applying — no fingerprint gate
-    runs, nothing is applied. A stderr summary reports the action count and
-    flags destructive actions. Composes with --out-plan; --verbose has no
-    effect under --dry-run (nothing executes, so there is no trace).
+    successful-path statements and transaction framing, split on the same
+    segment boundaries, without applying them.
+  --dry-run (schema apply): plan as usual, then print a portable apply script
+    to stdout instead of applying — no fingerprint gate runs, nothing is
+    applied. Execute it statement by statement on one session, stopping on the
+    first error, with autocommit outside its explicit BEGIN/COMMIT blocks. Do
+    not submit it as one multi-statement request or wrap it in one global
+    transaction. Safe psql execution behavior:
+      psql -X -v ON_ERROR_STOP=1 -f apply.sql
+    Supply the connection through secure libpq configuration, environment,
+    service, or passfile settings rather than a password-bearing URI in argv.
+    A stderr summary reports the action count and flags destructive actions.
+    Composes with --out-plan; --verbose has no effect under --dry-run (nothing
+    executes, so there is no trace).
   --verbose (schema apply): during the real apply, stream a segment/action
     progress trace to stderr — segment start/end (with outcome), every
     planner-rendered action (the SQL about to run and whether it succeeded,

@@ -48,15 +48,20 @@
  *   transaction framing (BEGIN/COMMIT/ROLLBACK) and session SETs — never the
  *   authored files; --dry-run prints a portable executable script containing
  *   the same successful-path statements and segment boundaries, without
- *   applying them.
+ *   applying them. It must be dispatched statement by statement on one session,
+ *   stopping at the first error, with autocommit outside its explicit
+ *   transaction blocks; never submit it as one multi-statement request or wrap
+ *   the whole script in one transaction.
  *
  *   --dry-run
  *     Plan as usual, then print the executable portable SQL script to STDOUT
- *     instead of calling apply() — no fingerprint gate
- *     runs, nothing is applied. A stderr summary reports the action count and
- *     flags any destructive actions. Composes with --out-plan; --force is a
- *     no-op since the gate never runs, and --verbose has no effect (nothing
- *     executes, so there is no trace).
+ *     instead of calling apply() — no fingerprint gate runs, nothing is
+ *     applied. Execute it statement by statement on one session and stop on
+ *     the first error; preserve autocommit outside its explicit transaction
+ *     blocks. A stderr summary reports the action count and flags any
+ *     destructive actions. Composes with --out-plan; --force is a no-op since
+ *     the gate never runs, and --verbose has no effect (nothing executes, so
+ *     there is no trace).
  *   --verbose
  *     During the real apply, stream a segment/action-level progress trace to
  *     STDERR: segment start/end (with outcome), every planner-rendered action
@@ -104,7 +109,7 @@ import {
 import { serializePlan } from "../../plan/artifact.ts";
 import type { ManagementScope } from "../../policy/view.ts";
 import { apply, type ApplyEvent } from "../../apply/apply.ts";
-import { renderApplyScript } from "../../apply/render-apply-script.ts";
+import { renderApplyScript } from "../../frontends/render-apply-script.ts";
 import { isDestructiveAction } from "../render.ts";
 import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
@@ -488,7 +493,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         `${err.message}\nUsage: pgdelta schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
           `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow]\n` +
-          `  [--dry-run] (print the executable script to stdout; apply nothing) [--verbose] (stream per-statement progress to stderr) [--out-plan <plan.json>] (write the plan artifact)\n` +
+          `  [--dry-run] (print the portable apply script to stdout; apply nothing; see pgdelta --help for execution requirements) [--verbose] (stream per-statement progress to stderr) [--out-plan <plan.json>] (write the plan artifact)\n` +
           `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.`,
       );
     }

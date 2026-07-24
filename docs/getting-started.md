@@ -95,6 +95,27 @@ pgdelta schema apply \
   --target "$TARGET_URL"     # the database to migrate
 ```
 
+Use `--dry-run` to write the portable apply script to stdout without changing
+the target, `--verbose` to stream the real apply's segment and statement trace
+to stderr, and `--out-plan <plan.json>` to archive the exact plan immediately
+after planning. Status, warnings, and diagnostics stay on stderr, so stdout from
+`--dry-run` can be redirected verbatim:
+
+```bash
+pgdelta schema apply --dir ./schema --target "$TARGET_URL" --dry-run > apply.sql
+```
+
+The script must run statement by statement, in order, on one database session.
+The runner must stop on the first error and preserve autocommit outside the
+script's explicit `BEGIN`/`COMMIT` blocks; do not submit the whole file as one
+multi-statement request or wrap it in one global transaction. For `psql`, use
+secure libpq connection configuration (environment, service, or passfile
+settings) and run:
+
+```bash
+psql -X -v ON_ERROR_STOP=1 -f apply.sql
+```
+
 Export the inverse — a live database back out to `.sql` files:
 
 ```bash
@@ -142,7 +163,7 @@ has drifted (and prints the deltas) — handy in CI.
 | `snapshot` | Save a database's fact base to a file | `--source` `--out` `[--strict-coverage]` |
 | `drift` | Compare a live DB against a saved snapshot | `--env` `--snapshot` `[--strict-coverage]` |
 | `schema export` | Export a live DB to `.sql` files | `--source` `--out-dir` `[--layout]` `[--profile]` `[--strict-coverage]` |
-| `schema apply` | Load `.sql` files via a shadow DB and migrate a target | `--dir` `--shadow` `--target` `[--renames]` `[--accept-rename]` `[--force]` `[--profile]` `[--restrict-to-applier]` `[--strict-coverage]` |
+| `schema apply` | Load `.sql` files via a shadow DB and migrate a target | `--dir` `--shadow` `--target` `[--renames]` `[--accept-rename]` `[--force]` `[--profile]` `[--restrict-to-applier]` `[--strict-coverage]` `[--dry-run]` `[--verbose]` `[--out-plan]` |
 
 Common flags, explained:
 
