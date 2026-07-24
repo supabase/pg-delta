@@ -1798,6 +1798,52 @@ describe("CLI: secret redaction surface", () => {
       await Promise.all([shadow.drop(), target.drop()]);
     }
   }, 120_000);
+
+  test("schema apply qualifies the verbose warning for a secret-free unredacted plan", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_verbose_no_secret_shadow");
+    const target = await cluster.createDb("cli_verbose_no_secret_tgt");
+    try {
+      const dir = join(
+        tmpdir(),
+        `pg-delta-next-verbose-no-secret-${Date.now()}`,
+      );
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "01_schema.sql"),
+        `CREATE SCHEMA app;\nCREATE TABLE app.items (id integer PRIMARY KEY);\n`,
+      );
+      writeFileSync(
+        join(dir, ".pgdelta-export.json"),
+        JSON.stringify({ formatVersion: 1, redactSecrets: false }),
+        "utf8",
+      );
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+        "--verbose",
+      ]);
+
+      expect(res.exitCode).toBe(0);
+      expect(res.stderr).toContain(
+        "the verbose output may contain unredacted credentials.",
+      );
+      expect(res.stderr).not.toContain(
+        "the verbose output contains UNREDACTED credentials.",
+      );
+    } finally {
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 120_000);
 });
 
 describe("CLI: schema lint", () => {
