@@ -7,7 +7,7 @@ import pg from "pg";
 
 const log = createDebug("pgdelta:pool");
 
-export interface ManagedPool {
+interface ManagedPool {
   pool: pg.Pool;
   end(): Promise<void>;
 }

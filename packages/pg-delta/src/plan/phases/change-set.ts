@@ -37,7 +37,7 @@ export interface AcceptedRename {
   desiredSubtree: StableId[];
 }
 
-export interface ChangeSet {
+interface ChangeSet {
   /** resolved physical source — used only by the apply fingerprint gate */
   physicalSource: FactBase;
   /** canonical managed-view source / desired — what everything downstream uses */

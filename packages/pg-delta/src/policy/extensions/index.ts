@@ -14,10 +14,6 @@
  * from the diffed view. The Supabase composition of these handlers lives in the
  * integration profile (`src/integrations/supabase.ts`).
  */
-export type {
-  CaptureResult,
-  ExtensionHandler,
-  HandlerContext,
-} from "../../extract/handler.ts";
+;
 export { pgPartmanHandler } from "./pg-partman.ts";
 export { pgCronHandler } from "./pg-cron.ts";

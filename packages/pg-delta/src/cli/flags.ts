@@ -43,15 +43,15 @@ export class CliExit extends Error {
   }
 }
 
-export type FlagSpec =
+type FlagSpec =
   | { type: "value"; required?: boolean }
   | { type: "boolean" }
   | { type: "multi" };
 
-export type FlagsDef = Record<string, FlagSpec>;
+type FlagsDef = Record<string, FlagSpec>;
 
 /** Infer the result type from a FlagsDef. */
-export type ParsedFlags<T extends FlagsDef> = {
+type ParsedFlags<T extends FlagsDef> = {
   [K in keyof T]: T[K] extends { type: "boolean" }
     ? boolean
     : T[K] extends { type: "multi" }
@@ -61,7 +61,7 @@ export type ParsedFlags<T extends FlagsDef> = {
         : string | undefined;
 };
 
-export interface ParseResult<T extends FlagsDef> {
+interface ParseResult<T extends FlagsDef> {
   flags: ParsedFlags<T>;
   positionals: string[];
 }

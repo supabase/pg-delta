@@ -182,7 +182,7 @@ const LINT_ERROR_CODES: ReadonlySet<string> = new Set([
 
 /** Result of {@link formatLintReport}: human-readable lines plus counts and a
  *  blocking flag the CLI maps to its exit code. */
-export interface LintReport {
+interface LintReport {
   lines: string[];
   errorCount: number;
   warningCount: number;

@@ -14,7 +14,7 @@ import { encodeId, type StableId } from "../../core/stable-id.ts";
 import { cascadesToChildren, isRebuildable } from "../rule-flags.ts";
 import type { RulesForId } from "../rules.ts";
 
-export interface ReplacementExpansionInput {
+interface ReplacementExpansionInput {
   /** removed facts keyed by encoded id (ordinary rename cancellation applied) */
   removed: ReadonlyMap<string, Fact>;
   /** set-deltas grouped by encoded fact id */
@@ -26,7 +26,7 @@ export interface ReplacementExpansionInput {
   rulesForId: RulesForId;
 }
 
-export interface ReplacementExpansion {
+interface ReplacementExpansion {
   /** encoded ids the planner replaces (drop old + recreate from desired) */
   replaceIds: Set<string>;
   /** encoded id → encoded id of the drop action that subsumes it (suppression) */

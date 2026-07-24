@@ -20,12 +20,12 @@ type IntrinsicallyDataBearingId =
       name: string;
     };
 
-export interface DestructionMetadataViolation {
+interface DestructionMetadataViolation {
   actionIndex: number;
   relation: IntrinsicallyDataBearingId;
 }
 
-export interface DerivedAcceptedRename {
+interface DerivedAcceptedRename {
   actionIndex: number;
   from: StableId;
   to: StableId;
