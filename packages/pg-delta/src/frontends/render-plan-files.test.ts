@@ -200,6 +200,60 @@ describe("renderPlanFiles", () => {
     expect(renderPlanFiles(plan, { allowDrops: true }).files).toHaveLength(1);
   });
 
+  test("refuses contradictory destruction metadata even when destructive rendering is allowed", () => {
+    const cases: Array<{ sql: string; destroys: Action["destroys"] }> = [
+      {
+        sql: "ALTER TABLE app.records DROP COLUMN secret",
+        destroys: [
+          {
+            kind: "column",
+            schema: "app",
+            table: "records",
+            name: "secret",
+          },
+        ],
+      },
+      {
+        sql: "DROP TABLE app.records",
+        destroys: [{ kind: "table", schema: "app", name: "records" }],
+      },
+      {
+        sql: "DROP MATERIALIZED VIEW app.summary",
+        destroys: [
+          { kind: "materializedView", schema: "app", name: "summary" },
+        ],
+      },
+    ];
+
+    for (const { sql, destroys } of cases) {
+      const plan = makePlan({
+        actions: [action({ sql, verb: "alter", destroys, dataLoss: "none" })],
+      });
+      expect(() => renderPlanFiles(plan, { allowDrops: true })).toThrow(
+        /destroys intrinsically data-bearing object .*dataLoss:none/,
+      );
+    }
+  });
+
+  test("renders an accepted same-action rename without treating it as destruction", () => {
+    const from = { kind: "table" as const, schema: "app", name: "old_records" };
+    const to = { kind: "table" as const, schema: "app", name: "records" };
+    const plan = makePlan({
+      acceptedRenames: [{ from, to }],
+      actions: [
+        action({
+          sql: "ALTER TABLE app.old_records RENAME TO records",
+          verb: "alter",
+          destroys: [from],
+          produces: [to],
+          dataLoss: "none",
+        }),
+      ],
+    });
+
+    expect(renderPlanFiles(plan, { allowDrops: false }).files).toHaveLength(1);
+  });
+
   test("transactional segment scopes preamble with SET LOCAL (dies at COMMIT, no session leak)", () => {
     const plan = makePlan({
       preamble: [

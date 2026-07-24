@@ -31,11 +31,19 @@ function poolWith(result: "ok" | "denied"): {
 }
 
 describe("identity safety DX", () => {
-  test("plan warning says permission must be granted before re-planning", () => {
-    const warning = formatPlanIdentityWarning();
+  test("plan permission warning says access must be granted before re-planning", () => {
+    const warning = formatPlanIdentityWarning("42501");
     expect(warning).toContain("grant");
     expect(warning).toMatch(/re-plan|run .*plan again/i);
     expect(warning).toContain("--allow-unverified-source-identity");
+  });
+
+  test("plan unsupported-function warning never recommends an impossible grant", () => {
+    const warning = formatPlanIdentityWarning("42883");
+    expect(warning).toMatch(/unavailable|unsupported/i);
+    expect(warning).toContain("--allow-unverified-source-identity");
+    expect(warning).toMatch(/re-plan|run .*plan again/i);
+    expect(warning).not.toMatch(/grant/i);
   });
 
   test("explicit shadow probes identify a target-side denial deterministically", async () => {

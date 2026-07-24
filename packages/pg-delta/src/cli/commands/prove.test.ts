@@ -129,6 +129,33 @@ describe("assertProofCloneIdentity", () => {
     );
   });
 
+  test("clone identity failures preserve permission-denied versus unsupported guidance", () => {
+    let denied: unknown;
+    let unsupported: unknown;
+    try {
+      assertProofCloneIdentity(source, undefined, undefined, false, "42501");
+    } catch (error) {
+      denied = error;
+    }
+    try {
+      assertProofCloneIdentity(source, undefined, undefined, false, "42883");
+    } catch (error) {
+      unsupported = error;
+    }
+
+    expect(denied).toBeInstanceOf(UsageError);
+    expect((denied as Error).message).toMatch(/GRANT EXECUTE/i);
+    expect((denied as Error).message).toContain(
+      "--allow-unverified-source-identity",
+    );
+    expect(unsupported).toBeInstanceOf(UsageError);
+    expect((unsupported as Error).message).toMatch(/unavailable|unsupported/i);
+    expect((unsupported as Error).message).toContain(
+      "--allow-unverified-source-identity",
+    );
+    expect((unsupported as Error).message).not.toMatch(/grant/i);
+  });
+
   test("a confirmed source database match cannot be overridden", () => {
     expect(() =>
       assertProofCloneIdentity(source, source, "database", true),
