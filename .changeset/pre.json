@@ -68,6 +68,7 @@
     "order-rls-policies-after-referenced-tables",
     "pg-delta-partition-check-constraint-inhcount",
     "pg-delta-public-default-privilege-diff",
+    "pg-topo-total-ordered",
     "pgmq-queue-trigger-fallback",
     "purple-guests-grow",
     "redact-fdw-option-secrets",
