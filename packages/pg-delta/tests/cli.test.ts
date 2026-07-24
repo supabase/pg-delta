@@ -1748,6 +1748,56 @@ describe("CLI: secret redaction surface", () => {
       await Promise.all([shadow.drop(), target.drop()]);
     }
   }, 120_000);
+
+  test("schema apply warns before verbose output exposes manifest-unredacted secrets", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_verbose_secret_shadow");
+    const target = await cluster.createDb("cli_verbose_secret_tgt");
+    const secret = "verbose-secret-xyz";
+    try {
+      const dir = join(tmpdir(), `pg-delta-next-verbose-secret-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "01_fdw.sql"),
+        `CREATE FOREIGN DATA WRAPPER cli_verbose_fdw;\n` +
+          `CREATE SERVER cli_verbose_srv FOREIGN DATA WRAPPER cli_verbose_fdw\n` +
+          `  OPTIONS (host 'h.example.com', password '${secret}');\n`,
+      );
+      writeFileSync(
+        join(dir, ".pgdelta-export.json"),
+        JSON.stringify({ formatVersion: 1, redactSecrets: false }),
+        "utf8",
+      );
+
+      // No --unsafe-show-secrets flag: the export manifest disables redaction.
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+        "--verbose",
+      ]);
+
+      expect(res.exitCode).toBe(0);
+      const warningText =
+        "WARNING: secrets are unredacted (--unsafe-show-secrets or the export manifest) — the verbose output contains UNREDACTED credentials.";
+      expect(res.stderr).toContain(warningText);
+      const warningLine =
+        res.stderr.split("\n").find((line) => line.includes(warningText)) ?? "";
+      expect(warningLine).not.toContain(secret);
+      expect(res.stderr.indexOf(warningText)).toBeLessThan(
+        res.stderr.indexOf(secret),
+      );
+    } finally {
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 120_000);
 });
 
 describe("CLI: schema lint", () => {
