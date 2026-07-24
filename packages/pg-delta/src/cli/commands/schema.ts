@@ -468,7 +468,11 @@ export function prepareApplyFiles(
  *  export manifest, so flag- and manifest-driven unsafe modes cannot drift. */
 function warnIfUnredactedOutput(
   redactSecrets: boolean,
-  output: "plan artifact" | "dry-run script" | "verbose output",
+  output:
+    | "plan artifact"
+    | "dry-run script"
+    | "verbose output"
+    | "failure diagnostic",
 ): void {
   if (!redactSecrets) {
     process.stderr.write(
@@ -894,6 +898,12 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
             ? `action[${report.error.actionIndex}]`
             : "control";
         process.stderr.write(`  ${subject}: ${report.error.message}\n`);
+        // Non-verbose applies have not exposed action SQL yet. Warn directly
+        // before the final failed-SQL diagnostic; verbose mode already warned
+        // before its actionStart trace, so repeating the warning would mislead.
+        if (!verbose) {
+          warnIfUnredactedOutput(redactSecrets, "failure diagnostic");
+        }
         process.stderr.write(`  sql: ${report.error.sql}\n`);
       }
       // The finally below releases resources (drops any co-located shadow);
