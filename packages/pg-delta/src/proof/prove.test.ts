@@ -8,10 +8,14 @@
  * proof reports honest per-table coverage instead of a bare boolean.
  */
 import { describe, expect, test } from "bun:test";
+import type { Pool } from "pg";
+import { buildFactBase } from "../core/fact.ts";
+import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
 import {
   composeAutoSeedBaseline,
   detectAutoSeedSideEffects,
   detectViolations,
+  provePlan,
   reconcileSeedOutcomes,
   relKey,
   type SeedOutcome,
@@ -38,6 +42,64 @@ const m = (entries: Array<[schema: string, name: string, stat: Stat]>) =>
   new Map<string, Stat>(entries.map(([s, n, stat]) => [relKey(s, n), stat]));
 
 const SIG = "id:23"; // a stable column signature
+
+describe("provePlan — destruction metadata preflight", () => {
+  test("a mislabeled column drop cannot reach the clone or false-green", async () => {
+    const empty = buildFactBase([], []);
+    const column = {
+      kind: "column" as const,
+      schema: "app",
+      table: "t",
+      name: "secret",
+    };
+    const thePlan: Plan = {
+      formatVersion: 1,
+      engineVersion: ENGINE_VERSION,
+      source: { fingerprint: empty.rootHash },
+      target: { fingerprint: empty.rootHash },
+      preamble: [],
+      deltas: [],
+      filteredDeltas: [],
+      renameCandidates: [],
+      actions: [
+        {
+          sql: `ALTER TABLE app.t DROP COLUMN secret`,
+          verb: "drop",
+          produces: [],
+          consumes: [],
+          destroys: [column],
+          releases: [],
+          transactionality: "transactional",
+          lockClass: "accessExclusive",
+          newSegmentBefore: false,
+          dataLoss: "none",
+          rewriteRisk: false,
+        },
+      ],
+      safetyReport: {
+        destructiveActions: 0,
+        rewriteRiskActions: 0,
+        nonTransactionalActions: 0,
+        lockClasses: { accessExclusive: 1 },
+      },
+    };
+    const verdict = await provePlan(
+      thePlan,
+      {} as Pool,
+      empty,
+      {
+        reextract: () => {
+          throw new Error("proof touched the clone before rejecting metadata");
+        },
+      },
+    );
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.safetyMetadataViolations).toEqual([
+      { actionIndex: 0, object: column },
+    ]);
+  });
+});
 
 describe("detectViolations — content + coverage (review #3)", () => {
   test("row count change is a data violation", () => {

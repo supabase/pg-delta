@@ -8,6 +8,20 @@ const relation = (
   name = "old",
 ): StableId => ({ kind, schema: "app", name });
 
+const column = (name = "old_column"): StableId => ({
+  kind: "column",
+  schema: "app",
+  table: "t",
+  name,
+});
+
+const typeAttribute = (name = "old_attribute"): StableId => ({
+  kind: "typeAttribute",
+  schema: "app",
+  type: "composite_t",
+  name,
+});
+
 const action = (overrides: Partial<Action> = {}): Action => ({
   sql: 'DROP TABLE "app"."old"',
   verb: "drop",
@@ -24,11 +38,13 @@ const action = (overrides: Partial<Action> = {}): Action => ({
 });
 
 describe("destruction metadata integrity", () => {
-  test("rejects table and materialized-view destruction marked dataLoss:none", () => {
+  test("rejects intrinsically data-bearing destruction marked dataLoss:none", () => {
     expect(
       findDestructionMetadataViolations([
         action(),
         action({ destroys: [relation("materializedView", "mv")] }),
+        action({ destroys: [column()] }),
+        action({ destroys: [typeAttribute()] }),
       ]),
     ).toEqual([
       {
@@ -43,10 +59,28 @@ describe("destruction metadata integrity", () => {
           name: "mv",
         },
       },
+      {
+        actionIndex: 2,
+        relation: {
+          kind: "column",
+          schema: "app",
+          table: "t",
+          name: "old_column",
+        },
+      },
+      {
+        actionIndex: 3,
+        relation: {
+          kind: "typeAttribute",
+          schema: "app",
+          type: "composite_t",
+          name: "old_attribute",
+        },
+      },
     ]);
   });
 
-  test("allows declared destruction and an accepted same-action same-kind rename", () => {
+  test("allows declared destruction and accepted same-action same-kind renames", () => {
     expect(
       findDestructionMetadataViolations([action({ dataLoss: "destructive" })]),
     ).toEqual([]);
@@ -57,6 +91,27 @@ describe("destruction metadata integrity", () => {
       findDestructionMetadataViolations(
         [action({ verb: "alter", destroys: [from], produces: [to] })],
         [{ from, to }],
+      ),
+    ).toEqual([]);
+
+    const oldColumn = column();
+    const newColumn = column("new_column");
+    const oldAttribute = typeAttribute();
+    const newAttribute = typeAttribute("new_attribute");
+    expect(
+      findDestructionMetadataViolations(
+        [
+          action({ verb: "alter", destroys: [oldColumn], produces: [newColumn] }),
+          action({
+            verb: "alter",
+            destroys: [oldAttribute],
+            produces: [newAttribute],
+          }),
+        ],
+        [
+          { from: oldColumn, to: newColumn },
+          { from: oldAttribute, to: newAttribute },
+        ],
       ),
     ).toEqual([]);
   });
@@ -86,5 +141,30 @@ describe("destruction metadata integrity", () => {
         ],
       ),
     ).toHaveLength(1);
+  });
+
+  test("does not exempt a cross-kind subobject rename", () => {
+    const from = column();
+    const to = typeAttribute();
+    expect(
+      findDestructionMetadataViolations(
+        [action({ verb: "alter", destroys: [from], produces: [to] })],
+        [{ from, to }],
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("does not classify non-data stable IDs as intrinsically destructive", () => {
+    expect(
+      findDestructionMetadataViolations([
+        action({
+          destroys: [
+            { kind: "sequence", schema: "app", name: "seq" },
+            { kind: "constraint", schema: "app", table: "t", name: "t_pkey" },
+            { kind: "view", schema: "app", name: "v" },
+          ],
+        }),
+      ]),
+    ).toEqual([]);
   });
 });
