@@ -221,7 +221,19 @@ export const analyzeAndSort = async (
     }
   }
 
-  const ordered = topoResult.orderedIndices
+  // `ordered` must be a total order — a complete permutation of the input.
+  // Kahn's algorithm drains only the acyclic prefix, so statements trapped in
+  // a dependency cycle are absent from `orderedIndices` (they still surface in
+  // `cycleGroups` and the CYCLE_DETECTED diagnostic). Append those statements
+  // after the drained prefix using the same deterministic tie-break order.
+  const drainedIndices = new Set(topoResult.orderedIndices);
+  const cycleTailIndices = statementNodes
+    .map((_statementNode, index) => index)
+    .filter((index) => !drainedIndices.has(index))
+    .sort((left, right) =>
+      compareStatementIndices(left, right, statementNodes),
+    );
+  const ordered = [...topoResult.orderedIndices, ...cycleTailIndices]
     .map((index) => statementNodes[index])
     .filter((statementNode): statementNode is StatementNode =>
       Boolean(statementNode),
