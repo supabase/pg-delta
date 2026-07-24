@@ -237,6 +237,8 @@ export const topoSort = (
     return { orderedIndices, cycleGroups: [] };
   }
 
+  // Cycles-last policy: keep the maximal Kahn-drainable prefix, then order the
+  // residual SCC condensation so cycles and everything they block stay after it.
   const residualNodeIndices = new Set<number>();
   for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1) {
     if ((indegree[nodeIndex] ?? 0) > 0) {

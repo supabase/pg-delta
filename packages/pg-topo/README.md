@@ -78,7 +78,10 @@ const result = await analyzeAndSortFromFiles(["./schema"]);
 
 ### `analyzeAndSort(sql: string[]): Promise<AnalyzeResult>`
 
-Pure library function. Accepts an array of SQL content strings. No filesystem access.
+Pure library function. Accepts an array of SQL content strings. Each string is
+parsed atomically: if any SQL in one string is invalid, that entry contributes
+no statements and emits `PARSE_ERROR`. Separate array entries are parsed
+independently. No filesystem access.
 
 ### `analyzeAndSortFromFiles(roots: string[]): Promise<AnalyzeResult>`
 
@@ -107,7 +110,7 @@ Additional exported types:
 
 ### `ordered`
 
-`ordered` is the topologically sorted statement list.  
+`ordered` is the deterministically ordered statement list.
 Each item includes:
 
 - original `sql`
@@ -120,9 +123,11 @@ For the core `analyzeAndSort`, `filePath` uses synthetic source labels (e.g. `<i
 For `analyzeAndSortFromFiles`, `filePath` is the relative path to the source `.sql` file.
 
 `ordered` is a **total order**: it always contains every successfully parsed
-statement exactly once. Statements trapped in a dependency cycle are emitted as
-an atomic component in dependency order, with deterministic tie-break ordering
-within the component. The cycle is still reported through `CYCLE_DETECTED` and
+statement exactly once. It begins with the maximal acyclic prefix that can be
+topologically drained. The residual cycle components and any descendants they
+block follow in condensation-DAG order. Tie-breaks between ready components and
+the order within each cycle are deterministic; the order within a cycle is not
+a topological order. Cycles are still reported through `CYCLE_DETECTED` and
 `graph.cycleGroups`.
 
 ### `diagnostics`
