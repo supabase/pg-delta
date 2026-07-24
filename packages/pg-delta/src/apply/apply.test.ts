@@ -108,9 +108,16 @@ describe("apply plan integrity", () => {
       },
     } satisfies Plan;
 
-    await expect(
-      apply(thePlan, target, { fingerprintGate: false }),
-    ).rejects.toThrow(/destroys.*table:app\.t.*dataLoss:none/);
+    let error: unknown;
+    try {
+      await apply(thePlan, target, { fingerprintGate: false });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(
+      /destroys.*table:app\.t.*dataLoss:none/,
+    );
     expect(connected).toBe(false);
   });
 });

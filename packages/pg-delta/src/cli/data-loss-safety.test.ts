@@ -39,9 +39,7 @@ describe("data-loss safety", () => {
   test("fails closed for malformed dataLoss metadata from non-artifact callers", () => {
     for (const dataLoss of [undefined, null, "unknown"]) {
       expect(() =>
-        dataLossActions([
-          { ...action("none"), dataLoss } as unknown as Action,
-        ]),
+        dataLossActions([{ ...action("none"), dataLoss } as unknown as Action]),
       ).toThrow(/action\[0\]\.dataLoss/);
     }
   });

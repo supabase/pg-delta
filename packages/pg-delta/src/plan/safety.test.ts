@@ -48,9 +48,7 @@ describe("destruction metadata integrity", () => {
 
   test("allows declared destruction and an accepted same-action same-kind rename", () => {
     expect(
-      findDestructionMetadataViolations([
-        action({ dataLoss: "destructive" }),
-      ]),
+      findDestructionMetadataViolations([action({ dataLoss: "destructive" })]),
     ).toEqual([]);
 
     const from = relation("materializedView");
