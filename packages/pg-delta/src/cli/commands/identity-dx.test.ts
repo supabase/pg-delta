@@ -19,7 +19,9 @@ function poolWith(result: "ok" | "denied"): {
       query: async () => {
         count++;
         if (result === "denied") {
-          throw Object.assign(new Error("permission denied"), { code: "42501" });
+          throw Object.assign(new Error("permission denied"), {
+            code: "42501",
+          });
         }
         return { rows: [identityRow] };
       },

@@ -221,6 +221,14 @@ export async function observeDatabaseIdentityForMutation(
     return await observeDatabaseIdentity(pool);
   } catch (error) {
     if (!isDatabaseIdentityObservationUnavailable(error)) throw error;
+    const code = (error as { code?: unknown }).code;
+    if (code === "42883") {
+      throw new Error(
+        `${context}: pg_catalog.pg_control_system() is unavailable; ` +
+          `this PostgreSQL server cannot provide the lineage/database identity required for a mutating explicit-shadow workflow`,
+        { cause: error },
+      );
+    }
     throw new Error(
       `${context}: could not observe the PostgreSQL lineage/database identity; ` +
         `grant the connection role access with GRANT EXECUTE ON FUNCTION ` +

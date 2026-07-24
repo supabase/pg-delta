@@ -67,6 +67,7 @@ Commands:
   render         --plan <plan.json> --out <base>.sql [--allow-drops]
   prove          --plan <plan.json> --clone <pg-url> --desired-snapshot <file>
                  [--trusted-local-host <hostname>]... [--allow-remote-clone]
+                 [--allow-unverified-source-identity]
   diff           --source <pg-url> --desired <pg-url>
   drift          --env <pg-url> --snapshot <file>
   snapshot       --source <pg-url> --out <file>
@@ -76,6 +77,7 @@ Commands:
                  [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
   schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>
                  [--renames auto|prompt|off] [--force] [--allow-data-loss]
+                 [--scope database|cluster] [--isolated-shadow]
                  [--trusted-local-host <hostname>]... [--allow-remote-shadow]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
   schema lint    --dir <dir>
@@ -122,7 +124,10 @@ Notes:
     cluster-scoped plans, its lineage. Physical/base-backup clones are unsupported.
     Legacy/direct-library plans need --allow-unverified-source-identity; that flag
     never overrides a confirmed identity match. Explicit schema shadows follow
-    the same endpoint and identity rules via --allow-remote-shadow. apply/schema apply refuse actions marked
+    the same endpoint and identity rules via --allow-remote-shadow. Clone and
+    explicit-shadow URLs must stay pinned to one database and physical lineage;
+    multi-cluster transaction/load-balancing endpoints are unsupported.
+    apply/schema apply refuse actions marked
     dataLoss:"destructive" unless --allow-data-loss is supplied; --force only
     skips the source fingerprint gate and never implies data-loss approval.
   --no-reorder (schema apply): skip the statement-reordering assist and load
@@ -156,6 +161,7 @@ Subcommands:
                  [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
   schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>
                  [--renames auto|prompt|off] [--force] [--allow-data-loss]
+                 [--scope database|cluster] [--isolated-shadow]
                  [--trusted-local-host <hostname>]... [--allow-remote-shadow]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
   schema lint    --dir <dir>

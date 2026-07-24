@@ -38,6 +38,15 @@ const USAGE =
   "[--accept-rename <from>=<to>] ... [--restrict-to-applier] [--strict-coverage] " +
   "[--unsafe-show-secrets]\n";
 
+export function formatPlanIdentityWarning(): string {
+  return (
+    "WARNING: plan could not observe the source PostgreSQL lineage/database identity. " +
+    "The plan remains applicable, but CLI prove will require " +
+    "--allow-unverified-source-identity. To retain verified identity checks, grant " +
+    "EXECUTE on pg_catalog.pg_control_system() to the connection role and re-plan.\n"
+  );
+}
+
 export async function cmdPlan(args: string[]): Promise<void> {
   let parsed;
   try {
@@ -128,12 +137,7 @@ export async function cmdPlan(args: string[]): Promise<void> {
       );
     } catch (error) {
       if (!isDatabaseIdentityObservationUnavailable(error)) throw error;
-      process.stderr.write(
-        "WARNING: plan could not observe the source PostgreSQL lineage/database identity. " +
-          "The plan remains applicable, but CLI prove will require " +
-          "--allow-unverified-source-identity unless the connection role is granted " +
-          "EXECUTE on pg_catalog.pg_control_system().\n",
-      );
+      process.stderr.write(formatPlanIdentityWarning());
     }
 
     // surface extraction diagnostics (review finding 2); --strict-coverage

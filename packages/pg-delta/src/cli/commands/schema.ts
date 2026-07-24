@@ -40,6 +40,7 @@
  *     Confirm one rename candidate by the encoded stable-ids shown in a prior
  *     --renames prompt run.  Repeatable; each flag names one confirmed rename.
  */
+import type { Pool } from "pg";
 import {
   mkdirSync,
   readdirSync,
@@ -90,7 +91,28 @@ import {
   isSamePostgresLineage,
   isTrustedLocalConnection,
   observeDatabaseIdentityForMutation,
+  type ObservedDatabaseIdentity,
 } from "../connection-safety.ts";
+
+export async function observeExplicitShadowIdentities(
+  targetPool: Pool,
+  shadowPool: Pool,
+): Promise<{
+  targetIdentity: ObservedDatabaseIdentity;
+  shadowIdentity: ObservedDatabaseIdentity;
+}> {
+  // Probe sequentially so a failure always names one connection and two denied
+  // roles cannot race to produce a nondeterministic remediation message.
+  const targetIdentity = await observeDatabaseIdentityForMutation(
+    targetPool,
+    "schema apply target safety",
+  );
+  const shadowIdentity = await observeDatabaseIdentityForMutation(
+    shadowPool,
+    "schema apply shadow safety",
+  );
+  return { targetIdentity, shadowIdentity };
+}
 
 /** Recursively collect *.sql files in lexicographic order. Exported for tests. */
 export function collectSqlFiles(dir: string): SqlFile[] {
@@ -517,6 +539,11 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       `--scope cluster manages cluster-global roles and must run against a dedicated shadow cluster; pass --isolated-shadow.`,
     );
   }
+  if (flags["isolated-shadow"] && shadowFlag === undefined) {
+    throw new UsageError(
+      `--isolated-shadow requires an explicit --shadow; omit --isolated-shadow to use the co-located database-scope shadow.`,
+    );
+  }
 
   // --renames default for CLI is "prompt"
   let renames: RenameMode = "prompt";
@@ -662,16 +689,8 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   };
   try {
     if (shadowFlag !== undefined) {
-      const [targetIdentity, shadowIdentity] = await Promise.all([
-        observeDatabaseIdentityForMutation(
-          tgt.pool,
-          "schema apply target/shadow safety",
-        ),
-        observeDatabaseIdentityForMutation(
-          shadow.pool,
-          "schema apply target/shadow safety",
-        ),
-      ]);
+      const { targetIdentity, shadowIdentity } =
+        await observeExplicitShadowIdentities(tgt.pool, shadow.pool);
       if (isSameDatabase(targetIdentity, shadowIdentity)) {
         throw new UsageError(
           `schema apply: shadow and target are the same observed database (${targetIdentity.database}); refusing to load declarative SQL`,
