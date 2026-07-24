@@ -472,6 +472,7 @@ function warnIfUnredactedOutput(
     | "plan artifact"
     | "dry-run script"
     | "verbose output"
+    | "planning failure diagnostic"
     | "failure diagnostic",
 ): void {
   if (!redactSecrets) {
@@ -751,6 +752,9 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         }
         return enriched;
       },
+    }).catch((error: unknown) => {
+      warnIfUnredactedOutput(redactSecrets, "planning failure diagnostic");
+      throw error;
     });
 
     printDiagnostics(planned.loadDiagnostics, { label: "shadow" });
