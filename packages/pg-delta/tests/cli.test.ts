@@ -2631,4 +2631,45 @@ describe("CLI: schema apply debugging", () => {
       await Promise.all([shadow.drop(), target.drop()]);
     }
   }, 90_000);
+
+  test("does not warn for an early manifest-unredacted empty-shadow guard", async () => {
+    const cluster = await sharedCluster();
+    const shadow = await cluster.createDb("cli_plan_early_unred_shadow");
+    const target = await cluster.createDb("cli_plan_early_unred_tgt");
+    const dir = mkdtempSync(
+      join(tmpdir(), "pg-delta-next-planning-early-unred-"),
+    );
+    try {
+      await shadow.pool.query(`CREATE TABLE public.already_here (id integer)`);
+      writeFileSync(
+        join(dir, "01_table.sql"),
+        `CREATE TABLE public.wanted (id integer);\n`,
+      );
+      writeFileSync(
+        join(dir, ".pgdelta-export.json"),
+        JSON.stringify({ formatVersion: 1, redactSecrets: false }),
+        "utf8",
+      );
+
+      const res = await runCli([
+        "schema",
+        "apply",
+        "--dir",
+        dir,
+        "--shadow",
+        shadow.uri,
+        "--target",
+        target.uri,
+        "--renames",
+        "off",
+      ]);
+
+      expect(res.exitCode).toBe(1);
+      expect(res.stderr).toContain("shadow database is not empty");
+      expect(res.stderr).not.toContain("may contain unredacted credentials");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 90_000);
 });
