@@ -1,7 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
 import {
+  type AuthorPermission,
   evaluateAllOpenPrs,
   evaluateGate,
+  fetchAuthorPermission,
   GATE_LABEL,
   type GateIo,
   type LinkedIssue,
@@ -9,6 +11,7 @@ import {
 } from "./contribution-gate.ts";
 
 const REPO = "supabase/pg-toolbelt";
+const originalFetch = globalThis.fetch;
 
 describe("evaluateGate", () => {
   test("skips bot authors", () => {
@@ -35,6 +38,22 @@ describe("evaluateGate", () => {
       expect(result.reason).toBe("internal");
     },
   );
+
+  test.each([
+    ["admin", "internal"],
+    ["write", "internal"],
+    ["read", "no-linked-issue"],
+    ["none", "no-linked-issue"],
+  ] as const)("handles %s permission", (authorPermission, reason) => {
+    const result = evaluateGate({
+      repository: REPO,
+      authorAssociation: "CONTRIBUTOR",
+      authorPermission,
+      isBot: false,
+      linkedIssues: [],
+    });
+    expect(result.reason).toBe(reason);
+  });
 
   test("fails when no issue is linked", () => {
     const result = evaluateGate({
@@ -149,31 +168,50 @@ describe("evaluateGate", () => {
 });
 
 describe("evaluateAllOpenPrs", () => {
+  function pr(
+    number: number,
+    authorLogin: string,
+    authorAssociation = "NONE",
+    isBot = false,
+  ): OpenPr {
+    return { number, authorLogin, authorAssociation, isBot };
+  }
+
   function makeIo(
     openPrs: OpenPr[],
     linkedByPr: Record<number, LinkedIssue[]>,
-  ): { io: GateIo; closed: Array<{ number: number; message: string }> } {
+    permissionByLogin: Partial<Record<string, AuthorPermission>> = {},
+  ) {
     const closed: Array<{ number: number; message: string }> = [];
+    const permissionLookups: string[] = [];
+    const linkedIssueLookups: number[] = [];
     const io: GateIo = {
       listOpenPrs: () => Promise.resolve(openPrs),
-      fetchLinkedIssues: (prNumber) =>
-        Promise.resolve(linkedByPr[prNumber] ?? []),
+      fetchPermission: (login) => {
+        permissionLookups.push(login);
+        return Promise.resolve(permissionByLogin[login]);
+      },
+      fetchLinkedIssues: (prNumber) => {
+        linkedIssueLookups.push(prNumber);
+        return Promise.resolve(linkedByPr[prNumber] ?? []);
+      },
       closePr: (prNumber, message) => {
         closed.push({ number: prNumber, message });
         return Promise.resolve();
       },
     };
-    return { io, closed };
+    return { io, closed, permissionLookups, linkedIssueLookups };
   }
 
   test("closes only non-conforming external PRs and leaves the rest", async () => {
-    const { io, closed } = makeIo(
+    const { io, closed, permissionLookups, linkedIssueLookups } = makeIo(
       [
-        { number: 1, authorAssociation: "NONE", isBot: false }, // no issue -> close
-        { number: 2, authorAssociation: "MEMBER", isBot: false }, // internal -> skip
-        { number: 3, authorAssociation: "NONE", isBot: true }, // bot -> skip
-        { number: 4, authorAssociation: "CONTRIBUTOR", isBot: false }, // conforming -> keep
-        { number: 5, authorAssociation: "NONE", isBot: false }, // missing label -> close
+        pr(1, "ext-a"),
+        pr(2, "maint", "MEMBER"),
+        pr(3, "dependabot", "NONE", true),
+        pr(4, "ext-b", "CONTRIBUTOR"),
+        pr(5, "ext-c"),
+        pr(6, "hidden-maint", "CONTRIBUTOR"),
       ],
       {
         4: [
@@ -183,6 +221,7 @@ describe("evaluateAllOpenPrs", () => {
           { repository: REPO, number: 50, state: "OPEN", labels: ["🐛 Bug"] },
         ],
       },
+      { "hidden-maint": "write" },
     );
 
     const entries = await evaluateAllOpenPrs(io, REPO);
@@ -197,18 +236,24 @@ describe("evaluateAllOpenPrs", () => {
     expect(byNumber[3]?.reason).toBe("bot");
     expect(byNumber[4]?.pass).toBe(true);
     expect(byNumber[5]?.reason).toBe("missing-label");
+    expect(byNumber[6]?.pass).toBe(true);
+    expect(byNumber[6]?.reason).toBe("internal");
     expect(closed.find((c) => c.number === 1)?.message).toContain(GATE_LABEL);
+    expect(permissionLookups).toEqual([
+      "ext-a",
+      "ext-b",
+      "ext-c",
+      "hidden-maint",
+    ]);
+    expect(linkedIssueLookups).toEqual([1, 4, 5]);
   });
 
   test("returns an entry per PR and closes none when all conform", async () => {
-    const { io, closed } = makeIo(
-      [{ number: 9, authorAssociation: "NONE", isBot: false }],
-      {
-        9: [
-          { repository: REPO, number: 90, state: "OPEN", labels: [GATE_LABEL] },
-        ],
-      },
-    );
+    const { io, closed } = makeIo([pr(9, "ext")], {
+      9: [
+        { repository: REPO, number: 90, state: "OPEN", labels: [GATE_LABEL] },
+      ],
+    });
 
     const entries = await evaluateAllOpenPrs(io, REPO);
 
@@ -216,4 +261,57 @@ describe("evaluateAllOpenPrs", () => {
     expect(closed).toHaveLength(0);
     expect(entries[0]?.result.pass).toBe(true);
   });
+});
+
+describe("fetchAuthorPermission", () => {
+  const fetchSpy = spyOn(globalThis, "fetch");
+  afterEach(() => {
+    fetchSpy.mockReset();
+  });
+  afterAll(() => {
+    fetchSpy.mockRestore();
+  });
+
+  function stubFetch(status: number, body: unknown): void {
+    fetchSpy.mockImplementation(
+      Object.assign(
+        () => Promise.resolve(new Response(JSON.stringify(body), { status })),
+        { preconnect: () => {} },
+      ),
+    );
+  }
+
+  function getPermission(login = "author") {
+    return fetchAuthorPermission("t", "supabase", "pg-toolbelt", login);
+  }
+
+  test("returns the effective permission for a collaborator", async () => {
+    stubFetch(200, { permission: "admin" });
+    expect(await getPermission()).toBe("admin");
+  });
+
+  test("maps a 404 (non-collaborator fork author) to undefined", async () => {
+    stubFetch(404, { message: "Not Found" });
+    expect(await getPermission()).toBeUndefined();
+  });
+
+  test("throws on other API failures so the run aborts without closing PRs", async () => {
+    stubFetch(403, { message: "Forbidden" });
+    return expect(getPermission()).rejects.toThrow(/403/);
+  });
+
+  test("throws when a successful response has no permission", async () => {
+    stubFetch(200, {});
+    return expect(getPermission()).rejects.toThrow(/permission/);
+  });
+
+  test("skips the network call for a blank login", async () => {
+    stubFetch(200, { permission: "admin" });
+    expect(await getPermission("")).toBeUndefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+test("restores fetch after permission tests", () => {
+  expect(globalThis.fetch).toBe(originalFetch);
 });

@@ -25,9 +25,9 @@ and any of these is true:
 - the linked issue is closed, or
 - the linked issue is missing the `open-for-contribution` label.
 
-Authors whose `author_association` is `OWNER`, `MEMBER`, or `COLLABORATOR`, and bot
-accounts, are **exempt** — Supabase maintainers can keep working from Linear tickets that
-aren't public on GitHub.
+Bots, `OWNER`/`MEMBER`/`COLLABORATOR` authors, and authors with effective `admin` or
+`write` access are **exempt**. The permission check recognizes private organization
+memberships that `author_association` does not expose.
 
 ### Running the gate manually
 

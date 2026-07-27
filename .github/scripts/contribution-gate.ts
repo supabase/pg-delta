@@ -3,9 +3,8 @@
  * OPEN pull requests opened by external contributors.
  *
  * A PR passes only when it links to an OPEN GitHub issue that carries the
- * `open-for-contribution` label. Members/collaborators/owners and bots are
- * exempt (they work from Linear tickets or automation). PRs that do not follow
- * the process are commented on and closed.
+ * `open-for-contribution` label. Maintainers and bots are exempt. PRs that do
+ * not follow the process are commented on and closed.
  *
  * Two modes, both driven from `main()`:
  *   - single-PR (default): reacts to one PR on `pull_request_target`
@@ -25,8 +24,19 @@
 
 export const GATE_LABEL = "open-for-contribution";
 
-/** Author associations treated as internal (exempt from the gate). */
 const INTERNAL_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+export type AuthorPermission = "admin" | "write" | "read" | "none";
+
+function isInternalAuthor(
+  authorAssociation: string,
+  permission?: AuthorPermission,
+): boolean {
+  return (
+    INTERNAL_ASSOCIATIONS.has(authorAssociation) ||
+    permission === "admin" ||
+    permission === "write"
+  );
+}
 
 export interface LinkedIssue {
   /** `owner/name` of the repo the issue lives in (from GraphQL nameWithOwner). */
@@ -40,6 +50,7 @@ export interface GateInput {
   /** `owner/name` of this repository (from GITHUB_REPOSITORY). */
   repository: string;
   authorAssociation: string;
+  authorPermission?: AuthorPermission;
   isBot: boolean;
   linkedIssues: LinkedIssue[];
 }
@@ -102,7 +113,7 @@ export function evaluateGate(input: GateInput): GateResult {
   if (input.isBot) {
     return { pass: true, reason: "bot" };
   }
-  if (INTERNAL_ASSOCIATIONS.has(input.authorAssociation)) {
+  if (isInternalAuthor(input.authorAssociation, input.authorPermission)) {
     return { pass: true, reason: "internal" };
   }
 
@@ -137,6 +148,7 @@ export function evaluateGate(input: GateInput): GateResult {
 /** Minimal open-PR shape the gate needs to decide exemption. */
 export interface OpenPr {
   number: number;
+  authorLogin: string;
   authorAssociation: string;
   isBot: boolean;
 }
@@ -145,6 +157,7 @@ export interface OpenPr {
 export interface GateIo {
   /** List every open pull request in the repository. */
   listOpenPrs: () => Promise<OpenPr[]>;
+  fetchPermission: (login: string) => Promise<AuthorPermission | undefined>;
   /** Fetch the issues a PR closes (via `closingIssuesReferences`). */
   fetchLinkedIssues: (prNumber: number) => Promise<LinkedIssue[]>;
   /** Comment with `message` then close the PR. Called only for failing PRs. */
@@ -168,10 +181,18 @@ export async function evaluateAllOpenPrs(
   const openPrs = await io.listOpenPrs();
   const entries: SweepEntry[] = [];
   for (const pr of openPrs) {
-    const linkedIssues = await io.fetchLinkedIssues(pr.number);
+    const authorPermission =
+      pr.isBot || INTERNAL_ASSOCIATIONS.has(pr.authorAssociation)
+        ? undefined
+        : await io.fetchPermission(pr.authorLogin);
+    const linkedIssues =
+      pr.isBot || isInternalAuthor(pr.authorAssociation, authorPermission)
+        ? []
+        : await io.fetchLinkedIssues(pr.number);
     const result = evaluateGate({
       repository,
       authorAssociation: pr.authorAssociation,
+      authorPermission,
       isBot: pr.isBot,
       linkedIssues,
     });
@@ -204,6 +225,7 @@ async function githubFetch(
   url: string,
   token: string,
   init: Omit<RequestInit, "headers"> = {},
+  allowStatuses: readonly number[] = [],
 ): Promise<Response> {
   const response = await fetch(url, {
     ...init,
@@ -214,7 +236,7 @@ async function githubFetch(
       "Content-Type": "application/json",
     },
   });
-  if (!response.ok) {
+  if (!response.ok && !allowStatuses.includes(response.status)) {
     const body = await response.text();
     throw new Error(
       `GitHub request failed (${response.status}) for ${url}: ${body}`,
@@ -279,7 +301,7 @@ async function fetchLinkedIssues(
 interface RestPullRequest {
   number: number;
   author_association: string;
-  user: { type: string } | null;
+  user: { login: string; type: string } | null;
 }
 
 async function fetchOpenPullRequests(
@@ -297,6 +319,7 @@ async function fetchOpenPullRequests(
     for (const pr of batch) {
       prs.push({
         number: pr.number,
+        authorLogin: pr.user?.login ?? "",
         authorAssociation: pr.author_association,
         isBot: pr.user?.type === "Bot",
       });
@@ -306,6 +329,35 @@ async function fetchOpenPullRequests(
     }
   }
   return prs;
+}
+
+/** Resolve effective access when private org membership hides the association. */
+export async function fetchAuthorPermission(
+  token: string,
+  owner: string,
+  repo: string,
+  login: string,
+): Promise<AuthorPermission | undefined> {
+  if (!login) {
+    return undefined;
+  }
+  const url =
+    `https://api.github.com/repos/${owner}/${repo}/collaborators/` +
+    `${encodeURIComponent(login)}/permission`;
+  const response = await githubFetch(url, token, {}, [404]);
+  if (response.status === 404) {
+    return undefined;
+  }
+  const { permission } = (await response.json()) as { permission?: unknown };
+  if (
+    permission !== "admin" &&
+    permission !== "write" &&
+    permission !== "read" &&
+    permission !== "none"
+  ) {
+    throw new Error("GitHub permission response is missing a valid permission");
+  }
+  return permission;
 }
 
 /**
@@ -342,19 +394,28 @@ async function runSinglePr(
 ): Promise<void> {
   const prNumber = Number(requireEnv("PR_NUMBER"));
   const authorAssociation = process.env.PR_AUTHOR_ASSOCIATION ?? "NONE";
+  const authorLogin = process.env.PR_AUTHOR_LOGIN ?? "";
   const isBot = (process.env.PR_AUTHOR_TYPE ?? "User") === "Bot";
-
-  const linkedIssues = await fetchLinkedIssues(token, owner, repo, prNumber);
+  const authorPermission =
+    isBot || INTERNAL_ASSOCIATIONS.has(authorAssociation)
+      ? undefined
+      : await fetchAuthorPermission(token, owner, repo, authorLogin);
+  const linkedIssues =
+    isBot || isInternalAuthor(authorAssociation, authorPermission)
+      ? []
+      : await fetchLinkedIssues(token, owner, repo, prNumber);
   const result = evaluateGate({
     repository,
     authorAssociation,
+    authorPermission,
     isBot,
     linkedIssues,
   });
 
   console.log(
     `Contribution gate for PR #${prNumber}: pass=${result.pass} reason=${result.reason} ` +
-      `(author_association=${authorAssociation}, bot=${isBot}, linked_issues=${linkedIssues.length})`,
+      `(author_association=${authorAssociation}, permission=${authorPermission ?? "n/a"}, ` +
+      `bot=${isBot}, linked_issues=${linkedIssues.length})`,
   );
 
   if (result.pass || !result.message) {
@@ -377,6 +438,8 @@ async function runSweep(
   const base = `https://api.github.com/repos/${owner}/${repo}`;
   const io: GateIo = {
     listOpenPrs: () => fetchOpenPullRequests(token, owner, repo),
+    fetchPermission: (login) =>
+      fetchAuthorPermission(token, owner, repo, login),
     fetchLinkedIssues: (prNumber) =>
       fetchLinkedIssues(token, owner, repo, prNumber),
     closePr: makeCloser(token, base, dryRun),
