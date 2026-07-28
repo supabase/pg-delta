@@ -2,6 +2,8 @@
  * Group changes into declarative schema files and order them for readability.
  */
 
+import { createHash } from "node:crypto";
+import createDebug from "debug";
 import type { Change } from "../change.types.ts";
 import { getFilePath } from "./file-mapper.ts";
 import type { FileCategory, FileMetadata, FilePath } from "./types.ts";
@@ -60,6 +62,106 @@ function sortChangesWithinFile(changes: Change[]): Change[] {
   return tagged.map((t) => t.change);
 }
 
+const debugExport = createDebug("pg-delta:export");
+
+// ============================================================================
+// Case-collision disambiguation
+// ============================================================================
+
+/** Initial length of the hex hash suffix appended to case-colliding paths. */
+const CASE_HASH_LENGTH = 8;
+
+/** Full length of a sha256 hex digest -- upper bound for suffix growth. */
+const MAX_CASE_HASH_LENGTH = 64;
+
+function caseHashSuffix(originalPath: string, length: number): string {
+  return createHash("sha256")
+    .update(originalPath, "utf8")
+    .digest("hex")
+    .slice(0, length);
+}
+
+/** Insert `-<hash>` before the extension: `Users.sql` -> `Users-1a2b3c4d.sql`. */
+function appendCaseHash(originalPath: string, length: number): string {
+  const suffix = caseHashSuffix(originalPath, length);
+  const dot = originalPath.lastIndexOf(".");
+  if (dot <= originalPath.lastIndexOf("/")) {
+    return `${originalPath}-${suffix}`;
+  }
+  return `${originalPath.slice(0, dot)}-${suffix}${originalPath.slice(dot)}`;
+}
+
+/**
+ * Compute renames for paths that differ only by case ("case twins", e.g.
+ * `schemas/public/tables/Users.sql` vs `schemas/public/tables/users.sql`).
+ *
+ * PostgreSQL identifiers are case-sensitive, but the default filesystems on
+ * macOS (APFS) and Windows (NTFS) are case-insensitive: both paths resolve to
+ * the same physical file and the second write silently overwrites the first.
+ * Exports are portable artifacts (written on Linux, checked out on a Mac), so
+ * collisions are prevented at write time on every platform.
+ *
+ * Every member of a colliding set gets a deterministic `-<hash>` suffix
+ * derived from its original case-sensitive path, so renames are stable across
+ * exports and independent of input order. Non-colliding paths are left
+ * untouched (backward compatible).
+ *
+ * @param paths - Distinct case-sensitive file paths.
+ * @returns Map from original path to disambiguated path (colliding paths only).
+ */
+export function disambiguateCaseCollisions(
+  paths: readonly string[],
+): Map<string, string> {
+  const byFolded = new Map<string, string[]>();
+  for (const path of paths) {
+    const key = path.toLowerCase();
+    const bucket = byFolded.get(key);
+    if (bucket) {
+      bucket.push(path);
+    } else {
+      byFolded.set(key, [path]);
+    }
+  }
+
+  const colliding = new Set<string>();
+  for (const bucket of byFolded.values()) {
+    if (bucket.length > 1) {
+      for (const path of bucket) {
+        colliding.add(path);
+      }
+    }
+  }
+  if (colliding.size === 0) return new Map();
+
+  // Grow the suffix until the full path set is case-insensitively unique.
+  // 8 hex chars is virtually always enough; the loop only guards against the
+  // pathological case where a suffixed name collides with an existing object.
+  for (
+    let length = CASE_HASH_LENGTH;
+    length <= MAX_CASE_HASH_LENGTH;
+    length++
+  ) {
+    const renames = new Map<string, string>();
+    for (const path of colliding) {
+      renames.set(path, appendCaseHash(path, length));
+    }
+
+    const folded = new Set<string>();
+    let unique = true;
+    for (const path of paths) {
+      const key = (renames.get(path) ?? path).toLowerCase();
+      if (folded.has(key)) {
+        unique = false;
+        break;
+      }
+      folded.add(key);
+    }
+    if (unique) return renames;
+  }
+
+  throw new Error("Unable to disambiguate case-colliding export paths");
+}
+
 // ============================================================================
 // Grouping & Ordering
 // ============================================================================
@@ -92,8 +194,25 @@ export function groupChangesByFile(
     group.changes = sortChangesWithinFile(group.changes);
   }
 
+  const result = Array.from(groups.values());
+
+  // Rename paths that would collide on case-insensitive filesystems
+  // (APFS/NTFS), where e.g. `Users.sql` and `users.sql` are one physical file.
+  const renames = disambiguateCaseCollisions(result.map((group) => group.path));
+  for (const group of result) {
+    const renamed = renames.get(group.path);
+    if (renamed) {
+      debugExport(
+        "case-insensitive path collision: renaming '%s' -> '%s'",
+        group.path,
+        renamed,
+      );
+      group.path = renamed;
+    }
+  }
+
   // Sort files by category priority, then alphabetically by path.
-  return Array.from(groups.values()).sort(sortByCategory);
+  return result.sort(sortByCategory);
 }
 
 /**
