@@ -13,11 +13,13 @@
  *   order, so lexicographic discovery IS dependency order and the loader
  *   converges with zero deferred rounds (the stage-9 zero-round gate).
  */
+import { createHash } from "node:crypto";
 import { buildFactBase, type FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { plan, type Action } from "../plan/plan.ts";
 import type { IntentRuleIndex } from "../plan/rules.ts";
 import { extensionMemberReferenceOnly } from "../policy/view.ts";
+import { foldCaseCollidingPaths } from "./export-case-collisions.ts";
 import type { SqlFile } from "./load-sql-files.ts";
 import {
   formatSqlStatements,
@@ -67,6 +69,23 @@ export interface ExportOptions {
    *  instead of throwing "no intent rule registered". Omit for profiles with no
    *  intent handlers. */
   intentRules?: IntentRuleIndex;
+}
+
+/** Longest filename COMPONENT most filesystems accept (ext4/APFS/NTFS). The
+ *  ordered layout flattens a whole path into one component, and dot encoding
+ *  can triple a dot-heavy identifier's length — two 63-byte identifiers full
+ *  of dots overflow this limit (PR #368 review). Every seg()-encoded name is
+ *  pure ASCII, so string length equals byte length. */
+const MAX_FILENAME_LENGTH = 255;
+
+/** Clamp an over-long flattened name to a deterministic truncate+hash tail,
+ *  preserving the `.sql` suffix the loader discovers by. Uniqueness holds
+ *  because the ordered layout's sequence prefix survives the truncation. */
+function clampFileName(name: string): string {
+  if (name.length <= MAX_FILENAME_LENGTH) return name;
+  const hash = createHash("sha256").update(name, "utf8").digest("hex");
+  const tail = `-${hash.slice(0, 16)}.sql`;
+  return `${name.slice(0, MAX_FILENAME_LENGTH - tail.length)}${tail}`;
 }
 
 /** Assemble a file's SQL from bare (semicolon-less) statements: optionally
@@ -280,14 +299,33 @@ const TABLE_SCOPED = new Set([
  * can contain `/`, `\`, `..`, and other path-significant characters, which
  * would otherwise let an object name escape the output directory or collide
  * with `.`/`..` (review P2). encodeURIComponent handles separators reversibly;
- * the extra rule encodes dot-only segments (`.`, `..`) which it leaves alone.
- * Ordinary identifiers (alphanumerics + `_`) pass through unchanged, so the
- * common export layout is unaffected.
+ * every DOT is additionally encoded (`%2E`) so an identifier can never spoof
+ * the code-reserved `.sql` / `.fk.sql` suffixes: a table named `Foo.fk` would
+ * otherwise export to `Foo.fk.sql` — case-folding into another table's
+ * cyclic-FK split file and wrongly receiving the split header — and a group
+ * name like `schema.sql` would become a DIRECTORY ending in `.sql`, prefix
+ * colliding with a real file (PR #368 review). This also covers dot-only
+ * segments (`.`, `..`). Ordinary identifiers (alphanumerics + `_`) pass
+ * through unchanged, so the common export layout is unaffected.
  */
 function seg(name: string): string {
-  return encodeURIComponent(name).replace(/^\.+$/, (m) =>
-    m.replace(/\./g, "%2E"),
-  );
+  return clampSegment(encodeURIComponent(name).replaceAll(".", "%2E"));
+}
+
+/** Longest encoded SEGMENT the exporter emits, leaving room for the code
+ *  appended suffixes (`.sql`, `.fk.sql`) under the 255-byte filesystem
+ *  component limit. Identifiers (≤63 bytes → ≤189 encoded) never hit this;
+ *  GROUP NAMES come from user config and are unbounded — a dot-rich name
+ *  grows ~3x under dot encoding and overflowed the limit (ENAMETOOLONG,
+ *  PR #368 review). Encoded segments are pure ASCII, so string length equals
+ *  byte length. */
+const MAX_SEGMENT_LENGTH = 240;
+
+/** Deterministic truncate+hash clamp for an over-long encoded segment. */
+function clampSegment(segment: string): string {
+  if (segment.length <= MAX_SEGMENT_LENGTH) return segment;
+  const hash = createHash("sha256").update(segment, "utf8").digest("hex");
+  return `${segment.slice(0, MAX_SEGMENT_LENGTH - 17)}-${hash.slice(0, 16)}`;
 }
 
 /** Precomputed routing context threaded through {@link pathFor}: the cyclic-FK
@@ -402,6 +440,22 @@ function owningTableKey(id: StableId): string | undefined {
  * `depends` on the referenced table's columns / unique constraint), so no SQL
  * is parsed here. Cycle test: Tarjan SCC over the table-reference graph — an FK
  * is cyclic iff its owning table and a referenced table share a component.
+ *
+ * The cycle test runs at TWO grains and unions the results (PR #368 review):
+ * - RAW table keys — mutual FKs between distinctly-spelled tables, including
+ *   the twins themselves (`"Foo"` ⇄ `"foo"`): folding alone would erase that
+ *   mutual reference as a self-edge, leaving both FKs inline in the merged
+ *   file, which could then never apply (each CREATE references the twin the
+ *   same file has not created yet).
+ * - CASE-FOLDED keys — case-twin tables merge into one physical file
+ *   (export-case-collisions.ts) and the atomic unit at load time is the
+ *   FILE, so an FK chain acyclic at table grain (`"Foo"` → helper → `"foo"`)
+ *   is a real cycle at file grain. Folding the RAW names is conservative for
+ *   non-ASCII identifiers (it can contract twins whose percent-encoded paths
+ *   would not actually merge) — the cost is an unnecessary `.fk.sql` split,
+ *   never a wedged load.
+ * A genuine self-referential FK (a table referencing itself) is skipped at
+ * both grains via the RAW comparison and stays inline, where it is valid.
  */
 function cyclicForeignKeys(fb: FactBase): Set<string> {
   interface Fk {
@@ -420,12 +474,14 @@ function cyclicForeignKeys(fb: FactBase): Set<string> {
   }
   if (fks.size === 0) return new Set();
 
-  // table-reference graph: owner → referenced table, per FK edge
+  // table-reference graph on RAW keys: owner → referenced table, per FK edge
   const adjacency = new Map<string, Set<string>>();
   for (const edge of fb.edges) {
     const fk = fks.get(encodeId(edge.from));
     if (fk === undefined) continue;
     const ref = owningTableKey(edge.to);
+    // RAW comparison: only a genuine self-reference is dropped — a case-twin
+    // reference is a distinct table and must stay a graph edge.
     if (ref === undefined || ref === fk.owner) continue;
     fk.refs.add(ref);
     let targets = adjacency.get(fk.owner);
@@ -436,83 +492,191 @@ function cyclicForeignKeys(fb: FactBase): Set<string> {
     targets.add(ref);
   }
 
-  // Tarjan SCC (iterative — no recursion-depth ceiling on large schemas)
-  const sccOf = new Map<string, number>();
-  {
-    const index = new Map<string, number>();
-    const low = new Map<string, number>();
-    const onStack = new Set<string>();
-    const stack: string[] = [];
-    let counter = 0;
-    let sccCount = 0;
-    const nodes = new Set<string>(adjacency.keys());
-    for (const targets of adjacency.values()) {
-      for (const t of targets) nodes.add(t);
+  // the same graph contracted to case-folded keys (file grain)
+  const foldedAdjacency = new Map<string, Set<string>>();
+  for (const [owner, targets] of adjacency) {
+    const foldedOwner = owner.toLowerCase();
+    let folded = foldedAdjacency.get(foldedOwner);
+    if (folded === undefined) {
+      folded = new Set();
+      foldedAdjacency.set(foldedOwner, folded);
     }
-    interface Frame {
-      node: string;
-      neighbors: string[];
-      i: number;
-    }
-    const visit = (frames: Frame[], node: string): void => {
-      index.set(node, counter);
-      low.set(node, counter);
-      counter++;
-      stack.push(node);
-      onStack.add(node);
-      frames.push({ node, neighbors: [...(adjacency.get(node) ?? [])], i: 0 });
-    };
-    for (const root of nodes) {
-      if (index.has(root)) continue;
-      const frames: Frame[] = [];
-      visit(frames, root);
-      while (frames.length > 0) {
-        const frame = frames[frames.length - 1]!;
-        if (frame.i < frame.neighbors.length) {
-          const next = frame.neighbors[frame.i++]!;
-          if (!index.has(next)) {
-            visit(frames, next);
-          } else if (onStack.has(next)) {
-            low.set(
-              frame.node,
-              Math.min(low.get(frame.node)!, index.get(next)!),
-            );
-          }
-        } else {
-          frames.pop();
-          const parent = frames[frames.length - 1];
-          if (parent !== undefined) {
-            low.set(
-              parent.node,
-              Math.min(low.get(parent.node)!, low.get(frame.node)!),
-            );
-          }
-          if (low.get(frame.node) === index.get(frame.node)) {
-            let member: string;
-            do {
-              member = stack.pop()!;
-              onStack.delete(member);
-              sccOf.set(member, sccCount);
-            } while (member !== frame.node);
-            sccCount++;
-          }
-        }
-      }
+    for (const target of targets) {
+      const foldedTarget = target.toLowerCase();
+      // an edge WITHIN a contracted node (twin ⇄ twin) is intra-file; the
+      // raw grain already classifies it
+      if (foldedTarget !== foldedOwner) folded.add(foldedTarget);
     }
   }
 
+  const rawScc = stronglyConnectedComponents(adjacency);
+  const foldedScc = stronglyConnectedComponents(foldedAdjacency);
+
   const cyclic = new Set<string>();
   for (const fk of fks.values()) {
-    const ownerScc = sccOf.get(fk.owner);
-    if (ownerScc === undefined) continue;
+    const ownerRawScc = rawScc.get(fk.owner);
+    const ownerFoldedScc = foldedScc.get(fk.owner.toLowerCase());
     for (const ref of fk.refs) {
-      if (sccOf.get(ref) === ownerScc) {
+      const rawCyclic =
+        ownerRawScc !== undefined && rawScc.get(ref) === ownerRawScc;
+      // a reference to the owner's own case twin is intra-file at folded
+      // grain but still a real forward reference the merged file cannot
+      // satisfy inline — treat it as cyclic (the twins' CREATEs and their
+      // mutual FKs cannot all inline in one atomic file)
+      const twinRef =
+        ref.toLowerCase() === fk.owner.toLowerCase() && ref !== fk.owner;
+      const foldedCyclic =
+        !twinRef &&
+        ownerFoldedScc !== undefined &&
+        foldedScc.get(ref.toLowerCase()) === ownerFoldedScc;
+      if (rawCyclic || foldedCyclic || twinRef) {
         cyclic.add(fk.encoded);
         break;
       }
     }
   }
   return cyclic;
+}
+
+/** Tarjan SCC (iterative — no recursion-depth ceiling on large schemas):
+ *  node → component index, over `adjacency` and every node it mentions. */
+function stronglyConnectedComponents(
+  adjacency: ReadonlyMap<string, ReadonlySet<string>>,
+): Map<string, number> {
+  const sccOf = new Map<string, number>();
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  let counter = 0;
+  let sccCount = 0;
+  const nodes = new Set<string>(adjacency.keys());
+  for (const targets of adjacency.values()) {
+    for (const t of targets) nodes.add(t);
+  }
+  interface Frame {
+    node: string;
+    neighbors: string[];
+    i: number;
+  }
+  const visit = (frames: Frame[], node: string): void => {
+    index.set(node, counter);
+    low.set(node, counter);
+    counter++;
+    stack.push(node);
+    onStack.add(node);
+    frames.push({ node, neighbors: [...(adjacency.get(node) ?? [])], i: 0 });
+  };
+  for (const root of nodes) {
+    if (index.has(root)) continue;
+    const frames: Frame[] = [];
+    visit(frames, root);
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1]!;
+      if (frame.i < frame.neighbors.length) {
+        const next = frame.neighbors[frame.i++]!;
+        if (!index.has(next)) {
+          visit(frames, next);
+        } else if (onStack.has(next)) {
+          low.set(frame.node, Math.min(low.get(frame.node)!, index.get(next)!));
+        }
+      } else {
+        frames.pop();
+        const parent = frames[frames.length - 1];
+        if (parent !== undefined) {
+          low.set(
+            parent.node,
+            Math.min(low.get(parent.node)!, low.get(frame.node)!),
+          );
+        }
+        if (low.get(frame.node) === index.get(frame.node)) {
+          let member: string;
+          do {
+            member = stack.pop()!;
+            onStack.delete(member);
+            sccOf.set(member, sccCount);
+          } while (member !== frame.node);
+          sccCount++;
+        }
+      }
+    }
+  }
+  return sccOf;
+}
+
+/**
+ * Detect multi-file dependency cycles CREATED by case-twin folding and merge
+ * each into ONE file. Export files apply atomically under the raw loader's
+ * bounded retry, so a dependency cycle across files can never load. FK-only
+ * cycles are split into `.fk.sql` post-data files ({@link cyclicForeignKeys},
+ * whose graph is contracted to the same file grain) — but a NON-FK cycle,
+ * e.g. case-twin VIEWS with an interposed view (`"Foo"` selects helper,
+ * helper selects `"foo"`), has no deferrable ALTER to split out: the only
+ * loadable shape is the whole cycle in one file, statements in plan order
+ * (PR #368 review). Only components containing a fold destination are
+ * touched — the export produces no multi-file cycles otherwise; if one
+ * somehow exists it is reported and left unchanged.
+ *
+ * @returns path → merge target (the component's lexicographically smallest
+ *          member); identity mappings are absent.
+ */
+function mergeDependencyCycles(
+  fb: FactBase,
+  idToPath: (id: StableId) => string,
+  emittedPaths: ReadonlySet<string>,
+  foldDestinations: ReadonlySet<string>,
+  onWarning?: (message: string) => void,
+): Map<string, string> {
+  if (foldDestinations.size === 0) return new Map();
+  const adjacency = new Map<string, Set<string>>();
+  for (const edge of fb.edges) {
+    const from = idToPath(edge.from);
+    const to = idToPath(edge.to);
+    if (from === to) continue;
+    if (!emittedPaths.has(from) || !emittedPaths.has(to)) continue;
+    let targets = adjacency.get(from);
+    if (targets === undefined) {
+      targets = new Set();
+      adjacency.set(from, targets);
+    }
+    targets.add(to);
+  }
+  if (adjacency.size === 0) return new Map();
+
+  const sccOf = stronglyConnectedComponents(adjacency);
+  const componentMembers = new Map<number, string[]>();
+  for (const [path, component] of sccOf) {
+    const members = componentMembers.get(component);
+    if (members === undefined) {
+      componentMembers.set(component, [path]);
+    } else {
+      members.push(path);
+    }
+  }
+
+  const merges = new Map<string, string>();
+  for (const members of componentMembers.values()) {
+    if (members.length < 2) continue;
+    const sorted = [...members].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const list = sorted.map((p) => `"${p}"`).join(", ");
+    if (!sorted.some((path) => foldDestinations.has(path))) {
+      onWarning?.(
+        `export files ${list} form a dependency cycle the file-atomic ` +
+          `loader cannot apply; leaving them unchanged (the cycle is not ` +
+          `caused by case-collision merging)`,
+      );
+      continue;
+    }
+    const target = sorted[0]!;
+    onWarning?.(
+      `export files ${list} form a dependency cycle once case twins merge; ` +
+        `combining them into "${target}" so every file stays loadable`,
+    );
+    for (const path of sorted) {
+      if (path !== target) merges.set(path, target);
+    }
+  }
+  return merges;
 }
 
 function pathFor(id: StableId, ctx: PathContext): string {
@@ -679,33 +843,24 @@ export function exportSqlFiles(
     return exportGrouped(rendered.actions, fb, options, pathContext);
   }
 
-  // group statements by file, preserving plan order within AND across
-  // groups (first-statement order decides file order). Statements are stored
-  // BARE (no trailing `;`) so the optional formatter sees clean input.
-  const files = new Map<string, { firstAt: number; statements: string[] }>();
-  rendered.actions.forEach((action, position) => {
+  // Each action's file path, in plan order (shared by both layouts below).
+  const actionPaths = rendered.actions.map((action) => {
     const subject = subjectOf(action);
-    const path =
-      subject === undefined
-        ? "cluster/misc.sql"
-        : pathFor(subject, pathContext);
-    const entry = files.get(path) ?? { firstAt: position, statements: [] };
-    entry.statements.push(action.sql);
-    files.set(path, entry);
+    return subject === undefined
+      ? "cluster/misc.sql"
+      : pathFor(subject, pathContext);
   });
 
   if (layout === "ordered") {
     // statement-true splitting: runs of CONSECUTIVE same-object actions
     // become one numbered file, so lexicographic discovery IS plan order
     // and the loader converges in a single pass — an object interleaved
-    // with its dependencies simply spans several numbered files
+    // with its dependencies simply spans several numbered files. Case-twin
+    // paths need no folding here: the sequence prefix already makes every
+    // file name case-insensitively unique.
     const runs: { path: string; statements: string[] }[] = [];
-    rendered.actions.forEach((action) => {
-      const subject = subjectOf(action);
-      const path =
-        subject === undefined
-          ? "cluster/misc.sql"
-          : pathFor(subject, pathContext);
+    rendered.actions.forEach((action, position) => {
+      const path = actionPaths[position]!;
       const last = runs[runs.length - 1];
       if (last !== undefined && last.path === path) {
         last.statements.push(action.sql);
@@ -714,10 +869,41 @@ export function exportSqlFiles(
       }
     });
     return runs.map((run, index) => ({
-      name: `${String(index).padStart(4, "0")}_${run.path.replaceAll("/", "_")}`,
+      name: clampFileName(
+        `${String(index).padStart(4, "0")}_${run.path.replaceAll("/", "_")}`,
+      ),
       sql: renderFileSql(run.statements, options.format),
     }));
   }
+
+  // group statements by file, preserving plan order within AND across
+  // groups (first-statement order decides file order). Statements are stored
+  // BARE (no trailing `;`) so the optional formatter sees clean input.
+  // Case-twin paths (`Users.sql` vs `users.sql`) are one physical file on
+  // APFS/NTFS — fold each colliding set to its canonical spelling so the
+  // twins SHARE a file instead of silently overwriting each other (#365).
+  const folds = foldCaseCollidingPaths(actionPaths, options.onWarning);
+  const foldedPaths = actionPaths.map((p) => folds.get(p) ?? p);
+  // a dependency cycle the fold created (case-twin views around an interposed
+  // view) must collapse into ONE file — a no-op when nothing folded.
+  const cycleMerges = mergeDependencyCycles(
+    fb,
+    (id) => {
+      const raw = pathFor(id, pathContext);
+      return folds.get(raw) ?? raw;
+    },
+    new Set(foldedPaths),
+    new Set(folds.values()),
+    options.onWarning,
+  );
+  const files = new Map<string, { firstAt: number; statements: string[] }>();
+  rendered.actions.forEach((action, position) => {
+    const folded = foldedPaths[position]!;
+    const path = cycleMerges.get(folded) ?? folded;
+    const entry = files.get(path) ?? { firstAt: position, statements: [] };
+    entry.statements.push(action.sql);
+    files.set(path, entry);
+  });
 
   const ordered = [...files.entries()].sort(
     (a, b) => a[1].firstAt - b[1].firstAt,
@@ -851,11 +1037,32 @@ function exportGrouped(
     category: Category;
     items: { sql: string; verbRank: number; scopeRank: number; at: number }[];
   }
+  // Case-twin paths fold to one shared file, exactly like the by-object
+  // layout (issue #365) — regrouping cannot re-split them because the fold is
+  // computed on the final grouped paths.
+  const actionPaths = actions.map((action) => {
+    const subject = subjectOf(action);
+    return subject === undefined ? "cluster/misc.sql" : groupedPath(subject);
+  });
+  const folds = foldCaseCollidingPaths(actionPaths, options.onWarning);
+  const foldedPaths = actionPaths.map((p) => folds.get(p) ?? p);
+  // a dependency cycle the fold created collapses into ONE file, exactly as
+  // in the by-object layout — a no-op when nothing folded.
+  const cycleMerges = mergeDependencyCycles(
+    fb,
+    (id) => {
+      const raw = groupedPath(id);
+      return folds.get(raw) ?? raw;
+    },
+    new Set(foldedPaths),
+    new Set(folds.values()),
+    options.onWarning,
+  );
   const files = new Map<string, GroupedFile>();
   actions.forEach((action, at) => {
     const subject = subjectOf(action);
-    const path =
-      subject === undefined ? "cluster/misc.sql" : groupedPath(subject);
+    const folded = foldedPaths[at]!;
+    const path = cycleMerges.get(folded) ?? folded;
     const category = subject === undefined ? "misc" : categoryFor(subject);
     const entry = files.get(path) ?? { category, items: [] };
     entry.items.push({

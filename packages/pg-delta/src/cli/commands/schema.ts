@@ -213,6 +213,12 @@ export function writeExportFiles(
   },
   pruneUnmanaged: boolean,
 ): { removed: string[]; unmanaged: string[] } {
+  // Normalize ONCE: the manifest's owned paths resolve to absolute paths, so
+  // every path compared against them (the keep set, the pruner's scan) must
+  // be absolute too — with a relative --out-dir the pruner otherwise misreads
+  // its own current files as out-of-set and deletes-then-rewrites them on
+  // every re-export (PR #368 review).
+  outRoot = resolve(outRoot);
   // The PREVIOUS export's owned-file list, read before we write anything. Absent
   // manifest / no `files` field → undefined → every out-of-set `.sql` is
   // unmanaged (pre-feature or hand-authored dir).
