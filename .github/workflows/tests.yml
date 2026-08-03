@@ -147,6 +147,8 @@ jobs:
         run: bun run build
       - name: Format and lint
         run: bun run format-and-lint
+      - name: Test contribution gate
+        run: bun run test:contribution-gate
 
   knip:
     if: >-

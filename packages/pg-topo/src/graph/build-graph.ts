@@ -327,12 +327,11 @@ export const buildGraph = (
       //
       // However, since prefix matching is more lenient than exact matching, a
       // false-positive match could introduce a cycle. A cycle is strictly worse
-      // than a missing edge (the topo-sort drops cycle participants entirely,
-      // whereas a missing edge merely defers to a later round). So we check
-      // reachability before adding each edge: if the consumer already has a
-      // path to the candidate producer, adding the reverse edge would create a
-      // cycle and we skip it, emitting a diagnostic that suggests an explicit
-      // annotation to resolve the ambiguity.
+      // than a missing edge because it can obscure the intended dependency
+      // order. So we check reachability before adding each edge: if the consumer
+      // already has a path to the candidate producer, adding the reverse edge
+      // would create a cycle and we skip it, emitting a diagnostic that suggests
+      // an explicit annotation to resolve the ambiguity.
       if (compatibleProducerIndices.length > 1) {
         for (const producerIndex of compatibleProducerIndices) {
           if (typeof producerIndex !== "number") {

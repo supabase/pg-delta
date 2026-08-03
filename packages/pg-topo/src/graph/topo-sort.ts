@@ -237,14 +237,23 @@ export const topoSort = (
     return { orderedIndices, cycleGroups: [] };
   }
 
-  const cycleNodeIndices = new Set<number>();
+  // Cycles-last policy: keep the maximal Kahn-drainable prefix, then order the
+  // residual SCC condensation so cycles and everything they block stay after it.
+  const residualNodeIndices = new Set<number>();
   for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1) {
     if ((indegree[nodeIndex] ?? 0) > 0) {
-      cycleNodeIndices.add(nodeIndex);
+      residualNodeIndices.add(nodeIndex);
     }
   }
 
-  const components = stronglyConnectedComponents(edges, cycleNodeIndices);
+  const components = stronglyConnectedComponents(
+    edges,
+    residualNodeIndices,
+  ).map((component) =>
+    [...component].sort((left, right) =>
+      compareStatementIndices(left, right, nodes),
+    ),
+  );
   const cycleGroups = components
     .filter((component) => {
       if (component.length > 1) {
@@ -256,11 +265,7 @@ export const topoSort = (
       }
       return (edges.get(only) ?? new Set<number>()).has(only);
     })
-    .map((component) =>
-      [...component].sort((left, right) =>
-        compareStatementIndices(left, right, nodes),
-      ),
-    );
+    .map((component) => [...component]);
 
   cycleGroups.sort((left, right) => {
     if (left.length === 0 || right.length === 0) {
@@ -273,6 +278,93 @@ export const topoSort = (
     }
     return compareStatementIndices(leftHead, rightHead, nodes);
   });
+
+  const componentByNode = new Map<number, number>();
+  for (
+    let componentIndex = 0;
+    componentIndex < components.length;
+    componentIndex += 1
+  ) {
+    for (const nodeIndex of components[componentIndex] ?? []) {
+      componentByNode.set(nodeIndex, componentIndex);
+    }
+  }
+
+  const componentEdges = new Map<number, Set<number>>();
+  const componentIndegree: number[] = Array.from(
+    { length: components.length },
+    () => 0,
+  );
+  for (const fromNode of residualNodeIndices) {
+    const fromComponent = componentByNode.get(fromNode);
+    if (fromComponent == null) {
+      continue;
+    }
+    for (const toNode of edges.get(fromNode) ?? []) {
+      const toComponent = componentByNode.get(toNode);
+      if (toComponent == null || toComponent === fromComponent) {
+        continue;
+      }
+      const neighbors = componentEdges.get(fromComponent) ?? new Set<number>();
+      if (!neighbors.has(toComponent)) {
+        neighbors.add(toComponent);
+        componentEdges.set(fromComponent, neighbors);
+        componentIndegree[toComponent] =
+          (componentIndegree[toComponent] ?? 0) + 1;
+      }
+    }
+  }
+
+  const compareComponentIndices = (
+    leftComponentIndex: number,
+    rightComponentIndex: number,
+  ): number => {
+    const leftRepresentative = components[leftComponentIndex]?.[0];
+    const rightRepresentative = components[rightComponentIndex]?.[0];
+    if (leftRepresentative == null || rightRepresentative == null) {
+      return leftComponentIndex - rightComponentIndex;
+    }
+    return compareStatementIndices(
+      leftRepresentative,
+      rightRepresentative,
+      nodes,
+    );
+  };
+
+  const readyComponents: number[] = [];
+  for (
+    let componentIndex = 0;
+    componentIndex < components.length;
+    componentIndex += 1
+  ) {
+    if ((componentIndegree[componentIndex] ?? 0) === 0) {
+      readyComponents.push(componentIndex);
+    }
+  }
+  readyComponents.sort(compareComponentIndices);
+
+  while (readyComponents.length > 0) {
+    const componentIndex = readyComponents.shift() as number;
+    orderedIndices.push(...(components[componentIndex] ?? []));
+
+    const neighbors = [...(componentEdges.get(componentIndex) ?? [])].sort(
+      compareComponentIndices,
+    );
+    for (const nextComponent of neighbors) {
+      componentIndegree[nextComponent] =
+        (componentIndegree[nextComponent] ?? 0) - 1;
+      if ((componentIndegree[nextComponent] ?? 0) === 0) {
+        let insertIndex = readyComponents.findIndex(
+          (existingComponent) =>
+            compareComponentIndices(nextComponent, existingComponent) < 0,
+        );
+        if (insertIndex < 0) {
+          insertIndex = readyComponents.length;
+        }
+        readyComponents.splice(insertIndex, 0, nextComponent);
+      }
+    }
+  }
 
   return { orderedIndices, cycleGroups };
 };

@@ -2,7 +2,7 @@
 
 ## What This Package Does
 
-Topological sorting for SQL DDL statements. Parses SQL strings, extracts object dependencies, and returns statements in a valid execution order. The core library is pure (no filesystem dependency).
+Topological sorting for SQL DDL statements. Parses SQL strings, extracts object dependencies, and returns a dependency-safe order for acyclic inputs. Cyclic results use a deterministic cycles-last fallback and require callers to handle `CYCLE_DETECTED` before direct execution. The core library is pure (no filesystem dependency).
 
 ## Commands
 
