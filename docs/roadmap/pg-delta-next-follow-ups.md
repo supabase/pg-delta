@@ -214,9 +214,6 @@ tokenization.
 - **`formatters.ts` repetition:** ~18 hand-written command-prefix guards and a
   copy-pasted parenthesized-list assembly → `matchesPrefix` + `formatParenBlock`
   helpers.
-- **`pg-delta-next.yml` uses bare `bun test`.** The repo convention is
-  `bun run test`; here the package `test` script carries no extra flags so it is
-  harmless, but align it or note the exception explicitly.
 
 ## Documented, by-design (no action — recorded so they aren't re-flagged)
 

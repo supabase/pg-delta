@@ -9,14 +9,14 @@
 > single safety net: **every migration is applied to a throwaway clone and
 > proven to converge, with your data intact, before you trust it.** At rewrite
 > cutover the engine was **~11,500 lines (79% smaller)** — a **rewrite-era
-> snapshot**. As of **2026-07-21** the published package is **~27.1k non-test
-> LOC / 107 files** (engine slice ~16.2k; product surface ~10.8k including
+> snapshot**. As of **2026-08-03** the published package is **~30.8k non-test
+> LOC / 115 files** (engine slice ~18.3k; product surface ~12.2k including
 > ~3.8k `sql-format`; see §4), with one rule table instead of ~100 hand-written
 > change classes, a correctness guarantee the old engine never had, and — as of
 > the first performance pass — **4.2× faster extraction**.
 
 - **Audience**: engineers, reviewers, and decision-makers evaluating the rewrite.
-- **Status**: engine code-complete and proven on a **316-scenario corpus (632
+- **Status**: engine code-complete and proven on a **321-scenario corpus (642
   cases, both directions)** across PostgreSQL 14–18 — all green (one
   `EXPECTED_RED` pin on PG16+ for a known teardown). Shipped as
   `@supabase/pg-delta` in a breaking-change alpha; what's next is in
@@ -99,7 +99,7 @@ pie title Old pg-delta source: 53,933 LOC across 341 files
 source, 75% of the files** — and roughly two-thirds of it is structurally
 identical create/alter/drop/privilege/comment/security-label handling, repeated
 once per object type. That single directory is **~2.7× the rewrite-era new
-engine (~11.5k)** and still **~1.9× today's engine slice (~16.2k)**.
+engine (~11.5k)** and still **~1.7× today's engine slice (~18.3k)**.
 
 ---
 
@@ -186,15 +186,15 @@ size.
 | libpg-query / WASM in trusted path | yes (hard dependency) | no (dev-time only) | **removed** |
 | Extract latency (~12k-object catalog) | ~1.88 s | ~0.45 s | **−76% (4.2×)** |
 
-### Size today (measured 2026-07-21)
+### Size today (measured 2026-08-03)
 
 Non-test `packages/pg-delta/src` (`find … ! -name '*.test.ts' | xargs wc -l`):
 
 | Budget | Scope | LOC |
 |---|---|---:|
-| **Engine slice** | `core` + `extract` + `plan` + `proof` + `apply` + `policy` + `integrations` | **16,186** |
-| **Product surface** | `frontends` + `cli` | **10,768** |
-| **Published package total** | all non-test `src/` (incl. root `index.ts`) | **27,095** / **107** files |
+| **Engine slice** | `core` + `extract` + `plan` + `proof` + `apply` + `policy` + `integrations` | **18,293** |
+| **Product surface** | `frontends` + `cli` | **12,215** |
+| **Published package total** | all non-test `src/` (incl. root `index.ts`) | **30,773** / **115** files |
 
 **Engine LOC** excludes `frontends/sql-format` (**3,842** LOC), which sits in
 the product-surface budget. Boundary: `./sql-format` is a package subpath export
@@ -204,7 +204,7 @@ consumers **do** load the formatter transitively via `exportSqlFiles` →
 reliably avoid loading it — do not claim that root imports “never load the
 formatter.”
 
-**Corpus today:** **316** scenarios × 2 directions (**632** cases) under
+**Corpus today:** **321** scenarios × 2 directions (**642** cases) under
 `packages/pg-delta/corpus`.
 
 ```mermaid
@@ -226,16 +226,15 @@ flowchart LR
 
 The old engine carried **~34,000 lines of tests** — largely per-type unit tests
 asserting exact SQL strings. The new engine proves correctness *behaviourally*
-instead: a **316-scenario corpus, run in both directions (build and teardown)
-under the full proof loop, on PostgreSQL 14–18** (632 cases per version —
+instead: a **321-scenario corpus, run in both directions (build and teardown)
+under the full proof loop, on PostgreSQL 14–18** (642 cases per version —
 all green aside from one pinned `EXPECTED_RED` teardown on PG16+; measured
-2026-07-21), plus a **differential harness** and a **generative soak**
-(below). Correctness is demonstrated by "apply it and re-extract — does it
+2026-08-03), plus a **generative soak** (below). Correctness is demonstrated by "apply it and re-extract — does it
 match?", not by pinning byte strings.
 
-- **Differential harness** — runs the new and the old engine over the same corpus
-  and treats any case where the new engine fails while the old one converges as a
-  **hard regression**; every accepted difference carries a documented reason.
+- **Compact and uncompacted proof** — each scenario builds, applies, and proves
+  two independent plan artifacts, so compaction is enforced as cosmetic rather
+  than load-bearing for convergence.
 - **Generative soak** — property-tests the full proof loop: generate a schema,
   generate a mutation, roundtrip through apply → re-extract → data-preservation
   check, assert fixpoint. Kind-coverage is enforced by a checklist, so coverage

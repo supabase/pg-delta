@@ -1,4 +1,4 @@
-# Build log — how pg-delta-next was built
+# Build log — how the engine was rebuilt
 
 A light record of the clean-room rebuild: the stages it was built in, the
 hardening and review passes it went through, and the decisions made along the

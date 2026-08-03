@@ -1,4 +1,4 @@
-# How pg-delta-next works
+# How pg-delta works
 
 A gentle, concept-first tour of the engine for someone seeing it for the first
 time. It explains the *ideas*; the documents it links to explain each idea in
@@ -19,7 +19,7 @@ what, how to write the DDL, in what order. The hard-won lesson of the old engine
 was that *re-implementing* that knowledge — in extractors, in a SQL parser, in a
 retry loop — is where the bugs live.
 
-So pg-delta-next makes one bet:
+So pg-delta makes one bet:
 
 > **PostgreSQL is the only thing that understands PostgreSQL.**
 

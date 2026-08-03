@@ -1,6 +1,6 @@
-# pg-delta-next docs
+# pg-delta docs
 
-`pg-delta-next` compares two PostgreSQL schemas and emits a migration to turn one
+`pg-delta` compares two PostgreSQL schemas and emits a migration to turn one
 into the other — then **proves** that migration converges, with your data intact,
 before you trust it. It's a clean-room rebuild of `pg-delta` on one idea: *let
 PostgreSQL be the only thing that understands PostgreSQL.*
@@ -12,7 +12,7 @@ PostgreSQL be the only thing that understands PostgreSQL.*
 - **[getting-started.md](getting-started.md)** — the CLI and the programmatic API,
   with copy-pasteable examples for the two workflows (diff two databases, or keep
   your schema as `.sql` files).
-- **[../packages/pg-delta-next/COVERAGE.md](../packages/pg-delta-next/COVERAGE.md)**
+- **[../packages/pg-delta/COVERAGE.md](../packages/pg-delta/COVERAGE.md)**
   — exactly what the engine models and what it deliberately excludes.
 
 ## 🧭 I want to understand it
