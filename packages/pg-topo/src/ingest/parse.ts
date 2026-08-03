@@ -44,10 +44,41 @@ const ensureParserModuleLoaded = async (): Promise<void> => {
 const ensureStatementTerminator = (sql: string): string =>
   sql.trimEnd().endsWith(";") ? sql.trim() : `${sql.trim()};`;
 
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
+/** Re-parse `candidate` and report whether it is executable on its own. */
+const reparses = (candidate: string): boolean => {
+  try {
+    const parsed = parseSql(candidate) as RawParserResult;
+    return (parsed.stmts ?? []).length > 0;
+  } catch {
+    return false;
+  }
+};
+
+/** Convert a byte offset into `contentBytes` to a UTF-16 character offset.
+ *  Statement locations always fall on character boundaries, so decoding the
+ *  byte prefix is exact. */
+const byteToCharOffset = (
+  contentBytes: Uint8Array,
+  byteOffset: number,
+): number =>
+  textDecoder.decode(
+    contentBytes.subarray(0, Math.min(byteOffset, contentBytes.length)),
+  ).length;
+
+/** Recover a statement's SQL text, preferring the verbatim source slice.
+ *  `stmt_location`/`stmt_len` are UTF-8 BYTE offsets (libpg_query), so the
+ *  slice must be taken from the encoded content, never from the JS string —
+ *  UTF-16 indices drift on any non-ASCII content (supabase/pg-toolbelt#369).
+ *  Returns `null` when no executable text can be recovered: the deparse
+ *  fallback is not trusted blindly because plpgsql-parser deparses some
+ *  statements into invalid SQL (e.g. `COMMENT ON TRIGGER public.t.tr`). */
 const extractStatementSql = async (
-  fileContent: string,
+  contentBytes: Uint8Array,
   statement: RawParserStatement,
-): Promise<string> => {
+): Promise<string | null> => {
   const location = statement.stmt_location ?? 0;
   const length = statement.stmt_len ?? 0;
   if (
@@ -55,28 +86,35 @@ const extractStatementSql = async (
     Number.isInteger(length) &&
     location >= 0 &&
     length > 0 &&
-    location + length <= fileContent.length
+    location + length <= contentBytes.length
   ) {
-    const sliced = fileContent.slice(location, location + length).trim();
+    const sliced = textDecoder
+      .decode(contentBytes.subarray(location, location + length))
+      .trim();
     if (sliced.length > 0) {
       const candidate = ensureStatementTerminator(sliced);
-      try {
-        const parsed = parseSql(candidate) as RawParserResult;
-        if ((parsed.stmts ?? []).length > 0) {
-          return candidate;
-        }
-      } catch {
-        // Fallback to deparse below when stmt_location slice is not executable.
+      if (reparses(candidate)) {
+        return candidate;
       }
+      // Fallback to deparse below when the stmt_location slice is not
+      // executable on its own.
     }
   }
 
   if (statement.stmt) {
-    const deparsed = await deparseSql(statement.stmt as object);
-    return ensureStatementTerminator(deparsed);
+    try {
+      const deparsed = ensureStatementTerminator(
+        await deparseSql(statement.stmt as object),
+      );
+      if (reparses(deparsed)) {
+        return deparsed;
+      }
+    } catch {
+      // fall through to the unrecoverable result
+    }
   }
 
-  return "";
+  return null;
 };
 
 export const parseSqlContent = async (
@@ -103,6 +141,7 @@ export const parseSqlContent = async (
 
   const statements: ParsedStatement[] = [];
   const parserStatements = parseResult.stmts ?? [];
+  const contentBytes = textEncoder.encode(content);
 
   for (let index = 0; index < parserStatements.length; index += 1) {
     const statement = parserStatements[index];
@@ -118,13 +157,30 @@ export const parseSqlContent = async (
       continue;
     }
 
-    const sql = await extractStatementSql(content, statement);
+    const sql = await extractStatementSql(contentBytes, statement);
+    if (sql === null) {
+      diagnostics.push({
+        code: "PARSE_ERROR",
+        message:
+          "Statement text could not be recovered: neither the source slice " +
+          "nor its deparsed fallback re-parses as executable SQL.",
+        statementId: {
+          filePath: sourceLabel,
+          statementIndex: index,
+        },
+      });
+      continue;
+    }
     const annotationResult = parseAnnotations(sql);
 
     // Advance past leading whitespace so sourceOffset points to the first character
     // of the statement (e.g. "CREATE"); statement IDs and diagnostics then refer to
     // the real start of the statement for display and editor jump-to.
-    let sourceOffset = statement.stmt_location ?? 0;
+    // stmt_location is a byte offset; convert to a character offset first.
+    let sourceOffset = byteToCharOffset(
+      contentBytes,
+      statement.stmt_location ?? 0,
+    );
     while (
       sourceOffset < content.length &&
       /\s/.test(content[sourceOffset] ?? "")
