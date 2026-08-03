@@ -595,3 +595,57 @@ a series of real non-superuser failures, each fixed RED-first on this branch:
   its one advantage (no reconstruction) is moot now that the seed is non-superuser-replayable
   (Unit C). Revisit only alongside the baseline-sidecar work, which would make
   bootstrap-vs-target drift detectable.
+
+## PR #368 review triage (Codex) — `schema export` out-dir hardening (deferred by design)
+
+PR #368 (case-twin export path collisions, issue #365) went through ~12 rounds
+of automated Codex review. The core fix and its load-bearing consequences were
+kept; a large writer-hardening layer that grew out of the loop was **removed
+before merge, deliberately**. This section is the record — if an automated
+review re-flags one of these, reply with a link here instead of re-fixing.
+
+**Kept (in the PR):** case-collision folding (canonical member spelling per
+segment; twins share one file), file-grain cycle handling (two-grain
+`cyclicForeignKeys` + `mergeDependencyCycles` — without these, merged files
+provably wedge the raw loader), dot-encoding in `seg()` (`Foo.fk` →
+`Foo%2Efk.sql`; reserves the `.sql`/`.fk.sql` suffix namespace and fixes a
+pre-existing bug where a table named `*.fk` received the FK-split header),
+240-byte segment / 255-byte ordered-name clamps (ENAMETOOLONG for dot-rich
+group names), and `resolve(outRoot)` in `writeExportFiles` (pre-existing
+relative-`--out-dir` prune misbehavior).
+
+**Removed (the deferred hardening layer).** The writer's contract is: **the
+export owns every destination it writes**; only *out-of-set* `.sql` files get
+the unmanaged refusal (`--prune-unmanaged` to override). This matches
+pre-#368 behavior and tools like `tar -x` into a user-chosen directory. The
+review loop demanded stronger guarantees for destinations whose *spelling* the
+PR introduced (fold-composed paths, dot-encoded names, clamped names), and the
+resulting subsystem (~350 lines) was cut because it hardened only the new
+spellings to a standard the rest of the writer has never met:
+
+- **In-set overwrite protection** — refusing a pre-existing, not-manifest-owned
+  file at a destination the export is about to write (per-file
+  `needsOwnershipCheck` marks, lstat probes, guard-before-prune ordering).
+- **Symlink/entry attacks inside `--out-dir`** — non-following existence
+  probes, top-down ancestor scans rejecting symlinked/non-directory ancestors,
+  link-only deletion under `--prune-unmanaged`. Threat model: someone plants
+  entries inside your own export directory; if an attacker can do that, the
+  pre-existing writer was equally exposed at every old spelling.
+- **Case-alias ownership on APFS/NTFS upgrades** — dev+ino identity so a
+  manifest path differing only by case counts as owned. Without it, the first
+  re-export over a pre-#368 corrupted directory may need `--prune-unmanaged`
+  once (fail-closed, self-healing).
+
+If out-dir hardening is ever wanted, do it as a deliberate, whole-writer design
+(uniform policy for ALL destinations, not per-spelling marks) — the removed
+implementation and its tests live in the PR #368 history up to commit
+`176c843` for reference. Known accepted consequences until then: a
+hand-authored file placed at exactly a managed object's export path is
+overwritten without refusal (as before #368), and exports into directories
+containing symlinks follow them (as before #368).
+
+**Meta-lesson (also in AGENTS.md):** cap automated-review iterations. Each
+round's finding was locally valid, but the sum re-litigated the writer's
+contract one exotic corner at a time. When a bot's findings drift from the
+issue's scope — or start finding bugs only in the previous round's fix — stop
+patching, decide the contract explicitly, and record it here.

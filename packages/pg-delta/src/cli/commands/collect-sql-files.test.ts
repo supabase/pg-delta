@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { readExportManifest } from "../../frontends/export-manifest.ts";
 import {
   collectSqlFiles,
@@ -153,6 +153,30 @@ describe("writeExportFiles", () => {
     );
     expect(existsSync(join(target, "schemas", "app", "t.sql"))).toBe(false);
     expect(existsSync(join(target, ".pgdelta-export.json"))).toBe(false);
+  });
+
+  test("a RELATIVE out-dir re-exports without spurious removals", () => {
+    // The manifest's owned paths resolve to ABSOLUTE paths while the keep set
+    // was joined onto the raw outRoot: with a relative --out-dir the pruner
+    // misread its own current files as out-of-set and deleted-then-rewrote
+    // them on every re-export (removed misreported; PR #368 review).
+    // writeExportFiles must normalize outRoot once up front.
+    const target = join(root, "relative-root");
+    const relTarget = relative(process.cwd(), target);
+    const file = {
+      name: join("schemas", "app", "t.sql"),
+      sql: "CREATE TABLE app.t ();\n",
+    };
+    writeExportFiles(relTarget, [file], { redactSecrets: false }, false);
+    const { removed, unmanaged } = writeExportFiles(
+      relTarget,
+      [file],
+      { redactSecrets: false },
+      false,
+    );
+    expect(removed).toEqual([]);
+    expect(unmanaged).toEqual([]);
+    expect(existsSync(join(target, "schemas", "app", "t.sql"))).toBe(true);
   });
 
   test("--prune-unmanaged deletes the unmanaged file and proceeds", () => {
