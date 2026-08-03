@@ -57,16 +57,29 @@ const reparses = (candidate: string): boolean => {
   }
 };
 
-/** Convert a byte offset into `contentBytes` to a UTF-16 character offset.
- *  Statement locations always fall on character boundaries, so decoding the
- *  byte prefix is exact. */
-const byteToCharOffset = (
+/** Convert byte offsets into `contentBytes` to UTF-16 character offsets.
+ *  Statement locations always fall on character boundaries, so decoding byte
+ *  prefixes is exact. Offsets are converted incrementally (statements arrive
+ *  in source order), so the total decode work stays linear in the content
+ *  size instead of quadratic in the statement count. */
+const makeByteToCharOffset = (
   contentBytes: Uint8Array,
-  byteOffset: number,
-): number =>
-  textDecoder.decode(
-    contentBytes.subarray(0, Math.min(byteOffset, contentBytes.length)),
-  ).length;
+): ((byteOffset: number) => number) => {
+  let prevByte = 0;
+  let prevChar = 0;
+  return (byteOffset: number): number => {
+    const clamped = Math.min(Math.max(byteOffset, 0), contentBytes.length);
+    if (clamped < prevByte) {
+      prevByte = 0;
+      prevChar = 0;
+    }
+    prevChar += textDecoder.decode(
+      contentBytes.subarray(prevByte, clamped),
+    ).length;
+    prevByte = clamped;
+    return prevChar;
+  };
+};
 
 /** Recover a statement's SQL text, preferring the verbatim source slice.
  *  `stmt_location`/`stmt_len` are UTF-8 BYTE offsets (libpg_query), so the
@@ -78,9 +91,13 @@ const byteToCharOffset = (
 const extractStatementSql = async (
   contentBytes: Uint8Array,
   statement: RawParserStatement,
+  isLast: boolean,
 ): Promise<string | null> => {
   const location = statement.stmt_location ?? 0;
-  const length = statement.stmt_len ?? 0;
+  // libpg_query omits stmt_len for a final statement that has no terminating
+  // semicolon; the statement then runs to the end of the content.
+  const length =
+    statement.stmt_len ?? (isLast ? contentBytes.length - location : 0);
   if (
     Number.isInteger(location) &&
     Number.isInteger(length) &&
@@ -142,6 +159,7 @@ export const parseSqlContent = async (
   const statements: ParsedStatement[] = [];
   const parserStatements = parseResult.stmts ?? [];
   const contentBytes = textEncoder.encode(content);
+  const byteToCharOffset = makeByteToCharOffset(contentBytes);
 
   for (let index = 0; index < parserStatements.length; index += 1) {
     const statement = parserStatements[index];
@@ -157,7 +175,11 @@ export const parseSqlContent = async (
       continue;
     }
 
-    const sql = await extractStatementSql(contentBytes, statement);
+    const sql = await extractStatementSql(
+      contentBytes,
+      statement,
+      index === parserStatements.length - 1,
+    );
     if (sql === null) {
       diagnostics.push({
         code: "PARSE_ERROR",
@@ -177,10 +199,7 @@ export const parseSqlContent = async (
     // of the statement (e.g. "CREATE"); statement IDs and diagnostics then refer to
     // the real start of the statement for display and editor jump-to.
     // stmt_location is a byte offset; convert to a character offset first.
-    let sourceOffset = byteToCharOffset(
-      contentBytes,
-      statement.stmt_location ?? 0,
-    );
+    let sourceOffset = byteToCharOffset(statement.stmt_location ?? 0);
     while (
       sourceOffset < content.length &&
       /\s/.test(content[sourceOffset] ?? "")
