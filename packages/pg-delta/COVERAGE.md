@@ -1,6 +1,6 @@
 # Catalog coverage & deliberate exclusions
 
-What the extractor models, and where it deliberately stops. Stage-2 doctrine:
+What the extractor models, and where it deliberately stops. The doctrine:
 extract everything as facts at fact grain; deliberate gaps are recorded here,
 never silently dropped.
 
@@ -156,26 +156,3 @@ publications) keep their `notExtensionMember` anti-joins. Their members ride out
 with the projected parent (sub-entities) or are vanishingly rare (the rest), so
 the default projected behaviour is identical either way; they were left to keep
 the migration bounded and fully parity-gated.
-
-## Field-issue corpus (old-engine bugs, verified gone or fixed)
-
-Open `supabase/pg-toolbelt` issues converted to corpus scenarios. Most were
-old-engine flaws the new architecture does not reproduce; one (#263) exposed
-a real gap that is now fixed.
-
-| Issue | Scenario(s) | Outcome in the new engine |
-|---|---|---|
-| #286 | `domain-operations--check-references-replaced-function` | green — generic forced-dependent-rebuild drops/recreates the domain CHECK around the function replace (old engine silently skipped it) |
-| #280 | `function-ops--signature-change-referenced-by-{default,check}` | green — table is never dropped (data-preservation proof on seeded rows); minimal-by-construction |
-| #263 | `alter-column-type--blocked-by-{policy,view}`, `function-ops--signature-change-referenced-by-policy` | **fixed** — `ALTER COLUMN … TYPE` now force-rebuilds dependent views/rules/policies (kind-selective `rebuildsDependents`); DROP FUNCTION ref'd by a policy already worked |
-| #269 | `mixed-objects--cross-schema-reference` | green — plan applies to a target that has the unchanged managed-schema object; no round-apply "stuck statement" |
-| #282 | `type-ops--range-used-in-table` + loader shuffle test | green — `CREATE TYPE AS RANGE` is a first-class fact with a column→type edge; a pg-topo classification bug that does not exist in the new engine |
-| #219 | `function-ops--enum-arg-privilege` | green — enum-arg function signatures render stably in GRANT/REVOKE (no temp-schema artifacts) |
-| #218 | `constraint-ops--deferrable-unique` | green — `DEFERRABLE INITIALLY DEFERRED` roundtrips via `pg_get_constraintdef` |
-
-Not converted (old-engine architectural chores the new design resolves
-differently, no scenario): #250 perf benchmarking (the new engine ships
-`scripts/benchmark.ts` + a CI benchmark job + the generative soak), #244
-`change.phase` (replaced by per-action three-valued `transactionality` +
-the segmented executor), #115 shared topological-sort abstraction (the new
-engine has one mixed graph and no pg-topo coupling in the trusted path, P1).

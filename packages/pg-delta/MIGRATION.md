@@ -1,7 +1,11 @@
-# Migrating from `@supabase/pg-delta` (old engine) — DRAFT
+# Migrating from the legacy `@supabase/pg-delta` engine
 
-Status: draft for the stage-10 cutover review. The naming decision (new
-major vs new package name) is open; this guide uses the working name.
+`@supabase/pg-delta` is now a clean-room rebuild. It kept the package name and
+the `pgdelta` binary, but the CLI, the public API, and every persisted artifact
+format are new — nothing carries over for compatibility. The legacy engine
+remains on npm as `1.0.0-alpha.31` and in git history.
+
+This guide maps the old surface onto the new one.
 
 ## API mapping
 
@@ -13,7 +17,7 @@ major vs new package name) is open; this guide uses the working name.
 | `plan.statements` / serialized SQL list | `plan.actions[].sql` + `serializePlan(plan)` | plans are version-tagged JSON artifacts, never bare SQL lists |
 | post-apply verification (built into applyPlan) | `provePlan(plan, clonePool, desiredFactBase)` | opt-in, and stronger: state proof + data-preservation proof |
 | `declarativeApply(files, pool)` (round-apply against live targets) | `loadSqlFiles(files, shadowPool)` → `plan` → `apply` | bounded rounds run against a throwaway shadow ONLY; the live target gets a planned, provable artifact |
-| `catalog-export` CLI | `pg-delta-next snapshot` | snapshots are fact bases with digest verification |
+| `catalog-export` CLI | `pgdelta snapshot` | snapshots are fact bases with digest verification |
 | filter DSL (`IntegrationDSL`) | policy DSL v2 (`Policy` in `src/policy/policy.ts`) | see the cookbook below |
 | `supabase` integration | `supabasePolicy` (`src/policy/supabase.ts`) | the module docblock carries the rule-by-rule mapping table |
 
@@ -30,7 +34,7 @@ major vs new package name) is open; this guide uses the working name.
   plan-level `safetyReport` aggregates them.
 - `filteredDeltas` lists what the policy hid — drift you chose not to
   manage is still drift you can ask about.
-- `renameCandidates` carries the stage-9 rename verdicts (including
+- `renameCandidates` carries the rename verdicts (including
   near-miss explanations).
 
 ## Output shape: the biggest consumer surprise
@@ -84,17 +88,15 @@ Provenance is first-class: `{ ownedByExtension: "postgres_fdw" }` and
 ## Snapshots
 
 Old `catalog-export` JSON is not readable. Regenerate:
-`pg-delta-next snapshot --source <url> --out baseline.json`. Snapshots
+`pgdelta snapshot --source <url> --out baseline.json`. Snapshots
 embed a format version and digest; corrupted or foreign-version files
 refuse to load. The Supabase platform baselines are regenerated with
 `scripts/generate-supabase-baseline.ts` against the pinned image tag.
 
-## What the old engine still does that the new one does not
+## Known gaps
 
-- Security-label diffing (the corpus needs the dummy_seclabel image —
-  extraction/rules land with it).
-- The Supabase-image end-to-end scenarios (the policy package exists;
-  the real-image baseline proof needs the image in CI).
-
-Hold the stage-10 parity bar (all six items, simultaneously) before
-cutover; this guide ships with the cutover PR, not before.
+Object kinds the new engine does not model — casts, operators, text-search
+configuration, statistics objects, languages, transforms — are **detected and
+reported** as `unmodeled_kind` diagnostics rather than silently dropped, and
+`--strict-coverage` refuses to produce an apply artifact while any exist. See
+[COVERAGE.md](./COVERAGE.md) for the authoritative map.
