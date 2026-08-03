@@ -128,6 +128,7 @@ export const SUPABASE_SYSTEM_ROLES = [
   "supabase_auth_admin",
   "supabase_etl_admin",
   "supabase_functions_admin",
+  "supabase_privileged_role",
   "supabase_read_only_user",
   "supabase_realtime_admin",
   "supabase_replication_admin",
@@ -166,8 +167,10 @@ export const supabasePolicy: Policy = {
   // that grant TO them are kept — old pg-delta emits those grants and dbdev
   // relies on them. Declaring the names here lets the planner's ambient-role
   // exemption (like pg_*/PUBLIC) accept `consumes role:anon` without re-admitting
-  // the role into the diff. Mirrors Rule 7's exclusion list by construction.
-  assumedRoles: [...SUPABASE_SYSTEM_ROLES],
+  // the role into the diff. Mirrors Rule 7's exclusion list by construction,
+  // plus `postgres` (Rule 7b projects its role OBJECT out too, and every kept
+  // user object references it as owner/grantee).
+  assumedRoles: [...SUPABASE_SYSTEM_ROLES, "postgres"],
 
   // Platform-managed schemas assumed to exist at apply time. Rules 4/5 below
   // project their schema OBJECT out of the managed view, but a kept user object
@@ -191,12 +194,14 @@ export const supabasePolicy: Policy = {
   // represents "empty" on a Supabase instance; facts present-and-identical in
   // it are subtracted before diffing (resolveBaseline → plan options.baseline),
   // so platform-managed objects are invisible without a filter rule per object.
-  // No Supabase baseline snapshot is committed yet (a separate v1 validation
-  // item), so this policy does NOT declare one — a declared-but-unresolved
-  // baseline now fail-fasts (review finding 3) rather than being silently
-  // ignored. The `filter` rules below already hide platform objects; when the
-  // baseline snapshot lands, re-add `baseline: "supabase-baseline"` here and
-  // resolveBaseline will subtract it. Generate with:
+  // No Supabase baseline snapshot is committed — DELIBERATELY: the baseline is
+  // deferred to post-v1 (decision: docs/roadmap/v1-evidence.md Gate 5; backlog:
+  // docs/roadmap/post-v1.md "Supabase baseline snapshot"), so this policy does
+  // NOT declare one — a declared-but-unresolved baseline fail-fasts (review
+  // finding 3) rather than being silently ignored. The `filter` rules below are
+  // the v1 mechanism for hiding platform objects; when the baseline snapshot
+  // lands, re-add `baseline: "supabase-baseline"` here and resolveBaseline will
+  // subtract it. Generate with:
   //   bun run scripts/generate-supabase-baseline.ts <db-url> <pg-major>
   //
   // ⚠️ Phase 2b (#41) depends on this being UNSET: the co-located-shadow seed
@@ -357,6 +362,33 @@ export const supabasePolicy: Policy = {
         all: [{ kind: "role" }, { name: [...SUPABASE_SYSTEM_ROLES] }],
       },
       action: "exclude",
+    },
+
+    // Rule 7b (#371): exclude the `postgres` role OBJECT — but nothing else
+    // about `postgres`. Supabase hands users a privileged NON-superuser
+    // `postgres` whose role-level state is platform plumbing, not user-declared
+    // desired state: the attribute flags can never be re-applied by the user
+    // (supautils: "Only superusers can alter privileged roles") and the
+    // `search_path` config is set by the image's own migrations. `postgres` is
+    // deliberately NOT in SUPABASE_SYSTEM_ROLES — Rule 6 excludes objects OWNED
+    // by listed roles, and `postgres` owns every user object, so listing it
+    // would empty the export. Memberships where `postgres` is merely the MEMBER
+    // of a user role (`GRANT app_admin TO postgres`) are legitimate user state
+    // and stay managed. `assumedRoles` above includes `postgres` so kept
+    // references (ownership, grants) still resolve at plan time. Trade-off,
+    // accepted: user-customized role config ON `postgres` (e.g. a bespoke
+    // `search_path`) no longer round-trips under cluster scope; the committed
+    // Supabase baseline (post-v1, docs/roadmap/post-v1.md) is the mechanism
+    // that can distinguish platform-shipped from user-customized role state.
+    {
+      match: {
+        all: [{ kind: "role" }, { name: "postgres" }],
+      },
+      action: "exclude",
+      audit: {
+        reasonCode: "supabase.platform-postgres-role",
+        classification: "acknowledged",
+      },
     },
 
     // Rule 8a (old rule): exclude memberships where the MEMBER is a system role.
