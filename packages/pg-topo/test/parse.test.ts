@@ -108,5 +108,58 @@ create schema app;
         true,
       );
     });
+
+    test("sourceOffsets stay exact across many statements with non-ASCII content", async () => {
+      const statements = [
+        "comment on table public.a is '→';",
+        "create table public.b(id int);",
+        "comment on table public.b is '→→';",
+        "create table public.c(id int);",
+      ];
+      const content = statements.join("\n");
+      const result = await parseSqlContent(content, "many.sql");
+      expect(result.statements).toHaveLength(statements.length);
+      for (const [index, statement] of statements.entries()) {
+        const offset = result.statements[index]?.id.sourceOffset ?? -1;
+        expect(content.slice(offset, offset + statement.length)).toBe(
+          statement,
+        );
+      }
+    });
+  });
+
+  // libpg_query omits stmt_len for a final statement with no terminating
+  // semicolon, so the byte-slice path must extend to the end of the content
+  // instead of falling back to the deparser (which is invalid for
+  // COMMENT ON TRIGGER/POLICY/RULE and would drop the statement).
+  describe("final statement without a terminating semicolon", () => {
+    test("recovers an unterminated COMMENT ON TRIGGER verbatim", async () => {
+      const content = "COMMENT ON TRIGGER tr ON public.t IS 'x'";
+      const result = await parseSqlContent(content, "unterminated.sql");
+      expect(result.diagnostics).toHaveLength(0);
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0]?.sql).toBe(`${content};`);
+    });
+
+    test("recovers an unterminated non-ASCII COMMENT ON TRIGGER verbatim", async () => {
+      const content = "COMMENT ON TRIGGER tr ON public.t IS '→→→'";
+      const result = await parseSqlContent(content, "unterminated.sql");
+      expect(result.diagnostics).toHaveLength(0);
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0]?.sql).toBe(`${content};`);
+    });
+
+    test("recovers an unterminated final statement after earlier statements", async () => {
+      const first = "comment on table public.t is '→→→';";
+      const second = "COMMENT ON POLICY p ON public.t IS 'x'";
+      const result = await parseSqlContent(
+        `${first}\n${second}`,
+        "unterminated.sql",
+      );
+      expect(result.diagnostics).toHaveLength(0);
+      expect(result.statements).toHaveLength(2);
+      expect(result.statements[0]?.sql).toBe(first);
+      expect(result.statements[1]?.sql).toBe(`${second};`);
+    });
   });
 });
