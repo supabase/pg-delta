@@ -75,6 +75,25 @@ CLI-1582.
 Persistence is shipped (`plan --restrict-to-applier`); extend the capability
 projection through the rest of the flow.
 
+### 🟡 Supabase baseline snapshot
+Baseline subtraction is fully built and fail-loud (`subtractBaseline`,
+`resolveBaseline` with digest + redaction-mode validation, plan-side wiring, the
+generator script) — what's missing is the committed artifact and two wiring
+gaps. **Explicitly deferred from v1** (decision + rationale:
+[v1-evidence.md](v1-evidence.md) Gate 5): the supabase policy's filter rules are
+the v1 mechanism; the baseline adds long-tail platform coverage and
+user-vs-platform disambiguation (e.g. a user-customized `ALTER ROLE postgres
+SET …` could round-trip instead of being filtered wholesale, #371). To land:
+commit `src/policy/baselines/supabase-baseline-<major>.json` for every
+supported PG major (declared-but-unresolved fail-fasts, so partial coverage
+bricks the profile) with regeneration tied to image bumps
+(`scripts/generate-supabase-baseline.ts`); declare `baseline:
+"supabase-baseline"` in `supabasePolicy`; resolve the baseline in `provePlan`
+(else baseline-shaped plans drift at prove time — see the Gate 5 note) plus a
+corpus/integration case; revisit the Phase 2b seed derivation (the
+`seed-assumed-schemas.test.ts` "non-empty seed" pin fails loudly if missed);
+exercise subtraction in CI.
+
 ### ✅ Engine refactors (locality/allocation)
 Cleanup items from the 2026-06-15 branch review (reverse-index rebuild,
 `FactBase.getByEncoded`/`incomingEdges`, onboarding map, projected-emission seam,
