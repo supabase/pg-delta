@@ -18,8 +18,9 @@
 - **Audience**: engineers, reviewers, and decision-makers evaluating the rewrite.
 - **Status**: engine code-complete and proven on a **316-scenario corpus (632
   cases, both directions)** across PostgreSQL 14–18 — all green (one
-  `EXPECTED_RED` pin on PG16+ for a known teardown); cutting v1 on correctness.
-  See [roadmap/v1.md](roadmap/v1.md).
+  `EXPECTED_RED` pin on PG16+ for a known teardown). Shipped as
+  `@supabase/pg-delta` in a breaking-change alpha; what's next is in
+  [roadmap/backlog.md](roadmap/backlog.md).
 - **Deep design**: [architecture/target-architecture.md](architecture/target-architecture.md)
   (the north star) and [architecture/managed-view-architecture.md](architecture/managed-view-architecture.md).
 
@@ -321,7 +322,7 @@ dominated by the PostgreSQL driver buffering result sets, and is **comparable to
 the old engine** (the old engine peaked ~185 MB on the same catalog). Both
 materialize catalogs fully, so both scale roughly linearly; a streaming,
 *O(changes)* diff is the next memory item on the roadmap
-([roadmap/post-v1.md](roadmap/post-v1.md)). A
+([roadmap/backlog.md](roadmap/backlog.md)). A
 new `extract()` statement-timeout budget already turns a runaway query on a
 pathological schema into an actionable diagnostic instead of a hang.
 
@@ -341,10 +342,10 @@ revisit):
 
 | Not yet | Why it's safe | Where |
 |---|---|---|
-| *Model* rare kinds (casts, operators, text-search, statistics, languages, transforms) | They are **detected and reported**, never silently dropped; modeling is demand-driven | [COVERAGE.md](../packages/pg-delta/COVERAGE.md), [roadmap/post-v1.md](roadmap/post-v1.md) |
+| *Model* rare kinds (casts, operators, text-search, statistics, languages, transforms) | They are **detected and reported**, never silently dropped; modeling is demand-driven | [COVERAGE.md](../packages/pg-delta/COVERAGE.md), [roadmap/backlog.md](roadmap/backlog.md) |
 | Extension-intent **Phase B** (replay extension objects on rebuild) | Phase A (don't-drop) ships; replay is blocked on a declarative-format decision | [roadmap/extension-intent-phase-b.md](roadmap/extension-intent-phase-b.md) |
-| Parallel snapshot extraction | Re-profiled: < 2× win for high refactor risk | [roadmap/post-v1.md](roadmap/post-v1.md) |
-| Stage-10 cutover (naming, deprecation, migration guide) | Sequenced after v1 + performance | [roadmap/post-v1.md](roadmap/post-v1.md) |
+| Parallel snapshot extraction | Re-profiled: < 2× win for high refactor risk | [roadmap/backlog.md](roadmap/backlog.md) |
+| Committed Supabase baseline snapshot | The supabase profile's filter rules hide every known platform object class; the baseline is a long-tail increment over them | [roadmap/backlog.md](roadmap/backlog.md) |
 
 Consumers migrate once, at the cutover parity bar: the public surface stays the
 `createPlan` / `applyPlan` facade, on a new major, with a migration guide.
@@ -360,7 +361,7 @@ Consumers migrate once, at the cutover parity bar: the public surface stays the
 | The full design rationale (the north star) | [architecture/target-architecture.md](architecture/target-architecture.md) |
 | How scope / ownership / capability enter the engine | [architecture/managed-view-architecture.md](architecture/managed-view-architecture.md) |
 | How stateful extensions (pgmq, pg_cron, pg_partman) are handled | [architecture/extension-intent.md](architecture/extension-intent.md) |
-| The performance work (shipped) and memory roadmap | [build-log.md](build-log.md), [roadmap/post-v1.md](roadmap/post-v1.md) |
-| What's left before cutting v1 | [roadmap/v1.md](roadmap/v1.md) and [roadmap/README.md](roadmap/README.md) |
+| The performance work (shipped) and memory roadmap | [build-log.md](build-log.md), [roadmap/backlog.md](roadmap/backlog.md) |
+| What's next | [roadmap/backlog.md](roadmap/backlog.md) and [roadmap/README.md](roadmap/README.md) |
 | What the engine models / deliberately excludes | [../packages/pg-delta/COVERAGE.md](../packages/pg-delta/COVERAGE.md) |
 | How it was built and reviewed | [build-log.md](build-log.md) |

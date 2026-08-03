@@ -28,7 +28,7 @@ day one rather than asserted after the fact.
 | 7 — frontends | The shadow-DB `.sql` loader (bounded-round ordering) and the snapshot frontend. |
 | 8 — policy | Policy DSL v2 (typed predicates, filter/serialize rules, baseline subtraction) and the Supabase package. |
 | 9 — renames & API | Rename detection over structural rollups, the reviewed public API, and the CLI. |
-| 10 — cutover | *Forward-looking* — the parity bar that gates switching consumers over (see [roadmap/post-v1.md](roadmap/post-v1.md)). |
+| 10 — cutover | *Shipped* — the legacy engine removed, the clean-room engine promoted into `packages/pg-delta` and published as a breaking-change alpha. |
 
 Result (rewrite-era snapshot at first engine-complete cut): **−79% source LOC,
 one rule table instead of ~100 change classes, and a correctness guarantee the
@@ -75,7 +75,7 @@ bug* rather than requiring per-issue fixes:
   and the proof loop close most field bugs structurally; the Supabase policy DSL
   handles the platform-specific cluster.
 - **~13 substrate-ready** — the engine provides the mechanism; the consumer/CLI
-  surface is the remaining work (now tracked in [roadmap/post-v1.md](roadmap/post-v1.md)).
+  surface is the remaining work (now tracked in [roadmap/backlog.md](roadmap/backlog.md)).
 - **One genuine design gap** — stateful-extension *intent*. Phase A (stop
   dropping extension-managed data) shipped; Phase B (replay on rebuild) is a
   scoped, blocked follow-up
@@ -110,7 +110,7 @@ notable ones:
 
 Remaining review items were optimizations (fewer DDL statements around role
 renames) and deeper integration coverage, not correctness blockers — folded into
-[roadmap/post-v1.md](roadmap/post-v1.md).
+[roadmap/backlog.md](roadmap/backlog.md).
 
 ---
 
@@ -137,13 +137,13 @@ overall, with byte-identical output (gated by an edge-set oracle + the full
 corpus on PG 14–18). Parallel snapshot extraction was *re-profiled and
 deferred* — the resolver is now one unsplittable query that caps the parallel
 ceiling below 2×. Details and the memory roadmap:
-[roadmap/post-v1.md](roadmap/post-v1.md).
+[roadmap/backlog.md](roadmap/backlog.md).
 
 ---
 
 ## Where things stand
 
-The engine and its correctness machinery are **v1-ready**; what remains is
-running the validation gates to green *at scale* and publishing the scope
-statement. See [roadmap/v1.md](roadmap/v1.md) for the cut plan and
-[roadmap/v1-evidence.md](roadmap/v1-evidence.md) for the evidence record to fill.
+The engine shipped as `@supabase/pg-delta` in a breaking-change alpha, replacing
+the legacy engine outright. What remains is running the validation gates to
+green *at scale* and publishing the scope statement — see
+[roadmap/backlog.md](roadmap/backlog.md).
