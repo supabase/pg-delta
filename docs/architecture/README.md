@@ -9,6 +9,9 @@ depth.
 - Want to *use* it? See [getting-started.md](../getting-started.md).
 - About to touch the code? Pair this with [onboarding.md](onboarding.md), the
   contributor map of where each stage lives.
+- *Debugging* a command? Go to [flows.md](flows.md) — every CLI flow drawn
+  old-engine vs new-engine, mapped to the functions that actually run, with the
+  invariant each one must uphold and a symptom → function lookup table.
 
 ---
 
@@ -155,5 +158,6 @@ per-extension special-casing in the core.
 | [identity-and-acl.md](identity-and-acl.md) | StableId addressability vs PostgreSQL OIDs, current and target rename flow, explicit per-grantee ACL equality, underscore metadata, and proof implications. |
 | [managed-view-architecture.md](managed-view-architecture.md) | How scope, ownership, and applier capability enter the engine through one `resolveView`, closed under the proof loop. |
 | [extension-intent.md](extension-intent.md) | How stateful extensions are diffed without destroying their data. |
+| [flows.md](flows.md) | The debugger's map: each command flow (`diff` / `plan` / `apply` / `prove` / `schema export` / `schema apply` / `snapshot` / `drift` / `render` / `lint`) diagrammed old-vs-new and mapped to the real functions, plus the safety-gate catalogue and a symptom → function playbook. |
 | [onboarding.md](onboarding.md) | The contributor map: which file holds each stage, and how to add a new object kind. |
 | [../build-log.md](../build-log.md) | How the engine was built and reviewed (the record of decisions). |
