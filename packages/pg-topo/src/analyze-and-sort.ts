@@ -221,23 +221,8 @@ export const analyzeAndSort = async (
     }
   }
 
-  // `ordered` must be a TOTAL order — a complete permutation of the input.
-  // Kahn's algorithm in topoSort drains only the acyclic prefix, so statements
-  // trapped in a dependency cycle are absent from `orderedIndices` (they surface
-  // in `cycleGroups` / the CYCLE_DETECTED diagnostic instead). Dropping them here
-  // would silently lose statements for consumers that feed `ordered` into a
-  // defer-and-retry applier (pg-delta declarative-apply, pg-delta-next's
-  // shadow-load reordering assist). Append any such cycle members after the
-  // drained prefix, in the same deterministic tie-break order topoSort uses, so
-  // every statement appears exactly once and the result stays stable per input.
-  const drainedIndices = new Set(topoResult.orderedIndices);
-  const cycleTailIndices = statementNodes
-    .map((_statementNode, index) => index)
-    .filter((index) => !drainedIndices.has(index))
-    .sort((left, right) =>
-      compareStatementIndices(left, right, statementNodes),
-    );
-  const ordered = [...topoResult.orderedIndices, ...cycleTailIndices]
+  // `orderedIndices` is a total order of every successfully parsed statement.
+  const ordered = topoResult.orderedIndices
     .map((index) => statementNodes[index])
     .filter((statementNode): statementNode is StatementNode =>
       Boolean(statementNode),

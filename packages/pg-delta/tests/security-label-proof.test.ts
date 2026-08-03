@@ -201,6 +201,14 @@ describe.skipIf(skipSeclabelProof)("security-label end-to-end proof", () => {
     const desiredState = await extract(desired.pool);
     const thePlan = plan(sourceState.factBase, desiredState.factBase);
     expect(thePlan.actions.length).toBeGreaterThan(0); // label not dropped
+    // The label lives in the shared catalog, so the desired database's label is
+    // already visible from every database on the cluster — including the clone
+    // the proof is about to take. Reset it (desiredState is already frozen) so
+    // the clone matches the plan's source fingerprint and the plan genuinely
+    // APPLIES the label instead of finding it pre-set via catalog sharing.
+    await desired.pool.query(
+      `SECURITY LABEL FOR 'dummy' ON ROLE ${role} IS NULL;`,
+    );
     const clone = await source.clone();
     dbs.push(clone);
     const v = await provePlan(thePlan, clone.pool, desiredState.factBase);

@@ -2,7 +2,10 @@
 
 _deterministic dependency sorting for declarative PostgreSQL schemas_
 
-`pg-topo` sorts declarative PostgreSQL schema statements into a deterministic, dependency-safe execution order.
+For acyclic inputs, `pg-topo` sorts declarative PostgreSQL schema statements
+into a deterministic, dependency-safe execution order. When cycles remain, it
+returns a deterministic cycles-last fallback; callers must handle
+`CYCLE_DETECTED` before executing the result directly.
 
 It is designed for SQL-first projects where schema lives in many `.sql` files and statement order is not guaranteed.
 
@@ -95,7 +98,10 @@ const result = await analyzeAndSortFromFiles(["./schema"]);
 
 ### `analyzeAndSort(sql: string[]): Promise<AnalyzeResult>`
 
-Pure library function. Accepts an array of SQL content strings. No filesystem access.
+Pure library function. Accepts an array of SQL content strings. Each string is
+parsed atomically: if any SQL in one string is invalid, that entry contributes
+no statements and emits `PARSE_ERROR`. Separate array entries are parsed
+independently. No filesystem access.
 
 ### `analyzeAndSortFromFiles(roots: string[]): Promise<AnalyzeResult>`
 
@@ -124,7 +130,7 @@ Additional exported types:
 
 ### `ordered`
 
-`ordered` is the topologically sorted statement list.  
+`ordered` is the deterministically ordered statement list.
 Each item includes:
 
 - original `sql`
@@ -136,12 +142,13 @@ Each item includes:
 For the core `analyzeAndSort`, `filePath` uses synthetic source labels (e.g. `<input:0>`, `<input:1>`).  
 For `analyzeAndSortFromFiles`, `filePath` is the relative path to the source `.sql` file.
 
-`ordered` is a **total order**: it always contains every input statement exactly
-once. Statements trapped in a dependency cycle (which a topological sort cannot
-place) are appended after the acyclic prefix, in the same deterministic
-tie-break order, rather than being dropped — the cycle is still reported via
-`CYCLE_DETECTED` and `graph.cycleGroups`. This lets a consumer feed `ordered`
-straight into a defer-and-retry applier without silently losing statements.
+`ordered` is a **total order**: it always contains every successfully parsed
+statement exactly once. It begins with the maximal acyclic prefix that can be
+topologically drained. The residual cycle components and any descendants they
+block follow in condensation-DAG order. Tie-breaks between ready components and
+the order within each cycle are deterministic; the order within a cycle is not
+a topological order. Cycles are still reported through `CYCLE_DETECTED` and
+`graph.cycleGroups`.
 
 ### `diagnostics`
 

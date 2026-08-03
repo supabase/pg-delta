@@ -1,83 +1,53 @@
 /**
- * provePlan() applies the default extension-member projection to the proven
- * re-extract (4b Stage 0). Docker required (a sacrificial clone pool).
+ * provePlan() and extension members, post-flip: the extractor tags every
+ * extension-owned object with a `memberOfExtension` provenance edge, and the
+ * diff treats members as reference-only (they never become create/drop/alter
+ * actions — src/policy/view.ts::extensionMemberReferenceOnly). This test pins
+ * the prove-side integration of that contract: a real extension's members flow
+ * through extract → plan → provePlan without reading as drift, and without
+ * tripping provePlan's source/desired fingerprint gates (the proven re-extract
+ * and the plan fingerprints must observe the same managed view of the same
+ * real state). Docker required (a sacrificial clone pool).
  *
- * The proof re-extracts the clone after applying and diffs it against the
- * (projected) target. Post-flip, that re-extract will observe extension members
- * — they must be projected OUT of `proven` too, or every extension's internals
- * would read as drift. This test injects a member through the `reextract` hook
- * (the designed extension point, the same shape the flipped extractor will
- * produce) so the prove-side wiring is pinned independently of Stage 2.
+ * Historical note: this test originally injected a synthetic member through
+ * the `reextract` hook to simulate the then-unflipped extractor ("4b Stage 0").
+ * That construction hands provePlan a clone whose fingerprint can never match
+ * the plan's source fingerprint, which the destructive-workflow guards now
+ * (correctly) reject as a sourceStateViolation — so it was replaced with a
+ * real extension once the extractor flip landed. Asymmetric member coverage
+ * (member satellites changing between sides) lives in the corpus
+ * `extension-member--*` scenarios.
  */
 import { describe, expect, test } from "bun:test";
-import type { Pool } from "pg";
-import {
-  buildFactBase,
-  type DependencyEdge,
-  type Fact,
-  type FactBase,
-} from "../src/core/fact.ts";
-import type { StableId } from "../src/core/stable-id.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import { createTestDb } from "./containers.ts";
 
-const extSynth: StableId = { kind: "extension", name: "synth_ext" };
-const memberTable: StableId = {
-  kind: "table",
-  schema: "public",
-  name: "synth_member",
-};
-const schemaPublic: StableId = { kind: "schema", name: "public" };
-
 describe("provePlan — default extension-member projection (4b Stage 0)", () => {
   test("extension members in the proven re-extract are not reported as drift", async () => {
     const db = await createTestDb("prove_member");
     try {
+      await db.pool.query("CREATE EXTENSION pgcrypto");
       await db.pool.query("CREATE TABLE public.keep (id integer PRIMARY KEY)");
       const state = await extract(db.pool);
+
+      // the extension's members are tagged in the extract
+      const memberEdges = state.factBase.edges.filter(
+        (edge) => edge.kind === "memberOfExtension",
+      );
+      expect(memberEdges.length).toBeGreaterThan(0);
 
       // empty plan: source == desired, so applying it to the clone is a no-op
       const emptyPlan = plan(state.factBase, state.factBase);
       expect(emptyPlan.actions).toHaveLength(0);
 
-      // the comparison target: real state + a synthetic extension fact. The
-      // extension is on BOTH sides so ONLY the member differs — isolating the
-      // member-exclusion behaviour from anything else.
-      const extFact: Fact = { id: extSynth, payload: {} };
-      const desired = buildFactBase(
-        [...state.factBase.facts(), extFact],
-        [...state.factBase.edges],
-        state.factBase.source,
-      );
+      const verdict = await provePlan(emptyPlan, db.pool, state.factBase);
 
-      // reextract simulates the POST-FLIP extractor: the same real state, plus
-      // the extension fact and an extension-OWNED member tagged memberOfExtension
-      const reextract = async (pool: Pool): Promise<{ factBase: FactBase }> => {
-        const real = await extract(pool);
-        const facts: Fact[] = [
-          ...real.factBase.facts(),
-          extFact,
-          {
-            id: memberTable,
-            parent: schemaPublic,
-            payload: { persistence: "p" },
-          },
-        ];
-        const edges: DependencyEdge[] = [
-          ...real.factBase.edges,
-          { from: memberTable, to: extSynth, kind: "memberOfExtension" },
-        ];
-        return { factBase: buildFactBase(facts, edges, real.factBase.source) };
-      };
-
-      const verdict = await provePlan(emptyPlan, db.pool, desired, {
-        reextract,
-      });
-
-      // RED before wiring: the member reads as drift (remove synth_member).
-      // GREEN after wiring: members are projected out of `proven` → no drift.
+      // pgcrypto's members are present in the proven re-extract; they must not
+      // read as drift, and the fingerprint gates must accept the clone.
+      expect(verdict.sourceStateViolation).toBeUndefined();
+      expect(verdict.desiredStateViolation).toBeUndefined();
       expect(verdict.driftDeltas).toHaveLength(0);
       expect(verdict.ok).toBe(true);
     } finally {

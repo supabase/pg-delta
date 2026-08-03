@@ -28,6 +28,17 @@ describe("parseSqlContent", () => {
     });
   });
 
+  test("parses each input string atomically", async () => {
+    const result = await parseSqlContent(
+      "create table public.valid(id integer); select * from invalid syntax {{{",
+      "atomic.sql",
+    );
+
+    expect(result.statements).toHaveLength(0);
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe("PARSE_ERROR");
+  });
+
   test("merges annotation diagnostics with statementId", async () => {
     const content = `
 -- pg-topo:phase bootstrap

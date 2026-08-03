@@ -11,6 +11,7 @@
     "format-and-lint": "oxfmt --check . && oxlint --deny-warnings",
     "format-and-lint:fix": "oxfmt . && oxlint --fix",
     "knip": "bun run --filter '*' knip",
+    "test:contribution-gate": "bun test ./.github/scripts/contribution-gate.test.ts",
     "test:pg-delta": "bun run --filter '@supabase/pg-delta' test",
     "test:pg-topo": "bun run --filter '@supabase/pg-topo' test",
     "verdaccio:start": "verdaccio --config ./verdaccio/config.yaml",
