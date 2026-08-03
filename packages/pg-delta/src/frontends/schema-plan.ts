@@ -424,7 +424,13 @@ export async function planSchemaFiles(
       ? flattenPolicy(ctx.planOptions.policy)
       : undefined;
     const profileAssumedSchemas = flatProfile?.assumedSchemas ?? [];
-    if (profileAssumedSchemas.length > 0) {
+    const profileAssumedPublications = flatProfile?.assumedPublications ?? [];
+    // gate on EITHER assumed kind: a profile assuming only publications still
+    // needs its shadow seeded (Codex review on #373)
+    if (
+      profileAssumedSchemas.length > 0 ||
+      profileAssumedPublications.length > 0
+    ) {
       const seed = deriveAssumedSchemaSeed(targetResult.factBase, {
         ...(ctx.planOptions.policy ? { policy: ctx.planOptions.policy } : {}),
         ...(ctx.planOptions.capability
@@ -434,6 +440,7 @@ export async function planSchemaFiles(
           ? { baseline: ctx.planOptions.baseline }
           : {}),
         assumedSchemas: profileAssumedSchemas,
+        assumedPublications: profileAssumedPublications,
         assumedRoles: [
           ...(flatProfile?.assumedRoles ?? []),
           ...assumedTargetRoles,

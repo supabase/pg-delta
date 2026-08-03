@@ -296,6 +296,34 @@ export const supabasePolicy: Policy = {
       },
     },
 
+    // Exclude comment / security-label satellites TARGETING a platform
+    // publication (mirrors Rule 10, which does the same for system-schema
+    // objects). The reference-only mark above covers only the publication fact
+    // itself; a satellite is a managed CHILD of that reference-only parent, so
+    // without this rule a platform-set comment absent from user files would
+    // plan `COMMENT ON PUBLICATION supabase_realtime IS NULL` — mutating
+    // platform metadata the user never declared. Membership facts
+    // (publicationRel / publicationSchema) are NOT satellites and stay managed.
+    // (Publications carry no ACLs, so acl is not matched here.)
+    {
+      match: {
+        all: [
+          { kind: ["comment", "securityLabel"] },
+          {
+            target: {
+              kind: "publication",
+              name: [...SUPABASE_SYSTEM_PUBLICATIONS],
+            },
+          },
+        ],
+      },
+      action: "exclude",
+      audit: {
+        reasonCode: "supabase.system-publication-satellite",
+        classification: "acknowledged",
+      },
+    },
+
     // Rule 1+2 (old rules): include extension CREATE and DROP operations.
     // Extensions are always user-declarable state on Supabase regardless of
     // the schema they install into. Place before the system-schema/owner

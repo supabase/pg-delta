@@ -121,6 +121,12 @@ export function deriveAssumedSchemaSeed(
      *  derivation — see the module doc (Codex #323 finding 3). */
     baseline?: FactBase;
     assumedSchemas: string[];
+    /** Policy assumed publications (e.g. `supabase_realtime`). Used only to
+     *  decide whether seeding applies at all — the seed SET still derives
+     *  generically from the view's reference-only marks. Without this, a
+     *  profile assuming ONLY publications would short-circuit on the empty
+     *  assumedSchemas and silently derive no seed (Codex review on #373). */
+    assumedPublications?: string[];
     /** Policy assumed roles PLUS the target's own role names — same cluster, so
      *  every owner/grant role reference in the seed is present at replay. */
     assumedRoles: string[];
@@ -135,8 +141,14 @@ export function deriveAssumedSchemaSeed(
     susetGucs?: ReadonlySet<string>;
   },
 ): AssumedSchemaSeed {
-  // raw profile (no assumed schemas): nothing is platform-external, no seed.
-  if (opts.assumedSchemas.length === 0) return EMPTY;
+  // raw profile (no assumed objects of any kind): nothing is
+  // platform-external, no seed.
+  if (
+    opts.assumedSchemas.length === 0 &&
+    (opts.assumedPublications ?? []).length === 0
+  ) {
+    return EMPTY;
+  }
 
   // NB: opts.baseline is deliberately NOT passed — the seed derives from the RAW
   // target so baseline-identical platform objects (auth.users) stay in the view
