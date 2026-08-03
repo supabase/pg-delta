@@ -586,7 +586,10 @@ a series of real non-superuser failures, each fixed RED-first on this branch:
   Cloud source project does not. No loader/policy/engine change fixes this — it is a
   baseline-DATA divergence between local and Cloud provisioning. This is the concrete case
   for the versioned-baseline-sidecar work (per-stack-fingerprint baselines derived from real
-  Cloud state rather than a local-fixture capture).
+  Cloud state rather than a local-fixture capture). See
+  [ephemeral-shadow-design.md § "Adjacent proposal"](ephemeral-shadow-design.md#adjacent-proposal-docker-urls-and-a-supabase-shadow-image)
+  for why generating that baseline from a `docker://supabase/<major>` image (+ per-service
+  setup scripts) was rejected, and the recommended derive-from-the-target sequencing.
 - **P3 — bootstrapped explicit `--shadow` for the supabase profile.** A user-bootstrapped
   (base-init'd) explicit `--shadow` currently trips the loader emptiness guard ("shadow
   database is not empty"). Deferred deliberately: a bootstrapped shadow's platform surface

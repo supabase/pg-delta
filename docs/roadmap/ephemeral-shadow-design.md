@@ -4,6 +4,11 @@ Status: **design only — not implemented** (deferred). Captures the problem, th
 correctness tension we discovered, and the alternatives with trade-offs so
 implementation can pick a path later.
 
+See also **"Adjacent proposal: `docker://` URLs and a Supabase shadow image"** at
+the end of this doc (triaged 2026-08-03): it accepts `docker://`-style
+provisioning and a profile-declared Supabase shadow image, and records why that
+image must **not** double as the platform **baseline**.
+
 Scope note: the related **progress-based shadow-load round cap** (a separate,
 self-contained fix) IS implemented — `loadSqlFiles` now scales `maxRounds` with
 file count (`Math.max(files.length + 1, 25)`) so a deep dependency chain that is
@@ -161,8 +166,11 @@ default.
   defaultPrivilege; tablespaces/parameters are out of model scope today).
 - Whether to also align the container superuser name to the target's applier, or
   rely purely on owner-edge pruning (the latter seems sufficient under C).
-- Supabase profile: a stock image won't carry Supabase extensions; likely needs
-  the profile to declare a shadow image, or require `--shadow` for Supabase.
+- ~~Supabase profile: a stock image won't carry Supabase extensions; likely needs
+  the profile to declare a shadow image, or require `--shadow` for Supabase.~~
+  → **Answered**: profile-declared shadow image (+ `--shadow-image` override).
+  See "Adjacent proposal" below, which also records why that image must NOT
+  double as the baseline.
 - `testcontainers` (already a dev dep, has the Ryuk reaper for leak cleanup) vs
   the `docker` CLI shell-out (no `src/` runtime dep). Leaning shell-out for a
   clean `src/` boundary.
@@ -176,3 +184,171 @@ default.
 - Alter-pre-existing-role is refused with a clear `--shadow` message (option C
   contract) — or works (option D).
 - `dockerAvailable() === false` → exit 2 with fallback instructions.
+
+---
+
+## Adjacent proposal: `docker://` URLs and a Supabase shadow image
+
+Triaged **2026-08-03**. Prompted by the question: could pg-delta adopt Atlas's
+`--dev-url "docker://postgres/15/dev"` ergonomics, and could we go further with
+`docker://supabase/17?services=realtime,auth,…` that runs each service's setup
+script to produce **the Supabase baseline**?
+
+Verdict up front: **yes to the provisioning ergonomics, yes to a Supabase shadow
+IMAGE, no to deriving the BASELINE from that image.** The last one re-introduces
+a data-divergence failure this branch has already diagnosed twice.
+
+### How Atlas's `--dev-url` actually works (for reference)
+
+Worth recording because it is close to, but not the same as, our shadow. Atlas's
+`DevDriver` (`sql/internal/sqlx/dev.go`) runs **snapshot → apply → inspect →
+restore**: it snapshots the dev DB, creates the desired objects in it for real,
+inspects them back (that inspection IS the normalization — Postgres reports the
+canonical form), then restores the snapshot and re-patches metadata the
+round-trip loses (schema name, user attributes, HCL source positions). It refuses
+on a non-empty dev DB (`connected database is not clean`) and has **no locking**
+— isolation rests entirely on snapshot/restore. `docker://` simply makes the dev
+DB disposable. The URL path selects scope: `…/dev?search_path=public` normalizes
+one schema, `…/dev` normalizes a whole realm.
+
+Two differences that matter for us:
+
+- Atlas **restores** its dev DB (reusable); our loader requires the shadow be
+  **empty by observation** and treats it as throwaway. Ours is the stricter
+  contract and should stay — restore-based reuse is a silent-corruption risk we
+  have no need to take.
+- Atlas is **scoped-by-default** (`--schema`, `search_path`, `exclude`), so a dev
+  container's bootstrap roles are simply outside the selection. pg-delta is
+  **authoritative-by-default over the cluster** and relies on the managed view to
+  project. That is precisely why the "correctness tension" above is *our*
+  problem and not visibly Atlas's: our default scope is bigger. Do not copy
+  Atlas's implementation and assume the role problem is handled.
+
+### Accepted: `docker://`-style provisioning (= option C, unchanged)
+
+No new decision needed — this is option C with nicer ergonomics. If we want the
+URL form, accept it as a **value of the existing `--shadow` flag** (e.g.
+`--shadow "docker://postgres/17-alpine"`) rather than adding a parallel flag, so
+there is one shadow concept with two provisioning modes. `--shadow-image` from
+the implementation sketch stays as the override for the auto-provisioned case.
+
+### Accepted: a profile-declared shadow IMAGE
+
+This answers the open question above. A stock `postgres:<major>-alpine` shadow
+cannot load a file containing `CREATE EXTENSION pg_graphql`, so the Supabase
+profile must be able to declare its shadow image (`supabase/postgres:<tag>`),
+with `--shadow-image` as the operator override. Failing loudly on a missing
+extension (rather than mis-diffing) is already the desired behaviour.
+
+### REJECTED: the shadow image as the source of the BASELINE
+
+#### Why: shadow and baseline answer different questions
+
+Already doctrine in the code — `src/frontends/seed-assumed-schemas.ts`, from the
+Codex #323 finding:
+
+> The seed is the **SUPERSET** question — "what platform objects must exist for
+> the user SQL to elaborate in the shadow" — whereas the diff is the **SUBSET**
+> question — "what do we manage". Only the diff subtracts the baseline.
+
+Their accuracy requirements differ by kind, not by degree:
+
+| | needs to be | tolerates approximation |
+|---|---|---|
+| **Shadow image** | *close enough* — extensions present, libraries loadable | yes |
+| **Baseline** | **exact** — `subtractBaseline` drops facts present **AND identical** (same id + payload hash) | **no** |
+
+One mismatched entry does not subtract; it surfaces as a delta.
+
+#### Why: we have already measured the divergence
+
+From `pg-delta-next-follow-ups.md` § "Supabase roundtrip hardening → Still open":
+
+> **P2 — local-`supabase start` vs Cloud baseline drift.** After all fixes, the
+> roundtrip's ONLY residual diff is `schemas/public/default_privileges.sql`: the
+> local base-init fixture carries `ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" …
+> REVOKE ALL … FROM "postgres"` entries the Cloud source project does not. **No
+> loader/policy/engine change fixes this** — it is a baseline-DATA divergence
+> between local and Cloud provisioning.
+
+So a locally-provisioned Supabase image does **not** reproduce Cloud state today,
+measured, for exactly the artifact this proposal would generate — and the failure
+lands in **privileges**. The user-visible symptom is pg-delta proposing `REVOKE`s
+against production. That is the worst available failure category.
+
+The same lesson was reached independently in P3 (bootstrapped explicit
+`--shadow`, deferred):
+
+> a bootstrapped shadow's platform surface matches the **installer era**, not the
+> target, so managed-scope divergences would surface as **phantom migrations** —
+> strictly more dangerous than the target-derived co-located seed.
+
+#### Why: it is the architecture's own anti-pattern, one level up
+
+`docker://supabase/17?services=…` is a bet that platform state can be
+**predicted by re-executing the platform's provisioning**. That is the same shape
+of mistake as the old engine re-implementing PostgreSQL's semantics — the thesis
+of this rewrite is *don't model it, ask the thing that knows*. Applied here:
+do not model what Supabase's platform state **should** be; **measure what the
+target's actually is**. The mechanism that already works does exactly that —
+`deriveAssumedSchemaSeed(targetResult.factBase, …)` seeds from the target's own
+facts and therefore cannot drift, because it *is* the target.
+
+#### Why `&services=…` is additionally unsound as a cache key
+
+Even granting the approach, `services=auth,realtime` does not identify a state:
+
+- **Version skew is 3-dimensional**, not 1: PG major × `supabase/postgres` image
+  tag × each service's own independently-advancing migration history.
+  `services=auth` does not pin *which* gotrue migrations — that needs
+  `auth@<version>`.
+- **A Cloud project is not "image + services"**; it is image + services + the
+  accumulated history of platform migrations applied over the project's
+  lifetime. Two projects on the same PG major, created a year apart, differ. A
+  generated-from-latest baseline is correct for neither.
+- **It vendors N external migration histories** into a correctness-critical
+  runtime input, tracked against Supabase's release cadence forever.
+  `scripts/sync-supabase-base-images.ts` already carries this cost for *test
+  fixtures*, and the agent guidelines already flag those as
+  regenerate-only-never-hand-edit. Promoting that fragility to a runtime input
+  is the wrong direction.
+- **It puts Docker on `plan`'s critical path**, not just `schema apply`. Docker
+  is a dev/test dependency today; a baseline that needs it makes CI and
+  production planning depend on Docker plus a multi-GB image pull.
+
+### Recommended sequencing instead
+
+1. **`docker://` auto-shadow + `--shadow-image` (option C).** Pure DX; makes no
+   correctness claim about platform state. Supabase profile declares its image.
+   Docker optional, clean `--shadow` fallback. Already designed above — build it.
+2. **Derive the baseline from the TARGET at plan time, not from an image.**
+   Generalize what already works: instead of *matching* against a committed
+   snapshot, *classify* which of the target's facts are platform-managed
+   (system-role-owned, extension-member, in an assumed schema — Supabase Rules 6 /
+   6b already do most of this). This deletes the whole drift class because there
+   is nothing to drift *from*. Digest stamping still preserves
+   `plan == prove == apply`.
+3. **Only if (2) proves impossible: sidecar baselines keyed on an OBSERVED stack
+   fingerprint** — which is what the follow-ups doc already calls for
+   ("per-stack-fingerprint baselines derived from real Cloud state rather than a
+   local-fixture capture"). Published from real Cloud state, with pg-delta
+   refusing loudly on an unknown fingerprint. Key on **measured** state, never on
+   "image tag + service list": the latter is a guess about provenance, the former
+   is a measurement.
+
+### Where an image-derived baseline IS legitimate
+
+Not worthless — mis-scoped. Two valid uses, both of which must stay clearly
+distinguishable from the Cloud path at the flag level:
+
+- **Local-only targets.** If the target *is* a local `supabase start`, an
+  image-derived baseline matches **by construction**.
+- **Test fixtures.** Already done correctly by
+  `scripts/sync-supabase-base-images.ts` and
+  `scripts/generate-supabase-baseline.ts` (which documents precisely the
+  `docker run supabase/postgres` → `pg_bootstrap.sh` → extract → commit flow).
+
+Note `src/policy/baselines/` currently contains only `.gitkeep`, and
+`resolveBaseline` **throws** when a policy declares a baseline that is not
+committed rather than silently skipping it. That fail-loud default is doing real
+work here — preserve it through whatever lands.
