@@ -256,6 +256,19 @@ export interface Policy {
    */
   assumedSchemas?: string[];
   /**
+   * Publication names assumed to exist at apply time but NOT managed by this
+   * policy — platform-created publications (e.g. Supabase's
+   * `supabase_realtime`) whose publication OBJECT is filtered out of the
+   * managed view, yet whose MEMBERSHIP (`publicationRel` /
+   * `publicationSchema` children) stays user-managed: users run `ALTER
+   * PUBLICATION supabase_realtime ADD TABLE …` without ever owning the
+   * publication itself. A scope-excluded publication named here is kept
+   * REFERENCE-ONLY (like assumed-schema objects) instead of hard-pruned, so
+   * its member facts survive and diff at rel grain while the object is never
+   * created, dropped, or altered (#370).
+   */
+  assumedPublications?: string[];
+  /**
    * The role whose object ownership stays IMPLICIT in a database-scope export:
    * `schema export` suppresses `ALTER … OWNER TO <defaultOwner>` (that role is the
    * expected applier), while every object owned by another role serializes its
@@ -615,6 +628,7 @@ export function flattenPolicy(policy: Policy): {
   serialize: SerializeRule[];
   assumedRoles: string[];
   assumedSchemas: string[];
+  assumedPublications: string[];
   baseline?: string;
   defaultOwner?: string;
 } {
@@ -631,6 +645,7 @@ function flattenInner(
   serialize: SerializeRule[];
   assumedRoles: string[];
   assumedSchemas: string[];
+  assumedPublications: string[];
   baseline?: string;
   defaultOwner?: string;
 } {
@@ -645,10 +660,12 @@ function flattenInner(
   const ownSerialize: SerializeRule[] = policy.serialize ?? [];
   const ownAssumedRoles: string[] = policy.assumedRoles ?? [];
   const ownAssumedSchemas: string[] = policy.assumedSchemas ?? [];
+  const ownAssumedPublications: string[] = policy.assumedPublications ?? [];
   const parentFilter: FilterRule[] = [];
   const parentSerialize: SerializeRule[] = [];
   const parentAssumedRoles: string[] = [];
   const parentAssumedSchemas: string[] = [];
+  const parentAssumedPublications: string[] = [];
   // defaultOwner is scalar: own value wins, else the first parent that declares
   // one (own-before-extends, matching the rule-ordering convention).
   let parentDefaultOwner: string | undefined;
@@ -664,6 +681,7 @@ function flattenInner(
       parentSerialize.push(...flat.serialize);
       parentAssumedRoles.push(...flat.assumedRoles);
       parentAssumedSchemas.push(...flat.assumedSchemas);
+      parentAssumedPublications.push(...flat.assumedPublications);
       if (parentDefaultOwner === undefined && flat.defaultOwner !== undefined) {
         parentDefaultOwner = flat.defaultOwner;
       }
@@ -678,6 +696,7 @@ function flattenInner(
     serialize: SerializeRule[];
     assumedRoles: string[];
     assumedSchemas: string[];
+    assumedPublications: string[];
     baseline?: string;
     defaultOwner?: string;
   } = {
@@ -688,6 +707,9 @@ function flattenInner(
     assumedRoles: [...new Set([...ownAssumedRoles, ...parentAssumedRoles])],
     assumedSchemas: [
       ...new Set([...ownAssumedSchemas, ...parentAssumedSchemas]),
+    ],
+    assumedPublications: [
+      ...new Set([...ownAssumedPublications, ...parentAssumedPublications]),
     ],
   };
   if (policy.baseline !== undefined) {
@@ -1010,14 +1032,26 @@ export function resolveView(
   }
 
   // policy scope (non-`verb`) rules: hard-prune the facts they exclude, EXCEPT
-  // an excluded fact whose schema is an assumedSchema (e.g. Supabase's `auth`),
+  // an excluded fact whose schema is an assumedSchema (e.g. Supabase's `auth`)
+  // or a publication named in assumedPublications (e.g. `supabase_realtime`),
   // which is kept REFERENCE-ONLY so a managed dependent (a user trigger on
-  // `auth.users`) resolves its parent. `verb` rules are left to the delta filter.
+  // `auth.users`, a `publicationRel` membership) resolves its parent while the
+  // assumed object itself is never diffed. `verb` rules are left to the delta
+  // filter.
   const flat = policy ? flattenPolicy(policy) : undefined;
   const rules = flat?.filter ?? [];
   const assumed = new Set(flat?.assumedSchemas ?? []);
+  const assumedPubs = new Set(flat?.assumedPublications ?? []);
   const assumedSchemaOf = (id: StableId): string | undefined =>
     id.kind === "schema" ? getName(id) : getSchema(id);
+  const isAssumed = (id: StableId): boolean => {
+    if (id.kind === "publication") {
+      const name = getName(id);
+      return name !== undefined && assumedPubs.has(name);
+    }
+    const schema = assumedSchemaOf(id);
+    return schema !== undefined && assumed.has(schema);
+  };
   const hardRoots = new Set<string>();
   const policyRefOnly = new Set<string>();
   const policyRootAttribution = new Map<
@@ -1031,8 +1065,7 @@ export function resolveView(
       flat?.id ?? policy?.id ?? "unknown",
       exclusion,
     );
-    const schema = assumedSchemaOf(fact.id);
-    if (schema !== undefined && assumed.has(schema)) {
+    if (isAssumed(fact.id)) {
       policyRefOnly.add(encodeId(fact.id));
       policyRootAttribution.set(encodeId(fact.id), attribution);
     } else {
@@ -1108,9 +1141,13 @@ export function resolveView(
       const ruleAttribution = policyRootAttribution.get(
         key,
       ) as ProjectionSuppressionAttribution;
+      const assumedKind =
+        pruned.getByEncoded(key)?.id.kind === "publication"
+          ? "assumed-publication"
+          : "assumed-schema";
       recordReferenceOnly(key, {
         stage: "referenceOnly",
-        reasonCode: `reference-only.assumed-schema:${ruleAttribution.reasonCode}`,
+        reasonCode: `reference-only.${assumedKind}:${ruleAttribution.reasonCode}`,
         classification: ruleAttribution.classification,
       });
     }

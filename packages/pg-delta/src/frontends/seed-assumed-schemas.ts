@@ -4,9 +4,12 @@
  * supabase`), so a user declarative dir that references those platform objects
  * can load into the otherwise-empty shadow.
  *
- * The managed view (`resolveView`) marks two disjoint categories reference-only
- * in ONE set: assumed-schema objects (`auth.users`) and extension members
- * (`net.http_get`). We seed only the former:
+ * The managed view (`resolveView`) marks reference-only in ONE set: assumed
+ * POLICY objects — assumed-schema objects (`auth.users`) and assumed platform
+ * publications (`supabase_realtime`, #370: seeded EMPTY so a user file's
+ * `ALTER PUBLICATION supabase_realtime ADD TABLE …` elaborates; membership
+ * facts are managed, never seeded) — and extension members (`net.http_get`).
+ * We seed only the former:
  *   - extension members can't be `CREATE`d standalone — `CREATE EXTENSION` owns
  *     their lifecycle — and they don't NEED seeding: they are reference-only on
  *     the target (diff) side, and `diff.ts` skips a fact reference-only on EITHER
@@ -118,6 +121,12 @@ export function deriveAssumedSchemaSeed(
      *  derivation — see the module doc (Codex #323 finding 3). */
     baseline?: FactBase;
     assumedSchemas: string[];
+    /** Policy assumed publications (e.g. `supabase_realtime`). Used only to
+     *  decide whether seeding applies at all — the seed SET still derives
+     *  generically from the view's reference-only marks. Without this, a
+     *  profile assuming ONLY publications would short-circuit on the empty
+     *  assumedSchemas and silently derive no seed (Codex review on #373). */
+    assumedPublications?: string[];
     /** Policy assumed roles PLUS the target's own role names — same cluster, so
      *  every owner/grant role reference in the seed is present at replay. */
     assumedRoles: string[];
@@ -132,8 +141,14 @@ export function deriveAssumedSchemaSeed(
     susetGucs?: ReadonlySet<string>;
   },
 ): AssumedSchemaSeed {
-  // raw profile (no assumed schemas): nothing is platform-external, no seed.
-  if (opts.assumedSchemas.length === 0) return EMPTY;
+  // raw profile (no assumed objects of any kind): nothing is
+  // platform-external, no seed.
+  if (
+    opts.assumedSchemas.length === 0 &&
+    (opts.assumedPublications ?? []).length === 0
+  ) {
+    return EMPTY;
+  }
 
   // NB: opts.baseline is deliberately NOT passed — the seed derives from the RAW
   // target so baseline-identical platform objects (auth.users) stay in the view
