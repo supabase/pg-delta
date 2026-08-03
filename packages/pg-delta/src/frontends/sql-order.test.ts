@@ -154,6 +154,25 @@ describe("orderForShadow — split + topological pre-sort", () => {
     expect(ordered[0]?.sql).toContain("create   table  public.t");
   });
 
+  test("carries non-ASCII statements verbatim (#369)", async () => {
+    // Regression for supabase/pg-toolbelt#369: pg-topo sliced statements by
+    // UTF-8 byte offsets applied to UTF-16 string indices, so any non-ASCII
+    // content swapped the authored text for a deparse that renders
+    // COMMENT ON TRIGGER/POLICY targets as the invalid dotted form
+    // (`COMMENT ON TRIGGER public.t.tr`) — which then fails in the shadow.
+    const table = "CREATE TABLE public.t (id integer PRIMARY KEY);";
+    const trigger = "COMMENT ON TRIGGER tr ON public.t IS '→→→';";
+    const policy = "COMMENT ON POLICY p ON public.t IS '→→→';";
+    const files = [file("schema.sql", `${table}\n${trigger}\n${policy}\n`)];
+
+    const ordered = await orderForShadow(files);
+
+    expect(ordered).toHaveLength(3);
+    const sqls = ordered.map((f) => f.sql);
+    expect(sqls).toContain(trigger);
+    expect(sqls).toContain(policy);
+  });
+
   test("is deterministic for the same input", async () => {
     const files = [
       file("schema.sql", "create schema app;"),

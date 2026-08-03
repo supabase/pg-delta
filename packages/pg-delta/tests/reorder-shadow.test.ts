@@ -60,6 +60,48 @@ describe("statement-reordering assist (orderForShadow → loadSqlFiles)", () => 
     }
   }, 60_000);
 
+  test("non-ASCII COMMENT ON TRIGGER/POLICY loads verbatim through reorder (#369)", async () => {
+    // Regression for supabase/pg-toolbelt#369: pg-topo sliced statements by
+    // UTF-8 byte offsets applied as UTF-16 string indices, so any non-ASCII
+    // content replaced the authored text with a deparse that renders these
+    // targets in an invalid dotted form (`COMMENT ON TRIGGER public.t.tr`),
+    // making the shadow load stick on a syntax error.
+    const files = [
+      {
+        name: "schema.sql",
+        sql: [
+          "CREATE TABLE public.t (id integer PRIMARY KEY);",
+          "CREATE FUNCTION public.t_fn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END; $$;",
+          "CREATE TRIGGER tr BEFORE INSERT ON public.t FOR EACH ROW EXECUTE FUNCTION public.t_fn();",
+          "COMMENT ON TRIGGER tr ON public.t IS '→→→';",
+          "ALTER TABLE public.t ENABLE ROW LEVEL SECURITY;",
+          "CREATE POLICY p ON public.t FOR ALL TO public USING (true);",
+          "COMMENT ON POLICY p ON public.t IS '→→→';",
+        ].join("\n"),
+      },
+    ];
+
+    const shadow = await createTestDb("shadow");
+    try {
+      const ordered = await orderForShadow(files);
+      await loadSqlFiles(ordered, shadow.pool);
+      const { rows: triggerRows } = await shadow.pool.query(
+        `SELECT d.description FROM pg_trigger t
+           JOIN pg_description d ON d.objoid = t.oid
+          WHERE t.tgname = 'tr'`,
+      );
+      const { rows: policyRows } = await shadow.pool.query(
+        `SELECT d.description FROM pg_policy p
+           JOIN pg_description d ON d.objoid = p.oid
+          WHERE p.polname = 'p'`,
+      );
+      expect(triggerRows).toEqual([{ description: "→→→" }]);
+      expect(policyRows).toEqual([{ description: "→→→" }]);
+    } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+
   test("intra-file VIEW-before-TABLE is STUCK without reorder (--no-reorder)", async () => {
     const files = [
       {

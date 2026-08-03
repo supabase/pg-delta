@@ -5,4 +5,4 @@ CREATE TABLE app.docs (
 );
 ALTER TABLE app.docs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY owner_only ON app.docs FOR ALL TO public USING (true);
-COMMENT ON POLICY owner_only ON app.docs IS 'only owners have access';
+COMMENT ON POLICY owner_only ON app.docs IS 'only owners have access →';
