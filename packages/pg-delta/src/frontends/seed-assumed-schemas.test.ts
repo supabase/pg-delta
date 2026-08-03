@@ -338,4 +338,43 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.sql).toBe("");
     expect(seed.facts).toBe(0);
   });
+
+  test("a profile assuming ONLY publications (no schemas) still seeds them", () => {
+    // Codex review on #373: the seed used to gate on assumedSchemas alone, so a
+    // custom profile whose only assumed objects are publications derived an
+    // EMPTY seed and a membership-only declarative dir could not load into the
+    // co-located shadow. The supabase profile masks this (it always assumes
+    // schemas); this synthetic profile does not.
+    const pubOnlyPolicy: Policy = {
+      id: "test-pub-only",
+      filter: [
+        {
+          match: { all: [{ kind: "publication" }, { name: "platform_pub" }] },
+          action: "exclude",
+        },
+      ],
+      assumedPublications: ["platform_pub"],
+    };
+    const platformPub: StableId = { kind: "publication", name: "platform_pub" };
+    const target = buildFactBase(
+      [
+        f(schemaPublic),
+        f(platformPub, {
+          allTables: false,
+          viaRoot: false,
+          publish: ["insert", "update", "delete", "truncate"],
+        }),
+      ],
+      [],
+    );
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: pubOnlyPolicy,
+      assumedSchemas: [],
+      assumedRoles: [],
+      assumedPublications: ["platform_pub"],
+    });
+    expect(seed.sql).toContain('CREATE PUBLICATION "platform_pub"');
+    expect(seed.facts).toBe(1);
+    expect(seed.schemas).toEqual([]);
+  });
 });

@@ -109,6 +109,37 @@ describe("supabase policy: assumed platform publications (#370)", () => {
     expect(removedIds).toContain(encodeId(userPub));
   });
 
+  test("comment satellites on the platform publication are not managed", () => {
+    // Codex review on #373: the reference-only mark covers only the publication
+    // fact itself, so a comment/security-label satellite (a managed CHILD of the
+    // reference-only parent) would otherwise diff — files omitting a
+    // platform-set comment would plan `COMMENT ON PUBLICATION … IS NULL`,
+    // silently mutating platform metadata. Mirror Rule 10 (satellites of
+    // system-schema objects): exclude satellites TARGETING a system publication.
+    // A comment on a USER publication stays managed (control).
+    const realtimeComment: StableId = {
+      kind: "comment",
+      target: realtimePub,
+    } as StableId;
+    const userComment: StableId = {
+      kind: "comment",
+      target: userPub,
+    } as StableId;
+    const fb = buildFactBase(
+      [
+        makeFact(schemaPublic),
+        makeFact(realtimePub, pubPayload),
+        makeFact(realtimeComment, { text: "platform metadata" }, realtimePub),
+        makeFact(userPub, pubPayload),
+        makeFact(userComment, { text: "user metadata" }, userPub),
+      ],
+      [],
+    );
+    const view = resolveView(fb, supabasePolicy);
+    expect(view.has(realtimeComment)).toBe(false);
+    expect(view.has(userComment)).toBe(true);
+  });
+
   test("flattenPolicy merges assumedPublications across extends", () => {
     const parent: Policy = {
       id: "parent",
