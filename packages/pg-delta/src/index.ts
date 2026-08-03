@@ -1,7 +1,10 @@
 /**
- * @supabase/pg-delta — clean-room rebuild per docs/architecture/target-architecture.md.
- * Public API per §4.5; the complete vocabulary is listed here and reviewed
- * in API-REVIEW.md (stage-9 deliverable 8).
+ * @supabase/pg-delta — the public API surface.
+ *
+ * Every name exported here is part of the package contract; the subpath
+ * exports in package.json are the narrower entry points (./extract, ./plan,
+ * ./apply, ./proof, …). Design rationale lives in
+ * docs/architecture/target-architecture.md.
  */
 
 // ── core primitives ──────────────────────────────────────────────────────────
