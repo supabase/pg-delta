@@ -4,9 +4,12 @@
  * supabase`), so a user declarative dir that references those platform objects
  * can load into the otherwise-empty shadow.
  *
- * The managed view (`resolveView`) marks two disjoint categories reference-only
- * in ONE set: assumed-schema objects (`auth.users`) and extension members
- * (`net.http_get`). We seed only the former:
+ * The managed view (`resolveView`) marks reference-only in ONE set: assumed
+ * POLICY objects — assumed-schema objects (`auth.users`) and assumed platform
+ * publications (`supabase_realtime`, #370: seeded EMPTY so a user file's
+ * `ALTER PUBLICATION supabase_realtime ADD TABLE …` elaborates; membership
+ * facts are managed, never seeded) — and extension members (`net.http_get`).
+ * We seed only the former:
  *   - extension members can't be `CREATE`d standalone — `CREATE EXTENSION` owns
  *     their lifecycle — and they don't NEED seeding: they are reference-only on
  *     the target (diff) side, and `diff.ts` skips a fact reference-only on EITHER

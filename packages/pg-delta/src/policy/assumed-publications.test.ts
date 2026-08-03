@@ -34,7 +34,11 @@ const realtimeRel: StableId = {
 };
 const userPub: StableId = { kind: "publication", name: "my_pub" };
 
-function makeFact(id: StableId, payload: Payload = {}, parent?: StableId): Fact {
+function makeFact(
+  id: StableId,
+  payload: Payload = {},
+  parent?: StableId,
+): Fact {
   return parent ? { id, parent, payload } : { id, payload };
 }
 
@@ -63,7 +67,10 @@ function targetBase() {
  *  (nor its membership, nor the user publication). */
 function desiredBase() {
   return buildFactBase(
-    [makeFact(schemaPublic), makeFact(table, { persistence: "p" }, schemaPublic)],
+    [
+      makeFact(schemaPublic),
+      makeFact(table, { persistence: "p" }, schemaPublic),
+    ],
     [],
   );
 }

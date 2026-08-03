@@ -72,8 +72,15 @@ describe("supabase profile: platform publication supabase_realtime (#370)", () =
     );
     // the user-created publication still exports whole (no over-exclusion)
     expect(pubFile?.sql).toMatch(/CREATE PUBLICATION "user_pub"/);
-    // filled at GREEN (bun test -u): pins the exact file shape
-    expect(pubFile?.sql).toMatchInlineSnapshot();
+    // pins the exact file shape
+    expect(pubFile?.sql).toMatchInlineSnapshot(`
+      "CREATE PUBLICATION "user_pub" FOR TABLE "public"."pgdelta_pub_t" WITH (publish = 'insert, update, delete, truncate');
+
+      ALTER PUBLICATION "user_pub" OWNER TO "test";
+
+      ALTER PUBLICATION "supabase_realtime" ADD TABLE "public"."pgdelta_pub_t";
+      "
+    `);
   }, 120_000);
 
   test("plan with files omitting the publication drops membership, not the publication", async () => {
@@ -83,7 +90,9 @@ describe("supabase profile: platform publication supabase_realtime (#370)", () =
     const cluster = await sharedCluster();
     const desiredDb = await cluster.createDb("pub370_plan_des");
     dbs.push(desiredDb);
-    await desiredDb.pool.query(`CREATE TABLE public.pgdelta_pub_t (id integer);`);
+    await desiredDb.pool.query(
+      `CREATE TABLE public.pgdelta_pub_t (id integer);`,
+    );
 
     const source = resolveView(
       (await extract(target.pool)).factBase,
@@ -98,16 +107,18 @@ describe("supabase profile: platform publication supabase_realtime (#370)", () =
       renames: "off",
     }).actions.map((a) => a.sql);
 
-    expect(sqls.some((s) => /DROP PUBLICATION "?supabase_realtime"?/i.test(s))).toBe(
-      false,
-    );
+    expect(
+      sqls.some((s) => /DROP PUBLICATION "?supabase_realtime"?/i.test(s)),
+    ).toBe(false);
     expect(
       sqls.some((s) =>
         /ALTER PUBLICATION "supabase_realtime" DROP TABLE/i.test(s),
       ),
     ).toBe(true);
     // the user publication is managed drift and still drops
-    expect(sqls.some((s) => /DROP PUBLICATION "?user_pub"?/i.test(s))).toBe(true);
+    expect(sqls.some((s) => /DROP PUBLICATION "?user_pub"?/i.test(s))).toBe(
+      true,
+    );
   }, 120_000);
 
   test("the co-located shadow seed materializes the assumed publication", async () => {

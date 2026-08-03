@@ -146,6 +146,11 @@ const CATEGORY_OF_KIND: Record<string, Category> = {
   server: "cluster",
   userMapping: "cluster",
   publication: "publications",
+  // membership facts normally inline into CREATE PUBLICATION, but they emit
+  // standalone ALTER PUBLICATION … ADD when the parent publication is
+  // reference-only (an assumed platform publication, e.g. supabase_realtime)
+  publicationRel: "publications",
+  publicationSchema: "publications",
   subscription: "subscriptions",
   eventTrigger: "event_triggers",
   extension: "extensions",
@@ -247,6 +252,8 @@ const CLUSTER_FILES: Record<string, string> = {
   server: "cluster/foreign_data_wrappers.sql",
   userMapping: "cluster/foreign_data_wrappers.sql",
   publication: "cluster/publications.sql",
+  publicationRel: "cluster/publications.sql",
+  publicationSchema: "cluster/publications.sql",
   subscription: "cluster/subscriptions.sql",
   eventTrigger: "cluster/event_triggers.sql",
 };

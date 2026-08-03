@@ -150,6 +150,23 @@ export const SUPABASE_SYSTEM_EXTENSIONS = [
   "supabase_vault",
 ] as const;
 
+/** Supabase platform-created publications: provisioned at project init (by the
+ *  Realtime service / CLI init scripts, so they are NOT in the base image and a
+ *  future committed baseline would not cover them) and typically owned by
+ *  `postgres`, so no owner/schema rule catches them. The publication OBJECT is
+ *  never the user's to create or drop, but `supabase_realtime` MEMBERSHIP is
+ *  user-managed state (`ALTER PUBLICATION supabase_realtime ADD TABLE …` is the
+ *  documented way to enable Realtime on a table) — hence the exclude rule below
+ *  plus the `assumedPublications` reference-only carve-out (#370).
+ *  `supabase_realtime_messages_publication` (Realtime broadcast-from-database,
+ *  publishing `realtime.messages`) has no user-managed membership — its members
+ *  live in the `realtime` system schema — so it is excluded here but NOT
+ *  assumed: it hard-prunes with its members. */
+const SUPABASE_SYSTEM_PUBLICATIONS = [
+  "supabase_realtime",
+  "supabase_realtime_messages_publication",
+] as const;
+
 // ---------------------------------------------------------------------------
 // The Supabase policy
 // ---------------------------------------------------------------------------
@@ -168,6 +185,18 @@ export const supabasePolicy: Policy = {
   // exemption (like pg_*/PUBLIC) accept `consumes role:anon` without re-admitting
   // the role into the diff. Mirrors Rule 7's exclusion list by construction.
   assumedRoles: [...SUPABASE_SYSTEM_ROLES],
+
+  // Platform-created publications assumed to exist at apply time. The
+  // system-publication exclude rule below projects the publication OBJECT out
+  // of the managed view, but naming it here downgrades that exclusion to
+  // REFERENCE-ONLY (resolveView), so the user's `publicationRel` membership
+  // facts survive and diff at rel grain: export emits `ALTER PUBLICATION
+  // supabase_realtime ADD TABLE …` instead of rewriting the platform state as
+  // CREATE PUBLICATION, apply never drops the platform publication, and the
+  // co-located shadow seed materializes it so membership-only declarative
+  // files load (#370). `supabase_realtime_messages_publication` is
+  // deliberately absent — no user-managed membership, so it hard-prunes.
+  assumedPublications: ["supabase_realtime"],
 
   // Platform-managed schemas assumed to exist at apply time. Rules 4/5 below
   // project their schema OBJECT out of the managed view, but a kept user object
@@ -242,6 +271,29 @@ export const supabasePolicy: Policy = {
         all: [{ kind: "extension" }, { name: [...SUPABASE_SYSTEM_EXTENSIONS] }],
       },
       action: "exclude",
+    },
+
+    // Exclude platform-created publications (see SUPABASE_SYSTEM_PUBLICATIONS):
+    // provisioned at project init and typically owned by `postgres`, so neither
+    // the schema nor the owner rules below catch them. Reported as #370: export
+    // rewrote `supabase_realtime` as CREATE PUBLICATION and apply planned
+    // DROP PUBLICATION when user files (correctly) omitted it. The name predicate
+    // matches only `publication` facts — membership facts (`publicationRel` /
+    // `publicationSchema`) carry no `name` field, so they stay managed; for
+    // `supabase_realtime` the `assumedPublications` entry above turns this
+    // exclusion reference-only so those membership facts keep their parent.
+    {
+      match: {
+        all: [
+          { kind: "publication" },
+          { name: [...SUPABASE_SYSTEM_PUBLICATIONS] },
+        ],
+      },
+      action: "exclude",
+      audit: {
+        reasonCode: "supabase.system-publication",
+        classification: "acknowledged",
+      },
     },
 
     // Rule 1+2 (old rules): include extension CREATE and DROP operations.
