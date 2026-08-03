@@ -61,7 +61,7 @@
     },
     "packages/pg-topo": {
       "name": "@supabase/pg-topo",
-      "version": "1.0.0-alpha.4",
+      "version": "1.0.0-alpha.5",
       "dependencies": {
         "@pgsql/traverse": "^17.2.4",
         "plpgsql-parser": "^0.5.4",
