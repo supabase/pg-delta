@@ -38,8 +38,8 @@ export interface StatementProvenance {
   filePath: string;
   /** Index of the statement within its original file (0-based). */
   statementIndex: number;
-  /** Byte offset of the statement in the original file content, when pg-topo
-   *  resolves it (used for line:column rendering). */
+  /** Character offset (UTF-16 code units) of the statement in the original
+   *  file content, when pg-topo resolves it (used for line:column rendering). */
   sourceOffset?: number;
 }
 

@@ -74,6 +74,21 @@ describe("formatStatementLocation", () => {
       formatStatementLocation({ filePath: "schema.sql", statementIndex: 0 }),
     ).toBe("schema.sql");
   });
+
+  test("line:col stays exact after non-ASCII content (#369)", () => {
+    // sourceOffset is a character offset (pg-topo converts libpg_query's byte
+    // offsets), so non-ASCII text before the statement must not shift the
+    // rendered location.
+    const content =
+      "comment on table public.t is '→→→';\ncreate view v as select 1;";
+    const offset = content.indexOf("create view");
+    expect(
+      formatStatementLocation(
+        { filePath: "schema.sql", statementIndex: 1, sourceOffset: offset },
+        content,
+      ),
+    ).toBe("schema.sql:2:1");
+  });
 });
 
 describe("rewriteReorderedShadowError", () => {

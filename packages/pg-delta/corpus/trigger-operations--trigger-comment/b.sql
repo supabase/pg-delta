@@ -18,4 +18,4 @@ CREATE TRIGGER logs_insert_trigger
   FOR EACH ROW
   EXECUTE FUNCTION test_schema.log_insert();
 
-COMMENT ON TRIGGER logs_insert_trigger ON test_schema.logs IS 'logs insert trigger';
+COMMENT ON TRIGGER logs_insert_trigger ON test_schema.logs IS 'logs insert trigger →';
