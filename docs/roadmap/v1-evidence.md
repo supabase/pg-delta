@@ -99,10 +99,10 @@ from v1 scope (filters alone hide platform objects).
 
 | Field | Value |
 |---|---|
-| Decision | `<commit baseline / defer to post-v1>` |
-| If committed: file(s) | `src/policy/baselines/supabase-baseline-<major>.json` |
-| If committed: zero-residue check | `<pass/fail>` |
-| If deferred: rationale | `<why filters suffice for v1>` |
+| Decision | **defer to post-v1** (option b) |
+| If committed: file(s) | n/a |
+| If committed: zero-residue check | n/a |
+| If deferred: rationale | The supabase policy's filter rules are the v1 correctness mechanism — every known platform object class is hidden by an explicit rule (system schemas/roles/extensions, FDW ACLs, system-role ADPs, the platform role plumbing incl. `supabase_privileged_role` and the `postgres` role object, #371). The baseline is an *increment* over the filters (long-tail platform state, user-vs-platform disambiguation), not a replacement: subtraction only removes present-and-identical facts, so version/image drift degrades gracefully back to the filters anyway. Against that marginal v1 value stand real prerequisites — per-PG-major committed snapshots regenerated on every image bump (declared-but-unresolved fail-fasts, so partial major coverage bricks the profile), prove-side wiring (`provePlan` must resolve the baseline or baseline-shaped plans drift at prove time), and the Phase 2b seed-derivation revisit. Tracked in [post-v1.md](post-v1.md#-supabase-baseline-snapshot). |
 
 > **When committing the baseline, also wire the prove side.** `plan()` subtracts
 > the baseline (via `options.baseline`); the proof loop re-derives the view from

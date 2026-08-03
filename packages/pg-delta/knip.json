@@ -19,7 +19,10 @@
   ],
   "project": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"],
   "ignoreBinaries": ["oxfmt", "oxlint"],
-  "ignoreDependencies": ["@supabase/pg-topo"],
+  "ignoreDependencies": [
+    "@supabase/pg-topo",
+    "@supabase/bun-istanbul-coverage"
+  ],
   "rules": {
     "exports": "warn",
     "types": "warn",
