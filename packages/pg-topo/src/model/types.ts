@@ -40,7 +40,7 @@ export type PhaseTag =
 export type StatementId = {
   filePath: string;
   statementIndex: number;
-  /** Byte offset in original source content (for line:column resolution). */
+  /** Character offset (UTF-16 code units) in original source content (for line:column resolution). */
   sourceOffset?: number;
 };
 
