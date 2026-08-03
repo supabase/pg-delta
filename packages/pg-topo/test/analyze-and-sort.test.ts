@@ -354,4 +354,20 @@ describe("analyzeAndSort", () => {
       ),
     ).toEqual(orderedIds);
   });
+
+  // Regression for supabase/pg-toolbelt#369: ordered output must carry the
+  // authored statement text verbatim even when it contains non-ASCII content
+  // (byte-offset slicing previously fell back to a deparse that renders
+  // COMMENT ON TRIGGER/POLICY in an invalid dotted form).
+  test("carries non-ASCII statements verbatim through ordering", async () => {
+    const table = "create table public.t(id int primary key);";
+    const trigger = "COMMENT ON TRIGGER tr ON public.t IS '→→→';";
+    const policy = "COMMENT ON POLICY p ON public.t IS '→→→';";
+    const result = await analyzeAndSort([trigger, policy, table]);
+
+    expect(result.ordered.length).toBe(3);
+    const orderedSql = result.ordered.map((statement) => statement.sql);
+    expect(orderedSql).toContain(trigger);
+    expect(orderedSql).toContain(policy);
+  });
 });
