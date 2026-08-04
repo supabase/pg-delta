@@ -12,6 +12,9 @@ performance, then DX.
   and per-PR review triage, ranked P1–P3. This is the live correctness ledger:
   anything deliberately deferred from a review lands here rather than being
   silently dropped.
+- **[cutover-plan.md](cutover-plan.md)** — triage of the old-engine differential
+  review and the blocker workstream for promoting the engine past preview, with
+  an ELI5 + diagrams of the pipeline and the identity-column fixes.
 - **[extension-intent-phase-b.md](extension-intent-phase-b.md)** — full design for
   replaying stateful-extension intent on a from-scratch rebuild (blocked on a
   format decision).

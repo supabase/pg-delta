@@ -9,6 +9,11 @@ engine is promoted past preview.
 Severity legend: **P1** correctness/safety, **P2** contract/coverage gap,
 **P3** cleanup/maintainability.
 
+> **Cutover triage (2026-08):** the old-engine differential review and its
+> blocker workstream live in [cutover-plan.md](cutover-plan.md). This ledger
+> was reconciled against the code on 2026-08-04 — a number of entries below
+> had already been fixed (each now carries a ✅ with its commit).
+
 ## P1 — correctness & safety
 
 ### Co-located shadow can execute cluster-global DDL against the live cluster — ✅ core hole fixed in this PR
@@ -250,7 +255,8 @@ tokenization.
 `scripts/lib/bootstrap-dbdev-fixture.ts` is committed and tracked.
 
 **Deferred P1 — owner-based policy exclusion is blind under `--scope database`
-(dedicated follow-up PR):**
+— ✅ resolved (Unit H; see "Supabase roundtrip hardening" below — the managed
+view is now `projectManagementScope(resolveView(raw, …), scope)` in one place):**
 
 `cmdSchemaApply` projects both fact bases to management scope (`schema.ts:936-937`)
 *before* `plan()` applies the policy. `projectManagementScope("database")` prunes
@@ -288,10 +294,10 @@ deliberate test-harness fallout. Recommended fix (Fable design):
 
 **Deferred P2 (tracked follow-ups; not blocking this PR):**
 
-- `extract/routines.ts` — window functions (`prokind = 'w'`) are extracted as
-  facts but the dependency resolver still uses `('f','p','a')`, so a dependent
-  ordered before a user window function can fail shadow load. Add `w` to the
-  resolver's proc CTE.
+- ✅ **resolved** — `extract/routines.ts` window functions: `prokind 'w'` is now
+  in the extraction query and the dependency resolver
+  (`src/extract/routines.ts:37`, `src/extract/dependencies.ts:104`). Was: the
+  resolver used `('f','p','a')` only.
 - `frontends/seed-assumed-schemas.ts` — quick-mode supabase seeding filters out
   platform extension members (e.g. `pg_graphql`), so a user object referencing
   one fails to load in the co-located shadow. Seed the owning platform extension
@@ -316,9 +322,10 @@ deliberate test-harness fallout. Recommended fix (Fable design):
 - `plan/internal.ts` `elideCascadeSubsumedPolicyDrops` — a policy's `TO <role>`
   refs live in the payload, not as edges, so dropping a table+role can elide the
   only `DROP POLICY` that releases the role (also on our own review list).
-- `frontends/load-sql-files.ts` `CLUSTER_DDL_RULES` — the role/user/group regexes
-  also match `CREATE/ALTER/DROP USER MAPPING` (a database-local FDW object), so
-  database scope wrongly refuses/strips user mappings. Exclude `USER MAPPING`.
+- ✅ **resolved** — `frontends/load-sql-files.ts` `CLUSTER_DDL_RULES` user
+  mappings: the role regexes now carry a `user(?!\s+mapping)` negative lookahead
+  (`load-sql-files.ts:373-395`), so `CREATE/ALTER/DROP USER MAPPING` is no
+  longer refused/stripped under database scope.
 - `frontends/load-sql-files.ts` `maskLiteralsAndComments` — treats only doubled
   quotes as escapes, not `E'...\''` backslash escapes, so an `E`-string with a
   `;` can mis-split and trip the cluster-DDL / statement scanners. Make the mask
@@ -354,17 +361,19 @@ These make `plan` / `schema apply` / `export` throw on inputs a user can legitim
 author. The first two share the "nullable/`false` transition → `str()` throws → route
 to **replace**" pattern already used for policy clause removal (`d2cdbf7`).
 
-- **constraint validated→NOT VALID** — `src/plan/rules/constraints.ts:49` (comment
-  `3537607442`). `validated` delta with `to === false` calls `str(to)` and aborts.
-  Route through replace/drop-add (mirror policy `usingExpr`/`checkExpr` → `"replace"`).
-- **foreign server VERSION removal** — `src/plan/rules/foreign.ts:70` (comment
-  `3537607455`). `version` → `null` throws in the alter path (create already treats
-  null as omitted). Handle the nullable transition or mark the attribute for replace.
-- **enum rebuild with enum-array column** — `src/plan/rules/types.ts:230` (comment
-  `3537607496`). For a `that_enum[]` column the rewrite renders scalar
-  `TYPE <enum> USING col::text::<enum>` instead of the column's desired array type —
-  plan fails / would scalarize the column. Use each dependent column fact's desired
-  type/cast, not the enum `relName` unconditionally.
+- **constraint validated→NOT VALID** — ✅ **resolved** (`e1f46694`): routed to
+  replace (`src/plan/rules/constraints.ts:63-82`); corpus
+  `domain-operations--not-valid-constraint`. Was: `validated` delta with
+  `to === false` called `str(to)` and aborted (comment `3537607442`).
+- **foreign server VERSION removal** — ✅ **resolved**:
+  `replaceWhen: (_from, to) => to == null` (`src/plan/rules/foreign.ts:73`);
+  corpus `foreign-data-wrapper-operations--remove-server-version`. Was:
+  `version` → `null` threw in the alter path (comment `3537607455`).
+- **enum rebuild with enum-array column** — ✅ **resolved** (`c410cd19`): the
+  rewrite reads each dependent column fact's desired type and renders the array
+  cast (`src/plan/rules/types.ts:389-398`); corpus
+  `type-ops--enum-replace-array-column`. Was: scalar `TYPE <enum>` rendered
+  unconditionally (comment `3537607496`).
 - **reference-only export member under a managed non-public schema** — ✅ **resolved**
   `src/frontends/export-sql-files.ts` (comment `3537607461`). Member seeded into
   the pristine baseline without its schema parent → `buildFactBase` missing-parent
@@ -374,29 +383,28 @@ to **replace**" pattern already used for policy clause removal (`d2cdbf7`).
   `memberExtensionPresent` satisfies any consumer), and the managed install schema
   is still exported so the result reloads. Regression:
   `tests/export-extension-member-parent.test.ts`.
-- **user mapping on a filtered extension-owned server** — `src/extract/foreign.ts:91`
-  (comment `3537607477`). Ext-owned servers are anti-joined out, but `pg_user_mapping`
-  rows still emit and parent to an absent `server` fact → missing-parent throw. Filter
-  the mappings consistently, or keep the server as a reference-only parent.
+- **user mapping on a filtered extension-owned server** — ✅ **resolved**
+  (`3aa068c0`): mappings share the server's `notExtensionMember` anti-join
+  (`src/extract/foreign.ts`); regression
+  `tests/foreign-extension-user-mapping.test.ts`. Was: orphan mappings parented
+  to an absent server fact → missing-parent throw (comment `3537607477`).
 
 ### Batch B — rendering / access / library correctness
 
-- **zero-argument aggregate metadata** — `src/plan/render.ts:59` (comment
-  `3537607470`). `COMMENT ON AGGREGATE "s"."agg"()` (and the reused SECURITY LABEL
-  target) must be `(*)` for zero-arg aggregates; a from-empty plan creates the
-  aggregate then fails on the metadata statement. Use the signature renderer that
-  emits `*` for empty args.
-- **role security labels touch `pg_authid`** — `src/extract/security-labels.ts:195`
-  (comment `3537607465`). If any security label exists and extraction runs as a
-  non-superuser, the role-label query reads `pg_authid` (superuser-only) and fails —
-  even when the label is on a table. Join through `pg_roles`.
-- **default apply gate ignores plan redaction mode** — `src/apply/apply.ts:144`
-  (comment `3537607487`). A library caller applying an unredacted plan
-  (`redactSecrets: false`) without the CLI wrapper still re-extracts redacted, so the
-  fingerprint gate compares cleartext to placeholders and rejects an unchanged target.
-  When no custom `reextract` is supplied, pass `thePlan.redactSecrets ?? true` to
-  `extract` (mirror in `prove.ts` re-extraction). Ties to the display-vs-apply
-  redaction follow-up (comment `3428269873`).
+- **zero-argument aggregate metadata** — ✅ **resolved** (`9c9c81d9`): renders
+  `(*)` for empty args (`src/plan/render.ts:68-70`); corpus
+  `aggregate-operations--comment-zero-arg`. Was: `()` rendered, failing the
+  metadata statement (comment `3537607470`).
+- **role security labels touch `pg_authid`** — ✅ **resolved** (`56729c76`):
+  joins through `pg_roles` (`src/extract/security-labels.ts:230`); regression
+  `tests/nonsuperuser-extraction-gaps.test.ts`. Was: superuser-only `pg_authid`
+  read failed non-superuser extraction (comment `3537607465`).
+- **default apply gate ignores plan redaction mode** — ✅ **resolved**
+  (`56729c76`): the default re-extract passes
+  `redactSecrets: thePlan.redactSecrets ?? true` (`src/apply/apply.ts:235`).
+  Was: an unredacted plan re-extracted redacted, so the fingerprint gate
+  rejected an unchanged target (comment `3537607487`; display-vs-apply
+  redaction follow-up `3428269873` still open).
 
 ### Earlier open extract-completeness batch (same track)
 
@@ -411,8 +419,9 @@ identity sequence names (`3530186709`), foreign-column FDW options `attfdwoption
 (`3530186736`), multiple-inheritance parents (`3536715681`), foreign-table partition
 attachments (`3536715689`), non-relocatable extension `SET SCHEMA` (`3536715698`),
 enum metadata restore after value-set rebuild (`3536715704`), partial default-privilege
-reset before grants (`3536715708`), window-function dependency resolution `prokind='w'`
-(`3536715714`), publication-member rebuild on table replace (`3536715717`).
+reset before grants (`3536715708`), ~~window-function dependency resolution
+`prokind='w'` (`3536715714`)~~ ✅ resolved (`routines.ts:37`,
+`dependencies.ts:104`), publication-member rebuild on table replace (`3536715717`).
 
 ### Wave 2 (re-review of commit `ada0ab5`) — more of the same track
 
@@ -429,11 +438,11 @@ Planning / export / apply fidelity:
   correctly ordered but regrouped so each file's FK references the other's not-yet-
   committed table → both roll back. Keep FK alters in dependency-order runs / separate
   files to preserve the by-object fidelity contract.
-- **policy `TO`-role release before DROP ROLE** — `src/plan/rules/policies.ts:56`
-  (comment `3537805111`). When a policy's `TO` list drops a role in the same plan, the
-  `ALTER POLICY ... TO ...` neither releases nor consumes the old role; policy role
-  refs are shared deps (not `pg_depend` edges), so the graph may run `DROP ROLE` first
-  and fail. (Same family as the `elideCascadeSubsumedPolicyDrops` item above.)
+- **policy `TO`-role release before DROP ROLE** — ✅ **resolved**: the alter
+  releases every role in `fromRoles` not present in `toRoles`
+  (`src/plan/rules/policies.ts:63-65`). Was: `ALTER POLICY … TO …` neither
+  released nor consumed the old role (comment `3537805111`). The sibling
+  `elideCascadeSubsumedPolicyDrops` payload-roles gap is still open.
 
 Extract-completeness / coverage (invisible drift):
 
@@ -507,29 +516,27 @@ New findings only (multiple-inheritance parents `3538433909` and window-function
 
 Apply ordering / cascade (plan can fail at apply):
 
-- **release old sequence owner before dropping it** — `src/plan/rules/sequences.ts:117`
-  (comment `3538433876`). Retargeting an `OWNED BY` sequence to a new column while the
-  old column/table is dropped in the same plan: the alter consumes only the new owner;
-  the extractor drops the sequence→old-column auto-dep and drops sort before alters, so
-  the old table (and its owned sequence) can be dropped first → the later
-  `ALTER SEQUENCE … OWNED BY` fails. Order via the `from` owned-by value.
-- **order in-place alters after new dependencies** — `src/plan/internal.ts:184` (comment
-  `3538433892`). An ALTER that makes a surviving fact depend on a newly-created object
-  (column → new enum/domain, default → new function) only consumes the existing fact and
-  isn't in `produces`, so the desired dependency edge is never walked → the ALTER can
-  sort before the CREATE and fail. Walk desired edges for altered subjects (or make the
-  alter consume the new target).
-- **move extensions before dropping their old schema** — `src/plan/rules/schemas.ts:81`
-  (comment `3538433899`). A relocatable extension moving `old`→`new` while `old` is
-  dropped: the alter consumes only `new` and never releases `old`, so `DROP SCHEMA old`
-  can run while members are still there and fail. Order the move via the `from` schema.
+- **release old sequence owner before dropping it** — ✅ **resolved**:
+  `sequenceOwnedBySpecs` takes `releaseOld` and populates `releases`
+  (`src/plan/rules/sequences.ts:104`, `helpers.ts:476-512`). Was: the alter
+  consumed only the new owner, so the old table could drop first (comment
+  `3538433876`).
+- **order in-place alters after new dependencies** — ✅ **resolved**: column
+  type alters consume the new target via `dependencyConsumes(view, fact.id)`
+  (`src/plan/rules/tables.ts:256`). Was: the desired dependency edge was never
+  walked, so the ALTER could sort before the CREATE (comment `3538433892`).
+- **move extensions before dropping their old schema** — ✅ **resolved**: the
+  move declares `releases: [{ kind: "schema", name: str(from) }]`
+  (`src/plan/rules/schemas.ts:107`), ordering it before `DROP SCHEMA old`. Was:
+  only `new` was consumed (comment `3538433899`).
 
 Access / shadow correctness:
 
-- **subscription conninfo read as non-superuser** — `src/extract/publications.ts:139`
-  (comment `3538433886`). The unconditional `subconninfo` select fails for normal users
-  (PostgreSQL revokes that column) before redaction can help — a non-superuser diff
-  aborts in subscription extraction. Guard by privilege; diagnostic/placeholder instead.
+- **subscription conninfo read as non-superuser** — ✅ **resolved**
+  (`56729c76`): the query includes `subconninfo` only after a
+  `has_column_privilege` probe (`src/extract/publications.ts:145-152`);
+  regression `tests/nonsuperuser-extraction-gaps.test.ts`. Was: the
+  unconditional select aborted non-superuser diffs (comment `3538433886`).
 - **shadow emptiness check misses non-relation objects** —
   `src/frontends/load-sql-files.ts:459` (comment `3538433916`). The guard checks only
   `pg_class`, so a shadow pre-loaded with enums/domains/routines/collations/extensions/
@@ -595,6 +602,26 @@ a series of real non-superuser failures, each fixed RED-first on this branch:
   its one advantage (no reconstruction) is moot now that the seed is non-superuser-replayable
   (Unit C). Revisit only alongside the baseline-sidecar work, which would make
   bootstrap-vs-target drift detectable.
+
+## Old-engine differential review (2026-08) — cutover triage
+
+Full triage and blocker workstream: [cutover-plan.md](cutover-plan.md). Outcome:
+
+- **P1a/P1b (identity/generated column type changes)** — ✅ fixed in
+  [#379](https://github.com/supabase/pg-toolbelt/pull/379) (plus a third defect
+  found during RED: the `USING` cast is illegal on generated columns and those
+  do NOT route through replace — no `generatedExpr` delta when only the type
+  changes).
+- **P2b (`pg_parameter_acl` silently invisible)** — ✅ fixed in
+  [#380](https://github.com/supabase/pg-toolbelt/pull/380) (probe +
+  `minVersion` gating; modeling the grant as a fact remains add-when-needed).
+- **Still open (discovered during #379):** a desired identity bound pinned
+  exactly at the source type's max (e.g. `bigint … (MAXVALUE 2147483647)` from
+  an `integer` identity) produces **no** `identity` delta, yet PostgreSQL
+  re-derives the bound on retype — invisible drift. Needs a synthesized bounds
+  delta at extract/diff time when the column type changes.
+- **P3 (outside-observer verification gate)** — post-cutover north star; see
+  the plan doc.
 
 ## PR #368 review triage (Codex) — `schema export` out-dir hardening (deferred by design)
 
