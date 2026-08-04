@@ -12,6 +12,7 @@ import {
   identityOptionsClause,
   identitySequenceId,
   identitySequenceNameClause,
+  isNarrowingIdentityTypeChange,
   p,
   reloptionsAlterSpecs,
   renameRule,
@@ -241,15 +242,21 @@ export const tableRules: Record<string, KindRules> = {
         // the change is sandwiched DROP DEFAULT → TYPE … USING → SET DEFAULT.
         // Identity and generated columns take neither bookend (they can't hold a
         // default and PostgreSQL rejects the statements outright) — see below.
-        alter: (fact, _from, to, view, sourceView) => {
+        alter: (fact, from, to, view, sourceView) => {
           const { schema, table, column } = columnRef(fact);
           const target = `ALTER TABLE ${rel(schema, table)} ALTER COLUMN ${qid(column)}`;
-          // `fact` is the DESIRED-side column; the statements below run BEFORE
-          // the type change, so anything conditional on the column's shape must
-          // read the SOURCE side (identity may be added/dropped in the same
-          // plan, by a delta the graph orders independently).
+          // `fact` is the DESIRED-side column. Identity add/drop deltas land on
+          // this same fact and the differ emits a fact's attributes
+          // ALPHABETICALLY (`identity` < `type`), which the topo tie-break
+          // preserves — so by the time these statements run the column's
+          // identity state is already the DESIRED one. Gate identity-sensitive
+          // statements on `desiredIdentity`, not the source.
           const sourceColumn = sourceView.get(fact.id) ?? fact;
           const sourceIdentity = sourceColumn.payload["identity"] ?? null;
+          const desiredIdentity = fact.payload["identity"] ?? null;
+          // `generated` stays SOURCE-side: a generatedExpr change routes through
+          // a column replace, so whenever `type.alter` runs at all the source
+          // and desired generated-ness are necessarily the same.
           const sourceGenerated = sourceColumn.payload["generatedExpr"] != null;
           // Foreign tables have no local storage, so PostgreSQL rejects the
           // USING cast clause ("<rel> is not a table", 42809) — it would force a
@@ -283,30 +290,42 @@ export const tableRules: Record<string, KindRules> = {
           // but PostgreSQL REJECTS it on an identity column ("… is an identity
           // column") or a generated column ("… is a generated column") whether
           // or not a default exists — and neither kind can carry one anyway.
-          if (sourceIdentity == null && !sourceGenerated) {
+          // The identity side reads DESIRED (see above): a plain column that
+          // gains identity in this same plan is ALREADY an identity column here,
+          // and an identity column that loses it is already plain (so the no-op
+          // is emitted, harmlessly, after DROP IDENTITY).
+          if (desiredIdentity == null && !sourceGenerated) {
             specs.push({ sql: `${target} DROP DEFAULT` });
           }
-          specs.push(typeSpec);
           // An identity column's implicit sequence is typed after the column, so
-          // widening moves the column type AND the identity bounds. Both deltas
-          // land on the SAME fact with no edge between them and the differ emits
-          // attributes alphabetically (`identity` < `type`), so `SET MAXVALUE`
-          // would run while the sequence still has the old type ("MAXVALUE … is
-          // out of range for sequence data type integer"). Fold the bounds in
-          // AFTER the type change instead — `identity.alter` skips them when a
-          // `type` delta is present. Correct in both directions: PostgreSQL
-          // re-derives an at-type-max bound from the new type, and the explicit
-          // SET then converges the exact desired values.
-          const desiredIdentity = fact.payload["identity"] ?? null;
-          if (sourceIdentity != null && desiredIdentity != null) {
-            specs.push(
-              ...identityOptionAlterSpecs(
-                target,
-                identityOptions(sourceIdentity),
-                identityOptions(desiredIdentity),
-              ),
-            );
-          }
+          // retyping moves the column type AND the identity bounds. Both deltas
+          // land on the SAME fact with no edge between them, so `identity.alter`
+          // skips the bounds when a `type` delta is present and `type.alter`
+          // positions that ONE chained-SET statement (never split — see
+          // identityOptionAlterSpecs) relative to the TYPE by direction:
+          //   - WIDENING (or an unrecognised type pair): AFTER. The desired
+          //     bounds may exceed the old type's range, so setting them first
+          //     fails; PostgreSQL re-derives an at-type-max bound from the new
+          //     type and the explicit SET then converges the exact values.
+          //   - NARROWING: BEFORE. An explicit bound that overflows the new type
+          //     makes the retype itself fail ("MAXVALUE (5000000000) is out of
+          //     range for sequence data type integer"). Setting the bounds first
+          //     is always valid here because the desired values fit the desired
+          //     (narrower) type, which is a subset of the old type's range.
+          // Any RESTART rides along with the statement wherever it lands — the
+          // restart target is the desired START, inside the desired range.
+          const boundSpecs =
+            sourceIdentity != null && desiredIdentity != null
+              ? identityOptionAlterSpecs(
+                  target,
+                  identityOptions(sourceIdentity),
+                  identityOptions(desiredIdentity),
+                )
+              : [];
+          const narrowing = isNarrowingIdentityTypeChange(str(from), str(to));
+          if (narrowing) specs.push(...boundSpecs);
+          specs.push(typeSpec);
+          if (!narrowing) specs.push(...boundSpecs);
           const desiredDefault = view
             .childrenOf(fact.id)
             .find((c) => c.id.kind === "default");
