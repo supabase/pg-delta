@@ -29,9 +29,7 @@ describe.skipIf(PG_MAJOR < 15)(
       try {
         await db.pool.query(`CREATE ROLE ${roleName}`);
         try {
-          await db.pool.query(
-            `GRANT SET ON PARAMETER work_mem TO ${roleName}`,
-          );
+          await db.pool.query(`GRANT SET ON PARAMETER work_mem TO ${roleName}`);
 
           const result: ExtractResult = await extract(db.pool);
           const d = result.diagnostics.find(

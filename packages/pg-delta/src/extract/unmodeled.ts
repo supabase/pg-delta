@@ -31,6 +31,11 @@ import type { Diagnostic } from "../core/diagnostic.ts";
  * - `name`   : SQL expression producing a human-readable name per object
  * - `from`   : FROM/JOIN clause exposing `oid` and `name`
  * - `where`  : optional extra predicate (e.g. procedural-languages-only)
+ * - `minVersion`: optional PG major version the probe's catalog first exists
+ *   in (e.g. 15 for `pg_parameter_acl`). Probes below this version are
+ *   dropped from the union query entirely — referencing a nonexistent
+ *   catalog in `FROM` fails at parse time regardless of any `WHERE` guard,
+ *   so gating must happen before the SQL is built, not inside it.
  */
 interface UnmodeledProbe {
   kind: string;
@@ -39,6 +44,7 @@ interface UnmodeledProbe {
   name: string;
   from: string;
   where?: string;
+  minVersion?: number;
 }
 
 /**
@@ -140,6 +146,14 @@ const PROBES: readonly UnmodeledProbe[] = [
     name: "format_type(tr.trftype, NULL) || ' / ' || (SELECT ll.lanname FROM pg_language ll WHERE ll.oid = tr.trflang)",
     from: "pg_transform tr",
   },
+  {
+    kind: "parameter ACL",
+    classid: "pg_parameter_acl",
+    oid: "pa.oid",
+    name: "pa.parname",
+    from: "pg_parameter_acl pa",
+    minVersion: 15,
+  },
 ];
 
 function probeSql(p: UnmodeledProbe): string {
@@ -173,7 +187,14 @@ interface ProbeRow {
 export async function detectUnmodeledKinds(
   client: PoolClient,
 ): Promise<Diagnostic[]> {
-  const sql = PROBES.map(probeSql).join("\nUNION ALL\n");
+  const { rows: verRows } = await client.query<{ major: number }>(
+    `SELECT (current_setting('server_version_num')::int / 10000) AS major`,
+  );
+  const major = verRows[0]?.major ?? 0;
+  const activeProbes = PROBES.filter(
+    (p) => p.minVersion === undefined || major >= p.minVersion,
+  );
+  const sql = activeProbes.map(probeSql).join("\nUNION ALL\n");
   const { rows } = await client.query<ProbeRow>(sql);
   const diagnostics: Diagnostic[] = [];
   for (const row of rows) {
