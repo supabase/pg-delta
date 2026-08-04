@@ -238,10 +238,19 @@ export const tableRules: Record<string, KindRules> = {
     attributes: {
       type: {
         // delta-set shape: defaults can't be cast through a type change, so
-        // the change is sandwiched DROP DEFAULT → TYPE … USING → SET DEFAULT
+        // the change is sandwiched DROP DEFAULT → TYPE … USING → SET DEFAULT.
+        // Identity and generated columns take neither bookend (they can't hold a
+        // default and PostgreSQL rejects the statements outright) — see below.
         alter: (fact, _from, to, view, sourceView) => {
           const { schema, table, column } = columnRef(fact);
           const target = `ALTER TABLE ${rel(schema, table)} ALTER COLUMN ${qid(column)}`;
+          // `fact` is the DESIRED-side column; the statements below run BEFORE
+          // the type change, so anything conditional on the column's shape must
+          // read the SOURCE side (identity may be added/dropped in the same
+          // plan, by a delta the graph orders independently).
+          const sourceColumn = sourceView.get(fact.id) ?? fact;
+          const sourceIdentity = sourceColumn.payload["identity"] ?? null;
+          const sourceGenerated = sourceColumn.payload["generatedExpr"] != null;
           // Foreign tables have no local storage, so PostgreSQL rejects the
           // USING cast clause ("<rel> is not a table", 42809) — it would force a
           // rewrite. The plain TYPE change is metadata-only and carries no
@@ -255,18 +264,49 @@ export const tableRules: Record<string, KindRules> = {
           // dropped in extract), so a plain widening leaves both sets empty.
           const consumes = dependencyConsumes(view, fact.id);
           const releases = dependencyConsumes(sourceView, fact.id);
-          const typeSpec: ActionSpec = isForeign
-            ? { sql: `${target} TYPE ${str(to)}` }
-            : {
-                sql: `${target} TYPE ${str(to)} USING ${qid(column)}::${str(to)}`,
-                rewriteRisk: true,
-              };
+          // A generated column also rejects the USING clause ("cannot specify
+          // USING when altering type of generated column") — PostgreSQL
+          // recomputes the value from the generation expression. That still
+          // rewrites the table, so rewriteRisk stays (unlike the foreign case).
+          const usingCast =
+            isForeign || sourceGenerated
+              ? ""
+              : ` USING ${qid(column)}::${str(to)}`;
+          const typeSpec: ActionSpec = {
+            sql: `${target} TYPE ${str(to)}${usingCast}`,
+            ...(isForeign ? {} : { rewriteRisk: true }),
+          };
           if (consumes.length > 0) typeSpec.consumes = consumes;
           if (releases.length > 0) typeSpec.releases = releases;
-          const specs: ActionSpec[] = [
-            { sql: `${target} DROP DEFAULT` },
-            typeSpec,
-          ];
+          const specs: ActionSpec[] = [];
+          // DROP DEFAULT is a harmless no-op on a plain column that has none,
+          // but PostgreSQL REJECTS it on an identity column ("… is an identity
+          // column") or a generated column ("… is a generated column") whether
+          // or not a default exists — and neither kind can carry one anyway.
+          if (sourceIdentity == null && !sourceGenerated) {
+            specs.push({ sql: `${target} DROP DEFAULT` });
+          }
+          specs.push(typeSpec);
+          // An identity column's implicit sequence is typed after the column, so
+          // widening moves the column type AND the identity bounds. Both deltas
+          // land on the SAME fact with no edge between them and the differ emits
+          // attributes alphabetically (`identity` < `type`), so `SET MAXVALUE`
+          // would run while the sequence still has the old type ("MAXVALUE … is
+          // out of range for sequence data type integer"). Fold the bounds in
+          // AFTER the type change instead — `identity.alter` skips them when a
+          // `type` delta is present. Correct in both directions: PostgreSQL
+          // re-derives an at-type-max bound from the new type, and the explicit
+          // SET then converges the exact desired values.
+          const desiredIdentity = fact.payload["identity"] ?? null;
+          if (sourceIdentity != null && desiredIdentity != null) {
+            specs.push(
+              ...identityOptionAlterSpecs(
+                target,
+                identityOptions(sourceIdentity),
+                identityOptions(desiredIdentity),
+              ),
+            );
+          }
           const desiredDefault = view
             .childrenOf(fact.id)
             .find((c) => c.id.kind === "default");
@@ -298,7 +338,7 @@ export const tableRules: Record<string, KindRules> = {
         },
       },
       identity: {
-        alter: (fact, from, to) => {
+        alter: (fact, from, to, _view, sourceView) => {
           const { schema, table, column } = columnRef(fact);
           const target = `ALTER TABLE ${rel(schema, table)} ALTER COLUMN ${qid(column)}`;
           const fromSeq = identitySequenceId(from);
@@ -343,14 +383,23 @@ export const tableRules: Record<string, KindRules> = {
             });
           }
           // a parameter-only change (START/INCREMENT/CACHE/MIN/MAX/CYCLE) is an
-          // in-place ALTER COLUMN SET — no sequence rebuild
-          specs.push(
-            ...identityOptionAlterSpecs(
-              target,
-              identityOptions(from),
-              identityOptions(to),
-            ),
-          );
+          // in-place ALTER COLUMN SET — no sequence rebuild.
+          // A concurrent `type` delta on the same column owns these bounds: they
+          // must run AFTER the type change (the backing sequence is retyped with
+          // the column), and `type.alter` folds them in there. Emitting them here
+          // too would run them first — while the sequence still has the old type.
+          const sourceType = sourceView.get(fact.id)?.payload["type"];
+          const retyped =
+            sourceType !== undefined && sourceType !== p(fact, "type");
+          if (!retyped) {
+            specs.push(
+              ...identityOptionAlterSpecs(
+                target,
+                identityOptions(from),
+                identityOptions(to),
+              ),
+            );
+          }
           return specs;
         },
       },

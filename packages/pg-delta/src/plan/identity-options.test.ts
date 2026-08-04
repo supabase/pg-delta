@@ -30,11 +30,11 @@ const colId: StableId = {
   table: "t",
   name: "id",
 };
-const colFact = (options: Record<string, unknown>): Fact => ({
+const colFact = (options: Record<string, unknown>, type = "integer"): Fact => ({
   id: colId,
   parent: tableId,
   payload: {
-    type: "integer",
+    type,
     notNull: false,
     collation: null,
     generatedExpr: null,
@@ -127,5 +127,84 @@ describe("identity column sequence options", () => {
     expect(idAlters[0]).toContain("SET MAXVALUE 200");
     expect(idAlters[0]).toContain("SET START WITH 60");
     expect(idAlters[0]).not.toContain("RESTART");
+  });
+});
+
+/** A column type change is sandwiched DROP DEFAULT → TYPE … USING → SET DEFAULT,
+ *  but PostgreSQL rejects DROP DEFAULT on an identity or generated column, and
+ *  rejects the USING cast on a generated one. Widening an identity column also
+ *  moves its implicit sequence's bounds — those must run AFTER the type change,
+ *  not in the differ's alphabetical `identity` < `type` order. */
+describe("identity / generated columns through a type change", () => {
+  const bareCol = (type: string, extra: Record<string, unknown>): Fact => ({
+    id: colId,
+    parent: tableId,
+    payload: {
+      type,
+      notNull: false,
+      collation: null,
+      generatedExpr: null,
+      identity: null,
+      ...extra,
+    },
+  });
+
+  test("widening an identity column emits TYPE first, then the bounds, and no DROP DEFAULT", () => {
+    const sql = plan(
+      base([colFact({ maxValue: "2147483647" })]),
+      base([colFact({ maxValue: "9223372036854775807" }, "bigint")]),
+    ).actions.map((a) => a.sql);
+    expect(sql.some((s) => s.includes("DROP DEFAULT"))).toBe(false);
+    const typeAt = sql.findIndex((s) => s.includes("TYPE bigint"));
+    const boundsAt = sql.findIndex((s) => s.includes("SET MAXVALUE"));
+    expect(typeAt).toBeGreaterThanOrEqual(0);
+    // the bounds must FOLLOW the retype: the backing sequence is still
+    // integer-typed before it ("MAXVALUE … is out of range")
+    expect(boundsAt).toBeGreaterThan(typeAt);
+    // and only once — identity.alter must not emit its own copy
+    expect(sql.filter((s) => s.includes("SET MAXVALUE"))).toHaveLength(1);
+  });
+
+  test("a generated column's type change carries neither DROP DEFAULT nor a USING cast", () => {
+    const generated = (type: string) =>
+      bareCol(type, { generatedExpr: "(qty * 2)" });
+    const sql = plan(
+      base([generated("integer")]),
+      base([generated("bigint")]),
+    ).actions.map((a) => a.sql);
+    expect(sql).toContain(
+      `ALTER TABLE "app"."t" ALTER COLUMN "id" TYPE bigint`,
+    );
+    expect(sql.some((s) => s.includes("DROP DEFAULT"))).toBe(false);
+    expect(sql.some((s) => s.includes("USING"))).toBe(false);
+  });
+
+  test("a plain column's type change keeps the DROP DEFAULT → TYPE … USING sandwich", () => {
+    const sql = plan(
+      base([bareCol("integer", {})]),
+      base([bareCol("bigint", {})]),
+    ).actions.map((a) => a.sql);
+    const dropAt = sql.indexOf(
+      `ALTER TABLE "app"."t" ALTER COLUMN "id" DROP DEFAULT`,
+    );
+    const typeAt = sql.indexOf(
+      `ALTER TABLE "app"."t" ALTER COLUMN "id" TYPE bigint USING "id"::bigint`,
+    );
+    expect(dropAt).toBeGreaterThanOrEqual(0);
+    expect(typeAt).toBe(dropAt + 1);
+  });
+
+  test("the DROP DEFAULT gate reads the SOURCE side, not the desired one", () => {
+    // identity is dropped AND the type changes in the same plan: DROP IDENTITY
+    // runs first, so the statement order is only valid if the gate looks at the
+    // source column (identity) — the desired one carries `identity: null`.
+    const sql = plan(
+      base([colFact({})]),
+      base([bareCol("bigint", {})]),
+    ).actions.map((a) => a.sql);
+    expect(sql).toContain(
+      `ALTER TABLE "app"."t" ALTER COLUMN "id" DROP IDENTITY`,
+    );
+    expect(sql.some((s) => s.includes("DROP DEFAULT"))).toBe(false);
   });
 });
