@@ -29,7 +29,7 @@ Most families are fully modeled end-to-end. The cases worth calling out — so
 | Foreign tables | yes (columns, options, local CHECK) | yes | inherit/partition-of foreign tables out of scope |
 | Security labels | yes (`SECURITY LABEL`) | yes | needs a provider; CI uses the `dummy_seclabel` image. See the dedicated scope note below for which targets are supported / diagnosed / out of scope |
 | Extension members | observed via `memberOfExtension` edges | projected out by default | sub-entity member families use the extract-time anti-join (tier-4-deferrals.md) |
-| Not modeled | — | — | casts, operators (class/family), text-search, statistics, transforms, user languages: **detected + reported** as `unmodeled_kind`, never silently dropped |
+| Not modeled | — | — | casts, operators (class/family), text-search, statistics, transforms, user languages, parameter ACLs: **detected + reported** as `unmodeled_kind`, never silently dropped |
 
 Ownership is modeled as an `owner` EDGE (object --owner--> role), not a payload
 field: it diffs as an edge link/unlink that the planner renders as `ALTER …
@@ -119,6 +119,10 @@ are excluded — only genuine user state is reported. So the exclusions below ar
   first-class facts, casts, transforms, statistics objects** — out of v1 scope;
   none are modeled, all are detected. Extension-provided variants are filtered
   at extract time (see below).
+- **Parameter ACLs** (`pg_parameter_acl`, PG 15+ — backs `GRANT SET ON
+  PARAMETER` / `GRANT ALTER SYSTEM ON PARAMETER`) — out of v1 scope; not
+  modeled, detected. The probe is version-gated (`minVersion: 15` in
+  `unmodeled.ts`'s `PROBES`) since the catalog does not exist on PG 14.
 - **Large objects** — out of v1 scope; not modeled and (as data state rather
   than schema DDL) not part of the unmodeled-kind schema check.
 - **Sequence `last_value`** — runtime state, not desired schema state
