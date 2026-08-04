@@ -9,10 +9,10 @@ engine is promoted past preview.
 Severity legend: **P1** correctness/safety, **P2** contract/coverage gap,
 **P3** cleanup/maintainability.
 
-> **Cutover triage (2026-08):** the old-engine differential review and its
-> blocker workstream live in [cutover-plan.md](cutover-plan.md). This ledger
-> was reconciled against the code on 2026-08-04 — a number of entries below
-> had already been fixed (each now carries a ✅ with its commit).
+> **Cutover triage (2026-08):** see the "Old-engine differential review" section
+> below for the triage of the differential review against the legacy engine.
+> This ledger was reconciled against the code on 2026-08-04 — a number of
+> entries below had already been fixed (each now carries a ✅ with its commit).
 
 ## P1 — correctness & safety
 
@@ -605,23 +605,45 @@ a series of real non-superuser failures, each fixed RED-first on this branch:
 
 ## Old-engine differential review (2026-08) — cutover triage
 
-Full triage and blocker workstream: [cutover-plan.md](cutover-plan.md). Outcome:
+A differential review of the clean-room engine against the last legacy release,
+triaged for the cutover decision (promoting `@supabase/pg-delta` past
+preview/alpha). This section is the durable record — if a finding below is
+re-raised in a later review, reply with a link here.
 
-- **P1a/P1b (identity/generated column type changes)** — ✅ fixed in
-  [#379](https://github.com/supabase/pg-toolbelt/pull/379) (plus a third defect
-  found during RED: the `USING` cast is illegal on generated columns and those
-  do NOT route through replace — no `generatedExpr` delta when only the type
-  changes).
-- **P2b (`pg_parameter_acl` silently invisible)** — ✅ fixed in
-  [#380](https://github.com/supabase/pg-toolbelt/pull/380) (probe +
-  `minVersion` gating; modeling the grant as a fact remains add-when-needed).
+| # | Finding | State | vs. previous engine | Disposition |
+|---|---|---|---|---|
+| P1a | `DROP DEFAULT` emitted on identity/generated column type change | reproduced | **regression** — old engine guarded it | **blocker** → ✅ [#379](https://github.com/supabase/pg-toolbelt/pull/379) |
+| P1b | `SET MAXVALUE` ordered before `TYPE` widening on identity columns | reproduced, new | regression class (old engine had no identity-bounds emitter) | **blocker** → ✅ [#379](https://github.com/supabase/pg-toolbelt/pull/379) |
+| P2a | `relam` / `reltablespace` invisible to diff | real, tracked | shared pre-existing gap | subsumed by the Wave 3 entries above |
+| P2b | `pg_parameter_acl` (PG15+) silently dropped | real, untracked | shared pre-existing gap | probe + docs → ✅ [#380](https://github.com/supabase/pg-toolbelt/pull/380) |
+| P2c | identity sequence grants | not a bug | identical behavior in old engine | **closed won't-fix** |
+| P3 | no outside-observer verification gate | absent | never existed in either engine | post-cutover — tracked in [backlog.md](backlog.md) § Validation |
+
+Notes:
+
+- **P1a/P1b (#379):** one corpus scenario
+  (`identity-operations--widen-identity-column`) turned both RED; the fix gates
+  the `DROP DEFAULT` sandwich on the SOURCE-side column being neither identity
+  nor generated, and folds the identity bounds specs after the `TYPE` statement
+  when both deltas land on one column fact. A **third defect** surfaced during
+  RED: the `USING` cast is illegal on generated columns, and those do NOT route
+  through replace (the generation expression renders identically across the
+  type change, so only a `type` delta exists) — `USING` is now omitted for
+  source-generated columns, `rewriteRisk` retained.
+- **P2b (#380):** `pg_parameter_acl` was neither a fact nor in the
+  `unmodeled_kind` probe list — silently invisible, violating the completeness
+  module's own contract. Now a probe (with `minVersion` version gating);
+  modeling the grant as a fact remains add-when-needed.
+- **P2c rationale:** grant handling on identity sequences is byte-identical to
+  the legacy engine's behavior; the review confirmed there is no defect to fix.
 - **Still open (discovered during #379):** a desired identity bound pinned
   exactly at the source type's max (e.g. `bigint … (MAXVALUE 2147483647)` from
   an `integer` identity) produces **no** `identity` delta, yet PostgreSQL
   re-derives the bound on retype — invisible drift. Needs a synthesized bounds
   delta at extract/diff time when the column type changes.
-- **P3 (outside-observer verification gate)** — post-cutover north star; see
-  the plan doc.
+- **Cutover bar:** merge #379/#380, then the standing validation gates in
+  [backlog.md](backlog.md) (generative soak at quota, real-world shakedown,
+  scope statement).
 
 ## PR #368 review triage (Codex) — `schema export` out-dir hardening (deferred by design)
 

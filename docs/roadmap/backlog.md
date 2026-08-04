@@ -32,6 +32,17 @@ Put at least one large, anonymized, production-shaped schema through `plan` +
 `prove`. The corpus is broad but synthetic; this is the first contact with a
 schema nobody designed for the test suite.
 
+### 🟠 Outside-observer verification gate
+The proof loop re-extracts with the same engine that planned — a convergence
+check, not an independent one: a blind spot shared by extractor and planner
+(e.g. an unextracted attribute) is invisible to it by construction. Add an
+independent observer: after apply, compare source vs target through a tool that
+shares no code with pg-delta (normalized `pg_dump --schema-only`, or a second
+minimal extractor). Surfaced as P3 in the 2026-08 old-engine differential
+review (see the triage in
+[pg-delta-next-follow-ups.md](pg-delta-next-follow-ups.md)) — the review
+itself played this role manually.
+
 ### 🟢 Publish the scope statement
 A user-facing statement of what the engine manages and what it deliberately does
 not, derived from
