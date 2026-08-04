@@ -1,6 +1,6 @@
-# pg-delta-next docs
+# pg-delta docs
 
-`pg-delta-next` compares two PostgreSQL schemas and emits a migration to turn one
+`pg-delta` compares two PostgreSQL schemas and emits a migration to turn one
 into the other — then **proves** that migration converges, with your data intact,
 before you trust it. It's a clean-room rebuild of `pg-delta` on one idea: *let
 PostgreSQL be the only thing that understands PostgreSQL.*
@@ -12,7 +12,7 @@ PostgreSQL be the only thing that understands PostgreSQL.*
 - **[getting-started.md](getting-started.md)** — the CLI and the programmatic API,
   with copy-pasteable examples for the two workflows (diff two databases, or keep
   your schema as `.sql` files).
-- **[../packages/pg-delta-next/COVERAGE.md](../packages/pg-delta-next/COVERAGE.md)**
+- **[../packages/pg-delta/COVERAGE.md](../packages/pg-delta/COVERAGE.md)**
   — exactly what the engine models and what it deliberately excludes.
 
 ## 🧭 I want to understand it
@@ -37,8 +37,9 @@ PostgreSQL be the only thing that understands PostgreSQL.*
 
 - **[build-log.md](build-log.md)** — a light record of how the engine was built,
   hardened, and reviewed (the decision trail).
-- **[roadmap/](roadmap/)** — the path to v1 ([v1.md](roadmap/v1.md)) and the
-  post-v1 backlog ([post-v1.md](roadmap/post-v1.md)).
+- **[roadmap/](roadmap/)** — the consolidated
+  [backlog](roadmap/backlog.md) (validation gates, performance, DX, deferrals)
+  and the live [follow-ups ledger](roadmap/pg-delta-next-follow-ups.md).
 
 ---
 
@@ -53,7 +54,7 @@ docs/
     target-architecture.md / managed-view-architecture.md / extension-intent.md
     onboarding.md      ←   contributor map
   build-log.md         ← how it was built (history)
-  roadmap/             ← what's left (v1, then post-v1)
+  roadmap/             ← what's left (backlog + follow-ups ledger)
 ```
 
 `architecture/` is authoritative and current. `build-log.md` and `roadmap/` are,

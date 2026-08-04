@@ -26,6 +26,8 @@
     "dist",
     "src",
     "README.md",
+    "COVERAGE.md",
+    "MIGRATION.md",
     "LICENSE"
   ],
   "type": "module",

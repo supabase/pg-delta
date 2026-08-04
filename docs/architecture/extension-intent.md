@@ -8,7 +8,11 @@
   CLI-341 (pg_cron), CLI-1430 (per-extension intent matrix), CLI-1431
   (declarative source format), CLI-1434 (vault), CLI-1435 (pg_cron ownership),
   CLI-1433 (pg_net).
-- **Baseline**: `pg-delta-next` @ `feat/pg-delta-next`, commit `2a91580`.
+- **Baseline**: the clean-room engine @ `feat/pg-delta-next`, commit `2a91580`
+  (before promotion to `packages/pg-delta`).
+- **Shipped**: Phase A (filter / no data loss). Phase B (intent replay) is
+  designed and blocked — see
+  [../roadmap/extension-intent-phase-b.md](../roadmap/extension-intent-phase-b.md).
 
 > **One sentence.** Stateful extensions own catalog state the schema diff must
 > neither destroy nor re-derive — pgmq queues, pg_cron schedules, pg_partman
@@ -253,7 +257,7 @@ single codec).
 ### 4.1 The handler — a generic engine extension point
 
 The handler mechanism (interface, capture-into-the-fact-base, intent-rule
-registration) is a **generic capability of `pg-delta-next`**, *not*
+registration) is a **generic capability of `pg-delta`**, *not*
 Supabase-specific: pgmq/cron/partman are general extensions, usable outside
 Supabase. Handlers register into the engine like rules; the Supabase integration
 **composes** a chosen set of handlers with its managed-schema/role policy and

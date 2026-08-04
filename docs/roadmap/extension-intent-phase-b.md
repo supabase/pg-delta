@@ -4,7 +4,7 @@
   proven; this plan covers Phase B (capture + replay intent for rebuild
   fidelity). Parks the work so it can be resumed cold.
 - **Date**: 2026-06-13
-- **Design**: `docs/extension-intent.md` (the *what* and *why*). This doc is the
+- **Design**: `docs/architecture/extension-intent.md` (the *what* and *why*). This doc is the
   *how* — concrete files, contracts, sequencing, and gotchas mapped against the
   real code.
 - **Branch / baseline**: `feat/pg-delta-next` @ `06782d8`.
@@ -130,7 +130,7 @@ isolation hazard) and importing handlers into core (layering violation).
 - **RED→GREEN**: a round-trip property test in `stable-id.test.ts`
   (`parseId(encodeId(x)) === x`) for the new kind, incl. names needing quoting.
 - Gate: `bun test src/core/stable-id.test.ts`; check-types.
-- **Commit** (`feat(pg-delta-next): extensionIntent stable-id kind`).
+- **Commit** (`feat(pg-delta): extensionIntent stable-id kind`).
 
 ### Step 2 — intent rules in the rule table + planner thread
 - Define `IntentKindRule` and `IntentRegistry` (a `Map`) — put them where the
@@ -158,7 +158,7 @@ isolation hazard) and importing handlers into core (layering violation).
   replay. Assert `rulesFor("extensionIntent").drop` with no registry throws.
 - Gate: `bun test src/` (all 194+ still green — proves the `drop` signature
   change + new kind didn't regress the planner).
-- **Commit** (`feat(pg-delta-next): extensionIntent rule + intent-rule registry via PlanParams`).
+- **Commit** (`feat(pg-delta): extensionIntent rule + intent-rule registry via PlanParams`).
 
 ### Step 3 — capture + replay per extension (one handler per commit)
 Order by complexity (validate the mechanism on the simplest first):
@@ -189,7 +189,7 @@ Order by complexity (validate the mechanism on the simplest first):
      orders after `CREATE TABLE`.
    - integration test: rebuild from a bare parent recreates partman config +
      premade children.
-- **Commit per handler** (`feat(pg-delta-next): pgmq intent replay`, …).
+- **Commit per handler** (`feat(pg-delta): pgmq intent replay`, …).
 
 ### Step 4 — intent proof + full regression
 - Extend the proof: after apply, the handler-aware re-extract
@@ -242,5 +242,5 @@ Order by complexity (validate the mechanism on the simplest first):
   (state + intent convergence + data-preservation) on the Supabase image.
 - Full corpus green on PG 15 + 17; the planner-core change (new kind, `drop`
   signature) regresses nothing.
-- `docs/extension-intent.md` §5 phase table updated (B → done); per-extension
+- `docs/architecture/extension-intent.md` §5 phase table updated (B → done); per-extension
   intent-column specifics reconciled with CLI-1430.

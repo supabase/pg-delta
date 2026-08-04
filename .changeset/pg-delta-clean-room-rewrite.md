@@ -7,8 +7,8 @@ package no longer wraps the legacy per-object-type diff engine — it is the
 ground-up rebuild previously developed as `@supabase/pg-delta-next`, promoted
 into place. This is a hard breaking change: the CLI, the public API, and every
 persisted artifact format are new. Nothing carries over from the legacy engine
-for compatibility. The legacy engine remains available in git history and on
-npm as `1.0.0-alpha.31`.
+for compatibility. The legacy engine's last release is `1.0.0-alpha.33`, which
+remains installable from npm; its source is in git history.
 
 **Why it's different.** PostgreSQL is the only elaborator: state is resolved by
 a real Postgres instance (a live DB, or a shadow DB populated from your `.sql`

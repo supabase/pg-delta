@@ -19,7 +19,7 @@ auto-provisioning the shadow database itself.
 
 `schema apply` materializes the declarative `.sql` files into a **shadow**
 database, extracts it, and diffs against the target (parser-free design —
-"Postgres is the elaborator", see `packages/pg-delta-next/src/frontends/load-sql-files.ts`).
+"Postgres is the elaborator", see `packages/pg-delta/src/frontends/load-sql-files.ts`).
 Today `--shadow <pg-url>` is **required**, so the operator must provision and
 manage a second empty Postgres database. That is the single biggest DX friction
 in the declarative flow. Goal: make `--shadow` optional by auto-provisioning a
@@ -85,10 +85,10 @@ leaks/commits onto the target before detection. Not viable.
   all (not even add).
 
 ### C. Isolated Docker container + BASELINE subtraction — RECOMMENDED
-Reuse `subtractBaseline` (`packages/pg-delta-next/src/policy/baseline.ts`), which
+Reuse `subtractBaseline` (`packages/pg-delta/src/policy/baseline.ts`), which
 drops facts present-and-identical (same id + payload hash) in a baseline
 `FactBase` from **both** sides before diffing (`resolveView`,
-`packages/pg-delta-next/src/policy/policy.ts`).
+`packages/pg-delta/src/policy/policy.ts`).
 
 Baseline = **(shadow container's pristine cluster-global state) ∪ (the target's
 current cluster-global state)**, passed as `PlanOptions.baseline`:
@@ -138,7 +138,7 @@ default.
    `testcontainers` runtime dep in `src/`):
    - `dockerAvailable()` = `docker version` exits 0.
    - `startDockerShadow(pgMajor, image?)`: `docker run -d --rm --label
-     pg-delta-next-shadow=<runId> -e POSTGRES_PASSWORD=<random> -P
+     pg-delta-shadow=<runId> -e POSTGRES_PASSWORD=<random> -P
      postgres:<major>-alpine -c fsync=off -c full_page_writes=off -c
      wal_level=logical`; read mapped port via `docker port`; connect-and-retry
      readiness; `stop()` = `docker rm -f` (idempotent) + `SIGINT`/`SIGTERM`

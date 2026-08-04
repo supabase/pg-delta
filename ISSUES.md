@@ -26,7 +26,7 @@ Please include:
 - the PostgreSQL version(s) involved
 - whether this is plain PostgreSQL or Supabase
 - the exact `pg-delta` command and flags you ran
-- whether you used `plan`, `apply`, `sync`, `catalog-export`, `declarative export`, or `declarative apply`
+- which command you ran — `plan`, `apply`, `render`, `prove`, `diff`, `drift`, `snapshot`, `schema export`, `schema apply`, or `schema lint`
 - the relevant schema input:
   - SQL needed to create the source and target state, or
   - a minimal declarative schema directory, or

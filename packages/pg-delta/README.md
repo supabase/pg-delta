@@ -1,242 +1,181 @@
 # @supabase/pg-delta
 
-A clean-room rebuild of the PostgreSQL schema-diff engine, per
-[`docs/architecture/target-architecture.md`](../../docs/architecture/target-architecture.md)
-(see [the build log](../../docs/build-log.md) for how it was built, stage by
-stage). This is the published `@supabase/pg-delta` package; the CLI binary is
-`pgdelta`. It replaced the legacy engine in a hard breaking-change alpha
-release.
+Compare two PostgreSQL schemas, emit an ordered DDL migration — and **prove**
+that migration converges, with your data intact, before you trust it.
 
-> **Using it?** See [docs/getting-started.md](../../docs/getting-started.md) for
-> the CLI and the programmatic API.
+`pg-delta` never parses SQL to understand it. Every state is resolved by a real
+PostgreSQL instance (a live database, or a shadow database populated from your
+`.sql` files) and read back out of the catalog. The CLI binary is `pgdelta`.
 
-## What works today (proven by the test suite)
+> **Status:** published as a breaking-change alpha (`1.0.0-alpha.x`). This is a
+> clean-room rebuild that replaced the legacy engine outright — the CLI, the
+> public API, and the persisted artifact formats are all new. Nothing carries
+> over. Upgrading from `1.0.0-alpha.33` or earlier? See [MIGRATION.md](./MIGRATION.md).
 
-The full pipeline, end to end, on the covered kinds:
+## Install
 
-```text
-extract (one consistent txn)  →  fact base (content-addressed, Merkle rollups)
-        →  generic diff (fact deltas — zero per-kind code)
-        →  rule table → atomic actions → ONE dependency graph → deterministic sort
-        →  apply (single txn, per-statement attribution)
-        →  provePlan (state proof + data-preservation proof on a TEMPLATE clone)
+```bash
+npm install @supabase/pg-delta      # library
+npx @supabase/pg-delta --help       # CLI, no install
 ```
 
-plus the **declarative frontend**: `loadSqlFiles` applies files to a shadow
-database with fail-safe ordering (bounded rounds), routine-body
-re-validation, shared-object leak detection, and parser-free DML rejection
-— then the result flows through the same plan/prove path.
+Requires Node.js >= 20. Also runs on Bun and Deno.
 
-### Projection audit and strict proof
+## Quick start
 
-Planning records every raw source/desired difference hidden by the managed-view
-projection, including operational objects excluded through extractor-emitted
-`managedBy` provenance edges. `provePlan` always returns a normalized audit and
-an explicit availability status; current plans carry the complete attributed
-audit. `pgdelta prove` prints its full summary plus at most 50 human-detail
-entries and 10 suppressions per selected entry by default; it deterministically
-reserves baseline and non-baseline acknowledged samples when present, then
-prioritizes suspicious, baseline, and other acknowledged entries. Human fields
-remain visibly bounded even with `--audit-all`, which lifts the entry and
-suppression-count caps. The complete raw machine audit remains under
-`projectionAudit` in the supplied plan artifact identified by the truncation
-notice; the displayed path is safely rendered and bounded.
+**Diff two databases and apply the result:**
 
-The audit is informational by default; `--strict-audit` evaluates the complete
-audit and fails on suspicious entries even if human output is truncated.
-Acknowledged-only entries do not block. Baseline and `managedBy` causes do not
-block by themselves, but any suspicious cause makes a mixed-cause entry
-suspicious. Strict mode also fails closed for a legacy plan with no audit, so
-re-plan before relying on that gate. Informational proof reports the audit as
-unavailable instead of presenting the normalized empty audit as an audited zero.
+```bash
+pgdelta plan --source postgres://…/current --desired postgres://…/target --out plan.json
+pgdelta render --plan plan.json --out migration.sql   # review the SQL
+pgdelta apply  --plan plan.json --target postgres://…/current
+```
 
-### Statement reordering assist (opt-in)
+**Keep your schema as `.sql` files:**
+
+```bash
+pgdelta schema export --source postgres://…/db --out-dir ./schema
+# …edit ./schema/**.sql…
+pgdelta schema apply  --dir ./schema --shadow postgres://…/scratch --target postgres://…/db
+```
+
+**As a library:**
+
+```ts
+import { extract } from "@supabase/pg-delta/extract";
+import { plan } from "@supabase/pg-delta/plan";
+import { apply } from "@supabase/pg-delta/apply";
+import { provePlan } from "@supabase/pg-delta/proof";
+
+const source = await extract(sourcePool);
+const desired = await extract(desiredPool);
+
+const migration = plan(source.factBase, desired.factBase);
+await provePlan(migration, clonePool, desired.factBase); // optional but recommended
+await apply(migration, sourcePool);
+```
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `plan` | Diff two databases → a versioned plan artifact |
+| `apply` | Execute a plan against a target (fingerprint-gated) |
+| `render` | Write a plan out as reviewable `.sql` |
+| `prove` | Apply a plan to a clone and verify convergence + data preservation |
+| `diff` | Human-readable difference summary, no artifact |
+| `drift` | Compare a live database against a saved snapshot |
+| `snapshot` | Serialize a database's fact base to a file |
+| `schema export` | Write a database out as declarative `.sql` files |
+| `schema apply` | Load `.sql` files into a shadow, then plan/apply against a target |
+| `schema lint` | Statically check `.sql` files for load-order problems (no database) |
+
+Run `pgdelta <command> --help` for flags.
+
+## How it works
+
+```text
+extract   read a database into a fact base
+          (one content-addressed fact per table, column, constraint, policy, grant, …)
+   ↓
+diff      compare two fact bases → deltas (generic; zero per-object-type code)
+   ↓
+plan      deltas → ordered atomic DDL actions
+          (one rule table, one dependency graph, one deterministic sort)
+   ↓
+prove     apply to a throwaway clone, re-extract, compare
+   ↓
+apply     execute against the real target
+```
+
+Because everything lives at one grain — the fact — the diff needs no per-kind
+code and the ordering needs no cycle-breakers.
+
+**The proof loop** is what makes a plan trustworthy. It applies the plan to a
+clone, re-extracts, and checks two things: **state** (zero drift deltas against
+the desired fact base) and **data** (rows survive). It reports honest per-table
+coverage rather than a bare boolean — `contentMode` is `fingerprint` for a
+non-empty table whose schema is unchanged, `count` for one whose schema changed,
+and `none` for an empty table. `ok` means "everything checked passed", not
+"everything is fine"; seed your tables to give it teeth.
+
+## What's covered
+
+Schemas, roles (incl. configs and memberships), default privileges, extensions,
+tables (incl. partitioned, `INHERITS`, replica identity), columns, defaults,
+constraints (table + domain), indexes, sequences, views, materialized views,
+functions, procedures, aggregates, triggers, policies, rewrite rules, event
+triggers, domains, enum/composite/range types, collations, publications,
+subscriptions, FDWs/servers/user-mappings/foreign tables, comments, ACLs, and
+security labels.
+
+Object kinds the engine doesn't model — casts, operators, text-search
+configuration, statistics objects, languages, transforms — are **detected and
+reported** as `unmodeled_kind` diagnostics, never silently dropped.
+See [COVERAGE.md](./COVERAGE.md) for the authoritative map and the deliberate
+exclusions.
+
+## Integration profiles
+
+`--profile raw | supabase | <path-to-custom>` declares what the engine manages.
+A profile carries policy rules (which objects are yours vs. the platform's),
+extension intent handlers (`pg_cron`, `pg_partman`), assumed schemas and roles,
+and secret redaction (FDW options, subscription conninfo). A custom profile can
+also declare a **baseline** — a snapshot subtracted from both sides so platform
+objects stay invisible with no per-command flag. The baseline's digest is
+stamped on plan and export artifacts and reconciled at apply/prove, so
+`plan == prove == apply` holds and a swapped or edited baseline fails loudly.
+
+## Statement reordering assist (opt-in)
 
 `loadSqlFiles` is parser-free: it sequences whole *files* into the shadow, so it
 tolerates cross-file disorder but cannot reorder statements *within* a file. The
-opt-in **statement reordering assist** restores "author in any internal order,
-it still loads" by splitting files into one-statement units and topologically
-pre-sorting them (via `@supabase/pg-topo`) before the loader runs. See
-[target-architecture §4.4.1](../../docs/architecture/target-architecture.md).
+opt-in reordering assist splits files into one-statement units and topologically
+pre-sorts them via [`@supabase/pg-topo`](https://www.npmjs.com/package/@supabase/pg-topo).
 
-- **Subpath:** `@supabase/pg-delta/sql-order` exposes
-  `orderForShadow(files)` / `analyzeForShadow(files)` (returning single-statement
-  `SqlFile`s ready to feed straight into `loadSqlFiles`), `canReorder()`, and the
-  typed `ReorderUnavailableError`.
-- **Dependency posture:** `@supabase/pg-topo` is an **optional peer dependency**,
-  loaded only through a guarded dynamic `import()` when this subpath runs —
-  importing the core (`fact` / `diff` / `plan` / `apply` / `loadSqlFiles`) never
-  pulls the libpg-query WASM parser. If the peer is absent the subpath throws
-  `ReorderUnavailableError` with an install hint; `canReorder()` probes instead.
-- **CLI:** `schema apply` runs the assist by default (`--no-reorder` reproduces
-  raw file granularity for debugging). On a non-converging load it rewrites
-  synthetic ordinal names back to `file:line:col` and attaches any detected
-  shadow-load cycle as an advisory hint on top of the authoritative Postgres
-  error. `schema lint --dir <dir>` runs the analyzer statically (no database) to
-  surface cycles and other diagnostics for proactive authoring — deliberately
-  out of the apply path so apply stays Postgres-truth.
+- **Subpath:** `@supabase/pg-delta/sql-order` exposes `orderForShadow(files)` /
+  `analyzeForShadow(files)`, `canReorder()`, and the typed
+  `ReorderUnavailableError`.
+- **Dependency posture:** `@supabase/pg-topo` is an **optional peer**, loaded
+  only through a guarded dynamic `import()`. Importing the core never pulls the
+  libpg-query WASM parser. If the peer is absent the subpath throws with an
+  install hint; `canReorder()` probes instead.
+- **CLI:** `schema apply` runs the assist by default (`--no-reorder` opts out).
+  `schema lint --dir <dir>` runs the analyzer statically, with no database.
 
-- **Corpus proof loop**: every scenario in `corpus/` is proven in BOTH
-  directions (build and teardown), with independently built compact and
-  uncompacted plan artifacts applied end-to-end. Compaction is therefore
-  enforced as cosmetic rather than required for convergence. State proof =
-  zero drift deltas after applying the plan to a clone; data proof = seeded
-  rows survive. The proof
-  reports honest per-table **coverage** (`tablesChecked`, `tablesSkipped`,
-  and a `contentMode` of `fingerprint` / `count` / `none`) rather than a bare
-  boolean: a non-empty table whose schema is unchanged is content-fingerprinted
-  (a count-preserving content change is caught); a table whose schema changed
-  is count-checked; an empty table is not checked (seed it for teeth). `ok` is
-  backed by that coverage — it is not a guarantee beyond what was checked.
-- **Fixture-validity layer**: green independently of the engine, so an
-  engine failure can never be a broken fixture.
-- **Extractor ring**: fixture DDL → asserted facts/payloads/edges,
-  deterministic re-extraction, snapshot round-trip, clone fidelity.
+## Documentation
 
-## Kind coverage
+| | |
+|---|---|
+| Using it — CLI and API | [getting-started.md](../../docs/getting-started.md) |
+| Why it was rebuilt | [overview.md](../../docs/overview.md) |
+| How it works, in depth | [architecture/](../../docs/architecture/) |
+| What it models, and what it doesn't | [COVERAGE.md](./COVERAGE.md) |
+| Upgrading from the legacy engine | [MIGRATION.md](./MIGRATION.md) |
 
-schema, role (incl. configs), role memberships, default privileges,
-extension, table (incl. partitioned/partitions, INHERITS, replica
-identity), column, default, constraint (tables + domains), index,
-sequence (incl. OWNED BY), view, materialized view, function/procedure,
-aggregate, trigger, policy, rewrite rule, event trigger, domain,
-enum/composite/range types, collation, publication, subscription,
-FDW/server/user-mapping/foreign-table, comments (one global rule),
-ACLs (one global rule, REVOKE-first).
-
-The corpus (`corpus/`, ~210 scenarios) is the port of the old pg-delta
-integration suite — see `PORTING.md` for the per-case ledger and the
-not-ported-with-reason list (Supabase-image, policy-layer/stage-8,
-dummy_seclabel, stage-9 renames/export).
-
-## Stage coverage (target-architecture)
-
-All engineering stages are implemented:
-
-- **Stages 0–4** — corpus + EXPECTED_RED ledger, fact core (Merkle
-  rollups, snapshots), extractors (one consistent txn, acldefault-
-  normalized ACLs), proof harness (state + data preservation), diff.
-- **Stage 5** — the rule table, one mixed graph, deterministic sort,
-  compaction (column clauses fold into `CREATE TABLE` when no edge
-  crosses the merge — cosmetic by contract, proof-stability asserted),
-  the vetted lock-class table, the 10k-object benchmark fixture +
-  timing harness (`scripts/benchmark.ts`, in CI), the generative engine
-  + soak (`tests/generative.test.ts`, scale with `PGDELTA_NEXT_SOAK`).
-- **Stage 6** — plan artifact v1 (engineVersion, safetyReport, lossless
-  round-trip), segmented executor (three-valued transactionality:
-  `CREATE INDEX CONCURRENTLY` runs alone, `ALTER TYPE … ADD VALUE`
-  forces a commit boundary before its first consumer), per-action
-  applied/unapplied/inDoubt failure reporting, the fingerprint gate,
-  session preamble as metadata, render-from-fact-base materialization.
-- **Stage 7** — shadow-DB SQL loader + snapshot frontend.
-- **Stage 8** — policy DSL v2 (typed serializable predicates,
-  first-match-wins, extends with cycle detection), delta filtering with
-  reported (never silent) filtered deltas, serialize parameters declared
-  by the rule table, baseline subtraction, the Supabase policy package.
-- **Stage 9** — rename detection over structural rollups
-  (`renames: "auto" | "prompt" | "off"`, ambiguity/near-miss verdicts,
-  data preservation proven down to column values), declarative export
-  with the `load(export(fb)) ≡ fb` gate (+ an "ordered" layout that
-  loads in a single pass, and a "grouped" layout that restores the old
-  engine's category-grouped/readable output with opt-in name-pattern,
-  flat-schema, and partition grouping; opt-in SQL pretty-printing via
-  `--format-options`, also exposed as the `@supabase/pg-delta/sql-format`
-  library helper), drift, finalized public API (subpath
-  exports, reviewed name-by-name in `API-REVIEW.md`), CLI v2.
-
-The proof loop now verifies the two safety fields state-proof alone can't
-see (§3.7): **rewrite risk** is observed on the clone (a kept table whose
-`relfilenode` changed under no `rewriteRisk`-declaring action fails the
-proof) and **data preservation** can be sharpened with opt-in `autoSeed`
-(synthetic rows in empty kept tables), which now reports a per-table
-outcome on the verdict (`seedOutcomes`: `seeded` / `skipped` / `failed`)
-so an unseedable table is never confused with one that failed for a reason
-nobody saw. A `skipped` is either a class-23 integrity-constraint SQLSTATE
-or the synthetic `no_row` code (the insert resolved but a trigger/rule left
-the row absent from the final pre-apply snapshot — persistence is judged by
-reconciling against that snapshot, not the command tag). Tables that were
-already populated remain anchored to their pre-seed stats, so trigger side
-effects from synthetic inserts cannot be baselined away. Those tables are also
-compared immediately after seeding, before any plan action can make their
-fingerprints incomparable through a schema change; any schema change caused by
-seeding itself also fails the proof before the plan runs. Per-kind graph policy
-(cascade/rebuild/suppression/defacl) lives entirely in the rule table as
-`KindRules` flags — the planner body holds no kind-name lists (guardrail 3).
-
-Every addressable thing is a fact at one grain (§3.1): composite-type
-attributes (`typeAttribute`) and publication members (`publicationRel` /
-`publicationSchema`) are sub-entity facts, so they diff at sub-entity grain
-and are rename candidates — a composite attribute renames in place,
-data-preserving, instead of forcing a type rebuild. See `COVERAGE.md` for
-the full catalog-coverage map and deliberate exclusions (languages, large
-objects, …).
-
-Environment-gated leftovers: security labels are fully modeled and proven
-end-to-end (`tests/security-label-proof.test.ts`) against a built
-`dummy_seclabel` image (`tests/dummy-seclabel.Dockerfile`); the image builds
-on first run and `PGDELTA_SKIP_DUMMY_SECLABEL_BUILD=1` skips it where the
-build CDNs are unreachable. The real-Supabase-image baseline proof needs a
-Supabase container (mechanism + generation script exist — run
-`scripts/generate-supabase-baseline.ts`). Stage 10 (cutover) is a product
-decision gated on the parity bar — the porting ledger, soak quota at
-scale, and naming are deliberately not unilateral engineering calls.
-
-Known v1 simplifications:
-
-- extension members of the common object kinds (tables, sequences, views,
-  routines, types, domains, collations, schemas) are observed at extraction
-  with `memberOfExtension` provenance edges and projected out by default
-  (4b); sub-entity families (columns, constraints, indexes, triggers,
-  policies, rules) and rare member-root kinds (fdw, server, foreign table,
-  event trigger, publication) are still filtered at extraction — a
-  documented, regression-free limitation (see COVERAGE.md)
-- capture is serial on one snapshot connection (parallel
-  `pg_export_snapshot()` workers are a measured optimization)
-- a surviving dependent of a destroyed fact is force-rebuilt when its kind
-  declares `rebuildable` in the rule table (view, matview, index, policy,
-  trigger, rule, constraint, default, procedure); a non-rebuildable
-  survivor whose dependency stays gone fails the plan loudly
-
-## Running
+## Development
 
 ```bash
-bun test src/        # unit: codec, hashing, fact base, snapshot, diff, policy
-bun test tests/      # integration: Docker required (postgres:17-alpine)
+bun test src/                                            # unit tests, no Docker
+bun test tests/                                          # integration, Docker required
 bun run check-types
-PGDELTA_TEST_IMAGE=postgres:15-alpine bun test tests/   # other PG versions
-PGDELTA_NEXT_ONLY=enum bun test tests/engine.test.ts    # corpus subset
-PGDELTA_NEXT_SHARD=0/4 bun test tests/engine.test.ts    # parallel shard
-PGDELTA_NEXT_SOAK=200 bun test tests/generative.test.ts # bigger soak
-bun scripts/benchmark.ts                                # timing numbers
+
+PGDELTA_TEST_IMAGE=postgres:15-alpine bun test tests/    # pick a PG version
+PGDELTA_NEXT_ONLY=enum bun test tests/engine.test.ts     # one corpus subset
+PGDELTA_NEXT_SHARD=0/4 bun test tests/engine.test.ts     # one shard
+PGDELTA_NEXT_SOAK=200 bun test tests/generative.test.ts  # bigger generative soak
+bun scripts/benchmark.ts                                 # timing numbers
 ```
 
-Compaction (cosmetic clause folding + redundant-drop / default-ACL elision) is
-**on by default** and proof-stable — the corpus independently builds, applies,
-and proves compact and uncompacted artifacts for every scenario and direction.
-The passes, in order:
+The **corpus** (`corpus/`, 321 scenarios) is the primary correctness gate: every
+scenario is proven in both directions, with compact and uncompacted plan
+artifacts built and applied independently — so compaction is enforced as
+cosmetic rather than load-bearing. CI runs it across PostgreSQL 14–18.
 
-- **column folds** — `ADD COLUMN` clauses fold into their bare `CREATE TABLE`
-  when no graph edge crosses the merge.
-- **redundant-drop elision** — a replace's drop is dropped when the create
-  reproduces the byte-identical statement (self-resetting ACL/REVOKE).
-- **default-ACL elision** — whole `REVOKE`/`GRANT` groups that only
-  re-materialize a freshly-created object's built-in owner/PUBLIC defaults are
-  removed.
-- **co-create REVOKE elision** — the leading `REVOKE ALL` is trimmed off a
-  remaining third-party grant on a co-created object (the `GRANT` is kept), gated
-  by a strict-superset guard against any create-time `defaultPrivilege` for the
-  applier role.
-- **co-create ownership fold** — a co-created object's owner `ALTER` folds into
-  its `CREATE`: `CREATE SCHEMA … AUTHORIZATION owner` (always, syntactic), and a
-  no-op `ALTER … OWNER TO` is dropped when the desired owner is the applier
-  (`capability.role`, probed at apply time).
+Compaction is on by default (`--no-compact` opts out) and folds column clauses
+into `CREATE TABLE`, elides redundant drops and default-ACL churn, and folds
+co-created ownership into the `CREATE`.
 
-Pass `--no-compact` to `compare` to emit the maximally-inlined DDL (one
-statement per action, every `REVOKE`/`GRANT`/`OWNER TO` spelled out), which is
-useful when diffing engine output statement-by-statement.
+## License
 
-
-See `docs/architecture/target-architecture.md` §10. The ones most often relevant here:
-no SQL parsing in the trusted path; no per-kind code outside the rule
-table; a cycle is a rule bug (there is no breaker module, ever); never
-assert SQL bytes in tests — assert state, data survival, or action shape.
+MIT

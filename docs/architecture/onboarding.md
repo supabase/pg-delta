@@ -1,4 +1,4 @@
-# pg-delta-next: contributor onboarding map
+# pg-delta: contributor onboarding map
 
 A one-page orientation for someone touching the engine for the first time.
 Pairs with [overview.md](../overview.md) (the why), [README.md](README.md) (the
@@ -47,7 +47,7 @@ Answers to the five questions a newcomer asks:
 4. **Unit test** — a focused serialization test next to the rule if useful.
 5. **Corpus scenario** — add `corpus/<kind>-operations--<case>/{a,b}.sql`; it runs
    both directions through the full proof loop (state + data).
-6. **Coverage** — update `packages/pg-delta-next/COVERAGE.md`.
+6. **Coverage** — update `packages/pg-delta/COVERAGE.md`.
 
 The diff, sort, and proof layers are generic — steps 1–3 are usually all that a
 new kind needs; the engine never grows a per-kind `if`.

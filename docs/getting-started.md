@@ -395,4 +395,4 @@ On the CLI this is just `--profile supabase`.
 | How it works, conceptually | [architecture/README.md](architecture/README.md) |
 | The full design (the north star) | [architecture/target-architecture.md](architecture/target-architecture.md) |
 | What it models / deliberately excludes | [../packages/pg-delta/COVERAGE.md](../packages/pg-delta/COVERAGE.md) |
-| What's left before v1 | [roadmap/v1.md](roadmap/v1.md) |
+| What's next | [roadmap/backlog.md](roadmap/backlog.md) |

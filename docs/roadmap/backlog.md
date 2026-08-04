@@ -1,10 +1,9 @@
-# Post-v1 backlog
+# Backlog
 
-What comes *after* the correctness-first v1 cut (see [v1.md](v1.md)), in two
-milestones — **performance**, then **DX & cutover** — plus the deliberate
-deferrals. This consolidates the former per-item `tier-*` files into one tight
-backlog; each entry is problem · approach · status, with Linear IDs where they
-exist.
+The forward-looking plan for `@supabase/pg-delta`, in two milestones —
+**performance**, then **DX** — plus the remaining validation work and the
+deliberate deferrals. Each entry is problem · approach · status, with Linear IDs
+where they exist.
 
 | Symbol | Meaning |
 |---|---|
@@ -14,6 +13,31 @@ exist.
 | 🔴 | Net-new engineering, blocked on a decision |
 | 🟢 | Validation / product / process (not new engine code) |
 | ⚪ | Deliberate deferral (documented, regression-free) |
+
+---
+
+## Validation — run the gates to green at scale
+
+The correctness harness is green at CI defaults (corpus × PG 14–18 on every
+push). These are the runs that go beyond CI defaults; none of them is new engine
+code.
+
+### 🟢 Generative soak at an agreed quota
+Raise `PGDELTA_NEXT_SOAK` to a sustained run (`bun test tests/generative.test.ts`)
+and record it green — zero proof failures, zero cycles, zero crashes. The quota
+itself still needs to be set.
+
+### 🟢 Real-world shakedown
+Put at least one large, anonymized, production-shaped schema through `plan` +
+`prove`. The corpus is broad but synthetic; this is the first contact with a
+schema nobody designed for the test suite.
+
+### 🟢 Publish the scope statement
+A user-facing statement of what the engine manages and what it deliberately does
+not, derived from
+[`COVERAGE.md`](../../packages/pg-delta/COVERAGE.md) plus the `unmodeled_kind`
+completeness diagnostic. The exclusions are already enforced and visible; this
+writes them down where a user will find them.
 
 ---
 
@@ -40,7 +64,7 @@ one unsplittable query that caps the ceiling). Deferred.
 
 ---
 
-## Milestone B — DX & cutover
+## Milestone B — DX
 
 ### 🟡 Risk classification 2.0
 The engine already computes proof-verified per-action safety (`dataLoss`,
@@ -79,18 +103,30 @@ projection through the rest of the flow.
 Baseline subtraction is fully built and fail-loud (`subtractBaseline`,
 `resolveBaseline` with digest + redaction-mode validation, plan-side wiring, the
 generator script) — what's missing is the committed artifact and two wiring
-gaps. **Explicitly deferred from v1** (decision + rationale:
-[v1-evidence.md](v1-evidence.md) Gate 5): the supabase policy's filter rules are
-the v1 mechanism; the baseline adds long-tail platform coverage and
-user-vs-platform disambiguation (e.g. a user-customized `ALTER ROLE postgres
-SET …` could round-trip instead of being filtered wholesale, #371). To land:
-commit `src/policy/baselines/supabase-baseline-<major>.json` for every
-supported PG major (declared-but-unresolved fail-fasts, so partial coverage
-bricks the profile) with regeneration tied to image bumps
-(`scripts/generate-supabase-baseline.ts`); declare `baseline:
-"supabase-baseline"` in `supabasePolicy`; resolve the baseline in `provePlan`
-(else baseline-shaped plans drift at prove time — see the Gate 5 note) plus a
-corpus/integration case; revisit the Phase 2b seed derivation (the
+gaps.
+
+**Why it was deferred rather than shipped.** The supabase policy's filter rules
+are the correctness mechanism: every known platform object class is hidden by an
+explicit rule (system schemas/roles/extensions, FDW ACLs, system-role ADPs, the
+platform role plumbing incl. `supabase_privileged_role` and the `postgres` role
+object, #371). The baseline is an *increment* over the filters — long-tail
+platform state and user-vs-platform disambiguation (e.g. a user-customized
+`ALTER ROLE postgres SET …` could round-trip instead of being filtered
+wholesale) — not a replacement: subtraction only removes present-and-identical
+facts, so version/image drift degrades gracefully back to the filters anyway.
+Against that marginal value stand real prerequisites: per-PG-major committed
+snapshots regenerated on every image bump (declared-but-unresolved fail-fasts,
+so partial major coverage bricks the profile), prove-side wiring, and the
+Phase 2b seed-derivation revisit.
+
+**To land:** commit `src/policy/baselines/supabase-baseline-<major>.json` for
+every supported PG major with regeneration tied to image bumps
+(`scripts/generate-supabase-baseline.ts`); declare
+`baseline: "supabase-baseline"` in `supabasePolicy`; **resolve the baseline in
+`provePlan` too** — `plan()` subtracts it via `options.baseline`, but the proof
+loop re-derives the view from `plan.policy` *without* one, so a baseline-shaped
+plan would drift at prove time — plus a corpus/integration case proving a
+baseline plan clean; revisit the Phase 2b seed derivation (the
 `seed-assumed-schemas.test.ts` "non-empty seed" pin fails loudly if missed);
 exercise subtraction in CI.
 
@@ -107,11 +143,25 @@ execution-ready but **blocked on the declarative-source-format decision**
 (CLI-1431) and the per-extension intent matrix (CLI-1430). Full plan:
 [extension-intent-phase-b.md](extension-intent-phase-b.md).
 
-### 🟢 Stage-10 cutover
-Switch consumers from the old engine at the **parity bar**: corpus 100% green,
-zero untriaged differential divergences, generative soak at quota, extractor ring
-green, performance parity, real-world shakedown, and the naming/deprecation
-decision. Product/process, sequenced after v1 + perf.
+### ✅ Cutover
+The legacy per-object-type engine was removed and the clean-room engine promoted
+into `packages/pg-delta`, published as a breaking-change alpha under the same
+name and `pgdelta` binary. *Shipped* (#299); the consumer-facing mapping is in
+[`MIGRATION.md`](../../packages/pg-delta/MIGRATION.md).
+
+---
+
+## Parked architecture tracks
+
+Reopen only on evidence, not as aesthetic cleanup:
+
+- **Compaction shrink (C2)** — reopen only for a concrete compact/uncompact
+  divergence, or a compaction elision implicated in a bug. The corpus already
+  builds, applies, and proves both shapes for every scenario, so compaction is
+  enforced as cosmetic; shrinking it further has no correctness gate behind it.
+- **Declarative rule IR (H2)** — reopen only when one of its documented evidence
+  conditions is met. The rule table is data-driven already; converting it to a
+  fuller IR is a refactor in search of a failure.
 
 ---
 
@@ -143,5 +193,5 @@ Documented, regression-free, each with a trigger to revisit:
   prebuilding it in CI is an optimization.
 - **PGlite in the trusted path** — not adopted; PostgreSQL remains the elaborator.
 
-See [../packages/pg-delta-next/COVERAGE.md](../../packages/pg-delta-next/COVERAGE.md)
-for the authoritative catalog-coverage map.
+See [`COVERAGE.md`](../../packages/pg-delta/COVERAGE.md) for the authoritative
+catalog-coverage map.

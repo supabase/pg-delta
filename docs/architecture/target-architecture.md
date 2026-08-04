@@ -1,10 +1,23 @@
 # North Star Architecture: pg-delta & pg-topo
 
 - **Status**: North star — the project's target design, judged on technical
-  merit alone, deliberately ignoring migration cost and past choices
+  merit alone, deliberately ignoring migration cost and past choices.
+  **The rebuild and the cutover it describes have shipped**: the clean-room
+  engine is `@supabase/pg-delta`. This document remains the authoritative
+  statement of *why* the design is what it is; for what the code does today,
+  read the code and [README.md](README.md).
 - **Date**: 2026-06-12
 - **Baseline for all code citations**: commit `115dde8`
   (`pg-delta@1.0.0-alpha.28`, `pg-topo@1.0.0-alpha.1`)
+
+> **Code citations below refer to the LEGACY engine** at `115dde8`, which this
+> document was written against and which the rewrite replaced. They are
+> rendered as plain filenames rather than links on purpose: those paths no
+> longer exist under `packages/pg-delta/`, and the structures they name
+> (`sort/cycle-breakers.ts`, `objects/*/*.diff.ts`, `catalog.model.ts`, …) are
+> exactly the ones the new engine does *not* have. Read them as evidence for
+> the argument, not as a map of the current tree; the legacy source is in git
+> history.
 
 This document defines where the project is going. It is not a critique of how
 it got here: the current design is the strongest in its class (it is the only
@@ -59,7 +72,7 @@ right call) but still runs **three** semantic engines:
    heuristic recoveries of what Postgres already knows),
 3. declarative apply's round-based retry, which is "ask Postgres for
    forgiveness, one error message at a time"
-   ([round-apply.ts:252-281](../../packages/pg-delta/src/core/declarative-apply/round-apply.ts),
+   (`round-apply.ts:252-281`,
    worst-case O(n²) statement executions).
 
 The north star has **one**: every input state is resolved by an actual
@@ -218,7 +231,7 @@ participate in equality is itself per-kind knowledge** and lives in the
 payload definition, not in diff logic. Example: extension versions drift
 legitimately across environments, and today's diff deliberately ignores
 them
-([extension.diff.ts:53-62](../../packages/pg-delta/src/core/objects/extension/extension.diff.ts))
+(`extension.diff.ts:53-62`)
 even though `version` sits in the equality fields — under the fact model
 that tolerance is declared once, by excluding `version` from the hashed
 payload (or marking its attribute rule a no-op), instead of being
@@ -231,11 +244,11 @@ re-implemented inside an imperative diff.
   connections — the pg_dump-parallel model). Parallel *and* consistent.
   Today's extraction has neither property: ~28 queries race over a 5-connection
   pool with no shared transaction
-  ([catalog.model.ts:352-381](../../packages/pg-delta/src/core/catalog.model.ts),
-  [postgres-config.ts:108](../../packages/pg-delta/src/core/postgres-config.ts)),
+  (`catalog.model.ts:352-381`,
+  `postgres-config.ts:108`),
   so the catalog and its dependency rows can disagree under concurrent DDL —
   masked by the `unknown:` filter in
-  [graph-builder.ts:26-33](../../packages/pg-delta/src/core/sort/graph-builder.ts).
+  `graph-builder.ts:26-33`.
 - **SQL files**: applied to an ephemeral shadow database, then extracted.
   The desired state is whatever Postgres actually builds — no fuzzy
   reference matching in the trusted path. This *is* the declarative
@@ -257,7 +270,7 @@ re-implemented inside an imperative diff.
     invalid body. After loading, the loader re-validates routine bodies
     with checks on — the same final pass the current declarative engine
     performs
-    ([round-apply.ts:445-448](../../packages/pg-delta/src/core/declarative-apply/round-apply.ts)).
+    (`round-apply.ts:445-448`).
   - **Shared objects need cluster isolation.** Roles and memberships are
     cluster-level: in a same-cluster scratch database, `CREATE ROLE` leaks
     out of the shadow and can collide with existing roles. When declarative
@@ -298,7 +311,7 @@ changed" — there is no nested document for per-type code to re-walk. (In a
 document model, "generic diff" can only say *this table changed somehow*,
 and a second, hand-written diff engine per type must rediscover what — that
 is precisely the 1,034 lines of
-[table.diff.ts](../../packages/pg-delta/src/core/objects/table/table.diff.ts)
+`table.diff.ts`
 today, see §8.7.)
 
 Deltas — not statements, not class instances — are also what plans persist:
@@ -352,11 +365,11 @@ CI the day it is written.
 
 This replaces, outright: 21 per-type diff functions, 106 change classes, the
 five per-`objectType` dispatch switches
-([catalog.diff.ts:47](../../packages/pg-delta/src/core/catalog.diff.ts),
-[change-utils.ts:10](../../packages/pg-delta/src/core/change-utils.ts),
-[fingerprint.ts:88](../../packages/pg-delta/src/core/fingerprint.ts),
-[change.types.ts:65](../../packages/pg-delta/src/core/change.types.ts),
-[file-mapper.ts:59](../../packages/pg-delta/src/core/export/file-mapper.ts)),
+(`catalog.diff.ts:47`,
+`change-utils.ts:10`,
+`fingerprint.ts:88`,
+`change.types.ts:65`,
+`file-mapper.ts:59`),
 and the per-type privilege/comment/security-label wrappers — today 256
 files / 31,162 LOC of source in `objects/` alone.
 
@@ -381,7 +394,7 @@ graph like everything else.
 Failure-mode analysis is the argument for avoidance over repair: with
 repair, a new cycle class means a wrong or unsortable plan in production and
 a new hand-written breaker (the current registry —
-[cycle-breakers.ts](../../packages/pg-delta/src/core/sort/cycle-breakers.ts):
+`cycle-breakers.ts`:
 `tryBreakFkCycle`, `tryBreakPublicationColumnCycle`,
 `tryBreakPublicationFkConstraintDropCycle` — each added after a
 field-discovered cycle; the codebase even fights itself, with post-diff
@@ -476,9 +489,9 @@ Sequential, lock-aware, segmented: actions self-declare transactionality, so
 the executor groups maximal transactional runs and isolates the exceptions
 (`CREATE INDEX CONCURRENTLY`, …) instead of today's all-or-nothing single
 concatenated script
-([apply.ts:125-131](../../packages/pg-delta/src/core/plan/apply.ts), with its
+(`apply.ts:125-131`, with its
 own `TODO` admitting the gap at
-[apply.ts:122](../../packages/pg-delta/src/core/plan/apply.ts)). Parallel DDL
+`apply.ts:122`). Parallel DDL
 execution stays rejected — `ACCESS EXCLUSIVE` locks make it a deadlock
 machine, and the transaction is the atomicity contract. Per-statement error
 attribution replaces the joined-string megaquery.
@@ -654,7 +667,7 @@ workflow exists to provide, and a regression in the rewrite.
 trusted component. pg-topo is loaded through a guarded dynamic `import()` and
 declared an *optional peer dependency*; merely importing the core never pulls
 the libpg-query WASM parser — only calling the `@supabase/pg-delta/sql-order`
-subpath does. Reorder is always-on in pg-delta-next's own CLI (`schema apply`,
+subpath does. Reorder is always-on in pg-delta's own CLI (`schema apply`,
 with `--no-reorder` to reproduce raw file granularity); other consumers
 (supabase/cli) opt in by adding pg-topo themselves and calling the subpath.
 When the peer is absent the subpath throws a typed `ReorderUnavailableError`
@@ -745,13 +758,13 @@ is imported as data and SQL; none of its *mechanisms* — and none of its
 
 | Retired | Replaced by |
 |---|---|
-| Document-shaped catalog models (columns/constraints/privileges/labels nested in `dataFields`, [table.model.ts:211-230](../../packages/pg-delta/src/core/objects/table/table.model.ts)) | normalized fact rows with parent relations + Merkle rollups (§3.1) |
+| Document-shaped catalog models (columns/constraints/privileges/labels nested in `dataFields`, `table.model.ts:211-230`) | normalized fact rows with parent relations + Merkle rollups (§3.1) |
 | 21 per-type diff functions + 106 change classes (256 files / 31,162 LOC) | rollup-guided generic diff + rule table (§3.3–3.4) |
 | Per-type comment/privilege/security-label implementations (the "scope" axis) | one global rule per metadata kind over target-referencing facts (§3.4) |
 | Two-phase sort + `invalidates` side channel + cycle breakers + dependency filter + post-diff normalization-as-repair | one mixed graph, decomposition by construction, cosmetic compaction (§3.5–3.6) |
-| Round-based declarative apply ([round-apply.ts](../../packages/pg-delta/src/core/declarative-apply/round-apply.ts)) | shadow-DB elaboration through the one plan path (§3.2) |
+| Round-based declarative apply (`round-apply.ts`) | shadow-DB elaboration through the one plan path (§3.2) |
 | pg-topo in the apply path | pg-topo as dev-experience layer (§4.4) |
-| String stable-ID re-parsing ([expand-replace-dependencies.ts:419-425](../../packages/pg-delta/src/core/expand-replace-dependencies.ts)) | typed `StableId` (§3.1) |
+| String stable-ID re-parsing (`expand-replace-dependencies.ts:419-425`) | typed `StableId` (§3.1) |
 | `JSON.stringify` equality + triple extraction per apply | content hashes + single-snapshot extraction + proof-as-opt-in (§3.1, §3.2, §3.7) |
 | Hand-written per-type test matrix as primary safety net; byte-level SQL snapshots | one proof harness over the seed scenario corpus + generative exploration + semantic plan assertions (§4.3) |
 
@@ -785,7 +798,7 @@ is imported as data and SQL; none of its *mechanisms* — and none of its
   a routine after a table its body references. The strategy is layered:
   plans run with `check_function_bodies = off` (the diff path already
   emits this —
-  [create.ts:350](../../packages/pg-delta/src/core/plan/create.ts)); PL/pgSQL
+  `create.ts:350`); PL/pgSQL
   is late-bound at runtime, so missing edges rarely matter for it;
   SQL-language ordering gaps surface in the proof loop as a failed clone
   apply — before production, not in it; and the dev layer (§4.4) can lint
@@ -808,9 +821,9 @@ removes. (Findings are cited elsewhere in this document as §8.1–§8.7.)
 1. **No shared extraction snapshot** (consistency bug) — consequence of
    extraction being a query fan-out rather than a state capture. §3.2.
 2. **O(n²)-flavored equality and sort costs**
-   ([base.model.ts:70-75](../../packages/pg-delta/src/core/objects/base.model.ts),
-   [graph-builder.ts:26](../../packages/pg-delta/src/core/sort/graph-builder.ts),
-   [topological-sort.ts:33-52](../../packages/pg-delta/src/core/sort/topological-sort.ts))
+   (`base.model.ts:70-75`,
+   `graph-builder.ts:26`,
+   `topological-sort.ts:33-52`)
    — consequence of state not being content-addressed and the graph being
    rebuilt as repair. §3.1, §3.6.
 3. **31K LOC of structurally identical per-type code** — consequence of
@@ -826,15 +839,15 @@ removes. (Findings are cited elsewhere in this document as §8.1–§8.7.)
    cannot be checked per-run. §3.7.
 7. **Three granularities that don't agree.** Equality lives at the document
    level (`dataFields` nests columns, constraints, privileges, labels —
-   [table.model.ts:211-230](../../packages/pg-delta/src/core/objects/table/table.model.ts)),
+   `table.model.ts:211-230`),
    dependencies live at the sub-entity level (`pg_depend` targets columns
    and constraints), and actions live at the statement level. Most
    hand-written code is translation between the three:
-   [table.create.ts:36-43](../../packages/pg-delta/src/core/objects/table/changes/table.create.ts)
+   `table.create.ts:36-43`
    re-enumerates column IDs out of the nested array so the graph can see
    them; the graph builder maintains reverse multimaps to map IDs back onto
    changes; and the 1,034 lines of
-   [table.diff.ts](../../packages/pg-delta/src/core/objects/table/table.diff.ts)
+   `table.diff.ts`
    exist to re-discover *which nested part* of a "changed" document actually
    changed — a second, per-type diff engine inside each document. The fact
    base removes the translation by removing the disagreement: one

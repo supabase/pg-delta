@@ -121,6 +121,43 @@ import { extract } from "../src/extract/extract.ts";
 
 Use `bun:test` with testcontainers for PostgreSQL validation. Located in `packages/pg-topo/test/`.
 
+- `test/global-setup.ts` is preloaded to pull Docker images.
+- `test/support/postgres/postgres-container.ts` owns container lifecycle (Bun's native `SQL` class).
+- Unit tests pass inline SQL strings to `analyzeAndSort(sql: string[])`.
+- Integration tests use `analyzeAndSortFromFiles(roots)` or `analyzeAndSortFromRandomizedStatements` for filesystem fixtures.
+
+## pg-topo internals
+
+A 6-stage pipeline: **parse → classify → extract → build graph → topological sort → result**.
+
+| Directory | Responsibility |
+|---|---|
+| `src/ingest/parse.ts` | SQL content parsing (plpgsql-parser), no filesystem |
+| `src/classify/` | Statement classification (40 types) |
+| `src/extract/` | Dependency extraction from the AST |
+| `src/graph/` | Graph building + topological sort (Kahn's algorithm) |
+| `src/annotations/` | `-- pg-topo:` comment directive parsing |
+| `src/model/` | Core types and `ObjectRef` identity |
+| `src/from-files.ts` | Filesystem adapter (discovery + read, delegates to core) |
+| `src/ingest/discover.ts` | `.sql` discovery — used only by the from-files adapter |
+
+Cyclic input is not an error: the sort falls back to a deterministic cycles-last
+order and reports `CYCLE_DETECTED`, which callers **must** handle before
+executing the result directly.
+
+```typescript
+import { analyzeAndSort, analyzeAndSortFromFiles } from "@supabase/pg-topo";
+
+// Pure library (no filesystem)
+const { ordered, diagnostics, graph } = await analyzeAndSort([
+  "create table app.users(id int primary key);",
+  "create view app.user_ids as select id from app.users;",
+]);
+
+// Filesystem adapter (discovers and reads .sql files)
+const result = await analyzeAndSortFromFiles(["./sql/"]);
+```
+
 ## Changesets
 
 All code changes that affect package behavior must include a changeset. **When making a fix, feat, or any user-facing change (patch/minor/major), add a changeset** — do not merge or consider the work complete without one.

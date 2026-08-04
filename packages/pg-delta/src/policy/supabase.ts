@@ -223,12 +223,12 @@ export const supabasePolicy: Policy = {
   // represents "empty" on a Supabase instance; facts present-and-identical in
   // it are subtracted before diffing (resolveBaseline → plan options.baseline),
   // so platform-managed objects are invisible without a filter rule per object.
-  // No Supabase baseline snapshot is committed — DELIBERATELY: the baseline is
-  // deferred to post-v1 (decision: docs/roadmap/v1-evidence.md Gate 5; backlog:
-  // docs/roadmap/post-v1.md "Supabase baseline snapshot"), so this policy does
+  // No Supabase baseline snapshot is committed — DELIBERATELY (decision +
+  // rationale + the prove-side wiring it still needs:
+  // docs/roadmap/backlog.md "Supabase baseline snapshot"), so this policy does
   // NOT declare one — a declared-but-unresolved baseline fail-fasts (review
   // finding 3) rather than being silently ignored. The `filter` rules below are
-  // the v1 mechanism for hiding platform objects; when the baseline snapshot
+  // the mechanism for hiding platform objects; when the baseline snapshot
   // lands, re-add `baseline: "supabase-baseline"` here and resolveBaseline will
   // subtract it. Generate with:
   //   bun run scripts/generate-supabase-baseline.ts <db-url> <pg-major>
@@ -458,7 +458,7 @@ export const supabasePolicy: Policy = {
     // references (ownership, grants) still resolve at plan time. Trade-off,
     // accepted: user-customized role config ON `postgres` (e.g. a bespoke
     // `search_path`) no longer round-trips under cluster scope; the committed
-    // Supabase baseline (post-v1, docs/roadmap/post-v1.md) is the mechanism
+    // Supabase baseline (post-v1, docs/roadmap/backlog.md) is the mechanism
     // that can distinguish platform-shipped from user-customized role state.
     {
       match: {
