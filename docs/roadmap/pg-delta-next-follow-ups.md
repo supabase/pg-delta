@@ -11,6 +11,17 @@ Severity legend: **P1** correctness/safety, **P2** contract/coverage gap,
 
 ## P1 — correctness & safety
 
+### Column type change on an identity / generated column emits DDL Postgres rejects — 🔴 open, shipped regression
+
+A column TYPE change on a `GENERATED … AS IDENTITY` or `GENERATED ALWAYS AS (…)
+STORED` column produces a plan that hard-fails at apply — widening an identity PK
+from `int` to `bigint` is the common case. Two independent causes, both
+reproduced. It is a **regression** against the pre-promotion engine, which guarded
+the same path, and it is live in the published alpha. No corpus scenario covers
+it. Full evidence, disposition and fix shape in
+[Cutover-concerns review triage](#cutover-concerns-review-triage-2026-08-04)
+below.
+
 ### Co-located shadow can execute cluster-global DDL against the live cluster — ✅ core hole fixed in this PR
 
 `packages/pg-delta-next/src/frontends/load-sql-files.ts` applies each file inside
@@ -649,3 +660,250 @@ round's finding was locally valid, but the sum re-litigated the writer's
 contract one exotic corner at a time. When a bot's findings drift from the
 issue's scope — or start finding bugs only in the previous round's fix — stop
 patching, decide the contract explicitly, and record it here.
+
+## Cutover-concerns review triage (2026-08-04)
+
+Four findings raised as possible cutover blockers, researched against the tree at
+`13c38b2a`, then re-verified on `9fc1c219` (after the #378 docs reorg, which
+moved several of the citations below). Each was checked for (a) is it live in
+code, (b) is it covered by a test, and (c) **did the pre-promotion engine handle
+it** — the last one is what separates a regression users feel from a blind spot
+they already live with. The old engine's source is at
+`fff40876^:packages/pg-delta/src/**` (promotion commit `f9b6cbe2`).
+
+**Timing note.** The package cutover already shipped — `backlog.md` §"✅ Cutover"
+records the legacy engine removed and the clean-room engine published as a
+breaking-change alpha under the same name (#299). So finding 1 is not a gate on
+an upcoming event: it is a **regression already in a published alpha**, and the
+remaining consumer-facing adoption is what it should hold up. Read "blocker"
+below as "fix before this engine is recommended to consumers", not "fix before
+promotion".
+
+Outcome: **one blocker (two bugs), two record-only exclusions, one non-finding,
+one deferred investment.** Everything except the blocker is at-or-better than the
+previous version.
+
+| # | Finding | State | vs. pre-promotion engine | Disposition |
+| --- | --- | --- | --- | --- |
+| 1a | Unconditional `DROP DEFAULT` in the type-change sandwich | reproduced | **regression** | **blocker** |
+| 1b | Identity `SET MAXVALUE` ordered before the TYPE widening | reproduced (new) | **regression** | **blocker** (same migration) |
+| 2 | `pg_parameter_acl` silently dropped | real, untracked | shared pre-existing | record + probe |
+| 3 | `relam` / `reltablespace` not extracted | real, already Wave 3 | shared pre-existing | record only |
+| 4 | Identity-owned sequence grants "ordering bug" | **not a bug** | identical in old engine | one COVERAGE line |
+| 5 | No `pg_dump` outside-observer gate | absent (north-star only) | never existed; net improvement | deferred, tracked |
+
+### 1a. Unconditional `DROP DEFAULT` breaks identity and generated columns — 🔴 blocker
+
+`src/plan/rules/tables.ts:266-277` (`column.attributes.type.alter`) emits the
+`DROP DEFAULT` → `TYPE … USING` → `SET DEFAULT` sandwich with only the **last**
+leg guarded:
+
+```ts
+const specs: ActionSpec[] = [
+  { sql: `${target} DROP DEFAULT` },   // ← unconditional
+  typeSpec,
+];
+const desiredDefault = view.childrenOf(fact.id).find((c) => c.id.kind === "default");
+if (desiredDefault) { specs.push({ sql: `${target} SET DEFAULT …` }); }
+```
+
+Identity and generated columns never produce a `default` child fact —
+`src/extract/relations.ts:211` gates it on `!generated && default_expr != null`,
+and an identity column populates no `pg_attrdef` row at all — so the leading
+`DROP DEFAULT` fires against a column that has no default to drop. Postgres
+refuses (`ATExecColumnDefault`, `tablecmds.c`), verified on `postgres:17-alpine`:
+
+```
+ERROR:  42601: column "id" of relation "t_identity" is an identity column
+HINT:   Use ALTER TABLE ... ALTER COLUMN ... DROP IDENTITY instead.
+ERROR:  42601: column "b" of relation "t_gen" is a generated column
+HINT:   Use ALTER TABLE ... ALTER COLUMN ... DROP EXPRESSION instead.
+```
+
+`ALTER COLUMN … TYPE bigint` **alone** succeeds on both and preserves the
+generation semantics, so the correct plan for these columns is just the TYPE leg.
+No guard exists upstream either: dispatch through
+`src/plan/phases/action-emitter.ts:400-413` is unconditional for any attribute
+delta, and the rule's own branches only distinguish foreign tables and pg_depend
+edges.
+
+Reproduced end-to-end via `extract()` → `plan({ renames: "off" })` →
+`renderPlanSql()` against a live container, then replaying `plan.actions` one at a
+time inside a rolled-back transaction. The generated-STORED case
+(`b integer → bigint`) fails on the first action with no confounder.
+
+**Regression.** The old engine computed
+`needsDefaultSafeFlow = columnTypeChanged && mainCol.default !== null`
+(`fff40876^:.../core/objects/table/table.diff.ts:789-819`) and emitted the
+sandwich only when a default actually existed; `AlterTableAlterColumnType`
+(`…/table.alter.ts:629-690`) carried no baked-in `DROP DEFAULT`. It also already
+knew about the interaction in the other direction — `table.diff.ts:824-855`
+sequences `DropIdentity` before default operations with the comment that
+"PostgreSQL rejects SET DEFAULT while the column still has identity metadata".
+So widening an identity PK from `int` to `bigint` works today and breaks after
+cutover.
+
+**Fix shape:** guard the `DROP DEFAULT` on the presence of a `default` child fact
+(mirroring the existing `SET DEFAULT` guard), and route identity/generated columns
+past the sandwich to a bare TYPE change.
+
+### 1b. Identity `SET MAXVALUE` ordered before the TYPE widening — 🔴 blocker (new)
+
+Not part of the original review; surfaced while reproducing 1a. Widening
+`id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY` to `bigint` plans:
+
+```sql
+ALTER TABLE "public"."t" ALTER COLUMN "id" SET MAXVALUE 9223372036854775807;  -- fails first
+ALTER TABLE "public"."t" ALTER COLUMN "id" DROP DEFAULT;                      -- 1a, also fails
+ALTER TABLE "public"."t" ALTER COLUMN "id" TYPE bigint USING "id"::bigint;
+```
+
+The bound change is emitted by the `identity.alter` rule and the type change by
+`type.alter`, with no co-ordering between them, so the new `bigint` MAXVALUE is
+set while the backing sequence is still `integer`:
+`out of range for sequence data type integer`. Fixing 1a alone leaves the
+migration broken — this action fails *first*.
+
+The bound-ordering machinery already exists and already handles a sibling hazard:
+`src/plan/rules/helpers.ts:286-306` sequences bound moves to avoid a transient
+`min > max`, pinned by `src/plan/identity-options.test.ts:104-127`. It just has no
+notion of the column-type interaction. Widening must land **after** the TYPE
+change; narrowing **before** it. Worth checking whether the two rules should
+co-order via `consumes`/`releases` rather than each emitting independently.
+
+### Why neither 1a nor 1b was caught — coverage, not a vacuous proof
+
+Both are **planner** bugs, and the proof loop executes the plan — a corpus
+scenario would have failed on the first apply. The gap is scenario coverage: of
+321 corpus scenarios, none changes the type of an identity or generated column.
+`identity-operations--sequence-options`, `identity-operations--alter-bounds` and
+`sequence-operations--serial-and-identity-transition` vary options/bounds only;
+`alter-table--generated-column` changes the generated *expression*, not the type;
+`column-type-change` and `alter-table--column-type-cast` retype only plain
+columns. This distinction matters for finding 5 below: the existing gates are
+blind to *extraction* gaps, but they are not blind to this.
+
+**RED-first coverage to add:** `corpus/identity-type-widen/{a,b}.sql` and
+`corpus/generated-stored-type-widen/{a,b}.sql`, plus the narrowing direction
+(`bigint → integer`) to exercise the bound-lowering order. Auto-seed suffices for
+the bare identity shape — `INSERT … DEFAULT VALUES` populates the identity from
+its sequence, per `src/proof/prove.ts:364-399` — so seed files are only needed if
+a scenario adds an FK dependent.
+
+### 2. `pg_parameter_acl` is silently dropped, not deliberately excluded — record + probe
+
+`GRANT SET/ALTER ON PARAMETER … TO role` (PG 15+) is invisible end-to-end. No
+occurrence of `pg_parameter_acl` / `ON PARAMETER` anywhere in
+`packages/pg-delta/src` outside the unrelated `load-sql-files.ts:62,113` loader
+refusals. What makes this worse than the other exclusions: it is absent both from
+`packages/pg-delta/COVERAGE.md:104` ("Not modeled (deliberate) — but DETECTED,
+never silently missed") **and** from the 14 probes in `src/extract/unmodeled.ts`,
+so unlike casts/operators/text-search it emits no `unmodeled_kind` diagnostic.
+That section's own title is the contract; this one is silently missed. It is also
+the one gap that would undercut `backlog.md` §"🟢 Publish the scope statement",
+which derives the user-facing scope statement from COVERAGE.md plus the
+`unmodeled_kind` diagnostic — neither of which currently mentions it.
+
+Shared pre-existing gap — the old engine had no occurrences either. Near
+unreachable on managed projects (granting parameter privileges needs superuser,
+which `postgres` is not), so it matters for bare-PG and self-hosted users rather
+than platform branching. **Action:** add an `unmodeled.ts` probe and a
+COVERAGE.md bullet, so it reads as a deliberate exclusion rather than an
+oversight. No extraction/diff work.
+
+### 3. `relam` / `reltablespace` — already recorded in Wave 3, one correction
+
+Confirmed real and confirmed **not matview-specific**: neither `relam` nor
+`reltablespace` is selected anywhere in `src/extract/**`, for any relkind, so
+tables are equally affected. Already tracked above as "table tablespaces"
+(`src/extract/relations.ts:82`) and "table access methods"
+(`src/extract/relations.ts:36`) in
+[Wave 3](#wave-3-re-reviews-of-671a799--5e26a52--more-extract-completeness--replace-cascade);
+this triage adds only that the matview path shares the gap. The `TABLESPACE` /
+`USING <am>` text in `src/frontends/sql-format/formatters.ts:56-63` preserves
+those clauses when re-serializing raw `.sql` input — it does not read them from
+the catalog.
+
+**Correction to the finding as raised:** `reloptions` *is* handled — extracted at
+`src/extract/relations.ts:37` (tables) and `:437` (views/matviews), rendered by
+`src/plan/rules/tables.ts:118-121` and `src/plan/rules/views.ts:27,67,84-87`,
+covered by `src/plan/reloptions.test.ts`. Only AM and tablespace are missing.
+
+Shared pre-existing gap: the old engine extracted tablespace for **indexes** only
+(`fff40876^:.../core/objects/index/index.model.ts:318`); `table.model.ts` carried
+no tablespace or AM field, and `TABLESPACE` / `ACCESS METHOD` appeared only in
+unimplemented doc-comments (`table.alter.ts:54,56`, `table.create.ts:24`). Low
+materiality on Supabase, which exposes neither tablespaces nor alternate access
+methods.
+
+### 4. Identity-owned sequence grants — not a bug, close won't-fix
+
+The hypothesis was that the `pg_depend.deptype = 'i'` anti-join runs in the wrong
+order relative to the metadata push, so ACL facts for an identity backing sequence
+could leak or be orphaned. It does not: the filter is a `NOT EXISTS` in the `WHERE`
+clause of `extractSequences` (`src/extract/relations.ts:390-393`), evaluated inside
+Postgres. The ACL expression (`aclJsonMemberAware(…)`, `:383`) is just another
+column of that already-filtered query, and `pushWithMeta(…)` (`:400-424`) runs once
+per surviving row. An identity-owned sequence's row never reaches JS, so its ACL
+can neither be pushed as a phantom nor stranded — sequence and grants are excluded
+together, consistently. There is no second code path that could push sequence ACLs
+independently.
+
+Identical strategy in the old engine
+(`fff40876^:.../core/objects/sequence/sequence.model.ts:189-196`, with the same
+`-- exclude sequences that are tied to an IDENTITY column` comment), so no
+behavior change at cutover. It *is* an undocumented consequence — a GRANT applied
+directly to an identity backing sequence is invisible — which is rare by
+construction, since identity exists precisely so consumers never need sequence
+`USAGE`. **Action:** one COVERAGE.md bullet next to the existing
+"Sequence `last_value`" entry. No code.
+
+### 5. No `pg_dump` outside-observer gate — real, but not the top finding
+
+Confirmed absent: zero hits for `pg_dump` / `pg_dumpall` / "outside observer" /
+"independent extractor" across `packages/pg-delta/src`, `packages/pg-delta/tests`,
+`scripts/`, and every workflow in `.github/workflows/`. The idea exists only in
+`docs/architecture/target-architecture.md:601-610` (§4.3, heading at `:566`),
+restated at `:873` (a stage-2 deliverable: "Extractor fixture ring per PG version;
+pg_dump observer") and `:992` — "the schema dumps of two states the proof calls
+equal must also be equal; a divergence is an extractor gap found by a tool this
+project does not maintain". The old-engine differential harness was deliberately
+deleted (`8761ab89`, `d5785e20`; recorded under "Documented, by-design" above),
+and since the promotion there is no separate engine left to diff against. So the
+structural criticism is accurate: the proof loop re-extracts through the same
+queries and compares unextracted state equal on both sides, and no gate observes
+the database through a channel pg-delta does not control.
+
+**The sharpest form of this finding is a bookkeeping one.** The same doc's
+stage-10 row (`:881`) defines the parity bar the cutover shipped against as "full
+corpus green; differential clean-or-explained; generative soak quota met;
+**extractor ring green on all supported PG versions**". The differential harness
+was since deleted and the extractor ring's observer half was never built, yet
+`backlog.md` records Cutover as ✅ and leaves only soak / shakedown / scope
+statement under §Validation — so two of the four declared parity-bar gates
+quietly left the checklist rather than being met or explicitly waived. That is
+worth reconciling in `backlog.md` regardless of whether the observer is built.
+
+**Still not a regression, and not the highest-priority finding.** The gate never
+existed, and the old engine had **no proof loop and no corpus at all** —
+validation was hand-written per-feature integration tests (`git ls-tree -r
+fff40876^:packages/pg-delta` shows only `src/**/*.test.ts` plus
+`tests/integration/*.test.ts`, no state+data-preservation loop). Validation
+strength went up sharply at promotion. And of the four findings raised, only 2 and
+3 are the class an outside observer would catch; 1a/1b are planner bugs the
+existing proof loop catches the moment a scenario exists. So the cheap, high-yield
+move is corpus coverage of the identity/generated matrix, and the observer ring is
+a deliberate deferral rather than a gate to build first.
+
+**Shape when picked up:** add a third assertion to the corpus proof — when the
+proof calls two states equal, `pg_dump --schema-only` of both must also match. The
+`pg_dump` binary is already in the test containers; the real work is a normalizer
+for dump ordering and comment noise, which is why it is deferred. Home for the
+entry is `backlog.md` §"Validation — run the gates to green at scale", which
+currently has no extractor-ring item.
+
+**Residual-risk line for the status update:** extraction fidelity is guarded today
+by fixture tests and the `unmodeled.ts` probe ring, not by an independent observer;
+known unmodeled state is enumerated in COVERAGE.md (plus findings 2–4 above), and
+unknown extraction gaps remain undetectable by either existing gate. That is
+unchanged from the previous engine, which had strictly less validation.
