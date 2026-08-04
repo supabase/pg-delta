@@ -11,7 +11,8 @@ performance, then DX.
 - **[pg-delta-next-follow-ups.md](pg-delta-next-follow-ups.md)** — known pitfalls
   and per-PR review triage, ranked P1–P3. This is the live correctness ledger:
   anything deliberately deferred from a review lands here rather than being
-  silently dropped.
+  silently dropped (including the 2026-08 old-engine differential-review /
+  cutover triage).
 - **[extension-intent-phase-b.md](extension-intent-phase-b.md)** — full design for
   replaying stateful-extension intent on a from-scratch rebuild (blocked on a
   format decision).
