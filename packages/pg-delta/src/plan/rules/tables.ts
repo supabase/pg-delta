@@ -12,6 +12,7 @@ import {
   identityOptionsClause,
   identitySequenceId,
   identitySequenceNameClause,
+  isNarrowingIdentityTypeChange,
   p,
   reloptionsAlterSpecs,
   renameRule,
@@ -238,10 +239,25 @@ export const tableRules: Record<string, KindRules> = {
     attributes: {
       type: {
         // delta-set shape: defaults can't be cast through a type change, so
-        // the change is sandwiched DROP DEFAULT → TYPE … USING → SET DEFAULT
-        alter: (fact, _from, to, view, sourceView) => {
+        // the change is sandwiched DROP DEFAULT → TYPE … USING → SET DEFAULT.
+        // Identity and generated columns take neither bookend (they can't hold a
+        // default and PostgreSQL rejects the statements outright) — see below.
+        alter: (fact, from, to, view, sourceView) => {
           const { schema, table, column } = columnRef(fact);
           const target = `ALTER TABLE ${rel(schema, table)} ALTER COLUMN ${qid(column)}`;
+          // `fact` is the DESIRED-side column. Identity add/drop deltas land on
+          // this same fact and the differ emits a fact's attributes
+          // ALPHABETICALLY (`identity` < `type`), which the topo tie-break
+          // preserves — so by the time these statements run the column's
+          // identity state is already the DESIRED one. Gate identity-sensitive
+          // statements on `desiredIdentity`, not the source.
+          const sourceColumn = sourceView.get(fact.id) ?? fact;
+          const sourceIdentity = sourceColumn.payload["identity"] ?? null;
+          const desiredIdentity = fact.payload["identity"] ?? null;
+          // `generated` stays SOURCE-side: a generatedExpr change routes through
+          // a column replace, so whenever `type.alter` runs at all the source
+          // and desired generated-ness are necessarily the same.
+          const sourceGenerated = sourceColumn.payload["generatedExpr"] != null;
           // Foreign tables have no local storage, so PostgreSQL rejects the
           // USING cast clause ("<rel> is not a table", 42809) — it would force a
           // rewrite. The plain TYPE change is metadata-only and carries no
@@ -255,18 +271,61 @@ export const tableRules: Record<string, KindRules> = {
           // dropped in extract), so a plain widening leaves both sets empty.
           const consumes = dependencyConsumes(view, fact.id);
           const releases = dependencyConsumes(sourceView, fact.id);
-          const typeSpec: ActionSpec = isForeign
-            ? { sql: `${target} TYPE ${str(to)}` }
-            : {
-                sql: `${target} TYPE ${str(to)} USING ${qid(column)}::${str(to)}`,
-                rewriteRisk: true,
-              };
+          // A generated column also rejects the USING clause ("cannot specify
+          // USING when altering type of generated column") — PostgreSQL
+          // recomputes the value from the generation expression. That still
+          // rewrites the table, so rewriteRisk stays (unlike the foreign case).
+          const usingCast =
+            isForeign || sourceGenerated
+              ? ""
+              : ` USING ${qid(column)}::${str(to)}`;
+          const typeSpec: ActionSpec = {
+            sql: `${target} TYPE ${str(to)}${usingCast}`,
+            ...(isForeign ? {} : { rewriteRisk: true }),
+          };
           if (consumes.length > 0) typeSpec.consumes = consumes;
           if (releases.length > 0) typeSpec.releases = releases;
-          const specs: ActionSpec[] = [
-            { sql: `${target} DROP DEFAULT` },
-            typeSpec,
-          ];
+          const specs: ActionSpec[] = [];
+          // DROP DEFAULT is a harmless no-op on a plain column that has none,
+          // but PostgreSQL REJECTS it on an identity column ("… is an identity
+          // column") or a generated column ("… is a generated column") whether
+          // or not a default exists — and neither kind can carry one anyway.
+          // The identity side reads DESIRED (see above): a plain column that
+          // gains identity in this same plan is ALREADY an identity column here,
+          // and an identity column that loses it is already plain (so the no-op
+          // is emitted, harmlessly, after DROP IDENTITY).
+          if (desiredIdentity == null && !sourceGenerated) {
+            specs.push({ sql: `${target} DROP DEFAULT` });
+          }
+          // An identity column's implicit sequence is typed after the column, so
+          // retyping moves the column type AND the identity bounds. Both deltas
+          // land on the SAME fact with no edge between them, so `identity.alter`
+          // skips the bounds when a `type` delta is present and `type.alter`
+          // positions that ONE chained-SET statement (never split — see
+          // identityOptionAlterSpecs) relative to the TYPE by direction:
+          //   - WIDENING (or an unrecognised type pair): AFTER. The desired
+          //     bounds may exceed the old type's range, so setting them first
+          //     fails; PostgreSQL re-derives an at-type-max bound from the new
+          //     type and the explicit SET then converges the exact values.
+          //   - NARROWING: BEFORE. An explicit bound that overflows the new type
+          //     makes the retype itself fail ("MAXVALUE (5000000000) is out of
+          //     range for sequence data type integer"). Setting the bounds first
+          //     is always valid here because the desired values fit the desired
+          //     (narrower) type, which is a subset of the old type's range.
+          // Any RESTART rides along with the statement wherever it lands — the
+          // restart target is the desired START, inside the desired range.
+          const boundSpecs =
+            sourceIdentity != null && desiredIdentity != null
+              ? identityOptionAlterSpecs(
+                  target,
+                  identityOptions(sourceIdentity),
+                  identityOptions(desiredIdentity),
+                )
+              : [];
+          const narrowing = isNarrowingIdentityTypeChange(str(from), str(to));
+          if (narrowing) specs.push(...boundSpecs);
+          specs.push(typeSpec);
+          if (!narrowing) specs.push(...boundSpecs);
           const desiredDefault = view
             .childrenOf(fact.id)
             .find((c) => c.id.kind === "default");
@@ -298,7 +357,7 @@ export const tableRules: Record<string, KindRules> = {
         },
       },
       identity: {
-        alter: (fact, from, to) => {
+        alter: (fact, from, to, _view, sourceView) => {
           const { schema, table, column } = columnRef(fact);
           const target = `ALTER TABLE ${rel(schema, table)} ALTER COLUMN ${qid(column)}`;
           const fromSeq = identitySequenceId(from);
@@ -343,14 +402,23 @@ export const tableRules: Record<string, KindRules> = {
             });
           }
           // a parameter-only change (START/INCREMENT/CACHE/MIN/MAX/CYCLE) is an
-          // in-place ALTER COLUMN SET — no sequence rebuild
-          specs.push(
-            ...identityOptionAlterSpecs(
-              target,
-              identityOptions(from),
-              identityOptions(to),
-            ),
-          );
+          // in-place ALTER COLUMN SET — no sequence rebuild.
+          // A concurrent `type` delta on the same column owns these bounds: they
+          // must run AFTER the type change (the backing sequence is retyped with
+          // the column), and `type.alter` folds them in there. Emitting them here
+          // too would run them first — while the sequence still has the old type.
+          const sourceType = sourceView.get(fact.id)?.payload["type"];
+          const retyped =
+            sourceType !== undefined && sourceType !== p(fact, "type");
+          if (!retyped) {
+            specs.push(
+              ...identityOptionAlterSpecs(
+                target,
+                identityOptions(from),
+                identityOptions(to),
+              ),
+            );
+          }
           return specs;
         },
       },

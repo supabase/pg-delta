@@ -184,6 +184,26 @@ const IDENTITY_TYPE_MAX: Record<string, string> = {
   bigint: "9223372036854775807",
 };
 
+/** true when an identity column's type change NARROWS its value range (the new
+ *  type's max is strictly below the old one's). Used to position the identity
+ *  bounds relative to the `ALTER COLUMN … TYPE`: narrowing must set the bounds
+ *  FIRST (an explicit bound that overflows the new type makes the retype itself
+ *  fail — "MAXVALUE … is out of range for sequence data type integer"), while
+ *  widening must set them AFTER (the desired values need not fit the old type).
+ *  Returns false when either type is unmapped, keeping the widening/after
+ *  behavior as the conservative default. Maxima reach
+ *  9223372036854775807, past Number's safe-integer range, so compare with
+ *  BigInt. */
+export function isNarrowingIdentityTypeChange(
+  fromType: string,
+  toType: string,
+): boolean {
+  const fromMax = IDENTITY_TYPE_MAX[fromType];
+  const toMax = IDENTITY_TYPE_MAX[toType];
+  if (fromMax === undefined || toMax === undefined) return false;
+  return BigInt(toMax) < BigInt(fromMax);
+}
+
 /** true when the identity sequence carries exactly the parameters PostgreSQL
  *  picks for a bare `GENERATED … AS IDENTITY` of the given column type, so the
  *  clause can stay bare (no churn for ordinary identity columns). */

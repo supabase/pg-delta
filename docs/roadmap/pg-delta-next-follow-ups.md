@@ -649,3 +649,35 @@ round's finding was locally valid, but the sum re-litigated the writer's
 contract one exotic corner at a time. When a bot's findings drift from the
 issue's scope — or start finding bugs only in the previous round's fix — stop
 patching, decide the contract explicitly, and record it here.
+
+## PR #379 review triage (Codex) — identity columns through a type change
+
+PR #379 made identity/generated columns survive a `type` change. Two Codex P1
+findings were fixed in the PR (the `DROP DEFAULT` gate now reads the *desired*
+identity side; identity bounds move *before* the `TYPE` when narrowing — both
+covered by corpus scenarios `identity-operations--add-identity-with-type-change`
+and `identity-operations--widen-identity-explicit-bounds`). Two adjacent corners
+are **deliberately deferred** — they are pre-existing ordering gaps that the PR
+merely brings within reach, not defects in what it adds. If an automated review
+re-flags one, link here instead of re-fixing.
+
+- **Adding identity to a NULLABLE plain column fails.** Identity columns are
+  implicitly `NOT NULL`, so the plan carries both an `identity` add and a
+  `notNull` set. The differ emits a fact's attributes alphabetically
+  (`identity` < `notNull`), so `ADD … AS IDENTITY` runs first and PostgreSQL
+  rejects it on a nullable column. This is the same emission-order gap as the
+  fixed `type` case, but fixing it needs the `notNull` rule to know an identity
+  add is pending (or an ordering edge between two attribute deltas on one fact)
+  — a broader change than this PR's scope. Workaround: declare the source column
+  `NOT NULL`. The new corpus scenario does exactly that, deliberately.
+
+- **Plain column → identity with inline bounds exceeding the CURRENT column
+  type fails.** `ADD … AS IDENTITY (MAXVALUE 5000000000)` on an `integer` column
+  that is *also* widening to `bigint` in the same plan is rejected at the ADD:
+  inline identity options are validated against the not-yet-retyped column, and
+  the `identity` delta orders before the `type` delta. The narrowing fix does
+  not cover this because there are no source bounds to move — the bounds arrive
+  inline with the ADD. A fix would have to split the ADD into a bare
+  `ADD … AS IDENTITY` plus a post-retype chained `SET`, i.e. teach
+  `identity.alter` about a concurrent widening; deferred until a real schema
+  needs it.
