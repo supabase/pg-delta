@@ -2,8 +2,9 @@
 
 `@supabase/pg-delta` is now a clean-room rebuild. It kept the package name and
 the `pgdelta` binary, but the CLI, the public API, and every persisted artifact
-format are new — nothing carries over for compatibility. The legacy engine
-remains on npm as `1.0.0-alpha.31` and in git history.
+format are new — nothing carries over for compatibility. The legacy engine's
+last release is `1.0.0-alpha.33`, which remains installable from npm; its
+source is in git history.
 
 This guide maps the old surface onto the new one.
 

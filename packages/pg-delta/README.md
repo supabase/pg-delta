@@ -10,7 +10,7 @@ PostgreSQL instance (a live database, or a shadow database populated from your
 > **Status:** published as a breaking-change alpha (`1.0.0-alpha.x`). This is a
 > clean-room rebuild that replaced the legacy engine outright — the CLI, the
 > public API, and the persisted artifact formats are all new. Nothing carries
-> over. Upgrading from `1.0.0-alpha.31` or earlier? See [MIGRATION.md](./MIGRATION.md).
+> over. Upgrading from `1.0.0-alpha.33` or earlier? See [MIGRATION.md](./MIGRATION.md).
 
 ## Install
 
