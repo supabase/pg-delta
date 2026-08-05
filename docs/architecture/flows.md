@@ -45,7 +45,9 @@ Three consequences you will lean on constantly while debugging:
 
 A delta-level filter ("just don't emit this statement") makes the proof drift:
 the plan converges to something the proof doesn't expect. This is why
-`resolveView` exists and why it is called from four places that must agree.
+`resolveView` exists, and why the four state-changing commands reach it through
+a single sealed wrapper (`reconstructManagedView`, §3) that they must all agree
+on.
 
 ---
 
@@ -75,17 +77,20 @@ flowchart LR
 | `apply --plan` | ●(gate) | ●(gate) | | | ● | |
 | `prove` | ●(clone) | ● | ● | | ●(clone) | ● |
 | `snapshot` | ● | | | | | |
-| `drift` | ●+file | ●● | ● | | | |
+| `drift` | ●+file | | ● | | | |
 | `render` | | | | | | |
 | `schema export` | ● | ● | ●(vs ∅) | ●(vs ∅) | | |
 | `schema apply` | ●(target)+●(shadow) | ●● | ● | ● | ● | |
 | `schema lint` | | | | | | |
 
-●● = runs on two states. Note the two surprises worth remembering:
+●● = runs on two states. Note the three surprises worth remembering:
 
 - **`schema export` is a plan.** It is literally `plan(pristine → factBase)` and
   then a file-routing pass. There is no separate "serializer".
 - **`render` touches no database.** It reads a plan artifact and writes `.sql`.
+- **`drift` has no view stage at all.** It is the one comparison command that
+  diffs *raw* fact bases. See §10 for why that is correct rather than an
+  oversight.
 
 ---
 
@@ -111,7 +116,7 @@ flowchart TB
         direction TB
         n1["ONE client, ONE txn:<br/>BEGIN REPEATABLE READ READ ONLY"]
         n2["SET LOCAL search_path = pg_catalog<br/>→ every name comes back qualified"]
-        n3["23 family builders in FIXED order<br/>roles → schemas → tables → … → seclabels"]
+        n3["21 family builders in FIXED order<br/>roles → schemas → tables → … → seclabels<br/>+ 2 edge extractors"]
         n4["pg_depend edges sourced ONCE,<br/>set-based resolver (7x faster)"]
         n5["extension handlers on the SAME snapshot<br/>→ managedBy edges"]
         n6["detectUnmodeledKinds()<br/>→ 'I don't model this' diagnostic"]
@@ -180,8 +185,8 @@ sequenceDiagram
 > and structural rollups possible at all.
 >
 > **`_`-prefixed payload keys are non-semantic.** They ride along for the
-> planner but are dropped from the hash (`core/hash.ts:10-16`) and skipped by
-> the differ (`core/diff.ts:71-75`). If you add a payload field that varies by
+> planner but are dropped from the hash (`core/hash.ts:11-15`) and skipped by
+> the differ (`core/diff.ts:74-77`). If you add a payload field that varies by
 > PG version or environment and *don't* prefix it, you get spurious drift on
 > every version. This is a real footgun.
 >
@@ -243,6 +248,9 @@ function**, and that is the function every consumer must call:
 | `provePlan()` | `proof/prove.ts:730` | "did the clone converge to the same view?" |
 | `buildSchemaExport()` | `frontends/schema-export.ts:105` | export must reflect the managed view |
 
+(`auditManagedViewProjection` calls it twice more, on both raw sides — that is
+how it attributes what the projection hid; see the 🟡 note below.)
+
 > ### 🟢 Why it must work this way
 >
 > **A view must be closed under the proof loop.** If a fact is removed from one
@@ -296,7 +304,8 @@ function**, and that is the function every consumer must call:
 
 ## 4. Flow — `pgdelta plan`: deltas × rules → ordered actions
 
-The core intelligence. 610 lines in `plan()` plus four phases.
+The core intelligence. ~350 lines in `plan()` (`plan/plan.ts:262-610`) plus four
+phases.
 
 ### Old vs new
 
@@ -351,7 +360,7 @@ flowchart TB
     P2b --> P2c["drop-root suppression + redirect<br/>(cascadesToChildren, dropRootRedirect)"]
 
     P2c --> P3["③ emitActions — phases/action-emitter.ts:64"]
-    P3 --> P3a["renames → creates (parents first) →<br/>default-priv hygiene → drops →<br/>replaces → in-place alters → owner ALTERs"]
+    P3 --> P3a["renames → replaces → creates (parents first) →<br/>default-priv hygiene → drops →<br/>in-place alters → owner ALTERs<br/><i>EMISSION order only — ④ re-sorts</i>"]
 
     P3a --> P4["④ finalizeActions — phases/action-graph.ts:76"]
     P4 --> P4a["buildActionGraph — internal.ts:31<br/><i>produces/consumes/destroys/releases</i>"]
@@ -392,6 +401,13 @@ And each `ActionSpec` carries the metadata the graph needs — `consumes`,
 > **`rulesFor` throws on an unknown kind** (`plan/rules.ts:201`): *"extend the
 > rule vocabulary"*. Silence is never an option — an unmodeled change fails
 > loudly rather than being dropped.
+>
+> **Emission order is not apply order.** ③ emits in the sequence above purely so
+> `producerOf` is populated correctly — replaces are emitted *before* creates so a
+> replaced parent's `CREATE` registers its inlined children first, and the added
+> loop then suppresses the redundant standalone create of a child the replacement
+> already materialized (`phases/action-emitter.ts:187-193`). Execution order comes
+> entirely from ④'s topo sort. Do not read the emitter as a pipeline.
 >
 > **Identity normalization happens BEFORE diffing, not after.** When a role is
 > renamed, source ids are rewritten into desired-name space so the diff sees one
@@ -987,8 +1003,8 @@ flowchart LR
         s1["--source"] --> s2["ctx.extract (handler-aware)"] --> s3["saveSnapshot(file)"]
     end
     subgraph DRIFT["drift"]
-        d1["--env + --snapshot"] --> d2["extract(env) + loadSnapshot"]
-        d2 --> d3["reconcileSnapshotProfile"] --> d4["resolveView both"] --> d5["diff → exit 0 / 1"]
+        d1["--env + --snapshot"] --> d2["loadSnapshot + extract(env)<br/><i>handler-aware, skipBaseline</i>"]
+        d2 --> d3["reconcileSnapshotProfile"] --> d4["diff(snapshotFb, liveFb)<br/><i>RAW — no managed view</i>"] --> d5["exit 0 / 1"]
     end
     subgraph RENDER["render (NO database)"]
         r1["--plan plan.json"] --> r2["parsePlan"] --> r3["renderPlan: split on the SAME<br/>segmentActions boundaries apply uses"] --> r4["base.sql, base_2.sql, …"]
@@ -1011,6 +1027,23 @@ flowchart LR
 > declaring a baseline is very often being used to capture that very file, so
 > requiring it to pre-exist would be a chicken-and-egg on first capture or
 > regeneration.
+>
+> **`drift` diffs RAW fact bases — it is the one comparison command with no
+> managed view** (`cli/commands/drift.ts:114`, `skipBaseline: true` at `:90-93`).
+> This follows from `snapshot` above: a snapshot is a raw handler-aware capture,
+> so raw-snapshot vs raw-live is **symmetric**, and projecting only the live side
+> would be the actual bug. Handler awareness still has to match (hence
+> `reconcileSnapshotProfile`), because that changes which facts *exist*, not which
+> are managed.
+>
+> **⚠️ `diff` and `drift` therefore run different lenses.** `diff` projects both
+> sides through `resolveView` (§5); `drift` projects neither. Both are "compare
+> two states and print deltas", so the asymmetry is worth holding in your head:
+> `drift` will report platform-schema differences that `diff --profile supabase`
+> hides. That is the intended split — a drift detector wants to see everything,
+> a migration preview wants to see only what it manages — but nothing in the code
+> states it, so don't "fix" one to match the other without deciding this on
+> purpose.
 >
 > **`render` splits on the same `segmentActions` boundaries the executor uses**
 > (`cli/render.ts` → `apply/apply.ts:115`). If it split anywhere else, a
@@ -1080,11 +1113,11 @@ refuse?" questions are answered by this table.**
 | **fingerprint gate** | target drifted since planning | `apply/apply.ts:209-262` |
 | `assertDestructionMetadataIntegrity` | a destroying action claiming `dataLoss:none` | `plan/safety.ts` |
 | `assertDataLossAllowed` | destructive actions without `--allow-data-loss` (derived from **executable actions**, never a serialized count) | `cli/data-loss-safety.ts` |
-| clone endpoint / locality / identity | proving *onto your source* | `cli/commands/prove.ts:357` (`assertProofCloneEndpoint`) |
+| clone endpoint / locality / identity | proving *onto your source* | `cli/commands/prove.ts:358` (`assertProofCloneEndpoint`) |
 | shadow ≠ target (observed identity) | loading declarative SQL into the target | `frontends/schema-plan.ts:303-327` |
 | shadow emptiness | a dirty shadow poisoning desired state | `frontends/load-sql-files.ts:610` |
 | shared-object leak check | roles/memberships polluting a shared cluster | `load-sql-files.ts` (`databaseScratch`) |
-| 25001 raw-retry allowlist | a statement escaping the shadow sandbox | `load-sql-files.ts:56-67` |
+| 25001 raw-retry allowlist | a statement escaping the shadow sandbox | `load-sql-files.ts:55-68` |
 | DML rejection | data statements in a schema directory | `loadSqlFiles` |
 | cluster scope ⇒ isolated shadow | cluster-global DDL on a shared cluster | `schema-plan.ts:288-292` |
 | defaultOwner == current_user | ownership drift on reload | `schema-plan.ts:352-378` |
@@ -1128,7 +1161,7 @@ refuse?" questions are answered by this table.**
 | "Object shows as drift every run" | it's in the managed view on one side only | `projectionAudit` on the plan/verdict → `resolveView` (`policy/policy.ts:924`) |
 | "My change silently didn't happen" | a policy scope rule filtered the delta | `plan.filteredDeltas` + `projectionAudit` reasonCode |
 | "Fingerprint gate fails but nothing changed" | a `referenceOnly` assumed-schema fact moved (by design) | `apply/apply.ts:245-257` — the KNOWN PITFALL note |
-| "Fingerprint differs across two extracts of the same DB" | a non-`_`-prefixed environment-dependent payload field, or search_path | `core/hash.ts:10-16`, `extract/extract.ts:119` |
+| "Fingerprint differs across two extracts of the same DB" | a non-`_`-prefixed environment-dependent payload field, or search_path | `core/hash.ts:11-15`, `extract/extract.ts:119` |
 | "Export emits no `OWNER TO`" | a rebuild re-pruned the retained dangling owner edge | `retainOwnerRoleDangling` (`core/fact.ts:53`) — every rebuild must use it |
 | "Plan throws: no rules for kind X" | new fact kind without a rule | `rulesFor` (`plan/rules.ts:201`) |
 | "Plan throws: cycle" | genuinely cyclic at action grain | `graph.ts:67` — do **not** add a breaker; fix the fact grain / split the action |
