@@ -1273,3 +1273,173 @@ describe("factMatches — edgeTo predicate", () => {
     );
   });
 });
+
+describe("factMatches — partitionOf predicate", () => {
+  // The Realtime shape: a partitioned parent (partitionKey, no bound), a
+  // declarative partition child (partitionBound + parentTable), a legacy
+  // INHERITS child (parentTable but NO bound), and a plain table.
+  const schemaRealtime: StableId = { kind: "schema", name: "realtime" };
+  const parentId: StableId = {
+    kind: "table",
+    schema: "realtime",
+    name: "messages",
+  };
+  const childId: StableId = {
+    kind: "table",
+    schema: "realtime",
+    name: "messages_2026_08_05",
+  };
+  const inheritsChildId: StableId = {
+    kind: "table",
+    schema: "realtime",
+    name: "messages_audit",
+  };
+  const plainId: StableId = {
+    kind: "table",
+    schema: "realtime",
+    name: "schema_migrations",
+  };
+
+  const fb = makeFactBase([
+    { id: schemaRealtime, payload: {} },
+    {
+      id: parentId,
+      parent: schemaRealtime,
+      payload: {
+        partitionKey: "RANGE (inserted_at)",
+        partitionBound: null,
+        parentTable: null,
+      },
+    },
+    {
+      id: childId,
+      parent: schemaRealtime,
+      payload: {
+        partitionKey: null,
+        partitionBound: "FOR VALUES FROM ('2026-08-05') TO ('2026-08-06')",
+        parentTable: { schema: "realtime", name: "messages" },
+      },
+    },
+    {
+      id: inheritsChildId,
+      parent: schemaRealtime,
+      payload: {
+        partitionKey: null,
+        partitionBound: null,
+        parentTable: { schema: "realtime", name: "messages" },
+      },
+    },
+    {
+      id: plainId,
+      parent: schemaRealtime,
+      payload: { partitionKey: null, partitionBound: null, parentTable: null },
+    },
+  ]);
+
+  test("bare {} matches any declarative partition child", () => {
+    expect(factMatches({ partitionOf: {} }, fb.get(childId)!, fb)).toBe(true);
+  });
+
+  test("does not match the partitioned parent", () => {
+    expect(factMatches({ partitionOf: {} }, fb.get(parentId)!, fb)).toBe(false);
+  });
+
+  test("does not match a plain table", () => {
+    expect(factMatches({ partitionOf: {} }, fb.get(plainId)!, fb)).toBe(false);
+  });
+
+  test("does not match a legacy INHERITS child (no partition bound)", () => {
+    expect(
+      factMatches({ partitionOf: {} }, fb.get(inheritsChildId)!, fb),
+    ).toBe(false);
+    expect(
+      factMatches(
+        { partitionOf: { schema: "realtime", name: "messages" } },
+        fb.get(inheritsChildId)!,
+        fb,
+      ),
+    ).toBe(false);
+  });
+
+  test("does not match a fact without a partitionBound payload field", () => {
+    expect(factMatches({ partitionOf: {} }, fb.get(schemaRealtime)!, fb)).toBe(
+      false,
+    );
+  });
+
+  test("parent pinning by schema and name", () => {
+    expect(
+      factMatches(
+        { partitionOf: { schema: "realtime", name: "messages" } },
+        fb.get(childId)!,
+        fb,
+      ),
+    ).toBe(true);
+    expect(
+      factMatches(
+        { partitionOf: { schema: "public", name: "messages" } },
+        fb.get(childId)!,
+        fb,
+      ),
+    ).toBe(false);
+    expect(
+      factMatches(
+        { partitionOf: { name: "events" } },
+        fb.get(childId)!,
+        fb,
+      ),
+    ).toBe(false);
+  });
+
+  test("parent name accepts globs and arrays", () => {
+    expect(
+      factMatches({ partitionOf: { name: "mess*" } }, fb.get(childId)!, fb),
+    ).toBe(true);
+    expect(
+      factMatches(
+        { partitionOf: { name: ["events", "messages"] } },
+        fb.get(childId)!,
+        fb,
+      ),
+    ).toBe(true);
+    expect(
+      factMatches(
+        { partitionOf: { name: ["events", "logs"] } },
+        fb.get(childId)!,
+        fb,
+      ),
+    ).toBe(false);
+  });
+
+  test("composes with not for keep-partitions-only style rules", () => {
+    expect(
+      factMatches({ not: { partitionOf: {} } }, fb.get(childId)!, fb),
+    ).toBe(false);
+    expect(
+      factMatches({ not: { partitionOf: {} } }, fb.get(parentId)!, fb),
+    ).toBe(true);
+  });
+
+  test("filterDeltas excludes partition-child deltas, keeps the parent's", () => {
+    const source = makeFactBase([]);
+    const addParent: Delta = { verb: "add", fact: fb.get(parentId)! };
+    const addChild: Delta = { verb: "add", fact: fb.get(childId)! };
+    const policy: Policy = {
+      id: "realtime-test",
+      filter: [
+        {
+          match: { partitionOf: { schema: "realtime", name: "messages" } },
+          action: "exclude",
+        },
+      ],
+    };
+    const { kept, filtered } = filterDeltas(
+      [addParent, addChild],
+      policy,
+      source,
+      fb,
+    );
+    expect(kept).toEqual([addParent]);
+    expect(filtered).toEqual([addChild]);
+  });
+});

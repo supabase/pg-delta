@@ -118,6 +118,75 @@ describe("attributed projection audit", () => {
     expect(audit.summary.suspicious).toBe(0);
   });
 
+  test("partitionOf exclusion pinned to a concrete parent is acknowledged", () => {
+    const realtimeSchema = schema("realtime");
+    const partitionChild = table("realtime", "messages_2026_08_05");
+    const source = buildFactBase([fact(realtimeSchema)], []);
+    const desired = buildFactBase(
+      [
+        fact(realtimeSchema),
+        fact(
+          partitionChild,
+          {
+            partitionBound: "FOR VALUES FROM ('2026-08-05') TO ('2026-08-06')",
+            parentTable: { schema: "realtime", name: "messages" },
+          },
+          realtimeSchema,
+        ),
+      ],
+      [],
+    );
+    const policy: Policy = {
+      id: "realtime",
+      filter: [
+        {
+          match: { partitionOf: { schema: "realtime", name: "messages" } },
+          action: "exclude",
+        },
+      ],
+    };
+
+    const audit = auditManagedViewProjection(source, desired, { policy });
+    expect(audit.entries).toHaveLength(1);
+    expect(audit.entries[0]).toMatchObject({
+      subject: { kind: "fact", id: partitionChild },
+      classification: "acknowledged",
+    });
+    expect(audit.summary.suspicious).toBe(0);
+  });
+
+  test("bare partitionOf exclusion is a broad class selector: suspicious", () => {
+    const realtimeSchema = schema("realtime");
+    const partitionChild = table("realtime", "messages_2026_08_05");
+    const source = buildFactBase([fact(realtimeSchema)], []);
+    const desired = buildFactBase(
+      [
+        fact(realtimeSchema),
+        fact(
+          partitionChild,
+          {
+            partitionBound: "FOR VALUES FROM ('2026-08-05') TO ('2026-08-06')",
+            parentTable: { schema: "realtime", name: "messages" },
+          },
+          realtimeSchema,
+        ),
+      ],
+      [],
+    );
+    const policy: Policy = {
+      id: "realtime",
+      filter: [{ match: { partitionOf: {} }, action: "exclude" }],
+    };
+
+    const audit = auditManagedViewProjection(source, desired, { policy });
+    expect(audit.entries).toHaveLength(1);
+    expect(audit.entries[0]).toMatchObject({
+      subject: { kind: "fact", id: partitionChild },
+      classification: "suspicious",
+    });
+    expect(audit.summary.suspicious).toBe(1);
+  });
+
   test("identical source and desired produce an empty audit", () => {
     const publicSchema = schema("public");
     const fb = buildFactBase([fact(publicSchema)], []);
