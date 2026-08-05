@@ -1349,9 +1349,9 @@ describe("factMatches — partitionOf predicate", () => {
   });
 
   test("does not match a legacy INHERITS child (no partition bound)", () => {
-    expect(
-      factMatches({ partitionOf: {} }, fb.get(inheritsChildId)!, fb),
-    ).toBe(false);
+    expect(factMatches({ partitionOf: {} }, fb.get(inheritsChildId)!, fb)).toBe(
+      false,
+    );
     expect(
       factMatches(
         { partitionOf: { schema: "realtime", name: "messages" } },
@@ -1383,11 +1383,7 @@ describe("factMatches — partitionOf predicate", () => {
       ),
     ).toBe(false);
     expect(
-      factMatches(
-        { partitionOf: { name: "events" } },
-        fb.get(childId)!,
-        fb,
-      ),
+      factMatches({ partitionOf: { name: "events" } }, fb.get(childId)!, fb),
     ).toBe(false);
   });
 

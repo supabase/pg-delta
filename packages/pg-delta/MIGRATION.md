@@ -77,6 +77,7 @@ paths, no function escape hatches.
 | `{ "*/schema": ["auth", …] }` | `{ match: { schema: ["auth", …] }, action: "exclude" }` |
 | `{ "schema/name": [...] }` | `{ match: { all: [{ kind: "schema" }, { name: [...] }] }, action: "exclude" }` |
 | `{ "*/owner": [...] }` | `{ match: { owner: [...] }, action: "exclude" }` |
+| `{ "table/is_partition": true }` | `{ match: { partitionOf: {} }, action: "exclude" }` — prefer pinning the parent: `{ partitionOf: { schema: "realtime", name: "messages" } }` |
 | `{ objectType: "extension", operation: "create" }` | `{ match: { all: [{ kind: "extension" }, { verb: "add" }] }, action: "include" }` |
 | `or` / `and` / `not` | `any` / `all` / `not` |
 | allow-list evaluation | ordered rules, first-match-wins, no-match = include |
