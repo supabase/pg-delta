@@ -147,9 +147,9 @@ pre-sorts them via [`@supabase/pg-topo`](https://www.npmjs.com/package/@supabase
 
 | | |
 |---|---|
-| Using it — CLI and API | [getting-started.md](../../docs/getting-started.md) |
-| Why it was rebuilt | [overview.md](../../docs/overview.md) |
-| How it works, in depth | [architecture/](../../docs/architecture/) |
+| Using it — CLI and API | [getting-started.md](https://github.com/supabase/pg-toolbelt/blob/main/docs/getting-started.md) |
+| Why it was rebuilt | [overview.md](https://github.com/supabase/pg-toolbelt/blob/main/docs/overview.md) |
+| How it works, in depth | [architecture/](https://github.com/supabase/pg-toolbelt/tree/main/docs/architecture) |
 | What it models, and what it doesn't | [COVERAGE.md](./COVERAGE.md) |
 | Upgrading from the legacy engine | [MIGRATION.md](./MIGRATION.md) |
 

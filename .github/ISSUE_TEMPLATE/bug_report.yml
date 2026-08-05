@@ -70,7 +70,7 @@ body:
       label: PostgreSQL flavor (pg-delta)
       options:
         - "Plain PostgreSQL"
-        - "Supabase (--integration supabase)"
+        - "Supabase (--profile supabase)"
     validations:
       required: false
   - type: input
@@ -87,10 +87,14 @@ body:
       options:
         - plan
         - apply
-        - sync
-        - catalog-export
-        - declarative export
-        - declarative apply
+        - render
+        - prove
+        - diff
+        - drift
+        - snapshot
+        - schema export
+        - schema apply
+        - schema lint
         - other
     validations:
       required: false

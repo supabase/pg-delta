@@ -8,7 +8,7 @@
  *      image, before the service stack bootstraps its own schemas)
  *   3. `supabase start` a temp project pinned to the SAME tag (the "after" —
  *      every service ran its init/migrations)
- *   4. diff bare -> full with pg-delta-next ITSELF (raw plan: cluster-global
+ *   4. diff bare -> full with pg-delta ITSELF (raw plan: cluster-global
  *      roles + memberships + default privileges + auth/storage/realtime schemas
  *      all captured), render it to SQL, and write
  *      tests/fixtures/supabase-base-init/<major>.sql
@@ -20,7 +20,7 @@
  * ACL/role/default-privilege edge case the engine already handles for free.
  *
  * USAGE
- *   cd packages/pg-delta-next
+ *   cd packages/pg-delta
  *   DOCKER_HOST=unix:///.../docker.sock bun run sync-base-images
  *
  * NOTE: not for CI — it needs Docker + the Supabase CLI and produces a committed
@@ -52,7 +52,7 @@ const SUPABASE_BIN = process.env["SUPABASE_BIN"] ?? "supabase";
 const SUPABASE_TAG = SUPABASE_IMAGE.split(":")[1] ?? "17.6.1.135";
 // `supabase start` exposes the local stack DB on 54322 by default; we free that
 // port (step 1) before starting the temp project. Connect as `supabase_admin`
-// on both sides — pg-delta-next extract is current_user-sensitive for owner
+// on both sides — pg-delta extract is current_user-sensitive for owner
 // edges / grants / default privileges, so the diff must be symmetric.
 const FULL_DB_URL = `postgres://supabase_admin:postgres@127.0.0.1:54322/postgres`;
 const pkgRoot = join(import.meta.dir, "..");

@@ -38,7 +38,7 @@ prunes the edge so the object is created applier-owned — no `skipAuthorization
 param. The `CREATE EXTENSION … SCHEMA` clause is likewise derived from the
 extension's `relocatable` fact, not a `skipSchema` param. The only serialize
 param is `concurrentIndexes` (an apply-time strategy). See
-[`../../docs/architecture/managed-view-architecture.md`](../../docs/architecture/managed-view-architecture.md).
+[`managed-view-architecture.md`](https://github.com/supabase/pg-toolbelt/blob/main/docs/architecture/managed-view-architecture.md).
 
 ## Sub-entity facts (granularity is one, §3.1)
 
