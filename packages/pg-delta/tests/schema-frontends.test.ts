@@ -228,7 +228,15 @@ describe("public schema frontends", () => {
     const source = await cluster.createDb("frontend_plan_src");
     const target = await cluster.createDb("frontend_plan_tgt");
     try {
-      await source.pool.query(SCHEMA_SQL);
+      // Include a routine so the plan carries the check_function_bodies
+      // preamble — the planner emits it only for routine-touching plans
+      // (src/plan/preamble.ts), and search_path is filtered from rendered
+      // files, so a table-only plan would render no settings at all.
+      await source.pool.query(`
+        ${SCHEMA_SQL}
+        CREATE FUNCTION app.item_count() RETURNS integer
+          LANGUAGE sql STABLE AS 'SELECT count(*)::integer FROM app.items';
+      `);
       const exported = await buildSchemaExport(source.pool, {
         profile: rawProfile,
         scope: "database",
@@ -257,10 +265,14 @@ describe("public schema frontends", () => {
         const rendered = renderPlanFiles(planned.plan, { allowDrops: true });
         expect(rendered.changes).toBe(true);
         expect(rendered.files.length).toBeGreaterThan(0);
+        // search_path is deliberately excluded from rendered files (dbmate
+        // appends an unqualified bookkeeping INSERT in the same transaction);
+        // the routine above guarantees check_function_bodies survives.
+        expect(
+          planned.plan.preamble.some((s) => s.name === "check_function_bodies"),
+        ).toBe(true);
         for (const file of rendered.files) {
-          if (planned.plan.preamble.length > 0) {
-            expect(file.contents).toContain("set ");
-          }
+          expect(file.contents).toContain("check_function_bodies = off;");
         }
 
         const report = await apply(planned.plan, target.pool, {
