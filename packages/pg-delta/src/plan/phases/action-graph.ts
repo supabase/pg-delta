@@ -13,7 +13,7 @@ import type { Action, SafetyReport } from "../plan.ts";
 import { topoSort } from "../graph.ts";
 import type { StableId } from "../../core/stable-id.ts";
 import type { ApplierCapability } from "../../policy/capability.ts";
-import type { RulesForId } from "../rules.ts";
+import type { FoldHint, RulesForId } from "../rules.ts";
 import {
   actionTieKey,
   buildActionGraph,
@@ -37,7 +37,7 @@ export interface FinalizeInput {
   desired: FactBase;
   renameActionIndices: ReadonlySet<number>;
   /** per-action compaction metadata captured during emission (never persisted). */
-  foldHints: ReadonlyArray<{ foldInto: StableId; clause: string } | undefined>;
+  foldHints: ReadonlyArray<FoldHint | undefined>;
   acceptsFolds: readonly boolean[];
   /** policy-declared roles assumed to exist at apply time (e.g. Supabase
    *  anon/authenticated) — exempt from the missing-requirement guard just like

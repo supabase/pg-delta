@@ -17,7 +17,11 @@ import { type ApplierCapability, canSetOwner } from "../policy/capability.ts";
 import { extensionMemberClosure } from "../policy/view.ts";
 import type { Action, SafetyReport } from "./plan.ts";
 import { ruleFlag } from "./rule-flags.ts";
-import { defaultRulesForId, type RulesForId } from "./rules.ts";
+import {
+  defaultRulesForId,
+  type FoldHint,
+  type RulesForId,
+} from "./rules.ts";
 import { renderGrantSql } from "./rules/helpers.ts";
 import { schemaCreateSql } from "./rules/schemas.ts";
 
@@ -348,7 +352,7 @@ export function compactColumnFolds(
   orderedActions: readonly Action[],
   order: readonly number[],
   edges: ReadonlyArray<[number, number]>,
-  foldHints: ReadonlyArray<{ foldInto: StableId; clause: string } | undefined>,
+  foldHints: ReadonlyArray<FoldHint | undefined>,
   acceptsFolds: readonly boolean[],
   positionOf: readonly number[],
   foldConstraints?: { exclude?: ReadonlySet<string> },
@@ -375,18 +379,22 @@ export function compactColumnFolds(
     const action = orderedActions[pos] as Action;
     if (action.newSegmentBefore || action.transactionality !== "transactional")
       continue;
-    // Constraint fold hints (CONSTRAINT name <def> clauses) apply ONLY under
-    // `foldConstraints` — the export-only mode whose output is loaded by the
-    // retry/reorder loader. In a regular diff plan the apply EXECUTOR runs
-    // actions in graph order, and folding an FK into a CREATE TABLE that
-    // precedes the referenced table's CREATE would fail — so constraint hints
-    // stay inert (data) unless the caller opted in. Cycle-participating FKs
-    // (the caller's `exclude` set) stay as ALTERs so the raw file loader keeps
-    // converging via the .fk.sql split.
+    // Constraint fold hints (CONSTRAINT name <def> clauses) apply in two modes:
+    //  - `foldConstraints` (export-only, output loaded by the retry/reorder
+    //    loader): every constraint hint, minus the caller's `exclude` set
+    //    (cycle-participating FKs stay as ALTERs so the raw file loader keeps
+    //    converging via the .fk.sql split), under the LENIENT crossing rule
+    //    below — the loader reorders files to satisfy cross-relation refs.
+    //  - regular diff plans (apply EXECUTOR runs actions in graph order):
+    //    only hints the rule declared `executorSafe` (self-contained
+    //    PK/UNIQUE/CHECK), under the STRICT column-style crossing veto. An FK
+    //    folded into a CREATE TABLE that precedes the referenced table's
+    //    CREATE would fail, so FK hints stay inert here.
     const isConstraintFold = action.produces[0]?.kind === "constraint";
     if (isConstraintFold) {
-      if (foldConstraints === undefined) continue;
-      if (foldConstraints.exclude?.has(encodeId(action.produces[0]!))) {
+      if (foldConstraints === undefined) {
+        if (hint.executorSafe !== true) continue;
+      } else if (foldConstraints.exclude?.has(encodeId(action.produces[0]!))) {
         continue;
       }
     }
@@ -396,25 +404,27 @@ export function compactColumnFolds(
     if (!acceptsFolds[targetOrig] || foldedPos.has(targetPos)) continue;
     const target = orderedActions[targetPos] as Action;
     if (target.verb !== "create" || target.newSegmentBefore) continue;
-    // Column folds: ANY predecessor landing after the target vetoes the fold
-    // (apply-executor safety — no edge may cross the merge).
+    // Column folds and EXECUTOR-mode constraint folds: ANY predecessor landing
+    // after the target vetoes the fold (apply-executor safety — no edge may
+    // cross the merge).
     //
-    // Constraint folds are loaded by the retry/reorder loader, not the apply
-    // executor, so a crossing to another RELATION is tolerated: a VALIDATED FK's
-    // referenced table (or a backing index / type on some other relation) may be
-    // created by a LATER file and the loader reorders files to satisfy it. The
-    // one crossing a constraint fold must NOT tolerate is a SAME-TABLE column of
-    // its own fold target that was deferred to a later `ADD COLUMN` (its column
-    // fold crossed a domain-type edge, or it is a generated column that never
-    // hints) — folding the constraint inline would reference a column the CREATE
-    // TABLE does not yet declare, and no file reordering can repair that. An
-    // inlined column shares the target's effective position, so it never counts
-    // as "after" and passes naturally.
+    // EXPORT-mode constraint folds are loaded by the retry/reorder loader, not
+    // the apply executor, so a crossing to another RELATION is tolerated: a
+    // VALIDATED FK's referenced table (or a backing index / type on some other
+    // relation) may be created by a LATER file and the loader reorders files to
+    // satisfy it. The one crossing an export constraint fold must NOT tolerate
+    // is a SAME-TABLE column of its own fold target that was deferred to a
+    // later `ADD COLUMN` (its column fold crossed a domain-type edge, or it is
+    // a generated column that never hints) — folding the constraint inline
+    // would reference a column the CREATE TABLE does not yet declare, and no
+    // file reordering can repair that. An inlined column shares the target's
+    // effective position, so it never counts as "after" and passes naturally.
+    const lenientCrossing = isConstraintFold && foldConstraints !== undefined;
     const foldTarget = hint.foldInto;
     const crossesEdge = (predecessorsOf.get(origIndex) ?? []).some((p) => {
       const pPos = effectivePosOf.get(p) ?? (positionOf[p] as number);
       if (pPos <= targetPos) return false;
-      if (!isConstraintFold) return true;
+      if (!lenientCrossing) return true;
       const predAction = orderedActions[positionOf[p] as number] as Action;
       return predAction.produces.some(
         (id) =>

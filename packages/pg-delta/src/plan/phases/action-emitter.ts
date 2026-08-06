@@ -21,7 +21,12 @@ import type { Action } from "../plan.ts";
 import { grantTarget, qid } from "../render.ts";
 import { subtreeIds } from "../renames.ts";
 import { cascadesToChildren, ruleFlag } from "../rule-flags.ts";
-import { type ActionSpec, type PlanParams, type RulesForId } from "../rules.ts";
+import {
+  type ActionSpec,
+  type FoldHint,
+  type PlanParams,
+  type RulesForId,
+} from "../rules.ts";
 import type { AcceptedRename } from "./change-set.ts";
 
 export interface ActionEmitterInput {
@@ -52,7 +57,7 @@ export interface ActionEmitterOutput {
   actions: Action[];
   producerOf: Map<string, number>;
   destroyerOf: Map<string, number>;
-  foldHints: Array<{ foldInto: StableId; clause: string } | undefined>;
+  foldHints: Array<FoldHint | undefined>;
   acceptsFolds: boolean[];
   renameActionIndices: Set<number>;
 }
@@ -83,8 +88,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   const producerOf = new Map<string, number>();
   const destroyerOf = new Map<string, number>();
   // transient per-action compaction metadata (never enters the artifact)
-  const foldHints: Array<{ foldInto: StableId; clause: string } | undefined> =
-    [];
+  const foldHints: Array<FoldHint | undefined> = [];
   const acceptsFolds: boolean[] = [];
 
   const pushAction = (

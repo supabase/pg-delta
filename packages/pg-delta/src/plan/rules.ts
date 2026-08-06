@@ -23,6 +23,19 @@ import { triggerRules } from "./rules/triggers.ts";
 import { typeRules } from "./rules/types.ts";
 import { viewRules } from "./rules/views.ts";
 
+/** Compaction fold hint (§3.6): this statement is a clause that may fold into
+ *  the CREATE of `foldInto`. `executorSafe` is declared by the emitting rule
+ *  when the clause is self-contained — it references nothing outside its fold
+ *  target (a validated PK/UNIQUE/CHECK table constraint) — so the fold is
+ *  legal in a regular diff plan run by the apply EXECUTOR, under the strict
+ *  no-crossing-edge veto. Hints without it apply only under the export-only
+ *  `PlanOptions.foldConstraints` mode (column hints are always applied). */
+export interface FoldHint {
+  foldInto: StableId;
+  clause: string;
+  executorSafe?: boolean;
+}
+
 export interface ActionSpec {
   sql: string;
   /** extra consumed ids beyond the fact's parent (which is implicit) */
@@ -52,7 +65,7 @@ export interface ActionSpec {
     | "commitBoundaryAfter";
   /** compaction (§3.6): this statement is a clause that may fold into the
    *  CREATE of `foldInto` when no graph edge crosses the merge */
-  compaction?: { foldInto: StableId; clause: string };
+  compaction?: FoldHint;
   /** this CREATE accepts column-clause folds (bare CREATE TABLE only) */
   acceptsColumnFolds?: boolean;
 }
