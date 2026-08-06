@@ -278,11 +278,20 @@ re-implemented inside an imperative diff.
     cluster (throwaway instance/container); a same-cluster scratch database
     is only safe for database-local schemas, and the loader enforces the
     distinction.
-  - **Data statements are rejected, parser-free.** DML would succeed in the
+  - **Data statements are detected by effect, parser-free — and, by
+    default, warned on rather than rejected.** DML would succeed in the
     shadow and then silently vanish from the schema-only plan. After
-    loading, the loader checks for observable data — any user table with
-    rows fails the run ("declarative files must not contain data
-    statements"). Detection by effect, not by parsing.
+    loading, the loader checks for observable data: any managed
+    non-extension table with rows, never by parsing SQL. In an
+    isolated-cluster shadow (the default there), tables that already held
+    rows *before* the load are exempt via `allowPreExistingRows` — a
+    name-based exemption; row contents are never compared, so an INSERT
+    into an already-populated table stays invisible — and surface silently
+    as `LoadResult.preExistingPopulatedTables`. Any other populated table
+    appends a `data_statement` warning diagnostic to
+    `LoadResult.diagnostics` and the run proceeds with the schema-only
+    plan. `strictDataStatements` (CLI: `--strict-data-statements`) restores
+    the fatal failure and is recommended for CI.
 - **Snapshots**: the serialized fact base round-trips losslessly and is the
   contract for offline diffing, fixtures, and caching. A flat fact relation
   serializes, filters, and streams trivially — properties a nested document
@@ -796,9 +805,9 @@ is imported as data and SQL; none of its *mechanisms* — and none of its
   `LANGUAGE SQL` bodies are opaque to Postgres's dependency tracking (only
   SQL-standard `BEGIN ATOMIC` bodies get edges), so the graph cannot order
   a routine after a table its body references. The strategy is layered:
-  plans run with `check_function_bodies = off` (the diff path already
-  emits this —
-  `create.ts:350`); PL/pgSQL
+  routine-touching plans run with `check_function_bodies = off` (a
+  preamble entry, omitted as a cosmetic compaction when no
+  routine-family object is involved — `src/plan/preamble.ts`); PL/pgSQL
   is late-bound at runtime, so missing edges rarely matter for it;
   SQL-language ordering gaps surface in the proof loop as a failed clone
   apply — before production, not in it; and the dev layer (§4.4) can lint
@@ -875,7 +884,7 @@ gate in checkable form — is recorded in [the build log](../build-log.md).
 | 4 | Generic diff: rollup-guided descent emitting fact and edge deltas | §3.3 | Fixture diffs; `diff(A, A) = ∅` generatively |
 | 5 | The planner: rule table, atomic actions, one-graph sort, compaction | §3.4–3.6 | Corpus green under proof; differential vs old engine (state-equivalent plans, divergences triaged); generative soak; zero cycles |
 | 6 | Execution + plan artifact v1: ordered deltas, rollup-hash fingerprints, safety report (proven / observed / vetted tiers) | §3.7–3.8 | End-to-end proof on the corpus, including segmented non-transactional actions |
-| 7 | Frontends: shadow-DB SQL loader (fail-safe ordering, body validation, cluster isolation, DML rejection); snapshot frontend | §3.2 | Declarative scenarios in the corpus; loader rejection tests |
+| 7 | Frontends: shadow-DB SQL loader (fail-safe ordering, body validation, cluster isolation, DML detection); snapshot frontend | §3.2 | Declarative scenarios in the corpus; loader detection/exemption tests |
 | 8 | Policy layer: DSL v2 over facts/deltas; Supabase integration as a data package with platform baseline | §3.9 | Policy scenarios; baseline-subtraction proof against a real platform image |
 | 9 | Renames (leaf + structural-rollup matching, policy-gated); declarative export; drift detection surfaced; public API and CLI finalized | §4.1, §4.2, §4.5 | Rename corpus; export round-trip `load(export(fb)) ≡ fb`; API review |
 | 10 | **Cutover at the parity bar**: full corpus green; differential clean-or-explained; generative soak quota met; extractor ring green on all supported PG versions. Old library enters maintenance; consumer migration guide ships | — | The parity bar itself |

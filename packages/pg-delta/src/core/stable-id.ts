@@ -50,7 +50,7 @@ export type SubEntityKind = (typeof SUBENTITY_KINDS)[number];
  *  functions and procedures DIFFERENT DDL address syntax (COMMENT/GRANT/SECURITY
  *  LABEL ON FUNCTION vs ON PROCEDURE), so they are distinct id kinds — the
  *  renderer must never infer the address grammar from a payload field. */
-const ROUTINE_KINDS = ["function", "procedure", "aggregate"] as const;
+export const ROUTINE_KINDS = ["function", "procedure", "aggregate"] as const;
 export type RoutineKind = (typeof ROUTINE_KINDS)[number];
 
 export type StableId =

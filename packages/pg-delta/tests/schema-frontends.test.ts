@@ -24,7 +24,7 @@ import {
   type IntegrationProfile,
 } from "../src/integrations/index.ts";
 import type { Policy } from "../src/policy/policy.ts";
-import { sharedCluster } from "./containers.ts";
+import { isolatedClusterPair, sharedCluster } from "./containers.ts";
 
 const SCHEMA_SQL = `
   CREATE SCHEMA app;
@@ -155,6 +155,43 @@ describe("public schema frontends", () => {
       await cluster.dropRolesExcept(rolesBefore, { strict: true });
     }
   }, 90_000);
+
+  test("planSchemaFiles tolerates a pre-provisioned isolated shadow (Supabase CLI seam)", async () => {
+    // End-to-end shape of the Supabase CLI's declarative flow: the isolated
+    // shadow is pre-provisioned with the platform baseline (schemas + the
+    // services' own migration rows) BEFORE declarative SQL is loaded. The
+    // baseline exists on the target too, so with identical schema intent on both
+    // sides the plan must be EMPTY — the pre-existing rows must neither fail the
+    // load nor leak into the diff.
+    const [clusterA, clusterB] = await isolatedClusterPair();
+    const target = await clusterA.createDb("frontend_preseeded_target");
+    const shadow = await clusterB.createDb("frontend_preseeded_shadow");
+    try {
+      const BASELINE_DDL = `
+        CREATE SCHEMA auth;
+        CREATE TABLE auth.schema_migrations (version text PRIMARY KEY);
+      `;
+      await target.pool.query(BASELINE_DDL + SCHEMA_SQL);
+      await shadow.pool.query(
+        `${BASELINE_DDL} INSERT INTO auth.schema_migrations VALUES ('20240101000000');`,
+      );
+
+      // the declarative directory carries USER schema only; the baseline is
+      // pre-provisioned on both sides (exactly how the CLI drives this).
+      const files: SqlFile[] = [{ name: "app.sql", sql: SCHEMA_SQL }];
+      const planned = await planSchemaFiles(target.pool, shadow.pool, files, {
+        profile: rawProfile,
+        scope: "database",
+        isolatedShadow: true,
+      });
+      expect(planned.plan.actions).toEqual([]);
+      expect(
+        planned.loadDiagnostics.filter((d) => d.code === "data_statement"),
+      ).toEqual([]);
+    } finally {
+      await Promise.all([target.drop(), shadow.drop()]);
+    }
+  }, 120_000);
 
   test("planSchemaFiles permits a non-isolated database-scope sibling from the same lineage", async () => {
     const cluster = await sharedCluster();

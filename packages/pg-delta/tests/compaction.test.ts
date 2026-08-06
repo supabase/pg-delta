@@ -45,6 +45,17 @@ describe("compaction", () => {
         compact: false,
       });
 
+      // preamble compaction: RICH_SCHEMA has no routine-family object, so the
+      // compacted plan drops the check_function_bodies=off entry; compact:false
+      // keeps the unconditional preamble (the conservative opt-out). The proof
+      // below then demonstrates both plans converge identically without it.
+      expect(
+        compacted.preamble.some((s) => s.name === "check_function_bodies"),
+      ).toBe(false);
+      expect(
+        decomposed.preamble.some((s) => s.name === "check_function_bodies"),
+      ).toBe(true);
+
       // shape budget: the compacted plan folded the users columns
       expect(compacted.actions.length).toBeLessThan(decomposed.actions.length);
       const addColumns = compacted.actions.filter(

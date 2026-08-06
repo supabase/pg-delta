@@ -551,6 +551,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       "restrict-to-applier": { type: "boolean" },
       "strict-coverage": { type: "boolean" },
       "strict-function-bodies": { type: "boolean" },
+      "strict-data-statements": { type: "boolean" },
       "no-reorder": { type: "boolean" },
       "unsafe-show-secrets": { type: "boolean" },
       "isolated-shadow": { type: "boolean" },
@@ -569,7 +570,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       throw new UsageError(
         `${err.message}\nUsage: pgdelta schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
-          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow] [--allow-data-loss] ` +
+          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--strict-data-statements] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow] [--allow-data-loss] ` +
           `[--trusted-local-host <hostname>]... [--allow-remote-shadow]\n` +
           `  [--dry-run] (print the portable apply script to stdout; apply nothing; see pgdelta --help for execution requirements) [--verbose] (stream per-statement progress to stderr) [--out-plan <plan.json>] (write the plan artifact)\n` +
           `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.`,
@@ -838,6 +839,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         restrictToApplier: flags["restrict-to-applier"],
       },
       strictFunctionBodies: flags["strict-function-bodies"] === true,
+      strictDataStatements: flags["strict-data-statements"] === true,
       reorder: !flags["no-reorder"],
       onWarning: (message) => {
         if (message.startsWith("the directory records no default owner")) {

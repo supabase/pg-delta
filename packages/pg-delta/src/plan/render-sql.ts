@@ -3,7 +3,8 @@
  *
  * The output mirrors what `apply()` (src/apply/apply.ts) executes: the plan's
  * `preamble` session settings emitted as leading `SET`s (so forward-referencing
- * function bodies elaborate — `check_function_bodies = off` is always present),
+ * function bodies elaborate — `check_function_bodies = off` is present whenever
+ * the plan touches a routine-family object, see src/plan/preamble.ts),
  * then every action's SQL in `plan.actions` order (the dependency-sorted replay
  * order), each terminated with a single semicolon.
  *
