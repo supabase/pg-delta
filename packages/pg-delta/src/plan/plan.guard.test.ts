@@ -34,7 +34,9 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   "artifact.ts": 73,
   "graph.ts": 0,
   "identity-normalize.ts": 17,
-  "internal.ts": 28,
+  // 28 → 30: mergeCoTargetGrants (multi-grantee GRANT merge) discriminates acl
+  // actions via the isAclId type guard — 2 deliberate literals (type + guard).
+  "internal.ts": 30,
   "locks.ts": 18,
   "phases/action-emitter.ts": 10,
   "phases/action-graph.ts": 1,

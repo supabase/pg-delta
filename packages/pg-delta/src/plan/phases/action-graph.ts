@@ -24,6 +24,7 @@ import {
   elideDefaultAclCreates,
   elideRedundantDrops,
   foldCoCreateOwnership,
+  mergeCoTargetGrants,
 } from "../internal.ts";
 
 export interface FinalizeInput {
@@ -159,27 +160,33 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   // merge), drop a replace's redundant drop when the create reproduces the
   // identical statement, elide REVOKE/GRANT pairs that only re-materialize a
   // freshly-created object's built-in default ACL, trim the cosmetic leading
-  // REVOKE off remaining third-party co-create grants, then fold a co-created
+  // REVOKE off remaining third-party co-create grants, fold a co-created
   // object's owner ALTER into its CREATE (CREATE SCHEMA … AUTHORIZATION, or drop
-  // an applier-redundant ALTER). Purely cosmetic — the proof is unchanged.
+  // an applier-redundant ALTER), then merge consecutive same-privilege co-create
+  // GRANTs into one grantee-list statement (last, so it sees final adjacency).
+  // Purely cosmetic — the proof is unchanged.
   const finalActions = compact
-    ? foldCoCreateOwnership(
-        elideCoCreateRevokeBeforeGrant(
-          elideDefaultAclCreates(
-            elideCascadeSubsumedPolicyDrops(
-              elideRedundantDrops(
-                compactColumnFolds(
-                  orderedActions,
-                  order,
-                  edges,
-                  foldHints,
-                  acceptsFolds,
-                  positionOf,
-                  foldConstraints,
+    ? mergeCoTargetGrants(
+        foldCoCreateOwnership(
+          elideCoCreateRevokeBeforeGrant(
+            elideDefaultAclCreates(
+              elideCascadeSubsumedPolicyDrops(
+                elideRedundantDrops(
+                  compactColumnFolds(
+                    orderedActions,
+                    order,
+                    edges,
+                    foldHints,
+                    acceptsFolds,
+                    positionOf,
+                    foldConstraints,
+                  ),
+                  source,
                 ),
                 source,
               ),
-              source,
+              desired,
+              capability,
             ),
             desired,
             capability,
@@ -188,7 +195,6 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
           capability,
         ),
         desired,
-        capability,
       )
     : orderedActions;
 

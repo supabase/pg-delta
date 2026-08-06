@@ -10,6 +10,7 @@ import {
   elideCoCreateRevokeBeforeGrant,
   elideDefaultAclCreates,
   foldCoCreateOwnership,
+  mergeCoTargetGrants,
 } from "./internal.ts";
 import type { Action } from "./plan.ts";
 
@@ -560,5 +561,106 @@ describe("elideCoCreateRevokeBeforeGrant", () => {
     const actions: Action[] = [...aclActions(existing, "app_user")];
     const kept = elideCoCreateRevokeBeforeGrant(actions, desired);
     expect(kept).toHaveLength(2);
+  });
+});
+
+describe("mergeCoTargetGrants", () => {
+  const t = tableId("t");
+  // the canonical single-grantee render the pass recognizes (renderGrantSql)
+  const grantSql = (grantee: string) =>
+    `GRANT SELECT ON TABLE "app"."t" TO "${grantee}"`;
+  const grantAction = (grantee: string): Action =>
+    mkAction({
+      sql: grantSql(grantee),
+      produces: [],
+      consumes: [aclId(t, grantee), t, roleId(grantee)],
+    });
+  const desiredWith = (...grantees: string[]) =>
+    buildFactBase(
+      [
+        { id: t, payload: {} },
+        ...grantees.map((g) => roleFact(g)),
+        ...grantees.map((g) => aclFact(t, g, ["SELECT"])),
+      ],
+      [],
+    );
+
+  test("merges a consecutive same-privilege run and strips dangling acl ids", () => {
+    const desired = desiredWith("anon", "authenticated");
+    const merged = mergeCoTargetGrants(
+      [grantAction("anon"), grantAction("authenticated")],
+      desired,
+    );
+    expect(merged.map((a) => a.sql)).toEqual([
+      `GRANT SELECT ON TABLE "app"."t" TO "anon", "authenticated"`,
+    ]);
+    const consumes = merged[0]!.consumes;
+    expect(consumes.some((c) => c.kind === "acl")).toBe(false);
+    for (const g of ["anon", "authenticated"]) {
+      expect(
+        consumes.some((c) => c.kind === "role" && "name" in c && c.name === g),
+      ).toBe(true);
+    }
+  });
+
+  test("a newSegmentBefore boundary on a later member breaks the run", () => {
+    const desired = desiredWith("anon", "authenticated");
+    const second = grantAction("authenticated");
+    second.newSegmentBefore = true;
+    const merged = mergeCoTargetGrants([grantAction("anon"), second], desired);
+    expect(merged.map((a) => a.sql)).toEqual([
+      grantSql("anon"),
+      grantSql("authenticated"),
+    ]);
+  });
+
+  test("a non-grant action between members breaks the run (no reordering)", () => {
+    const desired = desiredWith("anon", "authenticated");
+    const between = mkAction({
+      sql: "ALTER TABLE app.t ENABLE ROW LEVEL SECURITY",
+      verb: "alter",
+      consumes: [t],
+    });
+    const merged = mergeCoTargetGrants(
+      [grantAction("anon"), between, grantAction("authenticated")],
+      desired,
+    );
+    expect(merged.map((a) => a.sql)).toEqual([
+      grantSql("anon"),
+      "ALTER TABLE app.t ENABLE ROW LEVEL SECURITY",
+      grantSql("authenticated"),
+    ]);
+  });
+
+  test("a group whose REVOKE leader survives stays intact", () => {
+    const desired = desiredWith("anon", "authenticated");
+    // pre-existing target shape: the REVOKE producing anon's acl id survives,
+    // so anon's GRANT is excluded from merging (pg_dump pairing kept).
+    const revoke = mkAction({
+      sql: `REVOKE ALL ON TABLE "app"."t" FROM "anon"`,
+      produces: [aclId(t, "anon")],
+      consumes: [t],
+    });
+    const merged = mergeCoTargetGrants(
+      [revoke, grantAction("anon"), grantAction("authenticated")],
+      desired,
+    );
+    expect(merged.map((a) => a.sql)).toEqual([
+      `REVOKE ALL ON TABLE "app"."t" FROM "anon"`,
+      grantSql("anon"),
+      grantSql("authenticated"),
+    ]);
+  });
+
+  test("the run-leading segment boundary is preserved on the merged action", () => {
+    const desired = desiredWith("anon", "authenticated");
+    const firstAction = grantAction("anon");
+    firstAction.newSegmentBefore = true;
+    const merged = mergeCoTargetGrants(
+      [firstAction, grantAction("authenticated")],
+      desired,
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.newSegmentBefore).toBe(true);
   });
 });
