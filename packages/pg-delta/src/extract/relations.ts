@@ -77,6 +77,11 @@ export async function extractTables(ctx: ExtractContext): Promise<void> {
             row["partition_key"] == null
               ? null
               : (row["partition_key"] as string),
+          // partitionBound + parentTable are policy-API surface, not just hash
+          // substance: the `partitionOf` predicate (src/policy/policy.ts)
+          // matches on these exact payload field names. Renaming either
+          // silently un-matches every partitionOf rule — no validatePolicy
+          // error fires.
           partitionBound:
             row["partition_bound"] == null
               ? null

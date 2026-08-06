@@ -730,3 +730,47 @@ re-flags one, link here instead of re-fixing.
   `ADD … AS IDENTITY` plus a post-retype chained `SET`, i.e. teach
   `identity.alter` about a concurrent widening; deferred until a real schema
   needs it.
+
+## PR #383 review triage (Codex) — `partitionOf` policy predicate
+
+Codex reviewed #383 while the PR was still mis-based against `main`, so the
+diff it saw was the entire delta-next rewrite, not the PR's six files. All
+four findings target pre-existing engine code the PR never touches — none is
+a defect in what the PR adds — so per the automated-review scope rule they
+are recorded here instead of fixed there. If a re-review re-flags one, link
+to this section.
+
+- **P1 — `CONCURRENTLY` splice in `src/plan/rules/indexes.ts` "violates the
+  no-regex-transform rule".** Pre-existing behavior of the opt-in
+  `concurrentIndexes` serialize param. The splice is an anchored prefix
+  rewrite inserting an execution modifier that `pg_get_indexdef` can never
+  emit (CONCURRENTLY is an execution choice, not catalog state) — it never
+  changes what the index *is*, only how it is built, and partitioned parents
+  are already exempted. Arguably still a doctrinal wart: a cleaner shape
+  would render the statement from structured state. Revisit only if the
+  splice ever misfires on a real `def`; not a #383 concern.
+
+- **P2 — `pg_publication_rel` dependencies resolve to the parent publication,
+  not the `publicationRel` member (`src/extract/dependencies.ts`, `pubrel`
+  CTE).** Plausible: a PG15+ member column list / row filter depending on a
+  function or type that is replaced would not rebuild the member, and a
+  planned function drop could fail at apply. Pre-existing extraction
+  behavior; needs a repro (corpus scenario with a row-filtered publication
+  member whose function is replaced) before a fix. Same family as the
+  member-grain work in #370.
+
+- **P1 — `databaseScratch` emptiness guard counts only `pg_class` rows
+  (`src/frontends/load-sql-files.ts`).** Plausible: a scratch shadow
+  pre-populated with only non-relation objects (enum, function, empty user
+  schema, …) passes the guard and contaminates the loaded desired state. The
+  guard should sweep every managed catalog outside the allowed seeded
+  schemas. Pre-existing frontend hardening; needs its own RED test.
+
+- **P2 — composite retype guard rejects a plan that adds the FIRST column of
+  the retyped composite (`src/plan/rules/types.ts`).** Plausible
+  over-rejection: the guard reads desired-side columns, but PostgreSQL only
+  forbids `ALTER TYPE … ALTER ATTRIBUTE` while a column already exists —
+  distinguishing source-side users from newly-added columns (and ordering
+  those creates after the retype) would admit a valid migration. Pre-existing
+  planner conservatism: it fails loud, never corrupts. Fix when a real schema
+  hits it.
