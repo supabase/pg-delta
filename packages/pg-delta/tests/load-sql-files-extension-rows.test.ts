@@ -86,6 +86,9 @@ describe("loadSqlFiles: extension-owned internal rows are not DML", () => {
         },
       ],
       shadow.pool,
+      // the DML gate is a warning by default; assert the fatal path still scopes
+      // the rejection to the USER table and never to partman.part_config.
+      { strictDataStatements: true },
     ).then(
       () => null,
       (e: unknown) => e,
