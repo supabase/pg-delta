@@ -48,6 +48,17 @@
  * SYSTEM_SCHEMAS}), and for provenance filtering of operationally-managed
  * objects (edgeTo {edgeKind: "managedBy"}).
  *
+ * ### `{ partitionOf: { schema?: string | string[]; name?: string | string[] } }`
+ * Matches a declarative partition child: a fact whose payload carries a
+ * non-null `partitionBound` (exactly `pg_class.relispartition` — the extractor
+ * sets it from `pg_get_expr(relpartbound)`), optionally pinned to a parent
+ * whose `payload.parentTable` schema/name match the given globs. Needed for:
+ * excluding operational partition churn from a managed view (Realtime's daily
+ * `realtime.messages` partitions — the old DSL's `table/is_partition`, #346).
+ * Prefer the parent-pinned form: "is a partition" alone cannot tell service
+ * churn from a user-declared `PARTITION OF` (the pg_partman CLI-1591 lesson).
+ * A legacy INHERITS child has `parentTable` but no bound, so it does NOT match.
+ *
  * `validatePolicy` rejects an `idField` naming an unknown identity field, so a
  * typo fails loudly instead of silently never matching (review #7).
  */
@@ -180,6 +191,26 @@ export type EdgeToPredicate = {
   };
 };
 
+/**
+ * Matches a declarative partition child: a fact whose payload has a non-null
+ * `partitionBound` (⇔ `pg_class.relispartition`), optionally pinned to a
+ * parent whose `payload.parentTable` matches the given schema/name globs.
+ *
+ * All sub-fields are optional; `{ partitionOf: {} }` matches ANY partition
+ * (the old filter DSL's `table/is_partition: true`). Prefer pinning the parent
+ * (`{ partitionOf: { schema: "realtime", name: "messages" } }`): it states
+ * WHOSE partitions are operational churn instead of hiding every partition,
+ * and the projection audit classifies the pinned form as a named-object
+ * selector. A legacy INHERITS child (parentTable without a bound) never
+ * matches.
+ */
+export type PartitionOfPredicate = {
+  partitionOf: {
+    schema?: string | string[];
+    name?: string | string[];
+  };
+};
+
 export type Predicate =
   | KindPredicate
   | SchemaPredicate
@@ -193,7 +224,8 @@ export type Predicate =
   | OwnerPredicate
   | IdFieldPredicate
   | TargetPredicate
-  | EdgeToPredicate;
+  | EdgeToPredicate
+  | PartitionOfPredicate;
 
 // ---------------------------------------------------------------------------
 // Rules
@@ -497,6 +529,33 @@ export function factMatches(
       if (!patterns.some((p) => globMatch(p, targetNameVal))) return false;
     }
 
+    return true;
+  }
+
+  // partitionOf — a declarative partition child (payload.partitionBound is
+  // non-null exactly when pg_class.relispartition), optionally pinned to a
+  // parent whose payload.parentTable schema/name match the given globs.
+  if ("partitionOf" in predicate) {
+    if (typeof fact.payload["partitionBound"] !== "string") return false;
+    const { schema: schemaFilter, name: nameFilter } = predicate.partitionOf;
+    if (schemaFilter === undefined && nameFilter === undefined) return true;
+    const parentRaw = fact.payload["parentTable"];
+    if (parentRaw === null || typeof parentRaw !== "object") return false;
+    const parentObj = parentRaw as Record<string, unknown>;
+    if (schemaFilter !== undefined) {
+      const parentSchema = parentObj["schema"];
+      if (typeof parentSchema !== "string") return false;
+      const patterns = Array.isArray(schemaFilter)
+        ? schemaFilter
+        : [schemaFilter];
+      if (!patterns.some((p) => globMatch(p, parentSchema))) return false;
+    }
+    if (nameFilter !== undefined) {
+      const parentName = parentObj["name"];
+      if (typeof parentName !== "string") return false;
+      const patterns = Array.isArray(nameFilter) ? nameFilter : [nameFilter];
+      if (!patterns.some((p) => globMatch(p, parentName))) return false;
+    }
     return true;
   }
 
@@ -886,6 +945,16 @@ function isNamedObjectPredicate(predicate: Predicate): boolean {
       selectors.every((value) => stringValues(value).every(noWildcard))
     );
   }
+  if ("partitionOf" in predicate) {
+    const selectors = [
+      predicate.partitionOf.name,
+      predicate.partitionOf.schema,
+    ].filter((value): value is string | string[] => value !== undefined);
+    return (
+      selectors.length > 0 &&
+      selectors.every((value) => stringValues(value).every(noWildcard))
+    );
+  }
   return false;
 }
 
@@ -911,6 +980,11 @@ function containsWildcardMatcher(predicate: Predicate): boolean {
     );
   if ("target" in predicate) {
     return [predicate.target.name, predicate.target.schema]
+      .filter((value): value is string | string[] => value !== undefined)
+      .some((value) => stringValues(value).some((part) => !noWildcard(part)));
+  }
+  if ("partitionOf" in predicate) {
+    return [predicate.partitionOf.name, predicate.partitionOf.schema]
       .filter((value): value is string | string[] => value !== undefined)
       .some((value) => stringValues(value).some((part) => !noWildcard(part)));
   }

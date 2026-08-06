@@ -10,11 +10,15 @@
  *   1. a schema-exclude policy projects a whole schema out of the plan and the
  *      kept view round-trips to zero drift (catalog-export-filter realtime use);
  *   2. security-label changes are excludable by kind and by provider — which
- *      requires a real label provider (seclabelCluster), so it is not corpus.
+ *      requires a real label provider (seclabelCluster), so it is not corpus;
+ *   3. a partitionOf-exclude policy leaves differing partition sets unmanaged
+ *      on BOTH sides while the rest converges (the Realtime tenant-migration
+ *      use — the old filter DSL's `table/is_partition`, #346).
  *
  * Intentional v2 deltas (recorded in the ledger, no test): filter-wildcard's
- * `is_partition` boolean and `requires` regex have no Policy v2 predicate, and
- * the CLI `--filter` AND-combine is an old-API shape.
+ * `requires` regex has no Policy v2 predicate, and the CLI `--filter`
+ * AND-combine is an old-API shape. (Its `is_partition` boolean is superseded
+ * by the `partitionOf` predicate, pinned in this file.)
  */
 import { describe, expect, test } from "bun:test";
 import { apply } from "../src/apply/apply.ts";
@@ -81,6 +85,89 @@ describe("policy filter: schema projection roundtrip", () => {
       expect(report.status).toBe("applied");
       const after = await extract(main.pool);
       expect(plan(after.factBase, d.factBase, { policy }).actions).toEqual([]);
+    } finally {
+      await Promise.all([main.drop(), desired.drop()]);
+    }
+  }, 60_000);
+});
+
+describe("policy filter: partitionOf projection roundtrip", () => {
+  test("differing partition sets stay unmanaged on both sides; the rest converges", async () => {
+    const cluster = await sharedCluster();
+    const main = await cluster.createDb("polf_part_main");
+    const desired = await cluster.createDb("polf_part_dst");
+    try {
+      // The Realtime tenant shape: both sides share the partitioned parent, but
+      // carry DIFFERENT operationally-created partition sets (daily churn the
+      // Realtime service owns). The desired side also adds a plain table that
+      // the tenant migration SHOULD manage.
+      await main.pool.query(`
+        CREATE SCHEMA realtime;
+        CREATE TABLE realtime.messages (
+          id bigint NOT NULL,
+          inserted_at timestamptz NOT NULL,
+          PRIMARY KEY (id, inserted_at)
+        ) PARTITION BY RANGE (inserted_at);
+        CREATE TABLE realtime.messages_2026_08_01
+          PARTITION OF realtime.messages
+          FOR VALUES FROM ('2026-08-01') TO ('2026-08-02');
+      `);
+      await desired.pool.query(`
+        CREATE SCHEMA realtime;
+        CREATE TABLE realtime.messages (
+          id bigint NOT NULL,
+          inserted_at timestamptz NOT NULL,
+          PRIMARY KEY (id, inserted_at)
+        ) PARTITION BY RANGE (inserted_at);
+        CREATE TABLE realtime.messages_2026_08_05
+          PARTITION OF realtime.messages
+          FOR VALUES FROM ('2026-08-05') TO ('2026-08-06');
+        CREATE TABLE realtime.messages_2026_08_06
+          PARTITION OF realtime.messages
+          FOR VALUES FROM ('2026-08-06') TO ('2026-08-07');
+        CREATE TABLE realtime.subscription (id bigint PRIMARY KEY);
+      `);
+      const policy: Policy = {
+        id: "realtime-tenant",
+        filter: [
+          {
+            match: { partitionOf: { schema: "realtime", name: "messages" } },
+            action: "exclude",
+            audit: { reasonCode: "realtime.messages-partition-churn" },
+          },
+        ],
+      };
+
+      const [s, d] = await Promise.all([
+        extract(main.pool),
+        extract(desired.pool),
+      ]);
+      const thePlan = plan(s.factBase, d.factBase, { policy });
+
+      // no partition child is created or dropped in either direction …
+      expect(thePlan.actions.some((a) => /messages_20/.test(a.sql))).toBe(
+        false,
+      );
+      // … while the plain table IS planned.
+      expect(thePlan.actions.some((a) => /subscription/.test(a.sql))).toBe(
+        true,
+      );
+
+      const report = await apply(thePlan, main.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.status).toBe("applied");
+
+      // roundtrip: re-plan under the same policy → zero drift even though the
+      // two sides still hold different partition sets.
+      const after = await extract(main.pool);
+      expect(plan(after.factBase, d.factBase, { policy }).actions).toEqual([]);
+
+      // the churn partition on main was never dropped.
+      const rows = await main.pool.query(
+        `SELECT relname FROM pg_class WHERE relname = 'messages_2026_08_01'`,
+      );
+      expect(rows.rows).toHaveLength(1);
     } finally {
       await Promise.all([main.drop(), desired.drop()]);
     }
