@@ -13,8 +13,14 @@
  *
  * The predicate errs toward keeping the entry ("rather have it than not"):
  * it scans EVERY id an action mentions (produces / consumes / destroys /
- * releases, satellites unwrapped to their target), so e.g. a CREATE TRIGGER
- * that merely references a function still keeps the preamble. Kinds:
+ * releases, satellites unwrapped to their target). That is sufficient for
+ * every statement that can DEFINE a body — a routine create / replace /
+ * def-alter always carries its routine id in produces (and its depends
+ * targets in consumes, rules/routines.ts). A statement that merely
+ * REFERENCES a routine without its id in the action arrays (e.g. a table
+ * trigger, whose create consumes only its parent table — the function
+ * reference is a fact edge) does not keep the entry, deliberately:
+ * CREATE TRIGGER never validates the function's body. Kinds:
  *   - function / procedure — the real cases (CREATE OR REPLACE with a body);
  *   - aggregate — no body of its own, kept as routine-family insurance;
  *   - extension / extensionIntent — extension scripts and intent replay run

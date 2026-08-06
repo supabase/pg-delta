@@ -107,6 +107,25 @@ describe("conditional check_function_bodies preamble", () => {
     ]);
   });
 
+  test("a trigger-only plan omits check_function_bodies (references never define bodies)", () => {
+    // the function pre-exists on both sides; only the trigger is added. Its
+    // create consumes the parent table — the function reference is a fact
+    // edge, never an action id — and CREATE TRIGGER does not validate the
+    // function's body, so the entry is deliberately omitted (Codex PR #386).
+    const trgFact: Fact = {
+      id: { kind: "trigger", schema: "app", table: "t", name: "trg" },
+      parent: tableId,
+      payload: {
+        def: `CREATE TRIGGER trg BEFORE INSERT ON app.t FOR EACH ROW EXECUTE FUNCTION app.f()`,
+        enabled: "O",
+      },
+    };
+    const both = [tableFact, colFact, fnFact];
+    const thePlan = plan(base(both), base([...both, trgFact]));
+    expect(thePlan.actions.length).toBeGreaterThan(0);
+    expect(preambleNames(thePlan)).toEqual(["search_path"]);
+  });
+
   test("an empty plan omits check_function_bodies", () => {
     const thePlan = plan(
       base([tableFact, colFact]),
