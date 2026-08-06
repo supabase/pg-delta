@@ -43,6 +43,10 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   "phases/change-set.ts": 4,
   "phases/replacement-expansion.ts": 0,
   "plan.ts": 7,
+  // preamble.ts classifies actions into "routine-family or not" for the
+  // cosmetic check_function_bodies compaction; the routine kinds themselves
+  // come from core ROUTINE_KINDS, leaving only the two extension literals.
+  "preamble.ts": 2,
   "project.ts": 0,
   "renames.ts": 0,
   "render-sql.ts": 0,

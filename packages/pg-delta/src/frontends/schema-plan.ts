@@ -234,6 +234,12 @@ export interface PlanSchemaFilesOptions {
   acceptRenames?: Array<{ from: StableId; to: StableId }>;
   resolveOptions?: Omit<ResolveProfileOptions, "redactSecrets">;
   strictFunctionBodies?: boolean;
+  /** Exempt managed tables that already held rows before the shadow load from the
+   *  DML observation. Left undefined the loader picks its own default (true for an
+   *  isolated shadow, which may be pre-provisioned by a platform). */
+  allowPreExistingRows?: boolean;
+  /** Make the shadow load's DML observation fatal again (default: warning). */
+  strictDataStatements?: boolean;
   /** Statement-reorder assist. Default: true. */
   reorder?: boolean;
   /** Soft warnings (reorder fallback, ADP caveat, …). */
@@ -557,6 +563,11 @@ export async function planSchemaFiles(
       extract: (p, o) => ctx.extract(p, { ...o, redactSecrets }),
       ...(seededSchemas.length > 0 ? { seededSchemas, seededRoutines } : {}),
       strictFunctionBodies: options.strictFunctionBodies === true,
+      strictDataStatements: options.strictDataStatements === true,
+      // undefined = let the loader default it from the mode
+      ...(options.allowPreExistingRows !== undefined
+        ? { allowPreExistingRows: options.allowPreExistingRows }
+        : {}),
       ...(options.isolatedShadow === true
         ? { mode: "isolatedCluster" as const }
         : {}),

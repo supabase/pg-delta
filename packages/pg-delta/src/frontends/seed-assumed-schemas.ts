@@ -24,6 +24,20 @@
  * profile, so the seeded objects come back reference-only and cancel against the
  * target's reference-only copies in `plan()` — nothing leaks into the diff.
  *
+ * The seed is a REPLAYABLE SUBSET of the reference-only facts, not all of them.
+ * It replays FIRST, into an empty shadow; the MANAGED objects only come into
+ * existence afterwards, when the declarative files load. So a reference-only
+ * overlay that DEPENDS on managed state (the field case: a policy on an assumed
+ * `storage.objects` whose expression calls a user function in a managed `app`
+ * schema) simply cannot replay during the seed phase — PostgreSQL fails the
+ * whole seed with `schema "app" does not exist`. Such a candidate is OMITTED
+ * WHOLE, together with everything that depends on it and everything it
+ * structurally contains. Omitting it is safe and symmetric: generic diffing
+ * skips a fact that is reference-only on EITHER side, so a shadow that lacks it
+ * plans no create and no drop. No SQL is parsed, inspected semantically, or
+ * rewritten to make such a fact replayable — the fact is dropped from the seed
+ * set or it is replayed verbatim, never anything in between.
+ *
  * Baseline is deliberately NOT applied here (Codex #323 finding 3). The seed is
  * the SUPERSET question — "what platform objects must exist for the user SQL to
  * elaborate in the shadow" — whereas the diff is the SUBSET question — "what do
@@ -52,8 +66,12 @@
  * load fails LOUDLY at file:line with a precise missing-object error — acceptable
  * (user code essentially never calls these internal platform RPCs, and a clear
  * error beats rewritten SQL). `susetGucs` absent ⇒ nothing is skipped for this
- * reason (byte-identical behavior). Any fact that DEPENDS on a skipped routine is
- * transitively skipped too (it could not replay against a missing dependency).
+ * reason (byte-identical behavior).
+ *
+ * All omission reasons (managed dependency, suset-GUC routine, ADP, extension
+ * member) feed ONE exclusion closure, so a fact that depends on — or is
+ * structurally contained by — an omitted fact is omitted too, whatever the
+ * original reason was.
  */
 import { buildFactBase, type Fact, type FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
@@ -164,18 +182,78 @@ export function deriveAssumedSchemaSeed(
   // ROLE <r>` needs membership in <r>, which a non-superuser applier lacks, and
   // an ADP entry has no possible dependents (see the module doc). Applies to ALL
   // roles — even an applier-owned ADP is unnecessary for elaboration.
-  const keptFacts = view
+  const candidateFacts = view
     .facts()
     .filter(
       (f) => seedIds.has(encodeId(f.id)) && f.id.kind !== "defaultPrivilege",
     );
-  const keptIds = new Set(keptFacts.map((f) => encodeId(f.id)));
+  const candidateIds = new Set(candidateFacts.map((f) => encodeId(f.id)));
 
-  // Skip whole routines that carry a superuser-only SET header clause (they can't
-  // be CREATEd by a non-superuser), decided from structured `_configGucs` — never
-  // by editing the `def` SQL text. Then cascade exclusion to a fixpoint over TWO
-  // relations:
-  //   - `depends` edges: any kept fact DEPENDING on a skipped one (it can't
+  // Candidates the seed materializes as a bare SHELL, because at least one of
+  // their subsidiary facts is NOT a candidate (managed membership). Extract
+  // collapses a subsidiary catalog row onto its owning object's id — e.g.
+  // `pg_publication_rel` resolves to the PUBLICATION id
+  // (src/extract/dependencies.ts's `pubrel` CTE) — so such a container INHERITS
+  // its members' `depends` edges even though membership lives in a separate child
+  // fact (`publicationRel`) the seed never creates. A shell's inherited edge is
+  // therefore NOT a replay requirement: `CREATE PUBLICATION supabase_realtime`
+  // with no `FOR TABLE` needs none of its members (#370 seeds it EMPTY on
+  // purpose). Computed by walking each NON-candidate view fact up to its
+  // candidate ancestors.
+  const shellIds = new Set<string>();
+  for (const fct of view.facts()) {
+    if (candidateIds.has(encodeId(fct.id))) continue;
+    let ancestor = fct.parent;
+    while (ancestor !== undefined) {
+      const key = encodeId(ancestor);
+      if (candidateIds.has(key)) shellIds.add(key);
+      ancestor = view.get(ancestor)?.parent;
+    }
+  }
+
+  // INITIAL exclusions — the reasons a candidate cannot be replayed at seed time
+  // at all. They all feed the SAME closure below, so a future reason needs no new
+  // cascade logic.
+  const excludedIds = new Set<string>();
+
+  // (1) MANAGED dependency: the candidate `depends` on a fact that is in the
+  //     managed view but is neither a seed candidate nor reference-only, i.e. an
+  //     object the declarative files create LATER. The seed replays into an empty
+  //     shadow, so that object does not exist yet and the statement fails (field
+  //     case: `schema "app" does not exist`). Two target classes stay allowed:
+  //       - a reference-only NON-candidate (extension member, ADP) — ambient in
+  //         the co-located shadow (or with no replay meaning), which is the
+  //         existing contract the plan's requirement guard already exempts via
+  //         `assumedSchemas`;
+  //       - anything a SHELL candidate inherited from a non-seeded subsidiary
+  //         (see `shellIds`) — the shell's own DDL does not reference it.
+  for (const e of view.edges) {
+    if (e.kind !== "depends") continue;
+    const from = encodeId(e.from);
+    if (!candidateIds.has(from) || excludedIds.has(from)) continue;
+    if (shellIds.has(from)) continue;
+    const to = encodeId(e.to);
+    if (candidateIds.has(to) || view.referenceOnly.has(to)) continue;
+    excludedIds.add(from);
+  }
+
+  // (2) whole routines that carry a superuser-only SET header clause (they can't
+  //     be CREATEd by a non-superuser), decided from structured `_configGucs` —
+  //     never by editing the `def` SQL text.
+  const suset = opts.susetGucs;
+  if (suset !== undefined && suset.size > 0) {
+    for (const fct of candidateFacts) {
+      if (
+        (fct.id.kind === "function" || fct.id.kind === "procedure") &&
+        configGucsOf(fct).some((g) => suset.has(g))
+      ) {
+        excludedIds.add(encodeId(fct.id));
+      }
+    }
+  }
+
+  // Cascade every initial exclusion to a fixpoint over TWO relations:
+  //   - `depends` edges: any candidate DEPENDING on an excluded one (it can't
   //     replay against a missing dependency);
   //   - structural containment (`Fact.parent`): a container fact's CHILD facts
   //     (e.g. a view's columns) are not linked by a `depends` edge at all — they
@@ -187,64 +265,73 @@ export function deriveAssumedSchemaSeed(
   // COLUMN-level id (src/extract/dependencies.ts's `resolved` CTE,
   // `objsubid > 0`), so a `depends` edge can point AT a column. A column
   // excluded structurally (because its parent view was excluded) can therefore
-  // be the very fact another kept fact `depends` on, which the edge pass must
+  // be the very fact another candidate `depends` on, which the edge pass must
   // then pick up — hence a combined fixpoint, not one pass of each.
-  const excluded = new Set<string>();
-  const suset = opts.susetGucs;
-  if (suset && suset.size > 0) {
-    for (const fct of keptFacts) {
-      if (
-        (fct.id.kind === "function" || fct.id.kind === "procedure") &&
-        configGucsOf(fct).some((g) => suset.has(g))
-      ) {
-        excluded.add(encodeId(fct.id));
+  if (excludedIds.size > 0) {
+    const parentOf = new Map<string, string>();
+    for (const fct of candidateFacts) {
+      if (fct.parent !== undefined) {
+        parentOf.set(encodeId(fct.id), encodeId(fct.parent));
       }
     }
-    if (excluded.size > 0) {
-      const parentOf = new Map<string, string>();
-      for (const fct of keptFacts) {
-        if (fct.parent !== undefined) {
-          parentOf.set(encodeId(fct.id), encodeId(fct.parent));
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const e of view.edges) {
+        if (e.kind !== "depends") continue;
+        const from = encodeId(e.from);
+        if (
+          candidateIds.has(from) &&
+          !excludedIds.has(from) &&
+          excludedIds.has(encodeId(e.to))
+        ) {
+          excludedIds.add(from);
+          changed = true;
         }
       }
-      let changed = true;
-      while (changed) {
-        changed = false;
-        for (const e of view.edges) {
-          if (e.kind !== "depends") continue;
-          const from = encodeId(e.from);
-          if (
-            keptIds.has(from) &&
-            !excluded.has(from) &&
-            excluded.has(encodeId(e.to))
-          ) {
-            excluded.add(from);
+      for (const fct of candidateFacts) {
+        const encoded = encodeId(fct.id);
+        if (excludedIds.has(encoded)) continue;
+        let ancestor = parentOf.get(encoded);
+        while (ancestor !== undefined) {
+          if (excludedIds.has(ancestor)) {
+            excludedIds.add(encoded);
             changed = true;
+            break;
           }
-        }
-        for (const fct of keptFacts) {
-          const encoded = encodeId(fct.id);
-          if (excluded.has(encoded)) continue;
-          let ancestor = parentOf.get(encoded);
-          while (ancestor !== undefined) {
-            if (excluded.has(ancestor)) {
-              excluded.add(encoded);
-              changed = true;
-              break;
-            }
-            ancestor = parentOf.get(ancestor);
-          }
+          ancestor = parentOf.get(ancestor);
         }
       }
     }
   }
 
   const seedFacts =
-    excluded.size > 0
-      ? keptFacts.filter((f) => !excluded.has(encodeId(f.id)))
-      : keptFacts;
+    excludedIds.size > 0
+      ? candidateFacts.filter((f) => !excludedIds.has(encodeId(f.id)))
+      : candidateFacts;
   if (seedFacts.length === 0) return EMPTY;
   const finalIds = new Set(seedFacts.map((f) => encodeId(f.id)));
+
+  // Defensive invariant: the edge filter below narrows `view.edges` to intra-seed
+  // edges, which would SILENTLY discard the evidence of an unsatisfied dependency
+  // and let PostgreSQL discover it at replay time instead. Nothing in the final
+  // seed set may still depend on a MANAGED fact outside it — the closure above
+  // exists precisely to guarantee that, so a violation is an engine bug, not user
+  // input. (Reference-only targets outside the seed remain allowed: they are
+  // ambient in the co-located shadow.)
+  for (const e of view.edges) {
+    if (e.kind !== "depends") continue;
+    const from = encodeId(e.from);
+    if (!finalIds.has(from) || shellIds.has(from)) continue;
+    const to = encodeId(e.to);
+    if (finalIds.has(to) || view.referenceOnly.has(to)) continue;
+    if (view.getByEncoded(to) === undefined) continue;
+    throw new Error(
+      `deriveAssumedSchemaSeed: seed fact ${from} still depends on managed fact ` +
+        `${to}, which the seed does not create; the exclusion closure is incomplete`,
+    );
+  }
+
   const seedEdges = [...view.edges].filter(
     (e) => finalIds.has(encodeId(e.from)) && finalIds.has(encodeId(e.to)),
   );

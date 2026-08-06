@@ -304,6 +304,170 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.sql).toContain('CREATE SCHEMA "platform"');
   });
 
+  // A reference-only overlay can DEPEND on a MANAGED fact (one that only comes
+  // into existence when the declarative files load, AFTER the seed replays).
+  // Field case: a policy on an assumed platform table whose expression calls a
+  // user function in a managed schema — the seed used to include it and Postgres
+  // failed the whole seed with `schema "app" does not exist`. Such a candidate
+  // must be omitted WHOLE (never rewritten), together with everything that
+  // depends on it and every fact it structurally contains.
+  const appHelperFn: StableId = {
+    kind: "function",
+    schema: "app",
+    name: "helper",
+    args: [],
+  };
+  const appHelperDef =
+    `CREATE OR REPLACE FUNCTION app.helper()\n` +
+    ` RETURNS integer\n` +
+    ` LANGUAGE sql\n` +
+    `AS $function$SELECT 1$function$`;
+
+  test("a candidate depending on a MANAGED fact is omitted, transitively", () => {
+    const crossLayerFn: StableId = {
+      kind: "function",
+      schema: "platform",
+      name: "cross_layer",
+      args: [],
+    };
+    const downstreamFn: StableId = {
+      kind: "function",
+      schema: "platform",
+      name: "downstream",
+      args: [],
+    };
+    const crossLayerDef =
+      `CREATE OR REPLACE FUNCTION platform.cross_layer()\n` +
+      ` RETURNS integer\n` +
+      ` LANGUAGE sql\n` +
+      `AS $function$SELECT app.helper()$function$`;
+    const downstreamDef =
+      `CREATE OR REPLACE FUNCTION platform.downstream()\n` +
+      ` RETURNS integer\n` +
+      ` LANGUAGE sql\n` +
+      `AS $function$SELECT platform.cross_layer()$function$`;
+    const target = buildFactBase(
+      [
+        f(schemaPlatform),
+        f(schemaApp),
+        f(appHelperFn, routinePayload(appHelperDef, [])),
+        f(crossLayerFn, routinePayload(crossLayerDef, [])),
+        f(downstreamFn, routinePayload(downstreamDef, [])),
+        f(tidyFn, routinePayload(tidyDef, ["search_path"])),
+      ],
+      [
+        { from: crossLayerFn, to: appHelperFn, kind: "depends" },
+        { from: downstreamFn, to: crossLayerFn, kind: "depends" },
+      ],
+    );
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: platformPolicy,
+      assumedSchemas: ["platform"],
+      assumedRoles: [],
+    });
+    // the assumed schema and the self-contained platform routine still seed.
+    expect(seed.sql).toContain('CREATE SCHEMA "platform"');
+    expect(seed.sql).toContain("platform.tidy()");
+    // the managed-dependency overlay AND its dependent are absent.
+    expect(seed.sql).not.toContain("cross_layer");
+    expect(seed.sql).not.toContain("downstream");
+    // the managed schema and its objects are never seeded.
+    expect(seed.sql).not.toContain('"app"');
+    expect(seed.sql).not.toContain("app.helper");
+    expect(seed.schemas).toEqual(["platform"]);
+    expect(seed.facts).toBe(2);
+  });
+
+  test("a candidate omitted for a MANAGED dependency does not orphan its CHILD facts", () => {
+    // Same structural interplay as the susetGucs case: containment is `Fact.parent`,
+    // not a `depends` edge, so omitting the container without its descendants
+    // would leave orphaned children and buildFactBase would hard-throw
+    // "references missing parent".
+    const overlayView: StableId = {
+      kind: "view",
+      schema: "platform",
+      name: "overlay",
+    };
+    const overlayIdColumn: StableId = {
+      kind: "column",
+      schema: "platform",
+      table: "overlay",
+      name: "id",
+    };
+    const target = buildFactBase(
+      [
+        f(schemaPlatform),
+        f(schemaApp),
+        f(appHelperFn, routinePayload(appHelperDef, [])),
+        f(tidyFn, routinePayload(tidyDef, ["search_path"])),
+        {
+          id: overlayView,
+          parent: schemaPlatform,
+          payload: { def: " SELECT app.helper() AS id;" },
+        },
+        {
+          id: overlayIdColumn,
+          parent: overlayView,
+          payload: { type: "integer", notNull: false },
+        },
+      ],
+      [{ from: overlayView, to: appHelperFn, kind: "depends" }],
+    );
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: platformPolicy,
+      assumedSchemas: ["platform"],
+      assumedRoles: [],
+    });
+    expect(seed.sql).toContain('CREATE SCHEMA "platform"');
+    expect(seed.sql).toContain("platform.tidy()");
+    expect(seed.sql).not.toContain("overlay");
+    expect(seed.sql).not.toContain("app.helper");
+    expect(seed.facts).toBe(2);
+  });
+
+  test("a candidate depending on another REFERENCE-ONLY non-candidate is still seeded", () => {
+    // Extension members are reference-only but excluded from the candidate set
+    // (CREATE EXTENSION owns their lifecycle). They are ambient in the shadow —
+    // an assumed-schema fact depending on one must NOT be omitted.
+    const ext: StableId = { kind: "extension", name: "someext" };
+    const memberFn: StableId = {
+      kind: "function",
+      schema: "platform",
+      name: "member_fn",
+      args: [],
+    };
+    const userOfMember: StableId = {
+      kind: "function",
+      schema: "platform",
+      name: "uses_member",
+      args: [],
+    };
+    const usesMemberDef =
+      `CREATE OR REPLACE FUNCTION platform.uses_member()\n` +
+      ` RETURNS integer\n` +
+      ` LANGUAGE sql\n` +
+      `AS $function$SELECT platform.member_fn()$function$`;
+    const target = buildFactBase(
+      [
+        f(schemaPlatform),
+        f(ext),
+        f(memberFn, routinePayload("CREATE FUNCTION platform.member_fn()", [])),
+        f(userOfMember, routinePayload(usesMemberDef, [])),
+      ],
+      [
+        { from: memberFn, to: ext, kind: "memberOfExtension" },
+        { from: userOfMember, to: memberFn, kind: "depends" },
+      ],
+    );
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: platformPolicy,
+      assumedSchemas: ["platform"],
+      assumedRoles: [],
+    });
+    expect(seed.sql).toContain('CREATE SCHEMA "platform"');
+    expect(seed.sql).toContain("platform.uses_member()");
+  });
+
   test("without susetGucs: routine def retained verbatim (byte-identical), ADP still omitted", () => {
     const seed = deriveAssumedSchemaSeed(platformTarget(), {
       policy: platformPolicy,
@@ -376,5 +540,61 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.sql).toContain('CREATE PUBLICATION "platform_pub"');
     expect(seed.facts).toBe(1);
     expect(seed.schemas).toEqual([]);
+  });
+
+  test("an assumed SHELL keeps its inherited managed dependency (publication members)", () => {
+    // #370: an assumed publication is seeded EMPTY — membership is a separate
+    // MANAGED `publicationRel` child fact the seed never creates. But extract
+    // collapses `pg_publication_rel` catalog rows onto the PUBLICATION id
+    // (src/extract/dependencies.ts's `pubrel` CTE), so the publication fact
+    // INHERITS a `depends` edge to each managed member table. That edge is not a
+    // replay requirement for `CREATE PUBLICATION` with no `FOR TABLE`, so the
+    // managed-dependency rule must not omit the publication (which would silently
+    // empty the seed and break a membership-only declarative dir).
+    const pubOnlyPolicy: Policy = {
+      id: "test-pub-only-members",
+      filter: [
+        {
+          match: { all: [{ kind: "publication" }, { name: "platform_pub" }] },
+          action: "exclude",
+        },
+      ],
+      assumedPublications: ["platform_pub"],
+    };
+    const platformPub: StableId = { kind: "publication", name: "platform_pub" };
+    const userTable: StableId = { kind: "table", schema: "public", name: "t" };
+    const pubRel: StableId = {
+      kind: "publicationRel",
+      publication: "platform_pub",
+      schema: "public",
+      table: "t",
+    };
+    const target = buildFactBase(
+      [
+        f(schemaPublic),
+        f(platformPub, {
+          allTables: false,
+          viaRoot: false,
+          publish: ["insert", "update", "delete", "truncate"],
+        }),
+        { id: userTable, parent: schemaPublic, payload: { persistence: "p" } },
+        {
+          id: pubRel,
+          parent: platformPub,
+          payload: { columns: null, where: null },
+        },
+      ],
+      [{ from: platformPub, to: userTable, kind: "depends" }],
+    );
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: pubOnlyPolicy,
+      assumedSchemas: [],
+      assumedRoles: [],
+      assumedPublications: ["platform_pub"],
+    });
+    expect(seed.sql).toContain('CREATE PUBLICATION "platform_pub"');
+    // seeded as a bare shell — membership is managed, never seeded.
+    expect(seed.sql).not.toMatch(/ADD TABLE|FOR TABLE/i);
+    expect(seed.facts).toBe(1);
   });
 });

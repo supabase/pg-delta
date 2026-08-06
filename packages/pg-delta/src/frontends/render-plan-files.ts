@@ -95,7 +95,8 @@ export function renderPlanFiles(
     // migration. apply() keeps the pin on its own connection (no third-party
     // bookkeeping shares it). check_function_bodies is retained — function
     // bodies may legitimately need it and it does not affect name resolution of
-    // the runner's insert.
+    // the runner's insert. (The planner only puts it in the preamble when the
+    // plan touches a routine-family object — src/plan/preamble.ts.)
     //
     // Scope the remaining settings so a reused runner session (sequential
     // migration runners share a connection) does not silently inherit them —

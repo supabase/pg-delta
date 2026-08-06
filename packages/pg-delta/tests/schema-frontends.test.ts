@@ -19,8 +19,12 @@ import {
   type ManagementScope,
   type SqlFile,
 } from "../src/frontends/index.ts";
-import { rawProfile } from "../src/integrations/index.ts";
-import { sharedCluster } from "./containers.ts";
+import {
+  rawProfile,
+  type IntegrationProfile,
+} from "../src/integrations/index.ts";
+import type { Policy } from "../src/policy/policy.ts";
+import { isolatedClusterPair, sharedCluster } from "./containers.ts";
 
 const SCHEMA_SQL = `
   CREATE SCHEMA app;
@@ -152,6 +156,43 @@ describe("public schema frontends", () => {
     }
   }, 90_000);
 
+  test("planSchemaFiles tolerates a pre-provisioned isolated shadow (Supabase CLI seam)", async () => {
+    // End-to-end shape of the Supabase CLI's declarative flow: the isolated
+    // shadow is pre-provisioned with the platform baseline (schemas + the
+    // services' own migration rows) BEFORE declarative SQL is loaded. The
+    // baseline exists on the target too, so with identical schema intent on both
+    // sides the plan must be EMPTY — the pre-existing rows must neither fail the
+    // load nor leak into the diff.
+    const [clusterA, clusterB] = await isolatedClusterPair();
+    const target = await clusterA.createDb("frontend_preseeded_target");
+    const shadow = await clusterB.createDb("frontend_preseeded_shadow");
+    try {
+      const BASELINE_DDL = `
+        CREATE SCHEMA auth;
+        CREATE TABLE auth.schema_migrations (version text PRIMARY KEY);
+      `;
+      await target.pool.query(BASELINE_DDL + SCHEMA_SQL);
+      await shadow.pool.query(
+        `${BASELINE_DDL} INSERT INTO auth.schema_migrations VALUES ('20240101000000');`,
+      );
+
+      // the declarative directory carries USER schema only; the baseline is
+      // pre-provisioned on both sides (exactly how the CLI drives this).
+      const files: SqlFile[] = [{ name: "app.sql", sql: SCHEMA_SQL }];
+      const planned = await planSchemaFiles(target.pool, shadow.pool, files, {
+        profile: rawProfile,
+        scope: "database",
+        isolatedShadow: true,
+      });
+      expect(planned.plan.actions).toEqual([]);
+      expect(
+        planned.loadDiagnostics.filter((d) => d.code === "data_statement"),
+      ).toEqual([]);
+    } finally {
+      await Promise.all([target.drop(), shadow.drop()]);
+    }
+  }, 120_000);
+
   test("planSchemaFiles permits a non-isolated database-scope sibling from the same lineage", async () => {
     const cluster = await sharedCluster();
     const target = await cluster.createDb("frontend_sibling_target");
@@ -187,7 +228,15 @@ describe("public schema frontends", () => {
     const source = await cluster.createDb("frontend_plan_src");
     const target = await cluster.createDb("frontend_plan_tgt");
     try {
-      await source.pool.query(SCHEMA_SQL);
+      // Include a routine so the plan carries the check_function_bodies
+      // preamble — the planner emits it only for routine-touching plans
+      // (src/plan/preamble.ts), and search_path is filtered from rendered
+      // files, so a table-only plan would render no settings at all.
+      await source.pool.query(`
+        ${SCHEMA_SQL}
+        CREATE FUNCTION app.item_count() RETURNS integer
+          LANGUAGE sql STABLE AS 'SELECT count(*)::integer FROM app.items';
+      `);
       const exported = await buildSchemaExport(source.pool, {
         profile: rawProfile,
         scope: "database",
@@ -216,10 +265,14 @@ describe("public schema frontends", () => {
         const rendered = renderPlanFiles(planned.plan, { allowDrops: true });
         expect(rendered.changes).toBe(true);
         expect(rendered.files.length).toBeGreaterThan(0);
+        // search_path is deliberately excluded from rendered files (dbmate
+        // appends an unqualified bookkeeping INSERT in the same transaction);
+        // the routine above guarantees check_function_bodies survives.
+        expect(
+          planned.plan.preamble.some((s) => s.name === "check_function_bodies"),
+        ).toBe(true);
         for (const file of rendered.files) {
-          if (planned.plan.preamble.length > 0) {
-            expect(file.contents).toContain("set ");
-          }
+          expect(file.contents).toContain("check_function_bodies = off;");
         }
 
         const report = await apply(planned.plan, target.pool, {
@@ -234,6 +287,109 @@ describe("public schema frontends", () => {
       }
     } finally {
       await Promise.all([source.drop(), target.drop()]);
+    }
+  }, 120_000);
+
+  test("assumed-schema seeding omits a reference-only overlay with a managed dependency", async () => {
+    // A reference-only object can DEPEND on a MANAGED one: here a policy on the
+    // assumed `platform.objects` whose expression calls a user function and casts
+    // to a user domain, both in the managed `app` schema. `app` only exists AFTER
+    // the declarative files load, so replaying that policy during the seed phase
+    // failed the whole seed with `schema "app" does not exist`. The policy must be
+    // omitted WHOLE from the seed (never rewritten) while the useful assumed table
+    // is still seeded — and because a reference-only fact is skipped by the diff on
+    // both sides, its absence produces no spurious create/drop.
+    const platformPolicy: Policy = {
+      id: "test-platform-seed",
+      filter: [
+        {
+          match: { any: [{ schema: "platform" }, { name: "platform" }] },
+          action: "exclude",
+        },
+      ],
+      assumedSchemas: ["platform"],
+    };
+    const platformProfile: IntegrationProfile = {
+      id: "test-platform-seed",
+      handlers: [],
+      policy: platformPolicy,
+    };
+    const appSql = `
+      CREATE SCHEMA app;
+      CREATE DOMAIN app.valid_name AS text CHECK (length(value) > 0);
+      CREATE FUNCTION app.is_handle_maintainer(h text) RETURNS boolean
+        LANGUAGE sql IMMUTABLE AS $$ SELECT h IS NOT NULL $$;
+      CREATE TABLE app.links (
+        id integer PRIMARY KEY,
+        object_id integer REFERENCES platform.objects(id)
+      );
+    `;
+    const platformSql = `
+      CREATE SCHEMA platform;
+      CREATE TABLE platform.objects (id integer PRIMARY KEY, name text NOT NULL);
+      ALTER TABLE platform.objects ENABLE ROW LEVEL SECURITY;
+    `;
+    // The cross-layer overlay: reference-only (schema platform) but depending on
+    // BOTH managed app objects. Applied last — even the target can only create it
+    // once both layers exist, which is exactly why the seed cannot replay it.
+    const crossLayerPolicySql = `
+      CREATE POLICY cross_layer ON platform.objects
+        USING (app.is_handle_maintainer(name) AND (name::app.valid_name) IS NOT NULL);
+    `;
+
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_seed_managed_dep");
+    try {
+      // the platform layer must exist before the app layer's FK to it, and both
+      // before the policy that spans them.
+      await target.pool.query(platformSql);
+      await target.pool.query(appSql);
+      await target.pool.query(crossLayerPolicySql);
+
+      const shadow = await provisionCoLocatedShadow(target.uri, {
+        uniqueSuffix: `seedmd_${Date.now().toString(36)}`,
+      });
+      const shadowPool = new pg.Pool({ connectionString: shadow.url, max: 5 });
+      try {
+        // declarative files declare ONLY the managed app layer; the assumed
+        // platform layer arrives via the seed.
+        const files: SqlFile[] = [{ name: "app.sql", sql: appSql }];
+        const planned = await planSchemaFiles(target.pool, shadowPool, files, {
+          profile: platformProfile,
+          scope: "database",
+          seedAssumedSchemas: true,
+        });
+
+        // the useful assumed table WAS seeded (the app FK could not load otherwise).
+        expect(
+          await shadowPool.query(
+            `SELECT to_regclass('platform.objects') IS NOT NULL AS present`,
+          ),
+        ).toMatchObject({ rows: [{ present: true }] });
+        // the cross-layer policy was NOT part of the seed.
+        expect(
+          await shadowPool.query<{ n: number }>(
+            `SELECT count(*)::int AS n FROM pg_policies WHERE schemaname = 'platform'`,
+          ),
+        ).toMatchObject({ rows: [{ n: 0 }] });
+        // the declarative app layer loaded.
+        expect(
+          await shadowPool.query(
+            `SELECT to_regclass('app.links') IS NOT NULL AS present`,
+          ),
+        ).toMatchObject({ rows: [{ present: true }] });
+        // reference-only on both sides ⇒ no create/drop for the omitted policy,
+        // and the managed state matches ⇒ an empty plan.
+        expect(
+          planned.plan.actions.filter((a) => /cross_layer/i.test(a.sql)),
+        ).toEqual([]);
+        expect(planned.plan.actions.map((a) => a.sql)).toEqual([]);
+      } finally {
+        await shadowPool.end();
+        await shadow.cleanup();
+      }
+    } finally {
+      await target.drop();
     }
   }, 120_000);
 

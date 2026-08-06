@@ -15,6 +15,7 @@ import {
 import type { ManagementScope } from "../policy/view.ts";
 import { emitActions } from "./phases/action-emitter.ts";
 import { finalizeActions } from "./phases/action-graph.ts";
+import { needsCheckFunctionBodiesOff } from "./preamble.ts";
 import { buildChangeSet } from "./phases/change-set.ts";
 import { expandReplacements } from "./phases/replacement-expansion.ts";
 import type { LockClass } from "./locks.ts";
@@ -574,7 +575,15 @@ export function plan(
       // applier role's default search_path. Extraction canonicalizes to the
       // same path, so every emitted statement target is already qualified.
       { name: "search_path", value: "pg_catalog" },
-      { name: "check_function_bodies", value: "off" },
+      // check_function_bodies=off lets quoted routine bodies elaborate lazily
+      // (the planner records no body-dependency edges — rules/helpers.ts).
+      // Omitting it when no action touches a routine-family object is a
+      // cosmetic compaction pass (./preamble.ts); compact:false restores the
+      // unconditional preamble as the conservative opt-out.
+      ...(options?.compact === false ||
+      needsCheckFunctionBodiesOff(finalActions)
+        ? [{ name: "check_function_bodies", value: "off" }]
+        : []),
     ],
     deltas,
     filteredDeltas,
