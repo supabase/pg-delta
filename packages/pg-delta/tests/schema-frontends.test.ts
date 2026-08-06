@@ -19,7 +19,11 @@ import {
   type ManagementScope,
   type SqlFile,
 } from "../src/frontends/index.ts";
-import { rawProfile } from "../src/integrations/index.ts";
+import {
+  rawProfile,
+  type IntegrationProfile,
+} from "../src/integrations/index.ts";
+import type { Policy } from "../src/policy/policy.ts";
 import { isolatedClusterPair, sharedCluster } from "./containers.ts";
 
 const SCHEMA_SQL = `
@@ -271,6 +275,109 @@ describe("public schema frontends", () => {
       }
     } finally {
       await Promise.all([source.drop(), target.drop()]);
+    }
+  }, 120_000);
+
+  test("assumed-schema seeding omits a reference-only overlay with a managed dependency", async () => {
+    // A reference-only object can DEPEND on a MANAGED one: here a policy on the
+    // assumed `platform.objects` whose expression calls a user function and casts
+    // to a user domain, both in the managed `app` schema. `app` only exists AFTER
+    // the declarative files load, so replaying that policy during the seed phase
+    // failed the whole seed with `schema "app" does not exist`. The policy must be
+    // omitted WHOLE from the seed (never rewritten) while the useful assumed table
+    // is still seeded — and because a reference-only fact is skipped by the diff on
+    // both sides, its absence produces no spurious create/drop.
+    const platformPolicy: Policy = {
+      id: "test-platform-seed",
+      filter: [
+        {
+          match: { any: [{ schema: "platform" }, { name: "platform" }] },
+          action: "exclude",
+        },
+      ],
+      assumedSchemas: ["platform"],
+    };
+    const platformProfile: IntegrationProfile = {
+      id: "test-platform-seed",
+      handlers: [],
+      policy: platformPolicy,
+    };
+    const appSql = `
+      CREATE SCHEMA app;
+      CREATE DOMAIN app.valid_name AS text CHECK (length(value) > 0);
+      CREATE FUNCTION app.is_handle_maintainer(h text) RETURNS boolean
+        LANGUAGE sql IMMUTABLE AS $$ SELECT h IS NOT NULL $$;
+      CREATE TABLE app.links (
+        id integer PRIMARY KEY,
+        object_id integer REFERENCES platform.objects(id)
+      );
+    `;
+    const platformSql = `
+      CREATE SCHEMA platform;
+      CREATE TABLE platform.objects (id integer PRIMARY KEY, name text NOT NULL);
+      ALTER TABLE platform.objects ENABLE ROW LEVEL SECURITY;
+    `;
+    // The cross-layer overlay: reference-only (schema platform) but depending on
+    // BOTH managed app objects. Applied last — even the target can only create it
+    // once both layers exist, which is exactly why the seed cannot replay it.
+    const crossLayerPolicySql = `
+      CREATE POLICY cross_layer ON platform.objects
+        USING (app.is_handle_maintainer(name) AND (name::app.valid_name) IS NOT NULL);
+    `;
+
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_seed_managed_dep");
+    try {
+      // the platform layer must exist before the app layer's FK to it, and both
+      // before the policy that spans them.
+      await target.pool.query(platformSql);
+      await target.pool.query(appSql);
+      await target.pool.query(crossLayerPolicySql);
+
+      const shadow = await provisionCoLocatedShadow(target.uri, {
+        uniqueSuffix: `seedmd_${Date.now().toString(36)}`,
+      });
+      const shadowPool = new pg.Pool({ connectionString: shadow.url, max: 5 });
+      try {
+        // declarative files declare ONLY the managed app layer; the assumed
+        // platform layer arrives via the seed.
+        const files: SqlFile[] = [{ name: "app.sql", sql: appSql }];
+        const planned = await planSchemaFiles(target.pool, shadowPool, files, {
+          profile: platformProfile,
+          scope: "database",
+          seedAssumedSchemas: true,
+        });
+
+        // the useful assumed table WAS seeded (the app FK could not load otherwise).
+        expect(
+          await shadowPool.query(
+            `SELECT to_regclass('platform.objects') IS NOT NULL AS present`,
+          ),
+        ).toMatchObject({ rows: [{ present: true }] });
+        // the cross-layer policy was NOT part of the seed.
+        expect(
+          await shadowPool.query<{ n: number }>(
+            `SELECT count(*)::int AS n FROM pg_policies WHERE schemaname = 'platform'`,
+          ),
+        ).toMatchObject({ rows: [{ n: 0 }] });
+        // the declarative app layer loaded.
+        expect(
+          await shadowPool.query(
+            `SELECT to_regclass('app.links') IS NOT NULL AS present`,
+          ),
+        ).toMatchObject({ rows: [{ present: true }] });
+        // reference-only on both sides ⇒ no create/drop for the omitted policy,
+        // and the managed state matches ⇒ an empty plan.
+        expect(
+          planned.plan.actions.filter((a) => /cross_layer/i.test(a.sql)),
+        ).toEqual([]);
+        expect(planned.plan.actions.map((a) => a.sql)).toEqual([]);
+      } finally {
+        await shadowPool.end();
+        await shadow.cleanup();
+      }
+    } finally {
+      await target.drop();
     }
   }, 120_000);
 
