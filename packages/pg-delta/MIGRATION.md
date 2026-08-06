@@ -61,7 +61,10 @@ you WILL see against old-engine output:
    of the new value). Mid-plan failure reporting tells you exactly
    which actions are applied/unapplied/in doubt.
 5. Plans never contain `SET check_function_bodies` statements — session
-   settings ride in `plan.preamble`.
+   settings ride in `plan.preamble`. The `check_function_bodies = off`
+   entry appears there only when the plan touches a routine-family
+   object (function / procedure / aggregate / extension); planning with
+   `compact: false` restores it unconditionally.
 
 Accepted differences (each is deliberate; none changes converged
 state): decomposed-then-compacted statement shapes (1), ACL

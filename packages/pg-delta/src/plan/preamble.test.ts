@@ -108,7 +108,10 @@ describe("conditional check_function_bodies preamble", () => {
   });
 
   test("an empty plan omits check_function_bodies", () => {
-    const thePlan = plan(base([tableFact, colFact]), base([tableFact, colFact]));
+    const thePlan = plan(
+      base([tableFact, colFact]),
+      base([tableFact, colFact]),
+    );
     expect(thePlan.actions).toHaveLength(0);
     expect(preambleNames(thePlan)).toEqual(["search_path"]);
   });
