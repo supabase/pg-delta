@@ -805,9 +805,9 @@ is imported as data and SQL; none of its *mechanisms* — and none of its
   `LANGUAGE SQL` bodies are opaque to Postgres's dependency tracking (only
   SQL-standard `BEGIN ATOMIC` bodies get edges), so the graph cannot order
   a routine after a table its body references. The strategy is layered:
-  plans run with `check_function_bodies = off` (the diff path already
-  emits this —
-  `create.ts:350`); PL/pgSQL
+  routine-touching plans run with `check_function_bodies = off` (a
+  preamble entry, omitted as a cosmetic compaction when no
+  routine-family object is involved — `src/plan/preamble.ts`); PL/pgSQL
   is late-bound at runtime, so missing edges rarely matter for it;
   SQL-language ordering gaps surface in the proof loop as a failed clone
   apply — before production, not in it; and the dev layer (§4.4) can lint
