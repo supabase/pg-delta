@@ -541,4 +541,60 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.facts).toBe(1);
     expect(seed.schemas).toEqual([]);
   });
+
+  test("an assumed SHELL keeps its inherited managed dependency (publication members)", () => {
+    // #370: an assumed publication is seeded EMPTY — membership is a separate
+    // MANAGED `publicationRel` child fact the seed never creates. But extract
+    // collapses `pg_publication_rel` catalog rows onto the PUBLICATION id
+    // (src/extract/dependencies.ts's `pubrel` CTE), so the publication fact
+    // INHERITS a `depends` edge to each managed member table. That edge is not a
+    // replay requirement for `CREATE PUBLICATION` with no `FOR TABLE`, so the
+    // managed-dependency rule must not omit the publication (which would silently
+    // empty the seed and break a membership-only declarative dir).
+    const pubOnlyPolicy: Policy = {
+      id: "test-pub-only-members",
+      filter: [
+        {
+          match: { all: [{ kind: "publication" }, { name: "platform_pub" }] },
+          action: "exclude",
+        },
+      ],
+      assumedPublications: ["platform_pub"],
+    };
+    const platformPub: StableId = { kind: "publication", name: "platform_pub" };
+    const userTable: StableId = { kind: "table", schema: "public", name: "t" };
+    const pubRel: StableId = {
+      kind: "publicationRel",
+      publication: "platform_pub",
+      schema: "public",
+      table: "t",
+    };
+    const target = buildFactBase(
+      [
+        f(schemaPublic),
+        f(platformPub, {
+          allTables: false,
+          viaRoot: false,
+          publish: ["insert", "update", "delete", "truncate"],
+        }),
+        { id: userTable, parent: schemaPublic, payload: { persistence: "p" } },
+        {
+          id: pubRel,
+          parent: platformPub,
+          payload: { columns: null, where: null },
+        },
+      ],
+      [{ from: platformPub, to: userTable, kind: "depends" }],
+    );
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: pubOnlyPolicy,
+      assumedSchemas: [],
+      assumedRoles: [],
+      assumedPublications: ["platform_pub"],
+    });
+    expect(seed.sql).toContain('CREATE PUBLICATION "platform_pub"');
+    // seeded as a bare shell — membership is managed, never seeded.
+    expect(seed.sql).not.toMatch(/ADD TABLE|FOR TABLE/i);
+    expect(seed.facts).toBe(1);
+  });
 });
