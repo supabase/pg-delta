@@ -79,7 +79,7 @@ Commands:
                  [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
   schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>
                  [--renames auto|prompt|off] [--force] [--allow-data-loss]
-                 [--scope database|cluster] [--isolated-shadow]
+                 [--scope database|cluster] [--isolated-shadow] [--strict-data-statements]
                  [--trusted-local-host <hostname>]... [--allow-remote-shadow]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
                  [--dry-run] [--verbose] [--out-plan <plan.json>]
@@ -137,6 +137,13 @@ Notes:
     raw files at file granularity. Reorder is on by default — it splits files
     into one-statement units and topologically pre-sorts them so authoring
     order within a file no longer matters.
+  --strict-data-statements (schema apply): fail (instead of warn) when
+    declarative files leave rows in managed user tables. By default a
+    populated table observed after loading is either exempt (pre-existing
+    rows in --isolated-shadow mode, reported on the result) or downgraded to
+    a "data_statement" warning diagnostic, and the load proceeds with a
+    schema-only plan; this flag restores the fatal error (recommended for
+    CI).
   schema apply: the applied statements are planner-rendered atomic DDL, not
     the authored declarative SQL (the planner re-derives them from the
     catalog diff between the shadow and target states). --verbose shows every
@@ -193,7 +200,7 @@ Subcommands:
                  [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
   schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>
                  [--renames auto|prompt|off] [--force] [--allow-data-loss]
-                 [--scope database|cluster] [--isolated-shadow]
+                 [--scope database|cluster] [--isolated-shadow] [--strict-data-statements]
                  [--trusted-local-host <hostname>]... [--allow-remote-shadow]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
                  [--dry-run] [--verbose] [--out-plan <plan.json>]
