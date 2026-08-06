@@ -6,7 +6,7 @@
  * - body validation: routines re-validated with checks ON after loading
  * - shared-object isolation: pg_roles + pg_auth_members snapshot before/after;
  *   leakage fails in "databaseScratch" mode (skipped in "isolatedCluster" mode)
- * - DML rejection: any user table containing rows fails, by observation
+ * - DML detection: any user table containing rows is reported, by observation
  *
  * ## Loader modes
  *
@@ -17,7 +17,9 @@
  * would pollute the shared catalog — this is called a "leak". The loader
  * snapshots pg_roles and pg_auth_members before loading and after; if the
  * sets differ, it throws a ShadowLoadError. Use this mode for typical CI /
- * tooling usage where one cluster hosts many test databases.
+ * tooling usage where one cluster hosts many test databases. The shadow must
+ * also be EMPTY before the load, and no managed table may hold pre-existing
+ * rows (`allowPreExistingRows` defaults to false here).
  *
  * ### "isolatedCluster"
  * The shadow database has its own dedicated PostgreSQL cluster (e.g. from
@@ -26,6 +28,26 @@
  * snapshot check is SKIPPED entirely; files that CREATE ROLE or GRANT role
  * memberships will load successfully. Use this mode when your SQL files
  * intentionally manage cluster-level state.
+ *
+ * A dedicated shadow is also allowed to be PRE-PROVISIONED: the Supabase CLI
+ * boots its platform services (auth, storage, realtime, …) against the shadow
+ * before any declarative SQL is loaded, so their migration bookkeeping tables
+ * already hold rows. `allowPreExistingRows` therefore defaults to TRUE in this
+ * mode: the loader snapshots WHICH managed tables are populated BEFORE the load
+ * and exempts exactly those from the post-load DML observation, silently (no
+ * diagnostic). Documented limitation: the snapshot keys on the qualified table
+ * NAME, never on row contents — the loader deliberately never compares data — so
+ * a table that was already populated stays exempt even if a declarative file
+ * inserts into it, and a drop+recreate of the same name remains exempt too.
+ *
+ * ## DML observation severity
+ * A managed non-extension table that holds rows the load cannot account for is a
+ * `data_statement` WARNING on {@link LoadResult.diagnostics} by default and the
+ * load PROCEEDS: Postgres accepted the rows, and pg-delta only ever diffs
+ * schema, so refusing to read the schema back would block every directory that
+ * carries incidental data. Set `strictDataStatements: true` (CLI
+ * `--strict-data-statements`) to restore the fatal `ShadowLoadError` for CI.
+ * Extension-owned relations (pg_depend deptype 'e') are always out of scope.
  */
 import type { Pool, PoolClient, QueryResult } from "pg";
 import type { Diagnostic } from "../core/diagnostic.ts";
@@ -444,6 +466,11 @@ export interface LoadResult {
   pgVersion: string;
   diagnostics: Diagnostic[];
   rounds: number;
+  /** Managed non-extension tables that already held rows BEFORE the load, as
+   *  `"schema"."table"`, and are therefore exempt from the post-load DML
+   *  observation. Empty unless `allowPreExistingRows` is in effect (it defaults
+   *  to true in `"isolatedCluster"` mode). */
+  preExistingPopulatedTables: string[];
 }
 
 export class ShadowLoadError extends Error {
@@ -552,6 +579,39 @@ async function restoreScratchClusterState(
   return diags;
 }
 
+/**
+ * Qualified (`"schema"."table"`) names of the managed non-extension tables that
+ * currently hold at least one row. This is the ONE query behind both the pre-load
+ * exemption snapshot and the post-load DML observation, so the exemption is exact
+ * string-set subtraction (identical scope, identical escaping).
+ *
+ * "Managed user table" must mean the SAME thing the diff path manages, so reuse
+ * the extraction scope predicate (USER_SCHEMA_FILTER drops pg_catalog /
+ * information_schema / pg_toast / pg_temp) and exclude extension-owned relations
+ * (pg_depend deptype 'e'). Otherwise a declarative file that installs an
+ * extension whose CREATE EXTENSION seeds internal config rows — or a platform
+ * object — is wrongly read as if the user wrote DML (P2).
+ */
+async function listPopulatedManagedTables(
+  db: Pick<PoolClient, "query">,
+): Promise<string[]> {
+  const tables = await db.query(`
+    SELECT n.nspname AS schema, c.relname AS name
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relkind = 'r'
+      AND ${USER_SCHEMA_FILTER}
+      AND ${notExtensionMember("pg_class", "c.oid")}`);
+  const populated: string[] = [];
+  for (const row of tables.rows as { schema: string; name: string }[]) {
+    const qualified = `"${row.schema.replaceAll('"', '""')}"."${row.name.replaceAll('"', '""')}"`;
+    const r = await db.query(
+      `SELECT EXISTS (SELECT 1 FROM ${qualified} LIMIT 1) AS has`,
+    );
+    if ((r.rows[0] as { has: boolean }).has) populated.push(qualified);
+  }
+  return populated;
+}
+
 export async function loadSqlFiles(
   files: SqlFile[],
   shadow: Pool,
@@ -592,6 +652,29 @@ export async function loadSqlFiles(
      *  a routine in a seeded schema that is NOT an unchanged seed always throws
      *  (Codex #329), and an unchanged seeded routine always warns. */
     strictFunctionBodies?: boolean;
+    /** Tolerate rows that already existed in the shadow BEFORE this load
+     *  (default: `true` in `"isolatedCluster"` mode, `false` otherwise). A
+     *  dedicated shadow may be pre-provisioned by a platform — the Supabase CLI
+     *  boots auth / storage / realtime against it, and those services write their
+     *  own migration bookkeeping rows — long before declarative SQL is loaded.
+     *  When enabled the loader snapshots which managed non-extension tables are
+     *  populated before the load and exempts exactly those from the post-load DML
+     *  observation, silently; the exempted set is returned as
+     *  {@link LoadResult.preExistingPopulatedTables}. Exemption is by qualified
+     *  table NAME (no data comparison, ever), so a pre-populated table stays
+     *  exempt even if a declarative file inserts into it — an accepted limitation
+     *  of observing rather than parsing. */
+    allowPreExistingRows?: boolean;
+    /** Escalate the post-load DML observation back to a fatal error (default
+     *  `false`). By default a managed non-extension table holding rows the load
+     *  cannot account for is a loud `data_statement` WARNING and the load
+     *  proceeds: pg-delta only diffs schema, so incidental data cannot corrupt a
+     *  plan, and refusing to read the schema back would block every directory
+     *  that carries some. Set to `true` (CLI `--strict-data-statements`) to
+     *  restore the `ShadowLoadError` refusal for CI. Pre-existing rows exempted
+     *  by `allowPreExistingRows` are never escalated — they are not observed at
+     *  all. */
+    strictDataStatements?: boolean;
   } = {},
 ): Promise<LoadResult> {
   // Rounds scale with dependency DEPTH, not file count: each round resolves
@@ -614,6 +697,14 @@ export async function loadSqlFiles(
   const seededSchemas = options.seededSchemas ?? [];
   const seededRoutines = options.seededRoutines;
   const strictFunctionBodies = options.strictFunctionBodies ?? false;
+  const strictDataStatements = options.strictDataStatements ?? false;
+  // A dedicated (isolatedCluster) shadow may legitimately arrive pre-provisioned
+  // with a platform baseline whose services already wrote bookkeeping rows — the
+  // Supabase CLI declarative seam. A co-located scratch database never can (the
+  // emptiness guard below already forbids it), so default the tolerance to the
+  // mode and let an explicit option override either way.
+  const allowPreExistingRows =
+    options.allowPreExistingRows ?? mode === "isolatedCluster";
   // isolatedCluster shadows may already carry a platform baseline (e.g. the
   // Supabase CLI declarative seam). The empty guard is for co-located scratch
   // databases only — requiring emptiness there prevents accidental loads into
@@ -632,6 +723,16 @@ export async function loadSqlFiles(
       throw new ShadowLoadError("shadow database is not empty", []);
     }
   }
+
+  // Snapshot which managed tables ALREADY hold rows, before a single file runs
+  // (mirrors the rolesBefore / membershipsBefore snapshots below). Those tables
+  // are fully exempt from the post-load DML observation: their rows pre-date the
+  // declarative files, so attributing them to the user's SQL would be wrong.
+  // Exemption is exact string-set subtraction against the identical query.
+  const preExistingPopulatedTables = allowPreExistingRows
+    ? await listPopulatedManagedTables(shadow)
+    : [];
+  const preExistingPopulatedSet = new Set(preExistingPopulatedTables);
 
   // reject files that manage their own transaction (review finding 6): an
   // explicit COMMIT/BEGIN/SAVEPOINT/… would break the per-file atomic wrapper
@@ -703,6 +804,8 @@ export async function loadSqlFiles(
   // body-validation warnings for SEEDED-schema routines (populated below,
   // outside the try/finally so the final result can merge them in).
   let seededBodyWarnings: Diagnostic[] = [];
+  // non-fatal `data_statement` observations (same lifetime rationale).
+  let dataStatementWarnings: Diagnostic[] = [];
   // the most recent round's per-file failures, retained so a budget-exhaustion
   // error can report WHY each still-pending file failed (review P1 #2).
   let lastFailures: Array<{ file: SqlFile; message: string }> = [];
@@ -1047,36 +1150,30 @@ export async function loadSqlFiles(
     }
     seededBodyWarnings = bodyWarnings;
 
-    // DML rejection by observation: any MANAGED USER table with rows fails.
-    // "User table" must mean the SAME thing the diff path manages, so reuse the
-    // extraction scope predicate (USER_SCHEMA_FILTER drops pg_catalog /
-    // information_schema / pg_toast / pg_temp) and exclude extension-owned
-    // relations (pg_depend deptype 'e'). Otherwise a declarative file that
-    // installs an extension whose CREATE EXTENSION seeds internal config rows —
-    // or a platform object — is wrongly rejected as if the user wrote DML (P2).
-    const tables = await client.query(`
-      SELECT n.nspname AS schema, c.relname AS name
-      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE c.relkind = 'r'
-        AND ${USER_SCHEMA_FILTER}
-        AND ${notExtensionMember("pg_class", "c.oid")}`);
-    const populated: string[] = [];
-    for (const row of tables.rows as { schema: string; name: string }[]) {
-      const qualified = `"${row.schema.replaceAll('"', '""')}"."${row.name.replaceAll('"', '""')}"`;
-      const r = await client.query(
-        `SELECT EXISTS (SELECT 1 FROM ${qualified} LIMIT 1) AS has`,
-      );
-      if ((r.rows[0] as { has: boolean }).has) populated.push(qualified);
-    }
+    // DML observation: report every MANAGED USER table that holds rows, minus the
+    // tables that already held rows before the load (see the pre-load snapshot).
+    // Tables exempted there are dropped SILENTLY — their rows are not the user's
+    // DML, so there is nothing to tell the caller about.
+    const populated = (await listPopulatedManagedTables(client)).filter(
+      (t) => !preExistingPopulatedSet.has(t),
+    );
     if (populated.length > 0) {
-      throw new ShadowLoadError(
-        `declarative files must not contain data statements — rows found in managed user table(s): ${populated.join(", ")}`,
-        populated.map((t) => ({
-          code: "data_statement",
-          severity: "error",
-          message: `managed user table ${t} contains rows after loading the declarative files`,
-        })),
-      );
+      // FATAL only under the strictDataStatements opt-in. By default this is a
+      // loud warning and the load proceeds: pg-delta diffs schema only, so rows
+      // in the shadow cannot corrupt the plan, and refusing to read the schema
+      // back would block every directory that carries incidental data.
+      const details: Diagnostic[] = populated.map((t) => ({
+        code: "data_statement",
+        severity: strictDataStatements ? "error" : "warning",
+        message: `managed user table ${t} contains rows after loading the declarative files`,
+      }));
+      if (strictDataStatements) {
+        throw new ShadowLoadError(
+          `declarative files must not contain data statements — rows found in managed user table(s): ${populated.join(", ")}`,
+          details,
+        );
+      }
+      dataStatementWarnings = details;
     }
   } catch (err) {
     // Best-effort containment of any cluster-level leak that committed before the
@@ -1133,8 +1230,13 @@ export async function loadSqlFiles(
   return {
     factBase,
     pgVersion: result.pgVersion,
-    diagnostics: [...result.diagnostics, ...seededBodyWarnings],
+    diagnostics: [
+      ...result.diagnostics,
+      ...seededBodyWarnings,
+      ...dataStatementWarnings,
+    ],
     rounds,
+    preExistingPopulatedTables,
   };
 }
 

@@ -197,7 +197,7 @@ describe("loadSqlFiles (shadow frontend)", () => {
     }
   }, 60_000);
 
-  test("DML is rejected by observation, not parsing", async () => {
+  test("DML is rejected by observation, not parsing (under strictDataStatements)", async () => {
     const shadow = await createTestDb("shadow");
     try {
       const error = await captureError(
@@ -209,10 +209,74 @@ describe("loadSqlFiles (shadow frontend)", () => {
             },
           ],
           shadow.pool,
+          // the DML gate is a WARNING by default now; the fatal throw is gated
+          // on the strictDataStatements opt-in.
+          { strictDataStatements: true },
         ),
       );
       expect(error).toBeInstanceOf(ShadowLoadError);
       expect(String(error)).toMatch(/data statements/);
+    } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+
+  test("DML in a managed user table is a warning by default, not a failure", async () => {
+    const shadow = await createTestDb("shadow_dml_warn");
+    try {
+      const result = await loadSqlFiles(
+        [
+          {
+            name: "schema.sql",
+            sql: "CREATE TABLE public.example (id integer); INSERT INTO public.example VALUES (1);",
+          },
+        ],
+        shadow.pool,
+      );
+      // the load SUCCEEDS: Postgres accepted the rows, and refusing to read the
+      // schema back would block every directory that carries incidental data.
+      expect(
+        result.factBase.has({
+          kind: "table",
+          schema: "public",
+          name: "example",
+        }),
+      ).toBe(true);
+      const dml = result.diagnostics.filter((d) => d.code === "data_statement");
+      expect(dml).toHaveLength(1);
+      expect(dml[0]?.severity).toBe("warning");
+      expect(dml[0]?.message).toContain(`"public"."example"`);
+      expect(dml[0]?.message).toContain("contains rows");
+      // nothing was pre-existing in a fresh scratch shadow
+      expect(result.preExistingPopulatedTables).toEqual([]);
+    } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+
+  test("strictDataStatements restores the fatal DML gate", async () => {
+    const shadow = await createTestDb("shadow_dml_strict");
+    try {
+      const error = await captureError(
+        loadSqlFiles(
+          [
+            {
+              name: "schema.sql",
+              sql: "CREATE TABLE public.example (id integer); INSERT INTO public.example VALUES (1);",
+            },
+          ],
+          shadow.pool,
+          { strictDataStatements: true },
+        ),
+      );
+      expect(error).toBeInstanceOf(ShadowLoadError);
+      expect(String(error)).toMatch(/data statements/);
+      const detail = (error as ShadowLoadError).details.find(
+        (d) => d.code === "data_statement",
+      );
+      expect(detail).toBeDefined();
+      expect(detail?.severity).toBe("error");
+      expect(detail?.message).toContain(`"public"."example"`);
     } finally {
       await shadow.drop();
     }
@@ -316,6 +380,115 @@ describe("loadSqlFiles (shadow frontend)", () => {
       await shadow.drop();
     }
   }, 60_000);
+
+  test("isolatedCluster mode: rows that pre-date the load are exempt from the DML check", async () => {
+    // The Supabase CLI hands pg-delta a dedicated shadow whose platform services
+    // (auth, storage, realtime, …) have ALREADY bootstrapped their own migration
+    // bookkeeping before any declarative SQL is loaded. Those rows are not user
+    // DML, so an isolatedCluster load snapshots which managed tables are already
+    // populated and exempts exactly those — silently, no diagnostic.
+    const [clusterA] = await isolatedClusterPair();
+    const shadow = await clusterA.createDb("shadow_preseeded");
+    try {
+      await shadow.pool.query(`
+        CREATE SCHEMA auth;
+        CREATE TABLE auth.schema_migrations (version text PRIMARY KEY);
+        INSERT INTO auth.schema_migrations VALUES ('20240101000000');
+      `);
+      const result = await loadSqlFiles(
+        [
+          {
+            name: "app.sql",
+            sql: "CREATE TABLE public.widgets (id integer PRIMARY KEY);",
+          },
+        ],
+        shadow.pool,
+        { mode: "isolatedCluster" },
+      );
+      expect(
+        result.diagnostics.filter((d) => d.code === "data_statement"),
+      ).toEqual([]);
+      expect(result.preExistingPopulatedTables).toContain(
+        `"auth"."schema_migrations"`,
+      );
+      expect(
+        result.factBase.has({
+          kind: "table",
+          schema: "public",
+          name: "widgets",
+        }),
+      ).toBe(true);
+    } finally {
+      await shadow.drop();
+    }
+  }, 90_000);
+
+  test("isolatedCluster mode: a declarative INSERT into an already-populated table is tolerated (accepted name-based gap)", async () => {
+    // ACCEPTED / APPROVED LIMITATION: the exemption keys on the qualified table
+    // NAME captured before the load, never on the row contents — the loader
+    // deliberately never compares data. So once a table is exempt, rows a
+    // declarative file adds to THAT table are invisible to the check, and a
+    // drop+recreate of the same name stays exempt too. The alternative (row-level
+    // comparison) is explicitly out of scope.
+    const [clusterA] = await isolatedClusterPair();
+    const shadow = await clusterA.createDb("shadow_preseeded_dml");
+    try {
+      await shadow.pool.query(`
+        CREATE SCHEMA auth;
+        CREATE TABLE auth.schema_migrations (version text PRIMARY KEY);
+        INSERT INTO auth.schema_migrations VALUES ('20240101000000');
+      `);
+      const result = await loadSqlFiles(
+        [
+          {
+            name: "dml.sql",
+            sql: "INSERT INTO auth.schema_migrations VALUES ('20250101000000');",
+          },
+        ],
+        shadow.pool,
+        { mode: "isolatedCluster" },
+      );
+      expect(
+        result.diagnostics.filter((d) => d.code === "data_statement"),
+      ).toEqual([]);
+      expect(result.preExistingPopulatedTables).toContain(
+        `"auth"."schema_migrations"`,
+      );
+    } finally {
+      await shadow.drop();
+    }
+  }, 90_000);
+
+  test("isolatedCluster mode: a table populated only BY the load still warns", async () => {
+    // The exemption covers pre-existing rows only: a managed table that was
+    // EMPTY before the load and has rows after it is still reported (warning),
+    // so genuine DML in declarative files stays visible even in a pre-seeded
+    // isolated shadow.
+    const [clusterA] = await isolatedClusterPair();
+    const shadow = await clusterA.createDb("shadow_preseeded_new");
+    try {
+      await shadow.pool.query(`
+        CREATE SCHEMA auth;
+        CREATE TABLE auth.schema_migrations (version text PRIMARY KEY);
+        INSERT INTO auth.schema_migrations VALUES ('20240101000000');
+      `);
+      const result = await loadSqlFiles(
+        [
+          {
+            name: "app.sql",
+            sql: "CREATE TABLE public.widgets (id integer PRIMARY KEY); INSERT INTO public.widgets VALUES (1);",
+          },
+        ],
+        shadow.pool,
+        { mode: "isolatedCluster" },
+      );
+      const dml = result.diagnostics.filter((d) => d.code === "data_statement");
+      expect(dml).toHaveLength(1);
+      expect(dml[0]?.message).toContain(`"public"."widgets"`);
+    } finally {
+      await shadow.drop();
+    }
+  }, 90_000);
 
   test("isolatedCluster mode: same role-creating file FAILS in databaseScratch mode and leaks no role", async () => {
     const shadow = await createTestDb("shadow_scratch");
