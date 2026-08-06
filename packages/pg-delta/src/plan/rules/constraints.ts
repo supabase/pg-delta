@@ -37,6 +37,11 @@ export const constraintRules: Record<string, KindRules> = {
       // earlier would make plan shape position-dependent and hide the FK's
       // distinct shareRowExclusive lock on the REFERENCED table from the
       // safety report.
+      //
+      // The clause is always the TABLE-constraint form, never inlined onto a
+      // column line (`id … primary key`) — that would require rewriting the
+      // verbatim def. Full rationale + the guarded design if ever revisited:
+      // docs/roadmap/backlog.md § "Column-inline PRIMARY KEY compaction".
       const type = str(p(fact, "type"));
       const foldHint =
         p(fact, "validated") === true && fact.parent?.kind === "table"

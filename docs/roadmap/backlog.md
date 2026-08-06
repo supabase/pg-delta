@@ -203,6 +203,35 @@ Documented, regression-free, each with a trigger to revisit:
 - **Security-label CI prebuild** — the `dummy_seclabel` image builds on first run;
   prebuilding it in CI is an optimization.
 - **PGlite in the trusted path** — not adopted; PostgreSQL remains the elaborator.
+- **Column-inline `PRIMARY KEY` compaction** — compaction folds a co-created
+  table's validated PK/UNIQUE/CHECK into the CREATE parens as a TABLE constraint
+  (`CONSTRAINT name <def>`, the def verbatim), deliberately NOT onto the column
+  line (`id bigint … primary key`). Three reasons, in order of weight:
+  1. *The def is verbatim `pg_get_constraintdef` output, and the column-inline
+     form requires rewriting it* — `PRIMARY KEY (id)` → `PRIMARY KEY` means
+     parsing the def, confirming the column list is exactly this one column, and
+     stripping it. That is the "semantically edit catalog-rendered SQL" class the
+     engine bans; real defs like `PRIMARY KEY (id) INCLUDE (extra)`,
+     `… DEFERRABLE INITIALLY DEFERRED`, `… WITH (fillfactor=70)`,
+     `… USING INDEX TABLESPACE x` are where a naive strip emits wrong or invalid
+     SQL. The table-constraint form uses the def byte-for-byte.
+  2. *The fold machinery appends whole clauses; it never edits one* —
+     `compactColumnFolds` splices independent clause strings into the CREATE
+     parens. The column-inline form would mutate an already-spliced column
+     clause inside the composed statement (string surgery with quoting/comma
+     ambiguity the append-only design exists to avoid).
+  3. *Single-column PKs only* — a composite PK must stay a table constraint, so
+     both forms plus selection guards would live forever for a purely aesthetic
+     delta. Both forms produce identical catalog state (same constraint name,
+     same `attnotnull`), so extraction/fingerprint/proof cannot distinguish them.
+  If ever revisited, the clean design is the canonical-render idiom (see
+  `foldCoCreateOwnership`'s `schemaCreateSql` comparison): reconstruct the
+  expected def from structured fields (`contype='p'`, single-entry `conkey`,
+  replicating PG's `quote_ident` rules) and inline ONLY on a byte-exact match
+  with the actual def, falling back to the parens form otherwise — prove the def
+  is the trivial case, then render the inline form from structured data; never
+  rewrite the def. Trigger to revisit: a concrete consumer for whom the parens
+  form is insufficient — not aesthetics alone.
 
 See [`COVERAGE.md`](../../packages/pg-delta/COVERAGE.md) for the authoritative
 catalog-coverage map.
