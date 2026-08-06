@@ -1044,6 +1044,50 @@ function expandOptionsClause(
   ];
 }
 
+/**
+ * GRANT / REVOKE: when the single-line statement exceeds maxWidth, wrap at the
+ * clause boundaries a human would — privileges (or the granted role), then
+ * `ON <target>`, then `TO <grantees>` / `FROM <grantees>` — instead of leaving
+ * it to the generic wrap, which breaks at the FIRST privilege comma (one
+ * privilege per line, `ON … TO …` glued to the last privilege). Statements
+ * that fit stay on one line; a clause line that alone exceeds maxWidth still
+ * gets the generic per-line wrap afterwards.
+ */
+export function formatGrantRevoke(
+  statement: string,
+  tokens: Token[],
+  options: NormalizedOptions,
+): string | null {
+  const first = tokens[0]?.upper;
+  if (first !== "GRANT" && first !== "REVOKE") return null;
+  const trimmed = statement.trim();
+  if (options.maxWidth <= 0 || trimmed.length <= options.maxWidth) return null;
+
+  // clause anchors: the first top-level ON (absent on role-membership grants)
+  // and the first top-level TO (grant) / FROM (revoke) after it. Grantee lists
+  // and privilege lists cannot contain these words unquoted (reserved), and
+  // column/signature parens are depth > 0, so the anchors are unambiguous.
+  const granteeKeyword = first === "GRANT" ? "TO" : "FROM";
+  const on = tokens.find((t) => t.depth === 0 && t.upper === "ON");
+  const grantee = tokens.find(
+    (t) =>
+      t.depth === 0 &&
+      t.upper === granteeKeyword &&
+      t.start > (on?.end ?? tokens[0]!.end),
+  );
+  if (grantee === undefined) return null;
+
+  const indent = indentString(options.indent);
+  const lines = [
+    statement.slice(0, on?.start ?? grantee.start).trim(),
+    ...(on !== undefined
+      ? [`${indent}${statement.slice(on.start, grantee.start).trim()}`]
+      : []),
+    `${indent}${statement.slice(grantee.start).trim()}`,
+  ];
+  return lines.join("\n");
+}
+
 export function formatGeneric(
   statement: string,
   _tokens: Token[],

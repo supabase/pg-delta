@@ -72,9 +72,11 @@ describe("compaction merges co-created same-privilege grants", () => {
     // dangling acl ids (nothing in the compacted plan produces them)
     const merged = grants(compacted)[0]!;
     for (const r of ROLES) {
-      expect(merged.consumes.some((c) => c.kind === "role" && "name" in c && c.name === r)).toBe(
-        true,
-      );
+      expect(
+        merged.consumes.some(
+          (c) => c.kind === "role" && "name" in c && c.name === r,
+        ),
+      ).toBe(true);
     }
     expect(merged.consumes.some((c) => c.kind === "acl")).toBe(false);
   });
@@ -164,7 +166,11 @@ describe("compaction merges co-created same-privilege grants", () => {
       [],
     );
     const compacted = plan(source, desired);
-    expect(grants(compacted).map((a) => a.sql).sort()).toEqual([
+    expect(
+      grants(compacted)
+        .map((a) => a.sql)
+        .sort(),
+    ).toEqual([
       `GRANT SELECT ON TABLE "app"."t" TO "anon"`,
       `GRANT SELECT ON TABLE "app"."u" TO "anon"`,
     ]);

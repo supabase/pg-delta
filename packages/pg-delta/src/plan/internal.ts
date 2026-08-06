@@ -17,11 +17,7 @@ import { type ApplierCapability, canSetOwner } from "../policy/capability.ts";
 import { extensionMemberClosure } from "../policy/view.ts";
 import type { Action, SafetyReport } from "./plan.ts";
 import { ruleFlag } from "./rule-flags.ts";
-import {
-  defaultRulesForId,
-  type FoldHint,
-  type RulesForId,
-} from "./rules.ts";
+import { defaultRulesForId, type FoldHint, type RulesForId } from "./rules.ts";
 import { renderGrantSql } from "./rules/helpers.ts";
 import { schemaCreateSql } from "./rules/schemas.ts";
 
@@ -1041,7 +1037,9 @@ export function mergeCoTargetGrants(
     const privileges = payload.privileges ?? [];
     if (privileges.length === 0) return undefined;
     // canonical-render guard: only the exact plain single-grantee GRANT merges
-    if (action.sql !== renderGrantSql(aclId.target, privileges, [aclId.grantee]))
+    if (
+      action.sql !== renderGrantSql(aclId.target, privileges, [aclId.grantee])
+    )
       return undefined;
     return { aclId, targetKey: encodeId(aclId.target), privileges };
   };

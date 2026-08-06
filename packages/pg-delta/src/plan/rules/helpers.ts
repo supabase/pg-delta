@@ -667,9 +667,12 @@ export function grantActions(fact: Fact, verb: "grant"): ActionSpec[] {
   ];
   if (plain.length > 0) {
     specs.push({
-      sql: renderGrantSql(id.target, plain, [id.grantee], {
-        ...(col !== undefined ? { column: col } : {}),
-      }),
+      sql: renderGrantSql(
+        id.target,
+        plain,
+        [id.grantee],
+        col !== undefined ? { column: col } : {},
+      ),
       consumes,
     });
   }

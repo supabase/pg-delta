@@ -89,9 +89,9 @@ describe("compaction folds self-contained constraints into CREATE TABLE", () => 
     expect(sqls(compacted)).toContain(
       `CREATE TABLE "app"."t" ("id" integer NOT NULL, CONSTRAINT "t_pkey" PRIMARY KEY (id))`,
     );
-    expect(
-      sqls(compacted).some((s) => s.includes("ADD CONSTRAINT")),
-    ).toBe(false);
+    expect(sqls(compacted).some((s) => s.includes("ADD CONSTRAINT"))).toBe(
+      false,
+    );
   });
 
   test("UNIQUE and CHECK fold; the uncompacted plan keeps the ALTERs", () => {
@@ -127,7 +127,10 @@ describe("compaction folds self-contained constraints into CREATE TABLE", () => 
     const desired = buildFactBase(
       [
         f(schemaApp),
-        ...tableFacts("u", constraintFact("u", "u_pkey", "PRIMARY KEY (id)", "p")),
+        ...tableFacts(
+          "u",
+          constraintFact("u", "u_pkey", "PRIMARY KEY (id)", "p"),
+        ),
         ...tableFacts("t", constraintFact("t", "t_id_fkey", fkDef, "f")),
       ],
       [

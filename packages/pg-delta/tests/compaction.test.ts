@@ -425,9 +425,15 @@ describe("compaction", () => {
         a.sql.startsWith(`CREATE TABLE "app"."notes"`),
       );
       // the self-contained constraints fold into the co-created table's parens…
-      expect(createNotes?.sql).toContain(`CONSTRAINT "notes_pkey" PRIMARY KEY (id)`);
-      expect(createNotes?.sql).toContain(`CONSTRAINT "notes_score_check" CHECK`);
-      expect(createNotes?.sql).toContain(`CONSTRAINT "notes_score_key" UNIQUE (score)`);
+      expect(createNotes?.sql).toContain(
+        `CONSTRAINT "notes_pkey" PRIMARY KEY (id)`,
+      );
+      expect(createNotes?.sql).toContain(
+        `CONSTRAINT "notes_score_check" CHECK`,
+      );
+      expect(createNotes?.sql).toContain(
+        `CONSTRAINT "notes_score_key" UNIQUE (score)`,
+      );
       // …while the FK — whose referenced table the executor may not have
       // created yet in the general case — stays a separate ALTER.
       const alters = compacted.actions.filter((a) =>
