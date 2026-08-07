@@ -258,6 +258,40 @@ describe("parseProfileFile: pg_cron is configured from the file's own policy", (
     );
   });
 
+  test("policy.extends inheriting defaultOwner from a parent still configures pg_cron elision (flattened, not raw)", () => {
+    const profile = parseProfileFile(
+      JSON.stringify({
+        id: "platform-middleware",
+        handlers: ["pg_cron"],
+        policy: {
+          id: "child",
+          filter: [],
+          extends: [{ id: "parent", filter: [], defaultOwner: "postgres" }],
+        },
+      }),
+      "profile.json",
+    );
+    expect(cronCreateSql(profile)).toMatchInlineSnapshot(
+      `"select cron.schedule_in_database('nightly', '0 0 * * *', 'select 1', 'postgres', NULL, true)"`,
+    );
+  });
+
+  test("a policy whose extends chain cycles surfaces as a UsageError mentioning the profile source", () => {
+    const badJson = JSON.stringify({
+      id: "mw",
+      handlers: ["pg_cron"],
+      policy: {
+        id: "child",
+        filter: [],
+        extends: [{ id: "child", filter: [] }],
+      },
+    });
+    expect(() => parseProfileFile(badJson, "profile.json")).toThrow(UsageError);
+    expect(() => parseProfileFile(badJson, "profile.json")).toThrow(
+      /profile profile\.json: invalid policy/,
+    );
+  });
+
   test("pg_partman still resolves alongside a configured pg_cron", () => {
     const profile = parseProfileFile(
       JSON.stringify({

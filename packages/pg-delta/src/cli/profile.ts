@@ -21,7 +21,7 @@ import {
   resolveProfile,
   supabaseProfile,
 } from "../integrations/index.ts";
-import type { Policy } from "../policy/policy.ts";
+import { flattenPolicy, type Policy } from "../policy/policy.ts";
 import { UsageError } from "./flags.ts";
 
 const PROFILES: Record<string, IntegrationProfile> = {
@@ -39,23 +39,27 @@ export const PROFILE_IDS = Object.keys(PROFILES).join(" | ");
  *
  * A factory (rather than a ready-made instance) is what lets a CONFIGURABLE
  * handler read the same file's `policy`: `pg_cron` derives its `defaultJobOwner`
- * from `policy.defaultOwner` — the role the profile already declares as the
- * owner/executor — so a profile file gets the same non-superuser-applyable
+ * from the policy's EFFECTIVE (flattened) `defaultOwner` — the role the profile
+ * already declares as the owner/executor, including one inherited through
+ * `Policy.extends` — so a profile file gets the same non-superuser-applyable
  * username elision the built-in Supabase profile gets. Platform-history knobs
  * (e.g. Supabase's `supabase_read_only_user` owner alias) are NOT derivable from
  * a policy and stay in `src/integrations/supabase.ts`.
+ *
+ * Takes the already-resolved default owner (not the raw `Policy`) so callers
+ * run `flattenPolicy` exactly ONCE per profile file, not once per handler.
  */
 const HANDLER_FACTORY_BY_NAME = new Map<
   string,
-  (policy: Policy | undefined) => ExtensionHandler
+  (resolvedDefaultOwner: string | undefined) => ExtensionHandler
 >([
   [pgPartmanHandler.extension, () => pgPartmanHandler],
   [
     "pg_cron",
-    (policy) =>
+    (resolvedDefaultOwner) =>
       makePgCronHandler(
-        policy?.defaultOwner !== undefined
-          ? { defaultJobOwner: policy.defaultOwner }
+        resolvedDefaultOwner !== undefined
+          ? { defaultJobOwner: resolvedDefaultOwner }
           : {},
       ),
   ],
@@ -117,6 +121,24 @@ export function parseProfileFile(
     rawPolicy !== undefined && rawPolicy !== null
       ? (rawPolicy as Policy)
       : undefined;
+  // Resolve the EFFECTIVE default owner through flattenPolicy exactly ONCE per
+  // profile file, not once per handler: `Policy.extends` composes inline
+  // nested policies, and `defaultOwner` inherits from the first parent that
+  // declares one when the policy itself doesn't (see flattenPolicy's
+  // scalar-inheritance contract) — reading `policy.defaultOwner` directly
+  // would miss that inherited value. The profile file's policy is an
+  // unvalidated blind cast, so flattenPolicy's cycle guard can throw; surface
+  // that as a UsageError instead of an unhandled Error.
+  let resolvedDefaultOwner: string | undefined;
+  if (policy !== undefined) {
+    try {
+      resolvedDefaultOwner = flattenPolicy(policy).defaultOwner;
+    } catch (err) {
+      throw new UsageError(
+        `profile ${source}: invalid policy — ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
   const handlers: ExtensionHandler[] = [];
   for (const name of obj["handlers"]) {
     if (typeof name !== "string") {
@@ -130,7 +152,7 @@ export function parseProfileFile(
         `profile ${source}: unknown handler '${name}' — available: ${[...HANDLER_FACTORY_BY_NAME.keys()].join(", ")}`,
       );
     }
-    handlers.push(makeHandler(policy));
+    handlers.push(makeHandler(resolvedDefaultOwner));
   }
   const rawBaseline = obj["baseline"];
   if (

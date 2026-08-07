@@ -139,6 +139,19 @@ describe("pgCronHandler.capture", () => {
     expect(result.diagnostics ?? []).toEqual([]);
   });
 
+  test("jobOwnerAliases lookup checks only OWN keys — a role literally named 'constructor' is not shadowed by Object.prototype", async () => {
+    const handler = makePgCronHandler({
+      jobOwnerAliases: { supabase_read_only_user: "postgres" },
+    });
+    const ctx = fakeCtx([baseJob({ username: "constructor" })]);
+    const current = buildFactBase([pgCronFact], []);
+
+    const result = await handler.capture(ctx, current);
+
+    expect(result.facts).toHaveLength(1);
+    expect(result.facts[0]?.payload["username"]).toBe("constructor");
+  });
+
   test("without jobOwnerAliases the captured username is left verbatim (the handler carries no platform strings)", async () => {
     const ctx = fakeCtx([baseJob({ username: "supabase_read_only_user" })]);
     const current = buildFactBase([pgCronFact], []);

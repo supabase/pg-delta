@@ -118,9 +118,15 @@ export function makePgCronHandler(
 ): ExtensionHandler {
   const { defaultJobOwner, jobOwnerAliases } = config;
 
-  /** Apply the profile's capture-time owner aliases (identity if none). */
+  /** Apply the profile's capture-time owner aliases (identity if none). Must
+   *  check `Object.hasOwn` — a role legally named `constructor` (or
+   *  `toString`, etc.) would otherwise resolve `jobOwnerAliases[username]` to
+   *  the inherited `Object.prototype` member instead of `undefined`, leaking
+   *  a function into the fact payload. */
   const normalizeOwner = (username: string): string =>
-    jobOwnerAliases?.[username] ?? username;
+    jobOwnerAliases !== undefined && Object.hasOwn(jobOwnerAliases, username)
+      ? (jobOwnerAliases[username] ?? username)
+      : username;
 
   return {
     extension: "pg_cron",
