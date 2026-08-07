@@ -1024,6 +1024,38 @@ export function resolveView(
   baseline?: FactBase,
   collectSuppression?: ProjectionSuppressionCollector,
 ): FactBase {
+  // Identity fast path. With no policy, no capability and no baseline, every
+  // stage below is already a no-op that hands `fb` back BY REFERENCE — but
+  // establishing that costs three full `facts()` scans (member closure,
+  // managedBy roots, scope-rule scan), which at catalog scale is the single
+  // most expensive thing the planner does for zero effect. Prove it instead
+  // from one pass over the edge list:
+  //   - `extensionMemberClosure` seeds ONLY from `memberOfExtension` edges and
+  //     `managedRoots` ONLY from `managedBy` edges, so with neither kind
+  //     present both are empty (a `memberOfExtension`/`managedBy` edge is only
+  //     ever in `fb.edges` with both endpoints present — the dangling carve-out
+  //     is owner→role only — so scanning `edges` sees exactly what the
+  //     per-fact `outgoingEdges` scans would);
+  //   - `rules` is empty without a policy, and `factScopeExclusion` with no
+  //     rules returns undefined for every fact, so `hardRoots`/`policyRefOnly`
+  //     are empty;
+  //   - `excludeFactsAndDescendants` returns `fb` unchanged for an empty root
+  //     set, and the reference-only rebuild is skipped when both ref-only sets
+  //     are empty.
+  // No suppression is emitted on that path either (every collector block is
+  // gated on a non-empty decision), so the fast path is observationally
+  // identical INCLUDING for the projection audit.
+  if (
+    policy === undefined &&
+    capability === undefined &&
+    baseline === undefined &&
+    !fb.edges.some(
+      (edge) => edge.kind === "memberOfExtension" || edge.kind === "managedBy",
+    )
+  ) {
+    return fb;
+  }
+
   // Extension members become REFERENCE-ONLY, not pruned: the member OBJECT (and
   // its non-satellite descendants) is kept but never diffed, while its satellite
   // customizations (acl/comment/securityLabel) stay diffable. Computed on the RAW

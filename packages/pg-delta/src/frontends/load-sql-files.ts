@@ -1041,8 +1041,34 @@ export async function loadSqlFiles(
     // match. Scope the canonical path to this query alone via a transaction:
     // body re-validation below must keep the session's own path so bodies
     // resolve as they would at apply time.
+    // No pgMajor is threaded through to this frontend from extraction, so this
+    // is a dedicated round trip (unlike extract.ts, which already probes
+    // version metadata for ExtractResult.pgVersion and reuses it here for
+    // free) — see the jit guard below for why the major version is needed.
+    const pgMajorRow = await client.query(
+      `SELECT current_setting('server_version_num')::int AS num`,
+    );
+    const pgMajor = Math.floor(
+      (pgMajorRow.rows[0] as { num: number }).num / 10000,
+    );
+
     await client.query(`BEGIN`);
     await client.query(`SET LOCAL search_path TO 'pg_catalog'`);
+    // JIT is pure per-execution overhead for catalog-only queries; mirrors the
+    // extraction transaction's jit guard (src/extract/extract.ts — see its
+    // comment for detail, including the postgres-hackers caveat that
+    // PGC_USERSET params like `jit` aren't actually gated by the parameter
+    // ACL at the SET call site). On PG >= 15, guard behind
+    // `has_parameter_privilege` (never throws) rather than a bare
+    // `SET LOCAL jit = off`: a failed statement poisons this WHOLE
+    // transaction, so it must never be able to error. PG 14 has neither the
+    // function nor parameter ACLs, so the plain SET LOCAL is used there
+    // unconditionally.
+    await client.query(
+      pgMajor >= 15
+        ? "SELECT set_config('jit', 'off', true) WHERE has_parameter_privilege(current_user, 'jit', 'SET')"
+        : "SET LOCAL jit = off",
+    );
     const defs = await client.query(`
       SELECT n.nspname AS nspname, p.proname AS proname, p.prokind AS prokind,
              ARRAY(SELECT format_type(t.t, NULL)

@@ -237,8 +237,12 @@ export function buildActionGraph(
       if (reproducer !== undefined && reproducer !== index)
         edges.push([index, reproducer]);
       if (!source.has(id)) continue;
-      for (const edge of source.edges) {
-        if (encodeId(edge.to) !== key) continue;
+      // `incomingEdgesByEncoded` IS the reverse index of this filter: an edge is
+      // indexed under its `to` endpoint exactly when that endpoint is present
+      // (guaranteed by the `source.has(id)` guard above), in the same relative
+      // order as `source.edges`. Scanning every edge per (action × destroyed id)
+      // made this O(actions × destroys × |edges|).
+      for (const edge of source.incomingEdgesByEncoded(key)) {
         // symmetric to the produces side: a rename does not TEAR DOWN the owner
         // edge, so an owner edge into the renamed subtree must not order the
         // owner's dependent teardown before the rename (P1 #2 cycle)

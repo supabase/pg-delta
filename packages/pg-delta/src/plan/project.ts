@@ -69,15 +69,29 @@ export function projectTarget(
   // Integrity: a filtered subtree must not orphan a surviving child. Drop facts
   // whose parent is now missing (transitively), then prune edges whose
   // endpoints are gone (mirrors subtractBaseline / excludeManaged cleanup).
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const [key, fact] of facts) {
-      if (fact.parent !== undefined && !facts.has(encodeId(fact.parent))) {
-        facts.delete(key);
-        changed = true;
-      }
+  // Reverse-BFS from the facts that are ALREADY orphaned, rather than
+  // re-scanning every fact once per round: index children by parent key, seed
+  // the worklist with the initial orphans, and cascade to their children as
+  // each one is deleted. Same fixpoint (a fact dies iff its parent chain no
+  // longer reaches a present root), same surviving Map insertion order — only
+  // deletions happen — at O(affected) instead of O(rounds × facts).
+  const childKeysOf = new Map<string, string[]>();
+  const orphans: string[] = [];
+  for (const [key, fact] of facts) {
+    if (fact.parent === undefined) continue;
+    const parentKey = encodeId(fact.parent);
+    if (facts.has(parentKey)) {
+      const siblings = childKeysOf.get(parentKey);
+      if (siblings === undefined) childKeysOf.set(parentKey, [key]);
+      else siblings.push(key);
+    } else {
+      orphans.push(key);
     }
+  }
+  while (orphans.length > 0) {
+    const key = orphans.pop() as string;
+    if (!facts.delete(key)) continue; // already removed via another path
+    for (const child of childKeysOf.get(key) ?? []) orphans.push(child);
   }
   for (const [key, edge] of edges) {
     const fromPresent = facts.has(encodeId(edge.from));

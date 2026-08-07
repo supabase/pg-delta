@@ -126,6 +126,57 @@ export function collectRemovedSuppressions(
 }
 
 /**
+ * The removal walk shared by `excludeFactsAndDescendants` and `removedClosure`:
+ * a fact is removed iff it IS a root or any ancestor is one.
+ *
+ * Memoizes BOTH verdicts over the walked chain — `removed` is the caller's
+ * removal closure, `kept` is scratch for the negative answers. Recording
+ * negatives is what makes this linear: memoizing only positives left every
+ * NOT-removed fact re-walking (and re-encoding) its entire ancestor chain, so a
+ * catalog's deep hierarchy (schema → table → column → satellite) paid
+ * depth × facts encodes for a projection that usually removes almost nothing.
+ * Only ids actually present in `fb` are memoized, so a dangling parent
+ * reference terminates the chain exactly as the original per-site walks did.
+ */
+function resolveRemoval(
+  fb: FactBase,
+  rootIds: ReadonlySet<string>,
+  removed: Set<string>,
+  kept: Set<string>,
+  fact: Fact,
+): boolean {
+  const encoded = encodeId(fact.id);
+  if (removed.has(encoded)) return true;
+  if (kept.has(encoded)) return false;
+
+  const chain: string[] = [encoded];
+  let verdict: boolean | undefined = rootIds.has(encoded) ? true : undefined;
+  let current: StableId | undefined =
+    verdict === undefined ? fact.parent : undefined;
+  while (current !== undefined) {
+    const key = encodeId(current);
+    if (rootIds.has(key) || removed.has(key)) {
+      verdict = true;
+      break;
+    }
+    if (kept.has(key)) {
+      verdict = false;
+      break;
+    }
+    const parent = fb.get(current);
+    if (parent === undefined) break; // dangling parent: chain ends, not removed
+    chain.push(key);
+    current = parent.parent;
+  }
+
+  // every id on the walked chain shares the verdict: they all descend from the
+  // ancestor that decided it (removed), or none of them has a removed ancestor.
+  const decided = verdict ?? false;
+  for (const key of chain) (decided ? removed : kept).add(key);
+  return decided;
+}
+
+/**
  * Return a new FactBase with `rootIds` and their entire descendant subtrees
  * removed; edges with a removed endpoint are pruned. If `rootIds` is empty, `fb`
  * is returned unchanged (referential identity preserved for cheap no-ops).
@@ -137,27 +188,10 @@ export function excludeFactsAndDescendants(
   if (rootIds.size === 0) return fb;
 
   const removed = new Set<string>();
-  // a fact is removed if it is a root, or any ancestor is one
-  const isRemoved = (fact: Fact): boolean => {
-    const encoded = encodeId(fact.id);
-    if (removed.has(encoded)) return true;
-    if (rootIds.has(encoded)) {
-      removed.add(encoded);
-      return true;
-    }
-    let current = fact.parent;
-    while (current !== undefined) {
-      const key = encodeId(current);
-      if (rootIds.has(key) || removed.has(key)) {
-        removed.add(encoded);
-        return true;
-      }
-      current = fb.get(current)?.parent;
-    }
-    return false;
-  };
-
-  const keptFacts: Fact[] = fb.facts().filter((f) => !isRemoved(f));
+  const kept = new Set<string>();
+  const keptFacts: Fact[] = fb
+    .facts()
+    .filter((f) => !resolveRemoval(fb, rootIds, removed, kept, f));
   const survives = new Set(keptFacts.map((f) => encodeId(f.id)));
   const keptEdges: DependencyEdge[] = fb.edges.filter((e) => {
     const fromSurvives = survives.has(encodeId(e.from));
@@ -200,25 +234,9 @@ function removedClosure(
   rootIds: ReadonlySet<string>,
 ): Set<string> {
   const removed = new Set<string>();
-  const isRemoved = (fact: Fact): boolean => {
-    const encoded = encodeId(fact.id);
-    if (removed.has(encoded)) return true;
-    if (rootIds.has(encoded)) {
-      removed.add(encoded);
-      return true;
-    }
-    let current = fact.parent;
-    while (current !== undefined) {
-      const key = encodeId(current);
-      if (rootIds.has(key) || removed.has(key)) {
-        removed.add(encoded);
-        return true;
-      }
-      current = fb.get(current)?.parent;
-    }
-    return false;
-  };
-  for (const fact of fb.facts()) isRemoved(fact);
+  const kept = new Set<string>();
+  for (const fact of fb.facts())
+    resolveRemoval(fb, rootIds, removed, kept, fact);
   return removed;
 }
 

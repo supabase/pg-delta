@@ -11,7 +11,10 @@ import { diff, type Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import { filterDeltas, validatePolicy } from "../../policy/policy.ts";
-import { reconstructManagedView } from "../../policy/reconstruct.ts";
+import {
+  reconstructManagedView,
+  type TracedSuppression,
+} from "../../policy/reconstruct.ts";
 import {
   buildRoleRenameMap,
   normalizeRoleIdentities,
@@ -55,6 +58,12 @@ export interface ChangeSet {
   setsByFact: Map<string, Extract<Delta, { verb: "set" }>[]>;
   renameCandidates: RenameCandidate[];
   acceptedRenames: AcceptedRename[];
+  /** every projection decision the two managed-view reconstructions above hid,
+   * tagged with its side — collected HERE so `plan()` can build the projection
+   * audit without reconstructing both sides a second time. Source-side records
+   * come first, matching the reconstruction order `auditManagedViewProjection`
+   * uses standalone. */
+  projectionSuppressions: TracedSuppression[];
 }
 
 function groupDeltas(deltas: readonly Delta[]): {
@@ -135,12 +144,18 @@ export function buildChangeSet(
 
   // `reconstructManagedView` seals baseline subtraction, policy projection,
   // extension-member handling, and management scope in one shared composition.
+  // The suppression sink is attached HERE (rather than plan() reconstructing
+  // both sides again for the projection audit): collecting is purely
+  // observational — it never changes the FactBase a reconstruction returns.
+  const projectionSuppressions: TracedSuppression[] = [];
   const physicalSource = reconstructManagedView(rawSource, {
     policy: options?.policy,
     capability: options?.capability,
     baseline: options?.baseline,
     scope: options?.scope,
     defaultOwner: options?.defaultOwner,
+    collectSuppression: (suppression) =>
+      projectionSuppressions.push({ side: "source", suppression }),
   });
   const physicalDesired = reconstructManagedView(rawDesired, {
     policy: options?.policy,
@@ -148,6 +163,8 @@ export function buildChangeSet(
     baseline: options?.baseline,
     scope: options?.scope,
     defaultOwner: options?.defaultOwner,
+    collectSuppression: (suppression) =>
+      projectionSuppressions.push({ side: "desired", suppression }),
   });
 
   // Rename proposals come from policy-kept deltas in physical identity space.
@@ -264,5 +281,6 @@ export function buildChangeSet(
     setsByFact,
     renameCandidates,
     acceptedRenames,
+    projectionSuppressions,
   };
 }

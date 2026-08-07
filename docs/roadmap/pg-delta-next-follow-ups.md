@@ -795,6 +795,29 @@ CANONICAL, subscription `failover` `3537910587`); the ONE new fragment —
 subscription `password_required` — is recorded in the extract-completeness list
 above. Consolidated for the fidelity-hardening milestone as **Linear CLI-2134**.
 
+## PR #390 review triage (Codex) — jit-disable privilege guard, hash-memo budget
+
+Two Codex findings on PR #390 (extraction-time perf work) were fixed in the PR:
+the `SET LOCAL jit = off` pin now degrades gracefully instead of aborting
+extraction when the connecting role lacks SET privilege on `jit`
+(`src/extract/extract.ts`, mirrored in `src/frontends/load-sql-files.ts`), and
+`src/core/hash.ts`'s canonical-string memo no longer retains an individually
+oversized key past its advertised total-length budget. One further finding is
+**deferred, won't-fix in #390**:
+
+- **WeakMap identity cache can serve a stale digest if a payload object is
+  mutated after hashing (`src/core/hash.ts`, `payloadHashes`).** Payload
+  mutation after hashing is outside the supported contract — the invariant is
+  documented at the `payloadHashes` declaration ("a payload object is never
+  mutated after it has first been hashed... every transform that changes one
+  returns a NEW object"). Every internal site was audited: the one rewriting
+  site (`plan/identity-normalize.ts`'s `normalizePayload`) allocates fresh
+  objects rather than mutating in place. And the proof loop (`src/proof/
+  prove.ts`) re-extracts applied state with FRESH objects on every run, so a
+  stale-hash-induced wrong plan would fail the proof rather than pass
+  silently. Revisit only if the public API is ever changed to document
+  payload mutability as supported.
+
 ## PR #391 review triage — pg_cron username elision
 
 - **Deferred — export-resolved default owner is not threaded into pg_cron
@@ -807,3 +830,4 @@ above. Consolidated for the fidelity-hardening milestone as **Linear CLI-2134**.
   design); the capture-time `intent-privileged` warning already fires for
   exactly this divergence, so the failure is pre-announced. Revisit if a real
   profile hits it.
+

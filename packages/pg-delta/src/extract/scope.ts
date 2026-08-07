@@ -367,6 +367,19 @@ export const schemaId = (name: unknown): StableId => ({
  *  fact / edge ordering. */
 export interface ExtractContext {
   q: (sql: string) => Promise<Row[]>;
+  /** `current_setting('server_version')` — byte-identical to the pre-existing
+   *  `SHOW server_version` value, probed ONCE per extraction (see
+   *  createExtractContext) instead of once per family that needed it. Fed
+   *  straight into `ExtractResult.pgVersion`. */
+  serverVersion: string;
+  /** `current_setting('server_version_num')::int`, probed once alongside
+   *  `serverVersion` in the same round trip. Per-family builders that used to
+   *  each re-probe this (publications.ts, types.ts, unmodeled.ts) should read
+   *  this (or `pgMajor`) instead. */
+  serverVersionNum: number;
+  /** `Math.floor(serverVersionNum / 10000)` — the major-version gate every
+   *  probing call site already computed inline from its own query. */
+  pgMajor: number;
   facts: Fact[];
   edges: DependencyEdge[];
   diagnostics: Diagnostic[];
@@ -399,11 +412,11 @@ export interface ExtractContext {
   pushSeclabel: (target: StableId, provider: string, label: string) => void;
 }
 
-export function createExtractContext(
+export async function createExtractContext(
   client: PoolClient,
   statementTimeoutMs?: number,
   redactSecrets = true,
-): ExtractContext {
+): Promise<ExtractContext> {
   const facts: Fact[] = [];
   const edges: DependencyEdge[] = [];
   const diagnostics: Diagnostic[] = [];
@@ -422,6 +435,20 @@ export function createExtractContext(
       throw error;
     }
   };
+
+  // Single combined round trip for both pieces of version metadata every
+  // extraction needs: `server_version` (the exact string `SHOW server_version`
+  // used to return, fed into ExtractResult.pgVersion) and `server_version_num`
+  // (the major-version gate several per-family builders used to each re-probe
+  // with their own `SELECT current_setting('server_version_num')` round trip).
+  const versionRow = (
+    await q(
+      `SELECT current_setting('server_version') AS version, current_setting('server_version_num')::int AS num`,
+    )
+  )[0];
+  const serverVersion = (versionRow?.["version"] as string) ?? "unknown";
+  const serverVersionNum = Number(versionRow?.["num"] ?? 0);
+  const pgMajor = Math.floor(serverVersionNum / 10000);
 
   /** Helper: push a fact plus its optional comment/acl satellite facts. */
   const pushWithMeta = (
@@ -534,6 +561,9 @@ export function createExtractContext(
 
   return {
     q,
+    serverVersion,
+    serverVersionNum,
+    pgMajor,
     facts,
     edges,
     diagnostics,

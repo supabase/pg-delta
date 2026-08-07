@@ -17,72 +17,24 @@ import pg from "pg";
 import { diff } from "../src/core/diff.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
+import { withPerQueryTiming, type QueryTiming } from "./perf-timing.ts";
 
 const PER_QUERY = process.env["PGDELTA_BENCH_PER_QUERY"] === "1";
 
-/** Identify which extractor a SQL string belongs to: the first FROM relation
- *  plus a short head. Good enough to rank the ~36 extraction queries. */
-function queryLabel(sql: string): string {
-  const flat = sql.replace(/\s+/g, " ").trim();
-  const from = /\bFROM\s+(?:pg_catalog\.)?(\w+)/i.exec(flat);
-  return `${(from?.[1] ?? "?").padEnd(20)} ${flat.slice(0, 44)}`;
-}
-
-/** Wrap the next-checked-out client's `query` to time each call, run `fn`, then
- *  restore `pool.connect`. Prints a sorted breakdown. Measurement only — never
- *  touches the library. */
-async function withPerQueryTiming<T>(
-  pool: pg.Pool,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const timings: { ms: number; rows: number; label: string }[] = [];
-  const origConnect = pool.connect.bind(pool);
-  (pool as { connect: unknown }).connect = async (...args: unknown[]) => {
-    const client = await (
-      origConnect as (...a: unknown[]) => Promise<pg.PoolClient>
-    )(...args);
-    const origQuery = client.query.bind(client) as (
-      ...a: unknown[]
-    ) => Promise<{ rows: unknown[] }>;
-    (client as { query: unknown }).query = (...qa: unknown[]) => {
-      const sql = typeof qa[0] === "string" ? qa[0] : String(qa[0]);
-      const start = performance.now();
-      const ret = origQuery(...qa) as unknown;
-      // pg's client.query has a callback overload that returns void, not a
-      // promise (pg-pool uses it internally) — only time the promise form.
-      if (
-        ret == null ||
-        typeof (ret as { then?: unknown }).then !== "function"
-      ) {
-        return ret;
-      }
-      return (ret as Promise<{ rows: unknown[] }>).then((r) => {
-        timings.push({
-          ms: performance.now() - start,
-          rows: r.rows.length,
-          label: queryLabel(sql),
-        });
-        return r;
-      });
-    };
-    return client;
-  };
-  try {
-    return await fn();
-  } finally {
-    (pool as { connect: unknown }).connect = origConnect;
-    timings.sort((a, b) => b.ms - a.ms);
-    let sum = 0;
-    console.log(`\nper-query breakdown (${timings.length} queries):`);
-    console.log(`${"ms".padStart(8)} ${"rows".padStart(7)}  query`);
-    for (const t of timings) {
-      sum += t.ms;
-      console.log(
-        `${t.ms.toFixed(1).padStart(8)} ${String(t.rows).padStart(7)}  ${t.label}`,
-      );
-    }
-    console.log(`sum of query time: ${sum.toFixed(0)} ms\n`);
+/** Print every query's timing, sorted slowest-first. The wrapper that
+ *  collects them (`withPerQueryTiming`) lives in ./perf-timing.ts, shared
+ *  with scripts/stress.ts. */
+function printPerQueryTiming(timings: QueryTiming[]): void {
+  let sum = 0;
+  console.log(`\nper-query breakdown (${timings.length} queries):`);
+  console.log(`${"ms".padStart(8)} ${"rows".padStart(7)}  query`);
+  for (const t of timings) {
+    sum += t.ms;
+    console.log(
+      `${t.ms.toFixed(1).padStart(8)} ${String(t.rows).padStart(7)}  ${t.label}`,
+    );
   }
+  console.log(`sum of query time: ${sum.toFixed(0)} ms\n`);
 }
 
 const SCHEMAS = 40;
@@ -167,9 +119,14 @@ console.log(
 );
 await timed("load fixture DDL", () => pool.query(fixtureSql()));
 
-const before = await timed("extract (cold)", () =>
-  PER_QUERY ? withPerQueryTiming(pool, () => extract(pool)) : extract(pool),
-);
+const before = await timed("extract (cold)", async () => {
+  if (!PER_QUERY) return extract(pool);
+  const { result, timings } = await withPerQueryTiming(pool, () =>
+    extract(pool),
+  );
+  printPerQueryTiming(timings);
+  return result;
+});
 console.log(`fact count: ${before.factBase.facts().length}`);
 
 await pool.query(MUTATIONS);

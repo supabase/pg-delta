@@ -77,12 +77,78 @@ export function canonicalize(value: PayloadValue): string {
 
 export type ContentHash = string;
 
+/**
+ * Memoization. Purely a cache: every digest below is the same SHA-256 over the
+ * same canonical encoding it has always been, so the hash format is untouched.
+ *
+ * Hashing is the single hottest thing the engine does, and almost all of it is
+ * repeat work. A fact base re-hashes every payload on every REBUILD (managed
+ * view reconstruction, scope/target projection, identity normalization — see
+ * `policy/reconstruct.ts`, `plan/project.ts`, `plan/identity-normalize.ts`), and
+ * a big catalog's payloads are highly repetitive to begin with (a million
+ * columns share a few thousand distinct canonical encodings).
+ */
+
+/**
+ * Payload object -> digest. Skips `canonicalize` entirely, which is what makes
+ * a rebuild that re-indexes the same `Fact` objects nearly free.
+ *
+ * INVARIANT: a payload object is never mutated after it has first been hashed.
+ * Payloads are built once (extract / load / snapshot decode) and thereafter
+ * only read; every transform that changes one returns a NEW object (e.g.
+ * `normalizePayload` in `plan/identity-normalize.ts`). An in-place mutation
+ * after the first hash would silently keep the stale digest. Weak keys, so
+ * entries die with the facts that own them.
+ */
+const payloadHashes = new WeakMap<object, ContentHash>();
+
+/**
+ * Canonical encoding -> digest. This is the correctness-bearing layer: the
+ * canonical string IS the equality surface, so distinct objects that encode
+ * identically must collapse to one digest.
+ *
+ * Bounded by total key length rather than entry count, because the strings
+ * folded here range from tiny payload encodings to whole-subtree rollup folds.
+ * Past the budget the cache is dropped wholesale and refills — a long-lived
+ * process (watch mode, a server planning many databases) cannot accumulate.
+ * A single key whose own length already exceeds the budget is never inserted
+ * (see the early return below) — otherwise it would sit retained past the
+ * advertised bound until the next miss happens to clear the whole map.
+ */
+const canonicalHashes = new Map<string, ContentHash>();
+const CANONICAL_CACHE_MAX_CHARS = 1 << 24;
+let canonicalCacheChars = 0;
+
+function digest(canonical: string): ContentHash {
+  const cached = canonicalHashes.get(canonical);
+  if (cached !== undefined) return cached;
+  const hash = createHash("sha256").update(canonical).digest("hex");
+  // Oversized key (e.g. a giant view/function payload): the digest is still
+  // correct, just not memoized — caching it would blow past the budget and
+  // stay retained indefinitely instead of merely until the next clear.
+  if (canonical.length > CANONICAL_CACHE_MAX_CHARS) return hash;
+  if (canonicalCacheChars >= CANONICAL_CACHE_MAX_CHARS) {
+    canonicalHashes.clear();
+    canonicalCacheChars = 0;
+  }
+  canonicalHashes.set(canonical, hash);
+  canonicalCacheChars += canonical.length;
+  return hash;
+}
+
 /** SHA-256 (hex) over the canonical encoding. ≥128-bit per §3.1. */
 export function contentHash(value: PayloadValue): ContentHash {
-  return createHash("sha256").update(canonicalize(value)).digest("hex");
+  if (value === null || typeof value !== "object") {
+    return digest(canonicalize(value));
+  }
+  const cached = payloadHashes.get(value);
+  if (cached !== undefined) return cached;
+  const hash = digest(canonicalize(value));
+  payloadHashes.set(value, hash);
+  return hash;
 }
 
 /** Hash an already-canonical string (used by rollups to fold hashes). */
 export function hashString(s: string): ContentHash {
-  return createHash("sha256").update(s).digest("hex");
+  return digest(s);
 }
