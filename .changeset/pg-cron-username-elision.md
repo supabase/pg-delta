@@ -18,6 +18,10 @@ supabasePolicy.defaultOwner` and the CLI-1435 `supabase_read_only_user →
 postgres` alias. A job owned by the profile's default job owner replays with
 `NULL`; a job owned by a third role keeps the explicit literal (it genuinely
 requires a superuser executor) and now raises a new `intent-privileged`
-warning diagnostic at capture — warn and emit, never silently drop. Profiles
-with no declared default job owner (`raw`, custom profile files) keep today's
-explicit rendering.
+warning diagnostic at capture — warn and emit, never silently drop.
+
+A custom profile file (`--profile ./my-profile.json`) gets the same treatment:
+its `handlers: ["pg_cron"]` entry is built from the file's OWN
+`policy.defaultOwner`, so a profile that declares an owner/executor role also
+gets the elision. Only profiles with no declared default owner (`raw`, and
+profile files without `policy.defaultOwner`) keep the explicit rendering.

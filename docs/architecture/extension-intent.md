@@ -173,7 +173,12 @@ single codec).
 The handler is a **factory** — `makePgCronHandler({ defaultJobOwner,
 jobOwnerAliases })` — so `pg-cron.ts` names no platform roles; the Supabase
 profile (`src/integrations/supabase.ts`) supplies both, sourcing
-`defaultJobOwner` from `supabasePolicy.defaultOwner`.
+`defaultJobOwner` from `supabasePolicy.defaultOwner`. A **custom profile file**
+(`--profile ./p.json`) names handlers as strings, and the CLI resolves each name
+through a factory registry (`src/cli/profile.ts`) that passes the file's own
+declared `policy` — so `handlers: ["pg_cron"]` derives `defaultJobOwner` from
+that file's `policy.defaultOwner` too. `jobOwnerAliases` stays Supabase-only:
+it is platform history, not something a policy can express.
 
 - **Capture**: read `cron.job`. **Ownership normalization (CLI-1435)**: jobs
   created before the patch were owned by `supabase_read_only_user`; the
@@ -193,7 +198,8 @@ profile (`src/integrations/supabase.ts`) supplies both, sourcing
   `defaultJobOwner` is also declaring who executes the plan, so a job owned by
   that role renders `NULL` and stays applyable by the non-superuser `postgres`
   a hosted Supabase project hands out. Any other owner keeps the explicit
-  literal. With no `defaultJobOwner` (raw/custom profiles) nothing is elided.
+  literal. With no `defaultJobOwner` (the `raw` profile, or a profile file that
+  declares no `policy.defaultOwner`) nothing is elided.
 - **Change** (`schedule`/`command`/`active`/`database`): **`unschedule` +
   re-`schedule` by name** — fully static and deterministic; no apply-time
   `job_id` resolution. Run history isn't contracted, so recreate is lossless

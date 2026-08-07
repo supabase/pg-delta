@@ -13,7 +13,7 @@ import type { Pool } from "pg";
 import {
   type ExtensionHandler,
   type IntegrationProfile,
-  pgCronHandler,
+  makePgCronHandler,
   pgPartmanHandler,
   rawProfile,
   type ResolvedProfile,
@@ -32,11 +32,34 @@ const PROFILES: Record<string, IntegrationProfile> = {
 /** The `--profile` value shown in usage strings. */
 export const PROFILE_IDS = Object.keys(PROFILES).join(" | ");
 
-/** The bundled extension handlers a custom profile file may reference BY NAME
- *  (the handler's `extension` field). Extend this as new handlers ship. */
-const HANDLER_BY_NAME = new Map<string, ExtensionHandler>(
-  ([pgPartmanHandler, pgCronHandler] as const).map((h) => [h.extension, h]),
-);
+/**
+ * The bundled extension handlers a custom profile file may reference BY NAME
+ * (the handler's `extension` field), as FACTORIES taking the profile file's own
+ * declared policy. Extend this as new handlers ship.
+ *
+ * A factory (rather than a ready-made instance) is what lets a CONFIGURABLE
+ * handler read the same file's `policy`: `pg_cron` derives its `defaultJobOwner`
+ * from `policy.defaultOwner` — the role the profile already declares as the
+ * owner/executor — so a profile file gets the same non-superuser-applyable
+ * username elision the built-in Supabase profile gets. Platform-history knobs
+ * (e.g. Supabase's `supabase_read_only_user` owner alias) are NOT derivable from
+ * a policy and stay in `src/integrations/supabase.ts`.
+ */
+const HANDLER_FACTORY_BY_NAME = new Map<
+  string,
+  (policy: Policy | undefined) => ExtensionHandler
+>([
+  [pgPartmanHandler.extension, () => pgPartmanHandler],
+  [
+    "pg_cron",
+    (policy) =>
+      makePgCronHandler(
+        policy?.defaultOwner !== undefined
+          ? { defaultJobOwner: policy.defaultOwner }
+          : {},
+      ),
+  ],
+]);
 
 /** A `--profile` value is a path (load from disk) rather than a built-in id when
  *  it looks like a path: contains a `/` or ends in `.json`. */
@@ -47,11 +70,14 @@ export function isProfilePath(id: string): boolean {
 /**
  * Parse a custom profile file's JSON into an `IntegrationProfile`. The file
  * mirrors `IntegrationProfile` but references handlers BY NAME (resolved against
- * {@link HANDLER_BY_NAME}) so it stays plain, serializable data:
+ * {@link HANDLER_FACTORY_BY_NAME}) so it stays plain, serializable data:
  *
  *   { "id": "platform-middleware", "handlers": ["pg_partman", "pg_cron"],
  *     "policy"?: { ...a serializable Policy... },
  *     "baseline"?: "./middleware-base.json" }
+ *
+ * The declared `policy` also CONFIGURES the named handlers (a `pg_cron` handler
+ * takes its default job owner from `policy.defaultOwner`), so it is parsed first.
  *
  * `baseline` is a path to a `pgdelta snapshot` file; a relative path is resolved
  * against `opts.dir` (the profile file's own directory) so a committed profile +
@@ -84,6 +110,13 @@ export function parseProfileFile(
       `profile ${source}: "handlers" must be an array of handler names`,
     );
   }
+  // the policy is read BEFORE the handlers because a handler factory is
+  // configured from it (see HANDLER_FACTORY_BY_NAME).
+  const rawPolicy = obj["policy"];
+  const policy =
+    rawPolicy !== undefined && rawPolicy !== null
+      ? (rawPolicy as Policy)
+      : undefined;
   const handlers: ExtensionHandler[] = [];
   for (const name of obj["handlers"]) {
     if (typeof name !== "string") {
@@ -91,15 +124,14 @@ export function parseProfileFile(
         `profile ${source}: handler names must be strings (got ${typeof name})`,
       );
     }
-    const handler = HANDLER_BY_NAME.get(name);
-    if (handler === undefined) {
+    const makeHandler = HANDLER_FACTORY_BY_NAME.get(name);
+    if (makeHandler === undefined) {
       throw new UsageError(
-        `profile ${source}: unknown handler '${name}' — available: ${[...HANDLER_BY_NAME.keys()].join(", ")}`,
+        `profile ${source}: unknown handler '${name}' — available: ${[...HANDLER_FACTORY_BY_NAME.keys()].join(", ")}`,
       );
     }
-    handlers.push(handler);
+    handlers.push(makeHandler(policy));
   }
-  const policy = obj["policy"];
   const rawBaseline = obj["baseline"];
   if (
     rawBaseline !== undefined &&
@@ -120,9 +152,7 @@ export function parseProfileFile(
   return {
     id: obj["id"],
     handlers,
-    ...(policy !== undefined && policy !== null
-      ? { policy: policy as Policy }
-      : {}),
+    ...(policy !== undefined ? { policy } : {}),
     ...(baselinePath !== undefined ? { baselinePath } : {}),
   };
 }

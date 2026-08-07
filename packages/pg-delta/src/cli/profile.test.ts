@@ -5,8 +5,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildFactBase } from "../core/fact.ts";
+import { buildFactBase, type Fact } from "../core/fact.ts";
 import { serializeSnapshot } from "../core/snapshot.ts";
+import type { IntegrationProfile } from "../integrations/profile.ts";
 import { rawProfile } from "../integrations/profile.ts";
 import { supabaseProfile } from "../integrations/supabase.ts";
 import { UsageError } from "./flags.ts";
@@ -186,6 +187,91 @@ describe("parseProfileFile (custom file-based profiles)", () => {
       parseProfileFile(JSON.stringify({ id: "p", handlers: "nope" }), "p.json"),
     ).toThrow(/handlers/);
     expect(() => parseProfileFile("{not json", "p.json")).toThrow();
+  });
+});
+
+/**
+ * A custom profile file references handlers BY NAME, so a CONFIGURABLE handler
+ * has to be built from the same file's `policy` — otherwise `handlers:
+ * ["pg_cron"]` would silently get the unconfigured instance and lose username
+ * elision even though the file declares the executor via `policy.defaultOwner`.
+ */
+describe("parseProfileFile: pg_cron is configured from the file's own policy", () => {
+  const jobFact: Fact = {
+    id: {
+      kind: "extensionIntent",
+      ext: "pg_cron",
+      intentKind: "job",
+      key: "nightly",
+    },
+    payload: {
+      schedule: "0 0 * * *",
+      command: "select 1",
+      database: "postgres",
+      username: "postgres",
+      active: true,
+    },
+  };
+
+  /** Render the `job` intent's create SQL for a postgres-owned job. */
+  function cronCreateSql(profile: IntegrationProfile): string | undefined {
+    const handler = profile.handlers.find((h) => h.extension === "pg_cron");
+    return handler?.intentKinds?.["job"]?.create(jobFact, undefined as never)[0]
+      ?.sql;
+  }
+
+  test("policy.defaultOwner becomes the handler's defaultJobOwner (username elided to NULL)", () => {
+    const profile = parseProfileFile(
+      JSON.stringify({
+        id: "platform-middleware",
+        handlers: ["pg_cron"],
+        policy: { id: "pol", filter: [], defaultOwner: "postgres" },
+      }),
+      "profile.json",
+    );
+    expect(cronCreateSql(profile)).toMatchInlineSnapshot(
+      `"select cron.schedule_in_database('nightly', '0 0 * * *', 'select 1', 'postgres', NULL, true)"`,
+    );
+  });
+
+  test("no policy.defaultOwner → the explicit username literal is kept", () => {
+    const profile = parseProfileFile(
+      JSON.stringify({
+        id: "platform-middleware",
+        handlers: ["pg_cron"],
+        policy: { id: "pol", filter: [] },
+      }),
+      "profile.json",
+    );
+    expect(cronCreateSql(profile)).toMatchInlineSnapshot(
+      `"select cron.schedule_in_database('nightly', '0 0 * * *', 'select 1', 'postgres', 'postgres', true)"`,
+    );
+  });
+
+  test("no policy at all → the explicit username literal is kept", () => {
+    const profile = parseProfileFile(
+      JSON.stringify({ id: "mw", handlers: ["pg_cron"] }),
+      "profile.json",
+    );
+    expect(cronCreateSql(profile)).toMatchInlineSnapshot(
+      `"select cron.schedule_in_database('nightly', '0 0 * * *', 'select 1', 'postgres', 'postgres', true)"`,
+    );
+  });
+
+  test("pg_partman still resolves alongside a configured pg_cron", () => {
+    const profile = parseProfileFile(
+      JSON.stringify({
+        id: "mw",
+        handlers: ["pg_partman", "pg_cron"],
+        policy: { id: "pol", filter: [], defaultOwner: "postgres" },
+      }),
+      "profile.json",
+    );
+    expect(profile.handlers.map((h) => h.extension)).toEqual([
+      "pg_partman",
+      "pg_cron",
+    ]);
+    expect(profile.policy?.defaultOwner).toBe("postgres");
   });
 });
 
