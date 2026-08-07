@@ -794,3 +794,16 @@ populated state `3530186683`, the `databaseScratch` emptiness guard, range
 CANONICAL, subscription `failover` `3537910587`); the ONE new fragment —
 subscription `password_required` — is recorded in the extract-completeness list
 above. Consolidated for the fidelity-hardening milestone as **Linear CLI-2134**.
+
+## PR #391 review triage — pg_cron username elision
+
+- **Deferred — export-resolved default owner is not threaded into pg_cron
+  rendering.** `buildSchemaExport` resolves a per-export owner (`defaultOwner`
+  option → profile default → `datdba`; `src/frontends/schema-export.ts:40-111`)
+  that can diverge from the handler's configured `defaultJobOwner`; a cron job
+  owned by that resolved role still renders an explicit username and needs a
+  superuser executor. Deferred because it requires threading export-time
+  context into intent rendering (rejected as disproportionate in this PR's
+  design); the capture-time `intent-privileged` warning already fires for
+  exactly this divergence, so the failure is pre-announced. Revisit if a real
+  profile hits it.

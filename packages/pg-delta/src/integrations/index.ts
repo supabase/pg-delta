@@ -20,7 +20,12 @@ export type {
   ExtensionHandler,
   HandlerContext,
 } from "../extract/handler.ts";
-export { pgCronHandler, pgPartmanHandler } from "../policy/extensions/index.ts";
+export {
+  makePgCronHandler,
+  type PgCronHandlerConfig,
+  pgCronHandler,
+  pgPartmanHandler,
+} from "../policy/extensions/index.ts";
 export {
   type ApplierCapability,
   probeApplierCapability,

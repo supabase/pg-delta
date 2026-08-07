@@ -21,6 +21,15 @@ export interface Diagnostic {
  *  (`plan()`) agree on the string without a cross-layer import. */
 export const INTENT_UNKEYED = "intent-unkeyed";
 
+/** Diagnostic code for an extension-intent object whose reconstruction needs
+ *  privileges the profile's assumed executor does not have — today, a pg_cron
+ *  job owned by a role OTHER than the profile's default job owner (pg_cron
+ *  demands SUPERUSER for any non-NULL `username` argument, so the replay can
+ *  only be applied by a superuser connection). Warn + EMIT: the fact and its
+ *  statement are still produced, so a superuser executor can apply them; the
+ *  warning is the early signal that a plain connection will be rejected. */
+export const INTENT_PRIVILEGED = "intent-privileged";
+
 /** Diagnostic code for a `pg_user_mapping` row whose options a non-superuser
  *  extraction could not read (the `pg_user_mappings` fallback view NULLs
  *  `umoptions` for a row the caller isn't authorized on — see
