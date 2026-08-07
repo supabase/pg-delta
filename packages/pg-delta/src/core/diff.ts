@@ -120,7 +120,14 @@ export function diff(a: FactBase, b: FactBase): Delta[] {
   for (const r of b.roots()) rootIds.set(encodeId(r.id), r.id);
   for (const id of rootIds.values()) compareSubtree(id);
 
-  return deltas.sort((x, y) => (sortKey(x) < sortKey(y) ? -1 : 1));
+  // Decorate-sort-undecorate: `sortKey` builds a string via `encodeId`, and a
+  // bare comparator recomputes it O(n log n) times. Keys are computed once
+  // here. The comparator also returns 0 on equality (the previous `< ? -1 : 1`
+  // form was inconsistent for equal keys, so ties resolved arbitrarily); ties
+  // now keep emission order, which is the deterministic descent order.
+  const keyed = deltas.map((delta) => ({ key: sortKey(delta), delta }));
+  keyed.sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
+  return keyed.map((entry) => entry.delta);
 }
 
 /** The StableId a delta is "about" — the fact for add/remove, the id carried
