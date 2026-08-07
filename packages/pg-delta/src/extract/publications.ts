@@ -4,19 +4,12 @@ import { type ExtractContext, notExtensionMember } from "./scope.ts";
 import { SUBSCRIPTION_CONNINFO_PLACEHOLDER } from "./sensitive-options.ts";
 
 export async function extractPublications(ctx: ExtractContext): Promise<void> {
-  const { q, facts, pushWithMeta, pushOwnerEdge } = ctx;
+  const { q, facts, pushWithMeta, pushOwnerEdge, pgMajor: major } = ctx;
   // Publication column lists (pg_publication_rel.prattrs), row filters
   // (pr.prqual), and schema membership (pg_publication_namespace) are all
   // PostgreSQL 15+. On PG14 those catalog columns / relations do not exist, so
   // the query degrades to bare table membership (no column list / WHERE, no
   // schema publications) — exactly the publication feature set PG14 has.
-  const major = Math.floor(
-    Number(
-      (
-        await q(`SELECT current_setting('server_version_num')::int AS num`)
-      )[0]?.["num"] ?? 0,
-    ) / 10000,
-  );
   const columnsExpr =
     major >= 15
       ? `(SELECT array_agg(att.attname::text ORDER BY att.attname)
@@ -109,14 +102,7 @@ export async function extractPublications(ctx: ExtractContext): Promise<void> {
 }
 
 export async function extractSubscriptions(ctx: ExtractContext): Promise<void> {
-  const { q, pushWithMeta, pushOwnerEdge } = ctx;
-  const major = Math.floor(
-    Number(
-      (
-        await q(`SELECT current_setting('server_version_num')::int AS num`)
-      )[0]?.["num"] ?? 0,
-    ) / 10000,
-  );
+  const { q, pushWithMeta, pushOwnerEdge, pgMajor: major } = ctx;
   // substream is boolean on PG15 (on/off) and a "char" on PG16+ ('f'/'t'/'p',
   // 'p' = parallel). Normalise to the CREATE/ALTER keyword in SQL.
   const streamingExpr =

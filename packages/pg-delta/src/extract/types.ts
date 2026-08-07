@@ -94,7 +94,14 @@ export async function extractDomains(ctx: ExtractContext): Promise<void> {
 }
 
 export async function extractTypes(ctx: ExtractContext): Promise<void> {
-  const { q, facts, pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
+  const {
+    q,
+    facts,
+    pushWithMeta,
+    pushMemberEdge,
+    pushOwnerEdge,
+    pgMajor: major,
+  } = ctx;
   // ── types: enums, standalone composites, ranges ──────────────────────
   for (const row of await q(`
     SELECT n.nspname AS schema, t.typname AS name, r.rolname AS owner,
@@ -206,13 +213,6 @@ export async function extractTypes(ctx: ExtractContext): Promise<void> {
   }
   // rngmultitypid (the auto-created multirange type) is PG14+; on PG13 the
   // column does not exist, so the multirange name degrades to NULL.
-  const major = Math.floor(
-    Number(
-      (
-        await q(`SELECT current_setting('server_version_num')::int AS num`)
-      )[0]?.["num"] ?? 0,
-    ) / 10000,
-  );
   const multirangeExpr =
     major >= 14
       ? `(SELECT quote_ident(mn.nspname) || '.' || quote_ident(mt.typname)

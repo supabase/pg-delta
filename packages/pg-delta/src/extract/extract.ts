@@ -150,7 +150,11 @@ async function extractOnClient(
   handlers: readonly ExtensionHandler[],
   redactSecrets: boolean,
 ): Promise<ExtractResult> {
-  const ctx = createExtractContext(client, statementTimeoutMs, redactSecrets);
+  const ctx = await createExtractContext(
+    client,
+    statementTimeoutMs,
+    redactSecrets,
+  );
 
   // Explicit, loud opt-out: disabling redaction means real credentials flow
   // into plan SQL, snapshot, export, the plan artifact, and the fingerprint.
@@ -164,9 +168,7 @@ async function extractOnClient(
     });
   }
 
-  const pgVersion =
-    ((await ctx.q(`SHOW server_version`))[0]?.["server_version"] as string) ??
-    "unknown";
+  const pgVersion = ctx.serverVersion;
 
   // The call order IS the extraction order: facts / edges / diagnostics are
   // accumulated in `ctx` in the order these run, so this sequence is preserved
@@ -251,6 +253,6 @@ async function extractOnClient(
   ctx.diagnostics.push(...factBase.diagnostics);
   // catalog completeness: user objects in kinds we don't model are reported,
   // never silently missed (review finding 1). Same snapshot, one round-trip.
-  ctx.diagnostics.push(...(await detectUnmodeledKinds(client)));
+  ctx.diagnostics.push(...(await detectUnmodeledKinds(client, ctx.pgMajor)));
   return { factBase, pgVersion, diagnostics: ctx.diagnostics };
 }

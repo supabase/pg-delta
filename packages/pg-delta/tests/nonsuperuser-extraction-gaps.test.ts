@@ -73,7 +73,7 @@ describe.skipIf(skipSeclabelProof)(
       try {
         const client = await pool.connect();
         try {
-          const ctx = createExtractContext(client, undefined, true);
+          const ctx = await createExtractContext(client, undefined, true);
           // GREEN: resolves. RED (pg_authid join): rejects with
           // `permission denied for table pg_authid`.
           await extractSecurityLabels(ctx);
@@ -127,7 +127,7 @@ describe("item 14: subscription extraction as a plain non-superuser", () => {
     try {
       const client = await pool.connect();
       try {
-        const ctx = createExtractContext(client, undefined, true);
+        const ctx = await createExtractContext(client, undefined, true);
         // GREEN: resolves and the fact carries the placeholder (the real
         // conninfo is unreadable to this role either way). RED (unconditional
         // s.subconninfo select): rejects with `permission denied for table

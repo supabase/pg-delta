@@ -183,14 +183,15 @@ interface ProbeRow {
  * warning per kind found. Runs ONE union query so it shares the caller's
  * snapshot and costs a single round-trip; the per-kind probes stay declarative
  * (add a row to `PROBES` to cover a newly relevant kind).
+ *
+ * `major` is the server's major version (`ExtractContext.pgMajor`) — callers
+ * probe this once per extraction and thread it through rather than each
+ * unmodeled/version-gated builder re-probing `server_version_num` itself.
  */
 export async function detectUnmodeledKinds(
   client: PoolClient,
+  major: number,
 ): Promise<Diagnostic[]> {
-  const { rows: verRows } = await client.query<{ major: number }>(
-    `SELECT (current_setting('server_version_num')::int / 10000) AS major`,
-  );
-  const major = verRows[0]?.major ?? 0;
   const activeProbes = PROBES.filter(
     (p) => p.minVersion === undefined || major >= p.minVersion,
   );
