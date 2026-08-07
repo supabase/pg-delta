@@ -29,10 +29,16 @@ describe("rendered migration files replay under a third-party runner (dbmate)", 
     empty = await createTestDb("dbmate_empty");
     populated = await createTestDb("dbmate_pop");
     target = await createTestDb("dbmate_target");
+    // Include a routine so the plan carries the check_function_bodies
+    // preamble — the planner emits it only for routine-touching plans
+    // (src/plan/preamble.ts); the assertions below need it present so the
+    // render path can prove it retains it while dropping search_path.
     await populated.pool.query(/* sql */ `
       CREATE SCHEMA app;
       CREATE TABLE public.widgets (id integer PRIMARY KEY, name text);
       CREATE TABLE app.gadgets (id integer PRIMARY KEY);
+      CREATE FUNCTION app.widget_count() RETURNS integer
+        LANGUAGE sql STABLE AS 'SELECT count(*)::integer FROM public.widgets';
     `);
   }, 120_000);
 
