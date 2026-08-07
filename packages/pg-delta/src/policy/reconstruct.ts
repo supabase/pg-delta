@@ -403,10 +403,7 @@ export function auditManagedViewProjection(
   rawDesired: FactBase,
   opts: ReconstructManagedViewOptions = {},
 ): ProjectionAudit {
-  const suppressions: Array<{
-    side: "source" | "desired";
-    suppression: ProjectionSuppression;
-  }> = [];
+  const suppressions: TracedSuppression[] = [];
   reconstructManagedView(rawSource, {
     ...opts,
     collectSuppression: (suppression) =>
@@ -417,6 +414,38 @@ export function auditManagedViewProjection(
     collectSuppression: (suppression) =>
       suppressions.push({ side: "desired", suppression }),
   });
+  return projectionAuditFrom(rawSource, rawDesired, suppressions);
+}
+
+/** A projection suppression tagged with the diff side that produced it. */
+export interface TracedSuppression {
+  side: "source" | "desired";
+  suppression: ProjectionSuppression;
+}
+
+/** Freshly allocated each call — `entries` is a mutable array the caller owns. */
+const emptyAudit = (): ProjectionAudit => ({
+  entries: [],
+  summary: { total: 0, suspicious: 0, acknowledged: 0, baseline: 0 },
+});
+
+/**
+ * Attribute already-collected suppressions to the raw source↔desired diff.
+ *
+ * Split out of `auditManagedViewProjection` so the planner can reuse the
+ * suppressions its OWN managed-view reconstruction already collected instead of
+ * reconstructing both sides a second time (`buildChangeSet` → `plan()`), and so
+ * the raw diff is skipped entirely when nothing was suppressed.
+ */
+export function projectionAuditFrom(
+  rawSource: FactBase,
+  rawDesired: FactBase,
+  suppressions: readonly TracedSuppression[],
+): ProjectionAudit {
+  // Nothing was suppressed ⇒ every delta below would find zero traced
+  // suppressions and `continue`, so the audit is empty by construction. Return
+  // it without paying for a third full raw diff (the common no-policy path).
+  if (suppressions.length === 0) return emptyAudit();
 
   const bySubject = new Map<
     string,

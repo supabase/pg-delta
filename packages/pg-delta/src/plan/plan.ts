@@ -9,7 +9,7 @@ import { encodeId, type StableId } from "../core/stable-id.ts";
 import { flattenPolicy, type Policy } from "../policy/policy.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
 import {
-  auditManagedViewProjection,
+  projectionAuditFrom,
   type ProjectionAudit,
 } from "../policy/reconstruct.ts";
 import type { ManagementScope } from "../policy/view.ts";
@@ -304,19 +304,19 @@ export function plan(
     setsByFact,
     renameCandidates,
     acceptedRenames,
+    projectionSuppressions,
   } = buildChangeSet(rawSource, rawDesired, options, rulesForId);
 
-  const projectionAudit = auditManagedViewProjection(rawSource, rawDesired, {
-    ...(options?.policy !== undefined ? { policy: options.policy } : {}),
-    ...(options?.capability !== undefined
-      ? { capability: options.capability }
-      : {}),
-    ...(options?.baseline !== undefined ? { baseline: options.baseline } : {}),
-    ...(options?.scope !== undefined ? { scope: options.scope } : {}),
-    ...(options?.defaultOwner !== undefined
-      ? { defaultOwner: options.defaultOwner }
-      : {}),
-  });
+  // The change set already reconstructed BOTH managed views under exactly these
+  // options and collected every suppression along the way, so the audit is
+  // attributed from those records rather than reconstructing both sides again
+  // (`auditManagedViewProjection` remains the standalone entry point). When
+  // nothing was suppressed this also skips a full raw source↔desired diff.
+  const projectionAudit = projectionAuditFrom(
+    rawSource,
+    rawDesired,
+    projectionSuppressions,
+  );
 
   // A user-mapping row whose options were unreadable via pg_user_mappings on
   // either side (extraction-time warning, USER_MAPPING_UNREADABLE — see
