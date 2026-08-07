@@ -17,7 +17,8 @@ import { type ApplierCapability, canSetOwner } from "../policy/capability.ts";
 import { extensionMemberClosure } from "../policy/view.ts";
 import type { Action, SafetyReport } from "./plan.ts";
 import { ruleFlag } from "./rule-flags.ts";
-import { defaultRulesForId, type RulesForId } from "./rules.ts";
+import { defaultRulesForId, type FoldHint, type RulesForId } from "./rules.ts";
+import { renderGrantSql } from "./rules/helpers.ts";
 import { schemaCreateSql } from "./rules/schemas.ts";
 
 /**
@@ -347,7 +348,7 @@ export function compactColumnFolds(
   orderedActions: readonly Action[],
   order: readonly number[],
   edges: ReadonlyArray<[number, number]>,
-  foldHints: ReadonlyArray<{ foldInto: StableId; clause: string } | undefined>,
+  foldHints: ReadonlyArray<FoldHint | undefined>,
   acceptsFolds: readonly boolean[],
   positionOf: readonly number[],
   foldConstraints?: { exclude?: ReadonlySet<string> },
@@ -374,18 +375,22 @@ export function compactColumnFolds(
     const action = orderedActions[pos] as Action;
     if (action.newSegmentBefore || action.transactionality !== "transactional")
       continue;
-    // Constraint fold hints (CONSTRAINT name <def> clauses) apply ONLY under
-    // `foldConstraints` — the export-only mode whose output is loaded by the
-    // retry/reorder loader. In a regular diff plan the apply EXECUTOR runs
-    // actions in graph order, and folding an FK into a CREATE TABLE that
-    // precedes the referenced table's CREATE would fail — so constraint hints
-    // stay inert (data) unless the caller opted in. Cycle-participating FKs
-    // (the caller's `exclude` set) stay as ALTERs so the raw file loader keeps
-    // converging via the .fk.sql split.
+    // Constraint fold hints (CONSTRAINT name <def> clauses) apply in two modes:
+    //  - `foldConstraints` (export-only, output loaded by the retry/reorder
+    //    loader): every constraint hint, minus the caller's `exclude` set
+    //    (cycle-participating FKs stay as ALTERs so the raw file loader keeps
+    //    converging via the .fk.sql split), under the LENIENT crossing rule
+    //    below — the loader reorders files to satisfy cross-relation refs.
+    //  - regular diff plans (apply EXECUTOR runs actions in graph order):
+    //    only hints the rule declared `executorSafe` (self-contained
+    //    PK/UNIQUE/CHECK), under the STRICT column-style crossing veto. An FK
+    //    folded into a CREATE TABLE that precedes the referenced table's
+    //    CREATE would fail, so FK hints stay inert here.
     const isConstraintFold = action.produces[0]?.kind === "constraint";
     if (isConstraintFold) {
-      if (foldConstraints === undefined) continue;
-      if (foldConstraints.exclude?.has(encodeId(action.produces[0]!))) {
+      if (foldConstraints === undefined) {
+        if (hint.executorSafe !== true) continue;
+      } else if (foldConstraints.exclude?.has(encodeId(action.produces[0]!))) {
         continue;
       }
     }
@@ -395,25 +400,27 @@ export function compactColumnFolds(
     if (!acceptsFolds[targetOrig] || foldedPos.has(targetPos)) continue;
     const target = orderedActions[targetPos] as Action;
     if (target.verb !== "create" || target.newSegmentBefore) continue;
-    // Column folds: ANY predecessor landing after the target vetoes the fold
-    // (apply-executor safety — no edge may cross the merge).
+    // Column folds and EXECUTOR-mode constraint folds: ANY predecessor landing
+    // after the target vetoes the fold (apply-executor safety — no edge may
+    // cross the merge).
     //
-    // Constraint folds are loaded by the retry/reorder loader, not the apply
-    // executor, so a crossing to another RELATION is tolerated: a VALIDATED FK's
-    // referenced table (or a backing index / type on some other relation) may be
-    // created by a LATER file and the loader reorders files to satisfy it. The
-    // one crossing a constraint fold must NOT tolerate is a SAME-TABLE column of
-    // its own fold target that was deferred to a later `ADD COLUMN` (its column
-    // fold crossed a domain-type edge, or it is a generated column that never
-    // hints) — folding the constraint inline would reference a column the CREATE
-    // TABLE does not yet declare, and no file reordering can repair that. An
-    // inlined column shares the target's effective position, so it never counts
-    // as "after" and passes naturally.
+    // EXPORT-mode constraint folds are loaded by the retry/reorder loader, not
+    // the apply executor, so a crossing to another RELATION is tolerated: a
+    // VALIDATED FK's referenced table (or a backing index / type on some other
+    // relation) may be created by a LATER file and the loader reorders files to
+    // satisfy it. The one crossing an export constraint fold must NOT tolerate
+    // is a SAME-TABLE column of its own fold target that was deferred to a
+    // later `ADD COLUMN` (its column fold crossed a domain-type edge, or it is
+    // a generated column that never hints) — folding the constraint inline
+    // would reference a column the CREATE TABLE does not yet declare, and no
+    // file reordering can repair that. An inlined column shares the target's
+    // effective position, so it never counts as "after" and passes naturally.
+    const lenientCrossing = isConstraintFold && foldConstraints !== undefined;
     const foldTarget = hint.foldInto;
     const crossesEdge = (predecessorsOf.get(origIndex) ?? []).some((p) => {
       const pPos = effectivePosOf.get(p) ?? (positionOf[p] as number);
       if (pPos <= targetPos) return false;
-      if (!isConstraintFold) return true;
+      if (!lenientCrossing) return true;
       const predAction = orderedActions[positionOf[p] as number] as Action;
       return predAction.produces.some(
         (id) =>
@@ -916,7 +923,6 @@ export function elideCoCreateRevokeBeforeGrant(
       if (id.kind === "acl") aclIdsWithGrant.add(encodeId(id));
 
   const dropRevoke = new Set<number>();
-  const strippedAclKeys = new Set<string>();
   actions.forEach((action, index) => {
     if (action.verb !== "create") return;
     const aclId = action.produces.find((id) => id.kind === "acl");
@@ -950,24 +956,156 @@ export function elideCoCreateRevokeBeforeGrant(
     if (defaultGrantsOutside(aclId.target, aclId.grantee, new Set(privileges)))
       return; // REVOKE is load-bearing
     dropRevoke.add(index);
-    strippedAclKeys.add(aclKey);
   });
 
-  if (dropRevoke.size === 0) return [...actions];
-  return actions
-    .filter((_, index) => !dropRevoke.has(index))
-    .map((action) => {
-      // strip the now-unproduced acl id from kept GRANT consumes (cosmetic — the
-      // graph is not re-consulted post-compaction, but keep the artifact clean).
-      if (!action.consumes.some((c) => strippedAclKeys.has(encodeId(c))))
-        return action;
-      return {
-        ...action,
-        consumes: action.consumes.filter(
-          (c) => !strippedAclKeys.has(encodeId(c)),
-        ),
-      };
+  // the kept GRANTs still consume the now-unproduced acl ids; the downstream
+  // mergeCoTargetGrants pass reads them (they carry privileges/column identity)
+  // and performs the cosmetic strip as its final tidy step.
+  return dropRevoke.size > 0
+    ? actions.filter((_, index) => !dropRevoke.has(index))
+    : [...actions];
+}
+
+/**
+ * Compaction (§3.6), multi-grantee GRANT merge: `grantActions` emits one GRANT
+ * per grantee (pg_dump's model). On a freshly co-created object the leading
+ * REVOKEs are elided (elideCoCreateRevokeBeforeGrant, above), leaving the
+ * same-target GRANTs CONSECUTIVE in the final order — the acl stable-id encodes
+ * `(target).grantee`, so the deterministic tie-break already groups them. When
+ * consecutive GRANTs differ only in grantee (same target, same privilege set,
+ * no grant option, no column qualifier), merge them into the idiomatic
+ * `GRANT … TO a, b, c` a human would write.
+ *
+ * Safe + cosmetic via LOCAL checks — consecutiveness is the ordering proof:
+ * nothing sits between the merged members, so placing the merge at the first
+ * member's position preserves every predecessor/successor constraint each
+ * member had (and nothing in the graph ever consumes an acl id outside its own
+ * REVOKE/GRANT group, so no third action can be forced between them). Guards:
+ *  - only actions whose SQL equals the canonical single-grantee render
+ *    (renderGrantSql) are candidates — never parse SQL, only re-render;
+ *  - a group whose REVOKE leader survives (pre-existing target, grant-option
+ *    or subset-default groups) is left intact, keeping the pg_dump pairing;
+ *  - a `newSegmentBefore` boundary on a later member breaks the run
+ *    (compaction never folds across a commit boundary);
+ *  - privileges must match as a SET (extraction emits them sorted).
+ *
+ * Runs LAST in the compaction chain so it sees final adjacency. Its tail also
+ * performs the cosmetic consumes-tidy relocated from
+ * elideCoCreateRevokeBeforeGrant: acl ids no remaining action produces are
+ * stripped from consumes (the graph is not re-consulted post-compaction, but
+ * keep the artifact clean).
+ */
+type AclId = Extract<StableId, { kind: "acl" }>;
+const isAclId = (id: StableId): id is AclId => id.kind === "acl";
+
+export function mergeCoTargetGrants(
+  actions: readonly Action[],
+  desired: FactBase,
+): Action[] {
+  // acl ids still produced by a surviving REVOKE leader
+  const producedAcl = new Set<string>();
+  for (const action of actions) {
+    if (action.verb !== "create") continue;
+    for (const id of action.produces)
+      if (isAclId(id)) producedAcl.add(encodeId(id));
+  }
+
+  interface Candidate {
+    aclId: AclId;
+    targetKey: string;
+    privileges: string[];
+  }
+  const candidateOf = (action: Action): Candidate | undefined => {
+    if (action.verb !== "create") return undefined;
+    if (action.produces.length > 0 || action.destroys.length > 0) {
+      return undefined;
+    }
+    if (action.releases.length > 0) return undefined;
+    if (action.transactionality !== "transactional") return undefined;
+    const aclIds = action.consumes.filter(isAclId);
+    if (aclIds.length !== 1) return undefined;
+    const aclId = aclIds[0] as AclId;
+    if (aclId.column !== undefined) return undefined; // column grants stay verbatim
+    if (producedAcl.has(encodeId(aclId))) return undefined; // REVOKE leader kept
+    const fact = desired.get(aclId);
+    if (fact === undefined) return undefined;
+    const payload = fact.payload as {
+      privileges?: string[];
+      grantable?: string[];
+    };
+    if ((payload.grantable ?? []).length > 0) return undefined;
+    const privileges = payload.privileges ?? [];
+    if (privileges.length === 0) return undefined;
+    // canonical-render guard: only the exact plain single-grantee GRANT merges
+    if (
+      action.sql !== renderGrantSql(aclId.target, privileges, [aclId.grantee])
+    )
+      return undefined;
+    return { aclId, targetKey: encodeId(aclId.target), privileges };
+  };
+
+  const out: Action[] = [];
+  let i = 0;
+  while (i < actions.length) {
+    const action = actions[i] as Action;
+    const first = candidateOf(action);
+    if (first === undefined) {
+      out.push(action);
+      i++;
+      continue;
+    }
+    const run = [first];
+    let j = i + 1;
+    while (j < actions.length) {
+      const nextAction = actions[j] as Action;
+      if (nextAction.newSegmentBefore) break;
+      const next = candidateOf(nextAction);
+      if (next === undefined || next.targetKey !== first.targetKey) break;
+      if (!samePrivilegeSet(next.privileges, first.privileges)) break;
+      run.push(next);
+      j++;
+    }
+    if (run.length === 1) {
+      out.push(action);
+      i++;
+      continue;
+    }
+    // merge at the first member's position: sql re-rendered with the grantee
+    // list, consumes = union (roles, target, acl ids) so the artifact's
+    // dependency metadata still names every input.
+    const consumes: StableId[] = [];
+    const seen = new Set<string>();
+    for (let k = i; k < j; k++) {
+      for (const c of (actions[k] as Action).consumes) {
+        const key = encodeId(c);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        consumes.push(c);
+      }
+    }
+    out.push({
+      ...action,
+      sql: renderGrantSql(
+        first.aclId.target,
+        first.privileges,
+        run.map((c) => c.aclId.grantee),
+      ),
+      consumes,
     });
+    i = j;
+  }
+
+  // cosmetic tidy (relocated from elideCoCreateRevokeBeforeGrant): drop acl
+  // ids nothing in the final list produces from consumes.
+  const dangling = (c: StableId): boolean =>
+    isAclId(c) && !producedAcl.has(encodeId(c));
+  return out.map((action) => {
+    if (!action.consumes.some(dangling)) return action;
+    return {
+      ...action,
+      consumes: action.consumes.filter((c) => !dangling(c)),
+    };
+  });
 }
 
 /** Aggregate the per-action safety metadata (§3.7): destructive / rewrite /

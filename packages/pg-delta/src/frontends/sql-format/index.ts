@@ -20,6 +20,7 @@ import {
   formatCreateTable,
   formatCreateTrigger,
   formatGeneric,
+  formatGrantRevoke,
 } from "./formatters.ts";
 import { applyKeywordCase } from "./keyword-case.ts";
 import { protectSegments, restorePlaceholders } from "./protect.ts";
@@ -130,6 +131,7 @@ function formatStatement(
     formatCreateServer(protectedSegments.text, tokens, options) ??
     formatAlterTable(protectedSegments.text, tokens, options) ??
     formatAlterGeneric(protectedSegments.text, tokens, options) ??
+    formatGrantRevoke(protectedSegments.text, tokens, options) ??
     formatGeneric(protectedSegments.text, tokens, options);
 
   if (!protectedSegments.skipCasing && options.keywordCase !== "preserve") {

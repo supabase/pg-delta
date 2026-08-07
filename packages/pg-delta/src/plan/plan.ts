@@ -194,18 +194,23 @@ export interface PlanOptions {
   renames?: RenameMode;
   /** in "prompt" mode: the candidates the caller confirmed */
   acceptRenames?: Array<{ from: StableId; to: StableId }>;
-  /** compaction (§3.6): fold column clauses into their CREATE TABLE when
-   *  no graph edge crosses the merge. Cosmetic by contract — proof results
-   *  never change (asserted by the compaction suite). Default: true. */
+  /** compaction (§3.6): fold column clauses — and self-contained validated
+   *  PK/UNIQUE/CHECK constraints (`executorSafe` fold hints) — into their
+   *  CREATE TABLE when no graph edge crosses the merge, merge consecutive
+   *  same-privilege co-create GRANTs, and run the elision passes. Cosmetic by
+   *  contract — proof results never change (asserted by the compaction
+   *  suite). Default: true. */
   compact?: boolean;
-  /** Export-only constraint folding: also fold VALIDATED table constraints
-   *  into their table's CREATE parens (`CONSTRAINT name <def>`), like
-   *  hand-written SQL. ONLY safe when the plan's SQL is consumed by the
-   *  file loader (bounded retry / reorder) rather than the apply executor —
-   *  a folded FK may reference a table a LATER file creates. Set by
-   *  `schema export`; leave unset everywhere else. `exclude` lists encoded
-   *  constraint ids that must stay as ALTERs (cycle-participating FKs, which
-   *  the export routes to `.fk.sql`). */
+  /** Export-only constraint folding: fold EVERY validated table constraint
+   *  into its table's CREATE parens (`CONSTRAINT name <def>`), like
+   *  hand-written SQL — including FOREIGN KEYs, which regular diff plans keep
+   *  as ALTERs (a folded FK may reference a table a LATER file creates; only
+   *  self-contained PK/UNIQUE/CHECK fold under plain `compact`). ONLY safe
+   *  when the plan's SQL is consumed by the file loader (bounded retry /
+   *  reorder) rather than the apply executor. Set by `schema export`; leave
+   *  unset everywhere else. `exclude` lists encoded constraint ids that must
+   *  stay as ALTERs (cycle-participating FKs, which the export routes to
+   *  `.fk.sql`). */
   foldConstraints?: { exclude?: ReadonlySet<string> };
   /** applier capability (move 6): operations the applier cannot execute (e.g.
    *  FDW ACLs for a non-superuser) are projected out of the view. Supplied by

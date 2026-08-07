@@ -614,6 +614,29 @@ export function replicaIdentitySpec(fact: Fact, view: FactView): ActionSpec {
   return { sql: `ALTER TABLE ${relName} REPLICA IDENTITY DEFAULT` };
 }
 
+/** Canonical `GRANT <privs> ON <target> TO <grantees>` statement. Shared by
+ *  `grantActions` (single grantee) and compaction's multi-grantee merge pass
+ *  (`mergeCoTargetGrants`, plan/internal.ts), so the two renders can never
+ *  drift — the merge pass both recognizes mergeable GRANTs by comparing
+ *  against this render and re-renders the merged statement with it. */
+export function renderGrantSql(
+  target: StableId,
+  privileges: readonly string[],
+  grantees: readonly string[],
+  opts?: { column?: string; withGrantOption?: boolean },
+): string {
+  const col = opts?.column;
+  const privs =
+    col === undefined
+      ? privileges.join(", ")
+      : privileges.map((priv) => `${priv} (${qid(col)})`).join(", ");
+  const to = grantees
+    .map((g) => (g === "PUBLIC" ? "PUBLIC" : qid(g)))
+    .join(", ");
+  const option = opts?.withGrantOption ? " WITH GRANT OPTION" : "";
+  return `GRANT ${privs} ON ${grantTarget(target)} TO ${to}${option}`;
+}
+
 export function grantActions(fact: Fact, verb: "grant"): ActionSpec[] {
   const id = fact.id as {
     kind: "acl";
@@ -632,10 +655,6 @@ export function grantActions(fact: Fact, verb: "grant"): ActionSpec[] {
   // (`SELECT (col)`) and REVOKE ALL takes the column list too. Object-level
   // grants render the bare privilege list.
   const col = id.column;
-  const q = (privs: string[]): string =>
-    col === undefined
-      ? privs.join(", ")
-      : privs.map((priv) => `${priv} (${qid(col)})`).join(", ");
   const revokeAll =
     col === undefined ? "REVOKE ALL" : `REVOKE ALL (${qid(col)})`;
   const specs: ActionSpec[] = [
@@ -648,13 +667,21 @@ export function grantActions(fact: Fact, verb: "grant"): ActionSpec[] {
   ];
   if (plain.length > 0) {
     specs.push({
-      sql: `GRANT ${q(plain)} ON ${grantTarget(id.target)} TO ${grantee}`,
+      sql: renderGrantSql(
+        id.target,
+        plain,
+        [id.grantee],
+        col !== undefined ? { column: col } : {},
+      ),
       consumes,
     });
   }
   if (withOption.length > 0) {
     specs.push({
-      sql: `GRANT ${q(withOption)} ON ${grantTarget(id.target)} TO ${grantee} WITH GRANT OPTION`,
+      sql: renderGrantSql(id.target, withOption, [id.grantee], {
+        ...(col !== undefined ? { column: col } : {}),
+        withGrantOption: true,
+      }),
       consumes,
     });
   }

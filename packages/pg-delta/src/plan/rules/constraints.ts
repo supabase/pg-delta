@@ -24,17 +24,34 @@ export const constraintRules: Record<string, KindRules> = {
       }
       // Inline-fold hint (compaction §3.6, constraint folding): a VALIDATED
       // TABLE constraint can render inline inside its table's CREATE parens as
-      // `CONSTRAINT name <def>` (pg_get_constraintdef text, verbatim). Data
-      // only — the fold pass applies it solely under
-      // `PlanOptions.foldConstraints` (set by `schema export`, whose files are
-      // loaded by the retry/reorder loader, not the apply executor). NOT VALID
-      // constraints never hint: an inline constraint always validates.
+      // `CONSTRAINT name <def>` (pg_get_constraintdef text, verbatim). NOT
+      // VALID constraints never hint: an inline constraint always validates.
+      //
+      // `executorSafe` marks the SELF-CONTAINED types (PRIMARY KEY / UNIQUE /
+      // CHECK — never a reference to another relation's rows), whose fold is
+      // legal in a regular diff plan run by the apply executor under the
+      // strict crossing veto. FOREIGN KEY (and exclusion) hints stay
+      // export-only (`PlanOptions.foldConstraints`, set by `schema export`,
+      // whose files are loaded by the retry/reorder loader): a folded FK may
+      // reference a table created later, and folding one that happens to sort
+      // earlier would make plan shape position-dependent and hide the FK's
+      // distinct shareRowExclusive lock on the REFERENCED table from the
+      // safety report.
+      //
+      // The clause is always the TABLE-constraint form, never inlined onto a
+      // column line (`id … primary key`) — that would require rewriting the
+      // verbatim def. Full rationale + the guarded design if ever revisited:
+      // docs/roadmap/backlog.md § "Column-inline PRIMARY KEY compaction".
+      const type = str(p(fact, "type"));
       const foldHint =
         p(fact, "validated") === true && fact.parent?.kind === "table"
           ? {
               compaction: {
                 foldInto: fact.parent,
                 clause: `CONSTRAINT ${qid(id.name)} ${str(p(fact, "def"))}`,
+                ...(type === "p" || type === "u" || type === "c"
+                  ? { executorSafe: true }
+                  : {}),
               },
             }
           : {};
