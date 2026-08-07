@@ -117,11 +117,6 @@ export async function extract(
     // to this transaction and is discarded on COMMIT/ROLLBACK, so pooled
     // connections are untouched.
     await client.query("SET LOCAL search_path TO 'pg_catalog'");
-    // JIT is pure per-execution overhead for catalog extraction — the
-    // dependency-resolver query's cost estimate trips `jit_above_cost` and
-    // re-emits hundreds of functions on every run. `jit` is PGC_USERSET
-    // (works for non-superusers) and SET LOCAL scopes it to this transaction.
-    await client.query("SET LOCAL jit = off");
     // Opt-in per-statement budget: a runaway catalog query on a pathological
     // schema aborts with an actionable ExtractionTimeoutError (see scope.ts q())
     // instead of hanging. Default is unlimited — never abort a legitimate
@@ -159,6 +154,35 @@ async function extractOnClient(
     client,
     statementTimeoutMs,
     redactSecrets,
+  );
+
+  // JIT is pure per-execution overhead for catalog extraction — the
+  // dependency-resolver query's cost estimate trips `jit_above_cost` and
+  // re-emits hundreds of functions on every run. `jit` is PGC_USERSET (works
+  // for non-superusers) and SET LOCAL / set_config(..., true) scopes it to
+  // this transaction. On PG >= 15, guard it behind `has_parameter_privilege`
+  // (added alongside parameter ACLs in 15) rather than a bare
+  // `SET LOCAL jit = off`: a failed statement poisons the WHOLE transaction
+  // (a JS try/catch cannot undo that without a SAVEPOINT), so this must never
+  // be able to error — this optimization is not worth risking the rest of
+  // extraction. `has_parameter_privilege` never throws, and the WHERE clause
+  // makes `set_config` a no-op (0 rows) rather than an error when it returns
+  // false, so this is structurally safe regardless of privilege state.
+  // (In practice PostgreSQL's own parameter-ACL machinery does not gate
+  // PGC_USERSET params like `jit` at the actual SET call site — only
+  // `has_parameter_privilege` reflects the ACL, per a postgres-hackers note —
+  // so a real `REVOKE SET ON PARAMETER jit FROM PUBLIC` cannot currently
+  // reproduce a permission error here. `has_parameter_privilege` IS false by
+  // default for any non-superuser though, so this guard still means a
+  // non-superuser extraction silently skips the jit-disable rather than
+  // depending on that runtime quirk, and it costs nothing if the quirk is
+  // ever tightened. See tests/extract-jit-off.test.ts for the detail.)
+  // PG 14 has neither `has_parameter_privilege` nor parameter ACLs, so the
+  // plain SET LOCAL is used there unconditionally.
+  await client.query(
+    ctx.pgMajor >= 15
+      ? "SELECT set_config('jit', 'off', true) WHERE has_parameter_privilege(current_user, 'jit', 'SET')"
+      : "SET LOCAL jit = off",
   );
 
   // Explicit, loud opt-out: disabling redaction means real credentials flow

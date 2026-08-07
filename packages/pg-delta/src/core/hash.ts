@@ -111,6 +111,9 @@ const payloadHashes = new WeakMap<object, ContentHash>();
  * folded here range from tiny payload encodings to whole-subtree rollup folds.
  * Past the budget the cache is dropped wholesale and refills — a long-lived
  * process (watch mode, a server planning many databases) cannot accumulate.
+ * A single key whose own length already exceeds the budget is never inserted
+ * (see the early return below) — otherwise it would sit retained past the
+ * advertised bound until the next miss happens to clear the whole map.
  */
 const canonicalHashes = new Map<string, ContentHash>();
 const CANONICAL_CACHE_MAX_CHARS = 1 << 24;
@@ -120,6 +123,10 @@ function digest(canonical: string): ContentHash {
   const cached = canonicalHashes.get(canonical);
   if (cached !== undefined) return cached;
   const hash = createHash("sha256").update(canonical).digest("hex");
+  // Oversized key (e.g. a giant view/function payload): the digest is still
+  // correct, just not memoized — caching it would blow past the budget and
+  // stay retained indefinitely instead of merely until the next clear.
+  if (canonical.length > CANONICAL_CACHE_MAX_CHARS) return hash;
   if (canonicalCacheChars >= CANONICAL_CACHE_MAX_CHARS) {
     canonicalHashes.clear();
     canonicalCacheChars = 0;
