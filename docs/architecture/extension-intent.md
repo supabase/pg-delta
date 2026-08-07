@@ -170,12 +170,30 @@ single codec).
              database:string, username:string, active:boolean } }
 ```
 
+The handler is a **factory** — `makePgCronHandler({ defaultJobOwner,
+jobOwnerAliases })` — so `pg-cron.ts` names no platform roles; the Supabase
+profile (`src/integrations/supabase.ts`) supplies both, sourcing
+`defaultJobOwner` from `supabasePolicy.defaultOwner`.
+
 - **Capture**: read `cron.job`. **Ownership normalization (CLI-1435)**: jobs
-  created before the patch were owned by `supabase_read_only_user`; normalize
-  `username` to `postgres` on capture so a rebuild doesn't reproduce the legacy
-  owner. Declared once, in the handler.
-- **Create**: `select cron.schedule('<jobname>','<schedule>','<command>')` (+
-  `schedule_in_database` when `database` differs).
+  created before the patch were owned by `supabase_read_only_user`; the
+  profile's `jobOwnerAliases` rewrites `username` to `postgres` on capture so a
+  rebuild doesn't reproduce the legacy owner. Declared once, in the profile.
+  A job owned by a role OTHER than `defaultJobOwner` also raises an
+  `intent-privileged` **warning** (warn + emit — its reconstruction genuinely
+  needs a superuser connection; see Create).
+- **Create**: `select cron.schedule_in_database('<jobname>','<schedule>',
+  '<command>','<database>',<username>,<active>)` — all captured fields replayed
+  (the 3-arg `cron.schedule` form always creates the job in the current
+  database, active, owned by the caller, so it cannot converge).
+  **Username elision**: pg_cron rejects a non-NULL `username` argument unless
+  the caller is SUPERUSER — *even when it names the calling role itself*
+  ("must be superuser to create a job for another role") — while a bare `NULL`
+  means `current_user` and needs no privilege. A profile declaring a
+  `defaultJobOwner` is also declaring who executes the plan, so a job owned by
+  that role renders `NULL` and stays applyable by the non-superuser `postgres`
+  a hosted Supabase project hands out. Any other owner keeps the explicit
+  literal. With no `defaultJobOwner` (raw/custom profiles) nothing is elided.
 - **Change** (`schedule`/`command`/`active`/`database`): **`unschedule` +
   re-`schedule` by name** — fully static and deterministic; no apply-time
   `job_id` resolution. Run history isn't contracted, so recreate is lossless
@@ -517,7 +535,7 @@ hazards in the same proof-verified safety report. No separate risk path.
 | CLI-1430 (intent matrix) | Authoritative column→intent spec the handlers consume; §3 is the v1 cut. |
 | CLI-1431 (declarative source format) | §4.4: the replay calls *are* the format, read by capture; typed block deferred to B+. |
 | CLI-1434 (vault) | §3.4: presence-only + blocking error. |
-| CLI-1435 (cron ownership) | §3.2: `username` normalization on capture. |
+| CLI-1435 (cron ownership) | §3.2: `username` normalization on capture (profile-supplied `jobOwnerAliases`) + `defaultJobOwner` elision on replay. |
 | CLI-1433 (pg_net templating) | Reserved `rewrite` hook (§4.1); full design deferred. |
 | CLI-1432 (cross-schema triggers) | Orthogonal — already handled by the Supabase policy (assessment §3). |
 
