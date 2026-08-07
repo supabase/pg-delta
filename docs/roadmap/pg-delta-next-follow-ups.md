@@ -508,6 +508,12 @@ Extract-completeness (invisible drift / wrong from-empty replay):
 - **subscription `failover`** — `src/extract/publications.ts:135` (comment `3537910587`).
   The version-gated subscription option list stops at `run_as_owner`/`origin`; a
   `failover`-only difference hashes identically and from-empty replay omits it.
+- **subscription `password_required`** — `src/extract/publications.ts` (PR #388
+  Codex re-review; the only NEW fragment in that batch). `subpasswordrequired`
+  (PG16+) isn't extracted, so `password_required = false` compares equal to the
+  default and a recreate re-enables it. Superuser-only DDL that interacts with
+  the `subconninfo` secret-redaction path — handle with the `failover` entry
+  above. Tracked in Linear CLI-2134.
 
 ### Wave 4 (re-review of `bd68f7b`) — apply-ordering / access / shadow
 
@@ -774,3 +780,17 @@ to this section.
   those creates after the retype) would admit a valid migration. Pre-existing
   planner conservatism: it fails loud, never corrupts. Fix when a real schema
   hits it.
+
+## PR #388 review triage (Codex) — plan compaction (constraint folds, grant merges)
+
+Codex reviewed #388 while the PR was briefly based against `main` (before the
+retarget to `feat/pg-delta-next`), so the diff it saw was the entire delta-next
+engine, not the PR's compaction/formatter files. All seven findings target
+`src/extract/**` / `load-sql-files.ts` — code the PR never touches — so per the
+automated-review scope rule they are recorded, not fixed there. Six of seven are
+re-issues of entries already in this ledger (ICU collation rules `3537805075`,
+membership SET/INHERIT `3530186654`, `rolconnlimit` `3530186736`, matview
+populated state `3530186683`, the `databaseScratch` emptiness guard, range
+CANONICAL, subscription `failover` `3537910587`); the ONE new fragment —
+subscription `password_required` — is recorded in the extract-completeness list
+above. Consolidated for the fidelity-hardening milestone as **Linear CLI-2134**.
