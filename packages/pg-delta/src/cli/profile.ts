@@ -13,7 +13,7 @@ import type { Pool } from "pg";
 import {
   type ExtensionHandler,
   type IntegrationProfile,
-  pgCronHandler,
+  makePgCronHandler,
   pgPartmanHandler,
   rawProfile,
   type ResolvedProfile,
@@ -21,7 +21,7 @@ import {
   resolveProfile,
   supabaseProfile,
 } from "../integrations/index.ts";
-import type { Policy } from "../policy/policy.ts";
+import { flattenPolicy, type Policy } from "../policy/policy.ts";
 import { UsageError } from "./flags.ts";
 
 const PROFILES: Record<string, IntegrationProfile> = {
@@ -32,11 +32,38 @@ const PROFILES: Record<string, IntegrationProfile> = {
 /** The `--profile` value shown in usage strings. */
 export const PROFILE_IDS = Object.keys(PROFILES).join(" | ");
 
-/** The bundled extension handlers a custom profile file may reference BY NAME
- *  (the handler's `extension` field). Extend this as new handlers ship. */
-const HANDLER_BY_NAME = new Map<string, ExtensionHandler>(
-  ([pgPartmanHandler, pgCronHandler] as const).map((h) => [h.extension, h]),
-);
+/**
+ * The bundled extension handlers a custom profile file may reference BY NAME
+ * (the handler's `extension` field), as FACTORIES taking the profile file's own
+ * declared policy. Extend this as new handlers ship.
+ *
+ * A factory (rather than a ready-made instance) is what lets a CONFIGURABLE
+ * handler read the same file's `policy`: `pg_cron` derives its `defaultJobOwner`
+ * from the policy's EFFECTIVE (flattened) `defaultOwner` — the role the profile
+ * already declares as the owner/executor, including one inherited through
+ * `Policy.extends` — so a profile file gets the same non-superuser-applyable
+ * username elision the built-in Supabase profile gets. Platform-history knobs
+ * (e.g. Supabase's `supabase_read_only_user` owner alias) are NOT derivable from
+ * a policy and stay in `src/integrations/supabase.ts`.
+ *
+ * Takes the already-resolved default owner (not the raw `Policy`) so callers
+ * run `flattenPolicy` exactly ONCE per profile file, not once per handler.
+ */
+const HANDLER_FACTORY_BY_NAME = new Map<
+  string,
+  (resolvedDefaultOwner: string | undefined) => ExtensionHandler
+>([
+  [pgPartmanHandler.extension, () => pgPartmanHandler],
+  [
+    "pg_cron",
+    (resolvedDefaultOwner) =>
+      makePgCronHandler(
+        resolvedDefaultOwner !== undefined
+          ? { defaultJobOwner: resolvedDefaultOwner }
+          : {},
+      ),
+  ],
+]);
 
 /** A `--profile` value is a path (load from disk) rather than a built-in id when
  *  it looks like a path: contains a `/` or ends in `.json`. */
@@ -47,11 +74,14 @@ export function isProfilePath(id: string): boolean {
 /**
  * Parse a custom profile file's JSON into an `IntegrationProfile`. The file
  * mirrors `IntegrationProfile` but references handlers BY NAME (resolved against
- * {@link HANDLER_BY_NAME}) so it stays plain, serializable data:
+ * {@link HANDLER_FACTORY_BY_NAME}) so it stays plain, serializable data:
  *
  *   { "id": "platform-middleware", "handlers": ["pg_partman", "pg_cron"],
  *     "policy"?: { ...a serializable Policy... },
  *     "baseline"?: "./middleware-base.json" }
+ *
+ * The declared `policy` also CONFIGURES the named handlers (a `pg_cron` handler
+ * takes its default job owner from `policy.defaultOwner`), so it is parsed first.
  *
  * `baseline` is a path to a `pgdelta snapshot` file; a relative path is resolved
  * against `opts.dir` (the profile file's own directory) so a committed profile +
@@ -84,6 +114,31 @@ export function parseProfileFile(
       `profile ${source}: "handlers" must be an array of handler names`,
     );
   }
+  // the policy is read BEFORE the handlers because a handler factory is
+  // configured from it (see HANDLER_FACTORY_BY_NAME).
+  const rawPolicy = obj["policy"];
+  const policy =
+    rawPolicy !== undefined && rawPolicy !== null
+      ? (rawPolicy as Policy)
+      : undefined;
+  // Resolve the EFFECTIVE default owner through flattenPolicy exactly ONCE per
+  // profile file, not once per handler: `Policy.extends` composes inline
+  // nested policies, and `defaultOwner` inherits from the first parent that
+  // declares one when the policy itself doesn't (see flattenPolicy's
+  // scalar-inheritance contract) — reading `policy.defaultOwner` directly
+  // would miss that inherited value. The profile file's policy is an
+  // unvalidated blind cast, so flattenPolicy's cycle guard can throw; surface
+  // that as a UsageError instead of an unhandled Error.
+  let resolvedDefaultOwner: string | undefined;
+  if (policy !== undefined) {
+    try {
+      resolvedDefaultOwner = flattenPolicy(policy).defaultOwner;
+    } catch (err) {
+      throw new UsageError(
+        `profile ${source}: invalid policy — ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
   const handlers: ExtensionHandler[] = [];
   for (const name of obj["handlers"]) {
     if (typeof name !== "string") {
@@ -91,15 +146,14 @@ export function parseProfileFile(
         `profile ${source}: handler names must be strings (got ${typeof name})`,
       );
     }
-    const handler = HANDLER_BY_NAME.get(name);
-    if (handler === undefined) {
+    const makeHandler = HANDLER_FACTORY_BY_NAME.get(name);
+    if (makeHandler === undefined) {
       throw new UsageError(
-        `profile ${source}: unknown handler '${name}' — available: ${[...HANDLER_BY_NAME.keys()].join(", ")}`,
+        `profile ${source}: unknown handler '${name}' — available: ${[...HANDLER_FACTORY_BY_NAME.keys()].join(", ")}`,
       );
     }
-    handlers.push(handler);
+    handlers.push(makeHandler(resolvedDefaultOwner));
   }
-  const policy = obj["policy"];
   const rawBaseline = obj["baseline"];
   if (
     rawBaseline !== undefined &&
@@ -120,9 +174,7 @@ export function parseProfileFile(
   return {
     id: obj["id"],
     handlers,
-    ...(policy !== undefined && policy !== null
-      ? { policy: policy as Policy }
-      : {}),
+    ...(policy !== undefined ? { policy } : {}),
     ...(baselinePath !== undefined ? { baselinePath } : {}),
   };
 }

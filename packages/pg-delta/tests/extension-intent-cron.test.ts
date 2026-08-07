@@ -382,9 +382,16 @@ describe.skipIf(!runSupabaseBareTests)(
     // `supabaseProfile` — the full managed view (supabase policy + baseline +
     // the bundled pgPartmanHandler) must NOT filter out a user cron job's intent
     // fact, and the replay must apply cleanly against a Supabase database. ──────
-    test("supabaseProfile bundles pgCronHandler", () => {
-      expect(SUPABASE_EXTENSION_HANDLERS).toContain(pgCronHandler);
-      expect(supabaseProfile.handlers).toContain(pgCronHandler);
+    // by EXTENSION NAME, not identity: the profile composes its own instance
+    // via `makePgCronHandler({ defaultJobOwner, jobOwnerAliases })`, so it is
+    // deliberately NOT the unconfigured `pgCronHandler` singleton.
+    test("supabaseProfile bundles a pg_cron handler", () => {
+      expect(SUPABASE_EXTENSION_HANDLERS.map((h) => h.extension)).toContain(
+        "pg_cron",
+      );
+      expect(supabaseProfile.handlers?.map((h) => h.extension)).toContain(
+        "pg_cron",
+      );
     });
 
     test("supabase context: a user cron job plans + applies as intent through supabaseProfile", async () => {

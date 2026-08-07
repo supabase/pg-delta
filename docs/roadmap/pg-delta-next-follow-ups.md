@@ -817,3 +817,17 @@ oversized key past its advertised total-length budget. One further finding is
   stale-hash-induced wrong plan would fail the proof rather than pass
   silently. Revisit only if the public API is ever changed to document
   payload mutability as supported.
+
+## PR #391 review triage — pg_cron username elision
+
+- **Deferred — export-resolved default owner is not threaded into pg_cron
+  rendering.** `buildSchemaExport` resolves a per-export owner (`defaultOwner`
+  option → profile default → `datdba`; `src/frontends/schema-export.ts:40-111`)
+  that can diverge from the handler's configured `defaultJobOwner`; a cron job
+  owned by that resolved role still renders an explicit username and needs a
+  superuser executor. Deferred because it requires threading export-time
+  context into intent rendering (rejected as disproportionate in this PR's
+  design); the capture-time `intent-privileged` warning already fires for
+  exactly this divergence, so the failure is pre-announced. Revisit if a real
+  profile hits it.
+
