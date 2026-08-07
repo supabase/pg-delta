@@ -56,6 +56,9 @@ export const retainOwnerRoleDangling = (edge: DependencyEdge): boolean =>
 interface Entry {
   fact: Fact;
   encoded: string;
+  /** `encodeId(fact.parent)`, encoded once at index time: the parent chain is
+   *  walked by the acyclicity check and every hierarchy lookup. */
+  parentKey: string | undefined;
   hash: ContentHash;
 }
 
@@ -75,6 +78,9 @@ export class FactBase {
   readonly #children = new Map<string, Entry[]>();
   readonly #outgoing = new Map<string, DependencyEdge[]>();
   readonly #incoming = new Map<string, DependencyEdge[]>();
+  /** Per-source rollup fragments (`from-[kind]->to`), built from the endpoint
+   *  keys the edge loop already encoded so `#rollup` never re-encodes them. */
+  readonly #outgoingParts = new Map<string, string[]>();
   #edges: DependencyEdge[] = [];
   readonly #rollups = new Map<string, ContentHash>();
   readonly #structural = new Map<string, ContentHash>();
@@ -105,13 +111,14 @@ export class FactBase {
       this.#byId.set(encoded, {
         fact,
         encoded,
+        parentKey:
+          fact.parent === undefined ? undefined : encodeId(fact.parent),
         hash: contentHash(fact.payload),
       });
     }
     for (const entry of this.#byId.values()) {
-      const parent = entry.fact.parent;
-      if (parent === undefined) continue;
-      const parentKey = encodeId(parent);
+      const parentKey = entry.parentKey;
+      if (parentKey === undefined) continue;
       if (!this.#byId.has(parentKey)) {
         throw new Error(
           `FactBase: fact ${entry.encoded} references missing parent ${parentKey}`,
@@ -131,10 +138,15 @@ export class FactBase {
     // not contain it — a poisoned base that diff() silently never descends into.
     // Reject it here. Single pass, memoized reachability (O(n), no recursion).
     const reachesRoot = new Set<string>(); // encoded ids known to reach a root
+    // One scratch pair reused across starts: at catalog scale the per-fact
+    // array + Set allocation dominated the walk itself (most chains break out
+    // on the first hop into `reachesRoot`).
+    const path: string[] = [];
+    const onPath = new Set<string>();
     for (const start of this.#byId.values()) {
       if (reachesRoot.has(start.encoded)) continue;
-      const path: string[] = [];
-      const onPath = new Set<string>();
+      path.length = 0;
+      onPath.clear();
       let cursor: Entry | undefined = start;
       while (cursor !== undefined) {
         if (reachesRoot.has(cursor.encoded)) break; // joins a known-good chain
@@ -147,10 +159,9 @@ export class FactBase {
         }
         onPath.add(cursor.encoded);
         path.push(cursor.encoded);
-        const parent = cursor.fact.parent;
-        if (parent === undefined) break; // reached a parentless root
+        if (cursor.parentKey === undefined) break; // reached a parentless root
         // parent presence was validated above, so this is always defined
-        cursor = this.#byId.get(encodeId(parent));
+        cursor = this.#byId.get(cursor.parentKey);
       }
       for (const key of path) reachesRoot.add(key);
     }
@@ -165,9 +176,7 @@ export class FactBase {
           // index only the present endpoint(s); no diagnostic.
           this.#edges.push(edge);
           if (fromPresent) {
-            const outList = this.#outgoing.get(fromKey) ?? [];
-            outList.push(edge);
-            this.#outgoing.set(fromKey, outList);
+            this.#indexOutgoing(fromKey, toKey, edge);
           }
           if (toPresent) {
             const inList = this.#incoming.get(toKey) ?? [];
@@ -185,13 +194,20 @@ export class FactBase {
         continue;
       }
       this.#edges.push(edge);
-      const outList = this.#outgoing.get(fromKey) ?? [];
-      outList.push(edge);
-      this.#outgoing.set(fromKey, outList);
+      this.#indexOutgoing(fromKey, toKey, edge);
       const inList = this.#incoming.get(toKey) ?? [];
       inList.push(edge);
       this.#incoming.set(toKey, inList);
     }
+  }
+
+  #indexOutgoing(fromKey: string, toKey: string, edge: DependencyEdge): void {
+    const outList = this.#outgoing.get(fromKey) ?? [];
+    outList.push(edge);
+    this.#outgoing.set(fromKey, outList);
+    const parts = this.#outgoingParts.get(fromKey) ?? [];
+    parts.push(`${fromKey}-[${edge.kind}]->${toKey}`);
+    this.#outgoingParts.set(fromKey, parts);
   }
 
   get edges(): readonly DependencyEdge[] {
@@ -274,9 +290,9 @@ export class FactBase {
     const childParts = (this.#children.get(key) ?? []).map(
       (c) => `${c.encoded}=${this.#rollup(c.encoded)}`,
     );
-    const edgeParts = (this.#outgoing.get(key) ?? [])
-      .map((e) => `${encodeId(e.from)}-[${e.kind}]->${encodeId(e.to)}`)
-      .sort();
+    // sorted in place: the fragments are private to the rollup fold, and
+    // `#rollups` memoizes the result so this runs once per key
+    const edgeParts = (this.#outgoingParts.get(key) ?? []).sort();
     const rollup = hashString(
       `F|${entry.hash}|C|${childParts.join(",")}|E|${edgeParts.join(",")}`,
     );
