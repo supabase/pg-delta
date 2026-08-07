@@ -1043,6 +1043,9 @@ export async function loadSqlFiles(
     // resolve as they would at apply time.
     await client.query(`BEGIN`);
     await client.query(`SET LOCAL search_path TO 'pg_catalog'`);
+    // JIT is pure per-execution overhead for catalog-only queries; mirrors the
+    // extraction transaction's `SET LOCAL jit = off` (src/extract/extract.ts).
+    await client.query(`SET LOCAL jit = off`);
     const defs = await client.query(`
       SELECT n.nspname AS nspname, p.proname AS proname, p.prokind AS prokind,
              ARRAY(SELECT format_type(t.t, NULL)

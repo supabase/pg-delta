@@ -117,6 +117,11 @@ export async function extract(
     // to this transaction and is discarded on COMMIT/ROLLBACK, so pooled
     // connections are untouched.
     await client.query("SET LOCAL search_path TO 'pg_catalog'");
+    // JIT is pure per-execution overhead for catalog extraction — the
+    // dependency-resolver query's cost estimate trips `jit_above_cost` and
+    // re-emits hundreds of functions on every run. `jit` is PGC_USERSET
+    // (works for non-superusers) and SET LOCAL scopes it to this transaction.
+    await client.query("SET LOCAL jit = off");
     // Opt-in per-statement budget: a runaway catalog query on a pathological
     // schema aborts with an actionable ExtractionTimeoutError (see scope.ts q())
     // instead of hanging. Default is unlimited — never abort a legitimate
