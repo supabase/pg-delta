@@ -2,18 +2,19 @@
  * Unit tests for the pg_cron handler (docs/architecture/extension-intent.md
  * §3.2). No database — a fake `HandlerContext` returns canned rows keyed off
  * the SQL the handler issues. Covers: intent-fact shape + depends-edge
- * guarding, `supabase_read_only_user` → `postgres` normalization (CLI-1435),
- * unnamed-job and duplicate-jobname diagnostics (never reaching the
- * FactBase), and the `intentKinds.job` create/drop SQL (including quote
- * doubling for jobname/command).
+ * guarding, `jobOwnerAliases` capture normalization (CLI-1435), unnamed-job
+ * and duplicate-jobname diagnostics (never reaching the FactBase), the
+ * `intentKinds.job` create/drop SQL (including quote doubling for
+ * jobname/command), and the `defaultJobOwner` username elision + its
+ * third-role `INTENT_PRIVILEGED` warning.
  */
 import { describe, expect, test } from "bun:test";
-import { INTENT_UNKEYED } from "../../core/diagnostic.ts";
+import { INTENT_PRIVILEGED, INTENT_UNKEYED } from "../../core/diagnostic.ts";
 import { buildFactBase, type Fact } from "../../core/fact.ts";
 import type { HandlerContext } from "../../extract/handler.ts";
 import type { Row } from "../../extract/scope.ts";
 import type { StableId } from "../../core/stable-id.ts";
-import { pgCronHandler } from "./pg-cron.ts";
+import { makePgCronHandler, pgCronHandler } from "./pg-cron.ts";
 
 const PG_CRON: StableId = { kind: "extension", name: "pg_cron" };
 const PUBLIC_SCHEMA: StableId = { kind: "schema", name: "public" };
@@ -122,14 +123,77 @@ describe("pgCronHandler.capture", () => {
     expect(result.edges).toEqual([]);
   });
 
-  test("supabase_read_only_user is normalized to postgres (CLI-1435)", async () => {
+  test("jobOwnerAliases rewrites a legacy owner on capture (CLI-1435)", async () => {
+    const handler = makePgCronHandler({
+      defaultJobOwner: "postgres",
+      jobOwnerAliases: { supabase_read_only_user: "postgres" },
+    });
+    const ctx = fakeCtx([baseJob({ username: "supabase_read_only_user" })]);
+    const current = buildFactBase([pgCronFact], []);
+
+    const result = await handler.capture(ctx, current);
+
+    expect(result.facts).toHaveLength(1);
+    expect(result.facts[0]?.payload["username"]).toBe("postgres");
+    // the alias resolves TO the default owner, so no privileged warning
+    expect(result.diagnostics ?? []).toEqual([]);
+  });
+
+  test("without jobOwnerAliases the captured username is left verbatim (the handler carries no platform strings)", async () => {
     const ctx = fakeCtx([baseJob({ username: "supabase_read_only_user" })]);
     const current = buildFactBase([pgCronFact], []);
 
     const result = await pgCronHandler.capture(ctx, current);
 
     expect(result.facts).toHaveLength(1);
-    expect(result.facts[0]?.payload["username"]).toBe("postgres");
+    expect(result.facts[0]?.payload["username"]).toBe(
+      "supabase_read_only_user",
+    );
+  });
+
+  test("a third-role-owned job emits an INTENT_PRIVILEGED warning AND still becomes a fact", async () => {
+    const handler = makePgCronHandler({ defaultJobOwner: "postgres" });
+    const ctx = fakeCtx([
+      baseJob({ jobname: "etl_nightly", username: "etl_runner" }),
+    ]);
+    const current = buildFactBase([pgCronFact], []);
+
+    const result = await handler.capture(ctx, current);
+
+    // warn + EMIT: the statement stays in the plan for a superuser executor
+    expect(result.facts).toHaveLength(1);
+    expect(result.facts[0]?.id).toEqual(jobIntentId("etl_nightly"));
+    expect(result.diagnostics).toHaveLength(1);
+    const diag = result.diagnostics?.[0];
+    expect(diag?.code).toBe(INTENT_PRIVILEGED);
+    expect(diag?.severity).toBe("warning");
+    expect(diag?.message).toContain("etl_nightly");
+    expect(diag?.message).toContain("etl_runner");
+    expect(diag?.message).toContain("superuser");
+    expect(diag?.context).toEqual({ ext: "pg_cron", intentKind: "job" });
+  });
+
+  test("no defaultJobOwner configured → no privileged warning (a raw executor is its own authority)", async () => {
+    const ctx = fakeCtx([
+      baseJob({ jobname: "etl_nightly", username: "etl_runner" }),
+    ]);
+    const current = buildFactBase([pgCronFact], []);
+
+    const result = await pgCronHandler.capture(ctx, current);
+
+    expect(result.facts).toHaveLength(1);
+    expect(result.diagnostics ?? []).toEqual([]);
+  });
+
+  test("a job owned by the default owner emits no privileged warning", async () => {
+    const handler = makePgCronHandler({ defaultJobOwner: "postgres" });
+    const ctx = fakeCtx([baseJob({ username: "postgres" })]);
+    const current = buildFactBase([pgCronFact], []);
+
+    const result = await handler.capture(ctx, current);
+
+    expect(result.facts).toHaveLength(1);
+    expect(result.diagnostics ?? []).toEqual([]);
   });
 
   test("unnamed job (null jobname) → no fact, one INTENT_UNKEYED diagnostic", async () => {
@@ -331,5 +395,67 @@ describe("pgCronHandler.intentKinds.job", () => {
     expect(action?.sql).toMatchInlineSnapshot(
       `"select cron.unschedule('bob''s job')"`,
     );
+  });
+});
+
+/**
+ * pg_cron requires SUPERUSER for ANY non-NULL `username` argument — even one
+ * naming the calling role. `NULL` means `current_user` and needs no privilege.
+ * A profile that declares a default job owner also declares who executes the
+ * plan, so a job owned by that role replays with an elided username and stays
+ * applyable by a plain (non-superuser) connection.
+ */
+describe("makePgCronHandler: defaultJobOwner username elision", () => {
+  const configuredRule = makePgCronHandler({ defaultJobOwner: "postgres" })
+    .intentKinds?.["job"];
+  const bareRule = pgCronHandler.intentKinds?.["job"];
+
+  const jobFact = (username: string, database = "postgres"): Fact => ({
+    id: jobIntentId("nightly"),
+    payload: {
+      schedule: "0 0 * * *",
+      command: "select 1",
+      database,
+      username,
+      active: true,
+    },
+  });
+
+  test("create: a job owned by the default owner renders a bare NULL username", () => {
+    const actions = configuredRule?.create(
+      jobFact("postgres"),
+      undefined as never,
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions?.[0]?.sql).toMatchInlineSnapshot(
+      `"select cron.schedule_in_database('nightly', '0 0 * * *', 'select 1', 'postgres', NULL, true)"`,
+    );
+  });
+
+  test("create: a job owned by a THIRD role keeps the explicit username literal", () => {
+    const actions = configuredRule?.create(
+      jobFact("etl_runner", "analytics"),
+      undefined as never,
+    );
+    expect(actions?.[0]?.sql).toMatchInlineSnapshot(
+      `"select cron.schedule_in_database('nightly', '0 0 * * *', 'select 1', 'analytics', 'etl_runner', true)"`,
+    );
+  });
+
+  test("create: with NO defaultJobOwner configured nothing is elided (vanilla PG, superuser executor)", () => {
+    const actions = bareRule?.create(jobFact("postgres"), undefined as never);
+    expect(actions?.[0]?.sql).toMatchInlineSnapshot(
+      `"select cron.schedule_in_database('nightly', '0 0 * * *', 'select 1', 'postgres', 'postgres', true)"`,
+    );
+  });
+
+  test("payloadAttrs still carries username — elision is a RENDER decision, not a capture normalization", () => {
+    expect(configuredRule?.payloadAttrs).toEqual([
+      "schedule",
+      "command",
+      "database",
+      "username",
+      "active",
+    ]);
   });
 });
