@@ -105,3 +105,31 @@ describe("extract: unmodeled-kind detection is provenance-aware", () => {
     expect(unmodeled).toEqual([]);
   });
 });
+
+describe("extract: unmodeled-kind detection is deptype='i' aware", () => {
+  let rangeDb: TestDb;
+  let rangeResult: ExtractResult;
+
+  beforeAll(async () => {
+    rangeDb = await createTestDb("unmodeled_range");
+    // CREATE TYPE ... AS RANGE auto-creates a range->multirange cast
+    // (pg_depend deptype = 'i', internal to the range type). The range type
+    // itself is modeled, so its auto-cast is not a silent miss and must NOT
+    // be reported as an unmodeled kind.
+    await rangeDb.pool.query(
+      `CREATE TYPE public.floatrange AS RANGE (subtype = float8)`,
+    );
+    rangeResult = await extract(rangeDb.pool);
+  }, 120_000);
+
+  afterAll(async () => {
+    await rangeDb.drop();
+  });
+
+  test("the range type's auto-created multirange cast is NOT reported", () => {
+    const unmodeled = rangeResult.diagnostics.filter(
+      (d) => d.code === "unmodeled_kind",
+    );
+    expect(unmodeled).toEqual([]);
+  });
+});
