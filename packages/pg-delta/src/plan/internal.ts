@@ -14,6 +14,7 @@
 import type { FactBase } from "../core/fact.ts";
 import {
   encodeId,
+  EVALUATED_CHILD_DESCENT,
   EVALUATED_EXPRESSION_KINDS,
   ROUTINE_KINDS,
   type StableId,
@@ -28,6 +29,16 @@ import { schemaCreateSql } from "./rules/schemas.ts";
 
 const ROUTINE_KIND_SET = new Set<string>(ROUTINE_KINDS);
 const EVALUATED_KIND_SET = new Set<string>(EVALUATED_EXPRESSION_KINDS);
+/** parent kind -> child kinds the evaluator reachability walk descends into. */
+const EVALUATED_DESCENT = ((): ReadonlyMap<string, ReadonlySet<string>> => {
+  const byParent = new Map<string, Set<string>>();
+  for (const [parent, child] of EVALUATED_CHILD_DESCENT) {
+    const children = byParent.get(parent) ?? new Set<string>();
+    children.add(child);
+    byParent.set(parent, children);
+  }
+  return byParent;
+})();
 
 /**
  * Build the action dependency graph (edges as `[fromIndex, toIndex]`) and check
@@ -72,15 +83,16 @@ export function buildActionGraph(
   // must not overtake that still-ready helper's CREATE FUNCTION.
   //
   // An action qualifies iff it materializes an EVALUATED_EXPRESSION_KINDS fact
-  // from which a user routine is REACHABLE by following `depends` edges — i.e.
+  // from which a user routine is REACHABLE through the recorded structure —
+  // `depends` edges plus the EVALUATED_CHILD_DESCENT parent→child pairs — i.e.
   // *applying it can execute a user routine*. Reachability, not a direct edge:
-  // a matview's evaluated expression is a whole QUERY, so a matview selecting
-  // from a plain VIEW that calls an opaque wrapper records an edge only to the
-  // view, yet populating it expands the view and runs the wrapper. (Direct-only
-  // would be exact for the subquery-free kinds — defaults, CHECKs, index
-  // expressions, generated columns cannot contain subqueries — but the query
-  // kinds need the closure.) `DEFAULT 0` / `DEFAULT now()` still reach nothing,
-  // so ordering churn stays small.
+  //   - a matview's evaluated expression is a whole QUERY, so a matview selecting
+  //     from a plain VIEW that calls an opaque wrapper records an edge only to
+  //     the view, yet populating it expands the view and runs the wrapper;
+  //   - `ADD COLUMN col <domain> DEFAULT …` records only `column -> domain`, yet
+  //     coercing the default into the domain runs the domain's CHECKs, which are
+  //     CHILDREN of the domain fact.
+  // `DEFAULT 0` / `DEFAULT now()` still reach nothing, so churn stays small.
   //
   // Over-marking is SAFE (an action sunk unnecessarily is only cosmetically
   // later); under-marking reintroduces the bug, so any new rule that inlines an
@@ -94,9 +106,12 @@ export function buildActionGraph(
   const edges: Array<[number, number]> = [];
 
   // Memoized "can applying this fact's expression execute a user routine?" —
-  // plain reachability over `depends` edges in the DESIRED state, stopping at
-  // the first ROUTINE_KINDS endpoint. The fact graph legitimately contains
-  // CYCLES (function <-> table), so the walk carries a visited set.
+  // reachability in the DESIRED state over `depends` edges PLUS the parent→child
+  // descents declared in EVALUATED_CHILD_DESCENT (a domain's CHECKs are CHILDREN
+  // of the domain, not edges out of it, yet coercing a value into that domain
+  // RUNS them). Stops at the first ROUTINE_KINDS endpoint. The fact graph
+  // legitimately contains CYCLES (function <-> table), so the walk carries a
+  // visited set.
   //
   // The memo is shared across the whole classification pass, so total work is
   // O(V+E) over the depends subgraph: a completed routine-free walk proves every
@@ -111,23 +126,36 @@ export function buildActionGraph(
     const visited = new Set<string>([rootKey]);
     const stack: StableId[] = [root];
     let found = false;
+    // true when `next` settles the question (it IS a routine, or is already
+    // memoized as reaching one); otherwise enqueues it when still unexplored.
+    const consider = (next: StableId): boolean => {
+      if (ROUTINE_KIND_SET.has(next.kind)) return true;
+      const key = encodeId(next);
+      const known = routineReachable.get(key);
+      if (known === true) return true;
+      if (known === false || visited.has(key)) return false;
+      visited.add(key);
+      stack.push(next);
+      return false;
+    };
     while (stack.length > 0 && !found) {
       const current = stack.pop() as StableId;
       for (const edge of desired.outgoingEdges(current)) {
         if (edge.kind !== "depends") continue;
-        if (ROUTINE_KIND_SET.has(edge.to.kind)) {
+        if (consider(edge.to)) {
           found = true;
           break;
         }
-        const key = encodeId(edge.to);
-        const known = routineReachable.get(key);
-        if (known === true) {
+      }
+      if (found) break;
+      const descendInto = EVALUATED_DESCENT.get(current.kind);
+      if (descendInto === undefined) continue;
+      for (const child of desired.childrenOf(current)) {
+        if (!descendInto.has(child.id.kind)) continue;
+        if (consider(child.id)) {
           found = true;
           break;
         }
-        if (known === false || visited.has(key)) continue;
-        visited.add(key);
-        stack.push(edge.to);
       }
     }
     if (found) routineReachable.set(rootKey, true);
