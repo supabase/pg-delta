@@ -53,6 +53,68 @@ export type SubEntityKind = (typeof SUBENTITY_KINDS)[number];
 export const ROUTINE_KINDS = ["function", "procedure", "aggregate"] as const;
 export type RoutineKind = (typeof ROUTINE_KINDS)[number];
 
+/**
+ * Kinds whose fact materializes a USER EXPRESSION that PostgreSQL EVALUATES
+ * while the DDL is applied, rather than merely recording it:
+ *   - `default`   — `ADD COLUMN … DEFAULT f()` / `SET DEFAULT` (attmissingval
+ *                   or a full rewrite);
+ *   - `column`    — a STORED generated column (it carries NO `default` fact:
+ *                   the extractor shadows the expression's edges onto the
+ *                   column itself), backfilled on ADD COLUMN;
+ *   - `constraint`— a VALIDATED CHECK scans the existing rows (PK/UNIQUE/FK
+ *                   never reference a routine, so listing the whole kind
+ *                   over-marks nothing in practice, and an EXCLUDE builds an
+ *                   index anyway);
+ *   - `index`     — an expression index evaluates its expression per row;
+ *   - `materializedView`
+ *                 — the create rule emits `CREATE MATERIALIZED VIEW … AS
+ *                   <query>` with NO `WITH NO DATA` (plan/rules/views.ts), so
+ *                   applying it RUNS the query. The `_RETURN` rewrite rule's
+ *                   deps are attributed to the matview fact itself
+ *                   (extract/dependencies.ts), so a routine the query calls IS
+ *                   a `depends` edge on this fact. A plain `view` is NOT
+ *                   listed: `CREATE VIEW` only records the rewrite rule.
+ *
+ * The planner's evaluator stratum (plan/internal.ts) uses this to sink such
+ * actions below every simultaneously-ready DEFINITION action, because their
+ * routine's OPAQUE quoted body may call helpers pg_depend never recorded.
+ * Kept next to ROUTINE_KINDS so the classifier needs no FactKind literals.
+ *
+ * This list gates WHICH facts get tested; the test itself is transitive — *an
+ * action is an evaluator iff applying it can execute a user routine, i.e. a
+ * routine is REACHABLE from its evaluated expression's recorded structure.* That
+ * structure is the `depends` edges PLUS the parent→child descents declared in
+ * EVALUATED_CHILD_DESCENT below. The subquery-free kinds (`default`, `column`,
+ * `constraint`, `index`) can only reference a routine directly, but a
+ * `materializedView`'s expression is a whole query, so its routine may sit behind
+ * an intermediate view.
+ */
+export const EVALUATED_EXPRESSION_KINDS = [
+  "column",
+  "constraint",
+  "default",
+  "index",
+  "materializedView",
+] as const satisfies readonly FactKind[];
+
+/**
+ * `[parent, child]` kind pairs the evaluator reachability walk descends INTO, on
+ * top of `depends` edges. Some expressions a statement executes are recorded as
+ * CHILD facts of a referenced object rather than as edges out of it:
+ *
+ *   - `["domain", "constraint"]` — a domain's CHECKs are children of the domain,
+ *     and nothing links the domain fact to the routines they call. Storing a
+ *     value in that domain RUNS them, so `ADD COLUMN col <domain> DEFAULT …`
+ *     (whose only edge is `column -> domain`) must see them.
+ *
+ * Deliberately a narrow allowlist, NOT general child descent: a matview over a
+ * table must not inherit the table's column defaults — populating a matview
+ * never evaluates them, and inheriting them would sink half the plan.
+ */
+export const EVALUATED_CHILD_DESCENT = [
+  ["domain", "constraint"],
+] as const satisfies ReadonlyArray<readonly [FactKind, FactKind]>;
+
 export type StableId =
   | { kind: SimpleKind; name: string }
   | { kind: QualifiedKind; schema: string; name: string }

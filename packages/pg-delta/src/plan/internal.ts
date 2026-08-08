@@ -12,7 +12,13 @@
  * boundary, so their invariants are testable in isolation.
  */
 import type { FactBase } from "../core/fact.ts";
-import { encodeId, type StableId } from "../core/stable-id.ts";
+import {
+  encodeId,
+  EVALUATED_CHILD_DESCENT,
+  EVALUATED_EXPRESSION_KINDS,
+  ROUTINE_KINDS,
+  type StableId,
+} from "../core/stable-id.ts";
 import { type ApplierCapability, canSetOwner } from "../policy/capability.ts";
 import { extensionMemberClosure } from "../policy/view.ts";
 import type { Action, SafetyReport } from "./plan.ts";
@@ -20,6 +26,19 @@ import { ruleFlag } from "./rule-flags.ts";
 import { defaultRulesForId, type FoldHint, type RulesForId } from "./rules.ts";
 import { renderGrantSql } from "./rules/helpers.ts";
 import { schemaCreateSql } from "./rules/schemas.ts";
+
+const ROUTINE_KIND_SET = new Set<string>(ROUTINE_KINDS);
+const EVALUATED_KIND_SET = new Set<string>(EVALUATED_EXPRESSION_KINDS);
+/** parent kind -> child kinds the evaluator reachability walk descends into. */
+const EVALUATED_DESCENT = ((): ReadonlyMap<string, ReadonlySet<string>> => {
+  const byParent = new Map<string, Set<string>>();
+  for (const [parent, child] of EVALUATED_CHILD_DESCENT) {
+    const children = byParent.get(parent) ?? new Set<string>();
+    children.add(child);
+    byParent.set(parent, children);
+  }
+  return byParent;
+})();
 
 /**
  * Build the action dependency graph (edges as `[fromIndex, toIndex]`) and check
@@ -51,8 +70,118 @@ export function buildActionGraph(
   // `CREATE EXTENSION … SCHEMA <schema>` whose schema object is filtered out of
   // the view is a valid dependency target, not a stranded reference.
   assumedSchemaNames: ReadonlySet<string> = new Set(),
+  // OUT-param (optional): collects the indices of EVALUATOR actions — actions
+  // that make PostgreSQL RUN a user expression while the statement applies.
+  //
+  // INVARIANT the tie-break then enforces: *no user expression evaluates before
+  // all ready definitions are applied.* Definition-time DDL only needs its
+  // DIRECT references (pg_depend records those completely, and the
+  // check_function_bodies=off preamble covers opaque bodies at CREATE FUNCTION
+  // time); execution-time DDL needs the TRANSITIVE closure of the routine call
+  // graph, which Postgres does NOT record for quoted SQL/PLpgSQL bodies. So an
+  // `ADD COLUMN … DEFAULT wrapper()` whose wrapper's opaque body calls a helper
+  // must not overtake that still-ready helper's CREATE FUNCTION.
+  //
+  // An action qualifies iff it materializes an EVALUATED_EXPRESSION_KINDS fact
+  // from which a user routine is REACHABLE through the recorded structure —
+  // `depends` edges plus the EVALUATED_CHILD_DESCENT parent→child pairs — i.e.
+  // *applying it can execute a user routine*. Reachability, not a direct edge:
+  //   - a matview's evaluated expression is a whole QUERY, so a matview selecting
+  //     from a plain VIEW that calls an opaque wrapper records an edge only to
+  //     the view, yet populating it expands the view and runs the wrapper;
+  //   - `ADD COLUMN col <domain> DEFAULT …` records only `column -> domain`, yet
+  //     coercing the default into the domain runs the domain's CHECKs, which are
+  //     CHILDREN of the domain fact.
+  // `DEFAULT 0` / `DEFAULT now()` still reach nothing, so churn stays small.
+  //
+  // Over-marking is SAFE (an action sunk unnecessarily is only cosmetically
+  // later); under-marking reintroduces the bug, so any new rule that inlines an
+  // evaluated expression must have its fact kind listed in
+  // EVALUATED_EXPRESSION_KINDS.
+  //
+  // Collected here rather than in a second pass so it rides the edge walk this
+  // function already performs.
+  evaluatorActions?: Set<number>,
 ): Array<[number, number]> {
   const edges: Array<[number, number]> = [];
+
+  // Memoized "can applying this fact's expression execute a user routine?" —
+  // reachability in the DESIRED state over `depends` edges PLUS the parent→child
+  // descents declared in EVALUATED_CHILD_DESCENT (a domain's CHECKs are CHILDREN
+  // of the domain, not edges out of it, yet coercing a value into that domain
+  // RUNS them). Stops at the first ROUTINE_KINDS endpoint. The fact graph
+  // legitimately contains CYCLES (function <-> table), so the walk carries a
+  // visited set.
+  //
+  // The memo is shared across the whole classification pass, so total work stays
+  // O(V+E) over the traversed subgraph in BOTH outcomes:
+  //  - routine-free: a completed walk proves every node it reached is
+  //    routine-free, so the answer is memoized for the ENTIRE explored set (the
+  //    hot path — most facts reach no routine);
+  //  - routine found: only the nodes on the DISCOVERY PATH from the root to the
+  //    node that saw the routine are provably true, so exactly those are
+  //    memoized (`discoveredFrom` is the DFS-tree parent link, and a DFS-tree
+  //    path is a real path in the graph). Memoizing the whole visited set would
+  //    be WRONG — a sibling branch may reach nothing. Without this, N evaluators
+  //    sharing one deep chain re-traverse it each time (quadratic).
+  const routineReachable = new Map<string, boolean>();
+  const reachesRoutine = (root: StableId, rootKey: string): boolean => {
+    const memoized = routineReachable.get(rootKey);
+    if (memoized !== undefined) return memoized;
+    const visited = new Set<string>([rootKey]);
+    // node key -> key it was first reached from (undefined for the root)
+    const discoveredFrom = new Map<string, string | undefined>([
+      [rootKey, undefined],
+    ]);
+    const stack: Array<[StableId, string]> = [[root, rootKey]];
+    // key of the node whose successors saw the routine, once one does
+    let hitAt: string | undefined;
+    // true when `next` settles the question (it IS a routine, or is already
+    // memoized as reaching one); otherwise enqueues it when still unexplored.
+    const consider = (next: StableId, fromKey: string): boolean => {
+      if (ROUTINE_KIND_SET.has(next.kind)) return true;
+      const key = encodeId(next);
+      const known = routineReachable.get(key);
+      if (known === true) return true;
+      if (known === false || visited.has(key)) return false;
+      visited.add(key);
+      discoveredFrom.set(key, fromKey);
+      stack.push([next, key]);
+      return false;
+    };
+    while (stack.length > 0 && hitAt === undefined) {
+      const [current, currentKey] = stack.pop() as [StableId, string];
+      for (const edge of desired.outgoingEdges(current)) {
+        if (edge.kind !== "depends") continue;
+        if (consider(edge.to, currentKey)) {
+          hitAt = currentKey;
+          break;
+        }
+      }
+      if (hitAt !== undefined) break;
+      const descendInto = EVALUATED_DESCENT.get(current.kind);
+      if (descendInto === undefined) continue;
+      for (const child of desired.childrenOf(current)) {
+        if (!descendInto.has(child.id.kind)) continue;
+        if (consider(child.id, currentKey)) {
+          hitAt = currentKey;
+          break;
+        }
+      }
+    }
+    if (hitAt === undefined) {
+      for (const key of visited) routineReachable.set(key, false);
+      return false;
+    }
+    for (
+      let key: string | undefined = hitAt;
+      key !== undefined;
+      key = discoveredFrom.get(key)
+    ) {
+      routineReachable.set(key, true);
+    }
+    return true;
+  };
 
   // cache encoded -> StableId for ids we encounter
   const parseKeyCache = new Map<string, StableId>();
@@ -178,11 +307,37 @@ export function buildActionGraph(
         );
       }
     }
+    // An alter materializes nothing, so its expression fact is CONSUMED, not
+    // produced: `VALIDATE CONSTRAINT` (NOT VALID → VALID) rescans every row and
+    // `SET DEFAULT` / a generated-expression change re-evaluate the expression.
+    // Same classification, over the consumed ids (see the `evaluatorActions`
+    // parameter doc). Runs before the produces walk below so both paths feed
+    // one set.
+    if (evaluatorActions !== undefined && action.verb === "alter") {
+      for (const id of action.consumes) {
+        if (!EVALUATED_KIND_SET.has(id.kind) || !desired.has(id)) continue;
+        if (reachesRoutine(id, encodeId(id))) {
+          evaluatorActions.add(index);
+          break;
+        }
+      }
+    }
     // build order from the DESIRED state's dependency edges
     const producesKeys = new Set(action.produces.map((id) => encodeId(id)));
     for (const id of action.produces) {
       remember(id);
       if (!desired.has(id)) continue;
+      // Evaluator classification (see the `evaluatorActions` parameter doc): the
+      // reachability walk is memoized across the pass, and the kind gate keeps
+      // it off every non-expression fact.
+      if (
+        evaluatorActions !== undefined &&
+        !evaluatorActions.has(index) &&
+        EVALUATED_KIND_SET.has(id.kind) &&
+        reachesRoutine(id, encodeId(id))
+      ) {
+        evaluatorActions.add(index);
+      }
       for (const edge of desired.outgoingEdges(id)) {
         // a rename does not CREATE the owner edge (PG carries the owner across
         // RENAME); ordering the new owner's producer before the rename would,
@@ -303,9 +458,10 @@ export function buildActionGraph(
 
 /**
  * Deterministic tie-break key for an action at index `i`: drops first
- * (descending kind weight), then creates/alters (ascending weight), then by
- * subject id, then by emission index (zero-padded so "10" sorts after "9" —
- * multi-spec sequences like the enum value-set migration rely on it).
+ * (descending kind weight), then creates/alters by STRATUM (definitions before
+ * evaluators), then ascending weight, then by subject id, then by emission
+ * index (zero-padded so "10" sorts after "9" — multi-spec sequences like the
+ * enum value-set migration rely on it).
  */
 export function actionTieKey(
   actions: readonly Action[],
@@ -321,6 +477,10 @@ export function actionTieKey(
   // columns in declared order. Returns undefined to fall back to the encoded
   // subject id (every other action is unaffected).
   subjectKeyOf?: (subject: StableId, action: Action) => string | undefined,
+  // Evaluator action indices (buildActionGraph's out-param). Purely a TIE-BREAK
+  // input: no graph edge is added, so genuine function<->table cycles stay
+  // plannable via the existing default-split machinery.
+  evaluatorActions?: ReadonlySet<number>,
 ): string {
   const action = actions[i] as Action;
   const subject =
@@ -335,10 +495,14 @@ export function actionTieKey(
   })();
   const phase = action.verb === "drop" ? "0" : "1";
   const w = action.verb === "drop" ? 99 - weight : weight;
+  // Drops never execute a user body, so the teardown phase is forced to the
+  // definition stratum and stays byte-identical to a stratum-free key.
+  const stratum =
+    action.verb !== "drop" && evaluatorActions?.has(i) === true ? "1" : "0";
   const subjectKey =
     (subject !== undefined ? subjectKeyOf?.(subject, action) : undefined) ??
     (subject ? encodeId(subject) : "");
-  return `${phase}|${String(w).padStart(2, "0")}|${subjectKey}|${String(i).padStart(6, "0")}`;
+  return `${phase}|${stratum}|${String(w).padStart(2, "0")}|${subjectKey}|${String(i).padStart(6, "0")}`;
 }
 
 /**
