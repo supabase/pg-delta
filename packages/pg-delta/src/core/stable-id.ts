@@ -65,7 +65,15 @@ export type RoutineKind = (typeof ROUTINE_KINDS)[number];
  *                   never reference a routine, so listing the whole kind
  *                   over-marks nothing in practice, and an EXCLUDE builds an
  *                   index anyway);
- *   - `index`     — an expression index evaluates its expression per row.
+ *   - `index`     — an expression index evaluates its expression per row;
+ *   - `materializedView`
+ *                 — the create rule emits `CREATE MATERIALIZED VIEW … AS
+ *                   <query>` with NO `WITH NO DATA` (plan/rules/views.ts), so
+ *                   applying it RUNS the query. The `_RETURN` rewrite rule's
+ *                   deps are attributed to the matview fact itself
+ *                   (extract/dependencies.ts), so a routine the query calls IS
+ *                   a `depends` edge on this fact. A plain `view` is NOT
+ *                   listed: `CREATE VIEW` only records the rewrite rule.
  *
  * The planner's evaluator stratum (plan/internal.ts) uses this to sink such
  * actions below every simultaneously-ready DEFINITION action, because their
@@ -77,6 +85,7 @@ export const EVALUATED_EXPRESSION_KINDS = [
   "constraint",
   "default",
   "index",
+  "materializedView",
 ] as const satisfies readonly FactKind[];
 
 export type StableId =
