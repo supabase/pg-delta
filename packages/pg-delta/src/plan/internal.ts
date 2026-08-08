@@ -72,11 +72,19 @@ export function buildActionGraph(
   // must not overtake that still-ready helper's CREATE FUNCTION.
   //
   // An action qualifies iff it materializes an EVALUATED_EXPRESSION_KINDS fact
-  // that has a pg_depend `depends` edge to a user routine — so `DEFAULT 0` and
-  // `DEFAULT now()` (no edge) stay in the definition stratum and ordering churn
-  // is minimal. Over-marking is SAFE (an action sunk unnecessarily is only
-  // cosmetically later); under-marking reintroduces the bug, so any new rule
-  // that inlines an evaluated expression must have its fact kind listed in
+  // from which a user routine is REACHABLE by following `depends` edges — i.e.
+  // *applying it can execute a user routine*. Reachability, not a direct edge:
+  // a matview's evaluated expression is a whole QUERY, so a matview selecting
+  // from a plain VIEW that calls an opaque wrapper records an edge only to the
+  // view, yet populating it expands the view and runs the wrapper. (Direct-only
+  // would be exact for the subquery-free kinds — defaults, CHECKs, index
+  // expressions, generated columns cannot contain subqueries — but the query
+  // kinds need the closure.) `DEFAULT 0` / `DEFAULT now()` still reach nothing,
+  // so ordering churn stays small.
+  //
+  // Over-marking is SAFE (an action sunk unnecessarily is only cosmetically
+  // later); under-marking reintroduces the bug, so any new rule that inlines an
+  // evaluated expression must have its fact kind listed in
   // EVALUATED_EXPRESSION_KINDS.
   //
   // Collected here rather than in a second pass so it rides the edge walk this
@@ -84,6 +92,48 @@ export function buildActionGraph(
   evaluatorActions?: Set<number>,
 ): Array<[number, number]> {
   const edges: Array<[number, number]> = [];
+
+  // Memoized "can applying this fact's expression execute a user routine?" —
+  // plain reachability over `depends` edges in the DESIRED state, stopping at
+  // the first ROUTINE_KINDS endpoint. The fact graph legitimately contains
+  // CYCLES (function <-> table), so the walk carries a visited set.
+  //
+  // The memo is shared across the whole classification pass, so total work is
+  // O(V+E) over the depends subgraph: a completed routine-free walk proves every
+  // node it reached is routine-free, so the negative answer is memoized for the
+  // ENTIRE explored set — which is the hot path (most facts reach no routine).
+  // A positive answer memoizes only the queried root, since a path to the
+  // routine does not tell us which explored nodes were on it.
+  const routineReachable = new Map<string, boolean>();
+  const reachesRoutine = (root: StableId, rootKey: string): boolean => {
+    const memoized = routineReachable.get(rootKey);
+    if (memoized !== undefined) return memoized;
+    const visited = new Set<string>([rootKey]);
+    const stack: StableId[] = [root];
+    let found = false;
+    while (stack.length > 0 && !found) {
+      const current = stack.pop() as StableId;
+      for (const edge of desired.outgoingEdges(current)) {
+        if (edge.kind !== "depends") continue;
+        if (ROUTINE_KIND_SET.has(edge.to.kind)) {
+          found = true;
+          break;
+        }
+        const key = encodeId(edge.to);
+        const known = routineReachable.get(key);
+        if (known === true) {
+          found = true;
+          break;
+        }
+        if (known === false || visited.has(key)) continue;
+        visited.add(key);
+        stack.push(edge.to);
+      }
+    }
+    if (found) routineReachable.set(rootKey, true);
+    else for (const key of visited) routineReachable.set(key, false);
+    return found;
+  };
 
   // cache encoded -> StableId for ids we encounter
   const parseKeyCache = new Map<string, StableId>();
@@ -218,10 +268,7 @@ export function buildActionGraph(
     if (evaluatorActions !== undefined && action.verb === "alter") {
       for (const id of action.consumes) {
         if (!EVALUATED_KIND_SET.has(id.kind) || !desired.has(id)) continue;
-        const evaluates = desired
-          .outgoingEdges(id)
-          .some((e) => e.kind === "depends" && ROUTINE_KIND_SET.has(e.to.kind));
-        if (evaluates) {
+        if (reachesRoutine(id, encodeId(id))) {
           evaluatorActions.add(index);
           break;
         }
@@ -232,15 +279,18 @@ export function buildActionGraph(
     for (const id of action.produces) {
       remember(id);
       if (!desired.has(id)) continue;
-      // hoisted out of the edge loop: the evaluator test below is only a
-      // `depends`-edge-to-routine probe on top of this walk.
-      const evaluatorSink = EVALUATED_KIND_SET.has(id.kind)
-        ? evaluatorActions
-        : undefined;
+      // Evaluator classification (see the `evaluatorActions` parameter doc): the
+      // reachability walk is memoized across the pass, and the kind gate keeps
+      // it off every non-expression fact.
+      if (
+        evaluatorActions !== undefined &&
+        !evaluatorActions.has(index) &&
+        EVALUATED_KIND_SET.has(id.kind) &&
+        reachesRoutine(id, encodeId(id))
+      ) {
+        evaluatorActions.add(index);
+      }
       for (const edge of desired.outgoingEdges(id)) {
-        if (edge.kind === "depends" && ROUTINE_KIND_SET.has(edge.to.kind)) {
-          evaluatorSink?.add(index);
-        }
         // a rename does not CREATE the owner edge (PG carries the owner across
         // RENAME); ordering the new owner's producer before the rename would,
         // paired with the source-side teardown edge below, form a cycle (P1 #2)

@@ -79,6 +79,13 @@ export type RoutineKind = (typeof ROUTINE_KINDS)[number];
  * actions below every simultaneously-ready DEFINITION action, because their
  * routine's OPAQUE quoted body may call helpers pg_depend never recorded.
  * Kept next to ROUTINE_KINDS so the classifier needs no FactKind literals.
+ *
+ * This list gates WHICH facts get tested; the test itself is transitive — *an
+ * action is an evaluator iff applying it can execute a user routine, i.e. a
+ * routine is REACHABLE from its evaluated expression's recorded dependencies.*
+ * The subquery-free kinds (`default`, `column`, `constraint`, `index`) can only
+ * reference a routine directly, but a `materializedView`'s expression is a whole
+ * query, so its routine may sit behind an intermediate view.
  */
 export const EVALUATED_EXPRESSION_KINDS = [
   "column",
