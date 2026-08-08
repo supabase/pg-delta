@@ -86,6 +86,16 @@ const referenced = routine(
 );
 const helper = routine("api_request_header", "SELECT 'user-agent'");
 
+const relationFact =
+  (kind: "view" | "materializedView") =>
+  (name: string, def: string): Fact => ({
+    id: { kind, schema: "app", name },
+    parent: schemaId,
+    payload: { owner: "test", def, reloptions: null },
+  });
+const matview = relationFact("materializedView");
+const view = relationFact("view");
+
 // the ONLY recorded edge: the default's direct reference.
 const edges: DependencyEdge[] = [
   { from: defaultId, to: referenced.id, kind: "depends" },
@@ -130,11 +140,6 @@ describe("evaluator stratum", () => {
     // `z_blocker` (`RETURNS SETOF z_blocker` — a recorded edge). Both matviews
     // share weight 13 and `a_eval` sorts first by encoded id, so only the
     // stratum can keep the populating one last.
-    const matview = (name: string, def: string): Fact => ({
-      id: { kind: "materializedView", schema: "app", name },
-      parent: schemaId,
-      payload: { owner: "test", def, reloptions: null },
-    });
     const blocker = matview("z_blocker", "SELECT 1 AS n");
     const evaluating = matview("a_eval", "SELECT app.wrapper() AS n");
     const wrapper = routine("wrapper", "SELECT count(*) FROM app.z_helper()");
@@ -145,6 +150,41 @@ describe("evaluator stratum", () => {
       [schemaFact, blocker, evaluating, wrapper, blockedHelper],
       [
         { from: evaluating.id, to: wrapper.id, kind: "depends" },
+        { from: blockedHelper.id, to: blocker.id, kind: "depends" },
+      ],
+    );
+
+    const sql = plan(source, desired).actions.map((a) => a.sql);
+    const evaluatingAt = sql.findIndex((s) =>
+      s.startsWith(`CREATE MATERIALIZED VIEW "app"."a_eval"`),
+    );
+    const helperAt = sql.findIndex((s) =>
+      s.includes(`FUNCTION "app"."z_helper"`),
+    );
+    expect(evaluatingAt).toBeGreaterThanOrEqual(0);
+    expect(helperAt).toBeGreaterThanOrEqual(0);
+    expect(helperAt).toBeLessThan(evaluatingAt);
+  });
+
+  test("a populating matview is an evaluator THROUGH a plain view", () => {
+    // A matview's evaluated expression is a whole QUERY, so the routine it runs
+    // need not be a DIRECT dependency: `a_eval` selects from the view `bridge`
+    // and records an edge only to it. Populating a_eval expands bridge and runs
+    // `wrapper` anyway, so the classifier must follow `depends` edges TRANSITIVELY
+    // to find the routine. (`bridge` itself evaluates nothing at CREATE VIEW.)
+    const blocker = matview("z_blocker", "SELECT 1 AS n");
+    const evaluating = matview("a_eval", "SELECT * FROM app.bridge");
+    const bridge = view("bridge", "SELECT app.wrapper() AS n");
+    const wrapper = routine("wrapper", "SELECT count(*) FROM app.z_helper()");
+    const blockedHelper = routine("z_helper", "SELECT * FROM app.z_blocker");
+
+    const source = buildFactBase([schemaFact], []);
+    const desired = buildFactBase(
+      [schemaFact, blocker, evaluating, bridge, wrapper, blockedHelper],
+      [
+        // NOTE: no a_eval -> wrapper edge; the routine is two hops away.
+        { from: evaluating.id, to: bridge.id, kind: "depends" },
+        { from: bridge.id, to: wrapper.id, kind: "depends" },
         { from: blockedHelper.id, to: blocker.id, kind: "depends" },
       ],
     );
