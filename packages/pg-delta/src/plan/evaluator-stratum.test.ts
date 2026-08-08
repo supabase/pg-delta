@@ -201,6 +201,104 @@ describe("evaluator stratum", () => {
     expect(helperAt).toBeLessThan(evaluatingAt);
   });
 
+  test("an ADD COLUMN of a DOMAIN type waits for the routine its CHECK calls", () => {
+    // A domain's CHECK constraints are CHILD facts (kind `constraint`, parent
+    // kind `domain`), NOT outgoing edges of the domain fact. Coercing the new
+    // column's default into the domain RUNS those CHECKs, so reachability has to
+    // descend domain -> constraint to see `wrapper` two hops away.
+    //
+    // The domain, its CHECK and `wrapper` are UNCHANGED (present on both sides),
+    // so no domain action is emitted — the column create is the only evaluator,
+    // and its weight (5) beats the new helper's routine weight (8).
+    const domainId: StableId = {
+      kind: "domain",
+      schema: "app",
+      name: "checked_text",
+    };
+    const domainFact: Fact = {
+      id: domainId,
+      parent: schemaId,
+      payload: {
+        owner: "test",
+        baseType: "text",
+        collation: null,
+        default: null,
+        notNull: false,
+      },
+    };
+    const domainCheck: Fact = {
+      id: {
+        kind: "constraint",
+        schema: "app",
+        table: "checked_text",
+        name: "checked_text_ok",
+      },
+      parent: domainId,
+      payload: {
+        def: "CHECK ((app.wrapper(VALUE)))",
+        type: "c",
+        validated: true,
+      },
+    };
+    const wrapper = routine("wrapper", "SELECT app.z_helper($1)");
+    const blockedHelper = routine("z_helper", "SELECT true");
+    const valColumnId: StableId = {
+      kind: "column",
+      schema: "app",
+      table: "downloads",
+      name: "val",
+    };
+    const valColumn: Fact = {
+      id: valColumnId,
+      parent: tableId,
+      payload: {
+        _position: 2,
+        type: "app.checked_text",
+        notNull: false,
+        collation: null,
+        generatedExpr: null,
+      },
+    };
+    const valDefault: Fact = {
+      id: { kind: "default", schema: "app", table: "downloads", name: "val" },
+      parent: valColumnId,
+      payload: { expr: `'ok'::text` },
+    };
+
+    // `wrapper` is only ever reachable THROUGH the domain's child constraint —
+    // there is deliberately no column/default -> wrapper edge.
+    const unchanged: Fact[] = [
+      schemaFact,
+      tableFact,
+      idColumn,
+      wrapper,
+      domainFact,
+      domainCheck,
+    ];
+    const unchangedEdges: DependencyEdge[] = [
+      { from: domainCheck.id, to: wrapper.id, kind: "depends" },
+      { from: domainCheck.id, to: domainId, kind: "depends" },
+    ];
+    const source = buildFactBase(unchanged, unchangedEdges);
+    const desired = buildFactBase(
+      [...unchanged, valColumn, valDefault, blockedHelper],
+      [
+        ...unchangedEdges,
+        { from: valColumnId, to: domainId, kind: "depends" },
+        { from: valDefault.id, to: domainId, kind: "depends" },
+      ],
+    );
+
+    const sql = plan(source, desired).actions.map((a) => a.sql);
+    const addColumn = sql.findIndex((s) => s.includes(`ADD COLUMN "val"`));
+    const helperAt = sql.findIndex((s) =>
+      s.includes(`FUNCTION "app"."z_helper"`),
+    );
+    expect(addColumn).toBeGreaterThanOrEqual(0);
+    expect(helperAt).toBeGreaterThanOrEqual(0);
+    expect(helperAt).toBeLessThan(addColumn);
+  });
+
   test("a routine-free default is NOT sunk (no ordering churn)", () => {
     // same shape, but the default is a literal with no routine edge: the column
     // create keeps its ordinary weight-5 slot ahead of the routine creates.
