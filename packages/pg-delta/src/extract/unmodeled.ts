@@ -64,6 +64,30 @@ function isExtensionMember(classid: string, oid: string): string {
       AND de.objid = ${oid} AND de.deptype = 'e')`;
 }
 
+/**
+ * Internally dependent on another object (deptype 'i' on the dependent side).
+ * An internal dependent is owned outright by the object it depends on — it is
+ * created alongside that object and dropped when that object is dropped, so
+ * it can never be independently managed DDL. It is that object's internals,
+ * not user state — reporting it as unmodeled would be a false positive as
+ * long as the owning object itself is modeled.
+ *
+ * The canonical case is the range->multirange cast that `CREATE TYPE ... AS
+ * RANGE` auto-creates: it is a `pg_cast` row registered with deptype 'i'
+ * against the range type, and the modeled range type fact already covers its
+ * lifecycle. Deliberately NOT 'a' (auto dependents) — those remain
+ * independently droppable and so stay reportable.
+ *
+ * Mirrors the routine extractor's own `deptype = 'i'` anti-join
+ * (extract/routines.ts), which excludes internally-dependent functions from
+ * extraction for the same reason.
+ */
+function isInternalDependent(classid: string, oid: string): string {
+  return `EXISTS (SELECT 1 FROM pg_depend idep
+    WHERE idep.classid = '${classid}'::regclass
+      AND idep.objid = ${oid} AND idep.deptype = 'i')`;
+}
+
 const PROBES: readonly UnmodeledProbe[] = [
   {
     kind: "cast",
@@ -161,6 +185,7 @@ function probeSql(p: UnmodeledProbe): string {
     p.where,
     `${p.oid} >= ${FIRST_NORMAL_OID}`,
     `NOT ${isExtensionMember(p.classid, p.oid)}`,
+    `NOT ${isInternalDependent(p.classid, p.oid)}`,
   ].filter(Boolean);
   return `SELECT '${p.kind}'::text AS kind,
             count(*)::int AS count,
