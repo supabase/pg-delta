@@ -245,10 +245,48 @@ export async function sharedCluster(): Promise<Cluster> {
   return shared;
 }
 
+async function systemIdentifier(cluster: Cluster): Promise<string> {
+  const res = await cluster.adminPool.query<{ id: string }>(
+    `SELECT system_identifier::text AS id FROM pg_catalog.pg_control_system()`,
+  );
+  const id = res.rows[0]?.id;
+  if (id === undefined) {
+    throw new Error("could not read pg_control_system().system_identifier");
+  }
+  return id;
+}
+
+/** initdb derives pg_control_system().system_identifier from the wall clock
+ *  (seconds + microseconds) and initdb's pid, so two containers initdb'ing
+ *  concurrently can — rarely — collide (observed once on CI PG 15). The
+ *  isolated-shadow lineage guard keys on that identifier, so a colliding pair
+ *  makes every isolated-shadow test fail while all other pair tests pass.
+ *  Verify distinctness and restart the second cluster on collision (a retry
+ *  initdb runs at a later wall-clock second, so one retry suffices). */
+async function startDistinctLineagePair(): Promise<[Cluster, Cluster]> {
+  const [first, second] = await Promise.all([startCluster(), startCluster()]);
+  let candidate = second;
+  for (let attempt = 0; ; attempt++) {
+    const [firstId, candidateId] = await Promise.all([
+      systemIdentifier(first),
+      systemIdentifier(candidate),
+    ]);
+    if (firstId !== candidateId) return [first, candidate];
+    if (attempt >= 2) {
+      throw new Error(
+        "isolatedClusterPair: clusters share a system_identifier after 3 attempts",
+      );
+    }
+    await candidate.stop();
+    candidate = await startCluster();
+  }
+}
+
 let isolatedPair: Promise<[Cluster, Cluster]> | null = null;
-/** Two extra clusters for cluster-level-difference scenarios (A-side, B-side). */
+/** Two extra clusters for cluster-level-difference scenarios (A-side, B-side).
+ *  Guaranteed to be two distinct PostgreSQL lineages (system identifiers). */
 export async function isolatedClusterPair(): Promise<[Cluster, Cluster]> {
-  isolatedPair ??= Promise.all([startCluster(), startCluster()]);
+  isolatedPair ??= startDistinctLineagePair();
   return isolatedPair;
 }
 
