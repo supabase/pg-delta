@@ -1,10 +1,11 @@
 /**
  * The evaluator stratum: an action that makes PostgreSQL RUN a user expression
  * while applying (a column DEFAULT backfill, a generated-column backfill, a
- * CHECK validation scan, an expression-index build) needs the TRANSITIVE
- * closure of the routine call graph — but pg_depend only records the DIRECT
- * reference. A quoted (non-`BEGIN ATOMIC`) SQL body's internal calls are
- * invisible to the catalog, so the engine cannot learn them.
+ * CHECK validation scan, an expression-index build, a materialized-view
+ * populate) needs the TRANSITIVE closure of the routine call graph — but
+ * pg_depend only records the DIRECT reference. A quoted (non-`BEGIN ATOMIC`)
+ * SQL body's internal calls are invisible to the catalog, so the engine cannot
+ * learn them.
  *
  * The scheduler therefore sinks evaluator actions below every simultaneously
  * ready DEFINITION action: `ADD COLUMN … DEFAULT referenced()` must not
@@ -120,6 +121,44 @@ describe("evaluator stratum", () => {
     // the second, and it is the one that was broken.
     expect(referencedAt).toBeLessThan(addColumn);
     expect(helperAt).toBeLessThan(addColumn);
+  });
+
+  test("a populating matview waits for a routine blocked behind another matview", () => {
+    // `CREATE MATERIALIZED VIEW … AS <query>` carries no `WITH NO DATA`, so
+    // applying it RUNS the query. `a_eval` calls `wrapper` (recorded edge);
+    // wrapper's opaque body calls `z_helper`, which is itself blocked behind
+    // `z_blocker` (`RETURNS SETOF z_blocker` — a recorded edge). Both matviews
+    // share weight 13 and `a_eval` sorts first by encoded id, so only the
+    // stratum can keep the populating one last.
+    const matview = (name: string, def: string): Fact => ({
+      id: { kind: "materializedView", schema: "app", name },
+      parent: schemaId,
+      payload: { owner: "test", def, reloptions: null },
+    });
+    const blocker = matview("z_blocker", "SELECT 1 AS n");
+    const evaluating = matview("a_eval", "SELECT app.wrapper() AS n");
+    const wrapper = routine("wrapper", "SELECT count(*) FROM app.z_helper()");
+    const blockedHelper = routine("z_helper", "SELECT * FROM app.z_blocker");
+
+    const source = buildFactBase([schemaFact], []);
+    const desired = buildFactBase(
+      [schemaFact, blocker, evaluating, wrapper, blockedHelper],
+      [
+        { from: evaluating.id, to: wrapper.id, kind: "depends" },
+        { from: blockedHelper.id, to: blocker.id, kind: "depends" },
+      ],
+    );
+
+    const sql = plan(source, desired).actions.map((a) => a.sql);
+    const evaluatingAt = sql.findIndex((s) =>
+      s.startsWith(`CREATE MATERIALIZED VIEW "app"."a_eval"`),
+    );
+    const helperAt = sql.findIndex((s) =>
+      s.includes(`FUNCTION "app"."z_helper"`),
+    );
+    expect(evaluatingAt).toBeGreaterThanOrEqual(0);
+    expect(helperAt).toBeGreaterThanOrEqual(0);
+    expect(helperAt).toBeLessThan(evaluatingAt);
   });
 
   test("a routine-free default is NOT sunk (no ordering churn)", () => {
