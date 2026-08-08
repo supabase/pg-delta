@@ -53,6 +53,32 @@ export type SubEntityKind = (typeof SUBENTITY_KINDS)[number];
 export const ROUTINE_KINDS = ["function", "procedure", "aggregate"] as const;
 export type RoutineKind = (typeof ROUTINE_KINDS)[number];
 
+/**
+ * Kinds whose fact materializes a USER EXPRESSION that PostgreSQL EVALUATES
+ * while the DDL is applied, rather than merely recording it:
+ *   - `default`   — `ADD COLUMN … DEFAULT f()` / `SET DEFAULT` (attmissingval
+ *                   or a full rewrite);
+ *   - `column`    — a STORED generated column (it carries NO `default` fact:
+ *                   the extractor shadows the expression's edges onto the
+ *                   column itself), backfilled on ADD COLUMN;
+ *   - `constraint`— a VALIDATED CHECK scans the existing rows (PK/UNIQUE/FK
+ *                   never reference a routine, so listing the whole kind
+ *                   over-marks nothing in practice, and an EXCLUDE builds an
+ *                   index anyway);
+ *   - `index`     — an expression index evaluates its expression per row.
+ *
+ * The planner's evaluator stratum (plan/internal.ts) uses this to sink such
+ * actions below every simultaneously-ready DEFINITION action, because their
+ * routine's OPAQUE quoted body may call helpers pg_depend never recorded.
+ * Kept next to ROUTINE_KINDS so the classifier needs no FactKind literals.
+ */
+export const EVALUATED_EXPRESSION_KINDS = [
+  "column",
+  "constraint",
+  "default",
+  "index",
+] as const satisfies readonly FactKind[];
+
 export type StableId =
   | { kind: SimpleKind; name: string }
   | { kind: QualifiedKind; schema: string; name: string }

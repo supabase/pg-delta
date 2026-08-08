@@ -12,7 +12,12 @@
  * boundary, so their invariants are testable in isolation.
  */
 import type { FactBase } from "../core/fact.ts";
-import { encodeId, type StableId } from "../core/stable-id.ts";
+import {
+  encodeId,
+  EVALUATED_EXPRESSION_KINDS,
+  ROUTINE_KINDS,
+  type StableId,
+} from "../core/stable-id.ts";
 import { type ApplierCapability, canSetOwner } from "../policy/capability.ts";
 import { extensionMemberClosure } from "../policy/view.ts";
 import type { Action, SafetyReport } from "./plan.ts";
@@ -20,6 +25,9 @@ import { ruleFlag } from "./rule-flags.ts";
 import { defaultRulesForId, type FoldHint, type RulesForId } from "./rules.ts";
 import { renderGrantSql } from "./rules/helpers.ts";
 import { schemaCreateSql } from "./rules/schemas.ts";
+
+const ROUTINE_KIND_SET = new Set<string>(ROUTINE_KINDS);
+const EVALUATED_KIND_SET = new Set<string>(EVALUATED_EXPRESSION_KINDS);
 
 /**
  * Build the action dependency graph (edges as `[fromIndex, toIndex]`) and check
@@ -51,6 +59,29 @@ export function buildActionGraph(
   // `CREATE EXTENSION … SCHEMA <schema>` whose schema object is filtered out of
   // the view is a valid dependency target, not a stranded reference.
   assumedSchemaNames: ReadonlySet<string> = new Set(),
+  // OUT-param (optional): collects the indices of EVALUATOR actions — actions
+  // that make PostgreSQL RUN a user expression while the statement applies.
+  //
+  // INVARIANT the tie-break then enforces: *no user expression evaluates before
+  // all ready definitions are applied.* Definition-time DDL only needs its
+  // DIRECT references (pg_depend records those completely, and the
+  // check_function_bodies=off preamble covers opaque bodies at CREATE FUNCTION
+  // time); execution-time DDL needs the TRANSITIVE closure of the routine call
+  // graph, which Postgres does NOT record for quoted SQL/PLpgSQL bodies. So an
+  // `ADD COLUMN … DEFAULT wrapper()` whose wrapper's opaque body calls a helper
+  // must not overtake that still-ready helper's CREATE FUNCTION.
+  //
+  // An action qualifies iff it materializes an EVALUATED_EXPRESSION_KINDS fact
+  // that has a pg_depend `depends` edge to a user routine — so `DEFAULT 0` and
+  // `DEFAULT now()` (no edge) stay in the definition stratum and ordering churn
+  // is minimal. Over-marking is SAFE (an action sunk unnecessarily is only
+  // cosmetically later); under-marking reintroduces the bug, so any new rule
+  // that inlines an evaluated expression must have its fact kind listed in
+  // EVALUATED_EXPRESSION_KINDS.
+  //
+  // Collected here rather than in a second pass so it rides the edge walk this
+  // function already performs.
+  evaluatorActions?: Set<number>,
 ): Array<[number, number]> {
   const edges: Array<[number, number]> = [];
 
@@ -178,12 +209,38 @@ export function buildActionGraph(
         );
       }
     }
+    // An alter materializes nothing, so its expression fact is CONSUMED, not
+    // produced: `VALIDATE CONSTRAINT` (NOT VALID → VALID) rescans every row and
+    // `SET DEFAULT` / a generated-expression change re-evaluate the expression.
+    // Same classification, over the consumed ids (see the `evaluatorActions`
+    // parameter doc). Runs before the produces walk below so both paths feed
+    // one set.
+    if (evaluatorActions !== undefined && action.verb === "alter") {
+      for (const id of action.consumes) {
+        if (!EVALUATED_KIND_SET.has(id.kind) || !desired.has(id)) continue;
+        const evaluates = desired
+          .outgoingEdges(id)
+          .some((e) => e.kind === "depends" && ROUTINE_KIND_SET.has(e.to.kind));
+        if (evaluates) {
+          evaluatorActions.add(index);
+          break;
+        }
+      }
+    }
     // build order from the DESIRED state's dependency edges
     const producesKeys = new Set(action.produces.map((id) => encodeId(id)));
     for (const id of action.produces) {
       remember(id);
       if (!desired.has(id)) continue;
+      // hoisted out of the edge loop: the evaluator test below is only a
+      // `depends`-edge-to-routine probe on top of this walk.
+      const evaluatorSink = EVALUATED_KIND_SET.has(id.kind)
+        ? evaluatorActions
+        : undefined;
       for (const edge of desired.outgoingEdges(id)) {
+        if (edge.kind === "depends" && ROUTINE_KIND_SET.has(edge.to.kind)) {
+          evaluatorSink?.add(index);
+        }
         // a rename does not CREATE the owner edge (PG carries the owner across
         // RENAME); ordering the new owner's producer before the rename would,
         // paired with the source-side teardown edge below, form a cycle (P1 #2)
@@ -303,9 +360,10 @@ export function buildActionGraph(
 
 /**
  * Deterministic tie-break key for an action at index `i`: drops first
- * (descending kind weight), then creates/alters (ascending weight), then by
- * subject id, then by emission index (zero-padded so "10" sorts after "9" —
- * multi-spec sequences like the enum value-set migration rely on it).
+ * (descending kind weight), then creates/alters by STRATUM (definitions before
+ * evaluators), then ascending weight, then by subject id, then by emission
+ * index (zero-padded so "10" sorts after "9" — multi-spec sequences like the
+ * enum value-set migration rely on it).
  */
 export function actionTieKey(
   actions: readonly Action[],
@@ -321,6 +379,10 @@ export function actionTieKey(
   // columns in declared order. Returns undefined to fall back to the encoded
   // subject id (every other action is unaffected).
   subjectKeyOf?: (subject: StableId, action: Action) => string | undefined,
+  // Evaluator action indices (buildActionGraph's out-param). Purely a TIE-BREAK
+  // input: no graph edge is added, so genuine function<->table cycles stay
+  // plannable via the existing default-split machinery.
+  evaluatorActions?: ReadonlySet<number>,
 ): string {
   const action = actions[i] as Action;
   const subject =
@@ -335,10 +397,14 @@ export function actionTieKey(
   })();
   const phase = action.verb === "drop" ? "0" : "1";
   const w = action.verb === "drop" ? 99 - weight : weight;
+  // Drops never execute a user body, so the teardown phase is forced to the
+  // definition stratum and stays byte-identical to a stratum-free key.
+  const stratum =
+    action.verb !== "drop" && evaluatorActions?.has(i) === true ? "1" : "0";
   const subjectKey =
     (subject !== undefined ? subjectKeyOf?.(subject, action) : undefined) ??
     (subject ? encodeId(subject) : "");
-  return `${phase}|${String(w).padStart(2, "0")}|${subjectKey}|${String(i).padStart(6, "0")}`;
+  return `${phase}|${stratum}|${String(w).padStart(2, "0")}|${subjectKey}|${String(i).padStart(6, "0")}`;
 }
 
 /**

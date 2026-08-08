@@ -93,6 +93,12 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   } = input;
 
   // ── graph edges + deterministic order ─────────────────────────────────
+  // Actions that RUN a user expression at apply time (a DEFAULT / generated
+  // column backfill, a validated CHECK scan, an expression-index build).
+  // Classified during the edge walk and fed to the tie-break ONLY — never as an
+  // edge — so they sink below every simultaneously ready DEFINITION action
+  // without making legitimate routine<->relation cycles unplannable.
+  const evaluatorActions = new Set<number>();
   const edges = buildActionGraph(
     actions,
     producerOf,
@@ -102,6 +108,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     renameActionIndices,
     assumedRoleNames,
     assumedSchemaNames,
+    evaluatorActions,
   );
 
   // Order a table's ADD COLUMN creates by declared column position
@@ -126,7 +133,8 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   const order = topoSort(
     actions.length,
     edges,
-    (i) => actionTieKey(actions, i, rulesForId, columnSubjectKey),
+    (i) =>
+      actionTieKey(actions, i, rulesForId, columnSubjectKey, evaluatorActions),
     (i) => (actions[i] as Action).sql,
   );
 
