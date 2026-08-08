@@ -113,54 +113,74 @@ export function buildActionGraph(
   // legitimately contains CYCLES (function <-> table), so the walk carries a
   // visited set.
   //
-  // The memo is shared across the whole classification pass, so total work is
-  // O(V+E) over the depends subgraph: a completed routine-free walk proves every
-  // node it reached is routine-free, so the negative answer is memoized for the
-  // ENTIRE explored set — which is the hot path (most facts reach no routine).
-  // A positive answer memoizes only the queried root, since a path to the
-  // routine does not tell us which explored nodes were on it.
+  // The memo is shared across the whole classification pass, so total work stays
+  // O(V+E) over the traversed subgraph in BOTH outcomes:
+  //  - routine-free: a completed walk proves every node it reached is
+  //    routine-free, so the answer is memoized for the ENTIRE explored set (the
+  //    hot path — most facts reach no routine);
+  //  - routine found: only the nodes on the DISCOVERY PATH from the root to the
+  //    node that saw the routine are provably true, so exactly those are
+  //    memoized (`discoveredFrom` is the DFS-tree parent link, and a DFS-tree
+  //    path is a real path in the graph). Memoizing the whole visited set would
+  //    be WRONG — a sibling branch may reach nothing. Without this, N evaluators
+  //    sharing one deep chain re-traverse it each time (quadratic).
   const routineReachable = new Map<string, boolean>();
   const reachesRoutine = (root: StableId, rootKey: string): boolean => {
     const memoized = routineReachable.get(rootKey);
     if (memoized !== undefined) return memoized;
     const visited = new Set<string>([rootKey]);
-    const stack: StableId[] = [root];
-    let found = false;
+    // node key -> key it was first reached from (undefined for the root)
+    const discoveredFrom = new Map<string, string | undefined>([
+      [rootKey, undefined],
+    ]);
+    const stack: Array<[StableId, string]> = [[root, rootKey]];
+    // key of the node whose successors saw the routine, once one does
+    let hitAt: string | undefined;
     // true when `next` settles the question (it IS a routine, or is already
     // memoized as reaching one); otherwise enqueues it when still unexplored.
-    const consider = (next: StableId): boolean => {
+    const consider = (next: StableId, fromKey: string): boolean => {
       if (ROUTINE_KIND_SET.has(next.kind)) return true;
       const key = encodeId(next);
       const known = routineReachable.get(key);
       if (known === true) return true;
       if (known === false || visited.has(key)) return false;
       visited.add(key);
-      stack.push(next);
+      discoveredFrom.set(key, fromKey);
+      stack.push([next, key]);
       return false;
     };
-    while (stack.length > 0 && !found) {
-      const current = stack.pop() as StableId;
+    while (stack.length > 0 && hitAt === undefined) {
+      const [current, currentKey] = stack.pop() as [StableId, string];
       for (const edge of desired.outgoingEdges(current)) {
         if (edge.kind !== "depends") continue;
-        if (consider(edge.to)) {
-          found = true;
+        if (consider(edge.to, currentKey)) {
+          hitAt = currentKey;
           break;
         }
       }
-      if (found) break;
+      if (hitAt !== undefined) break;
       const descendInto = EVALUATED_DESCENT.get(current.kind);
       if (descendInto === undefined) continue;
       for (const child of desired.childrenOf(current)) {
         if (!descendInto.has(child.id.kind)) continue;
-        if (consider(child.id)) {
-          found = true;
+        if (consider(child.id, currentKey)) {
+          hitAt = currentKey;
           break;
         }
       }
     }
-    if (found) routineReachable.set(rootKey, true);
-    else for (const key of visited) routineReachable.set(key, false);
-    return found;
+    if (hitAt === undefined) {
+      for (const key of visited) routineReachable.set(key, false);
+      return false;
+    }
+    for (
+      let key: string | undefined = hitAt;
+      key !== undefined;
+      key = discoveredFrom.get(key)
+    ) {
+      routineReachable.set(key, true);
+    }
+    return true;
   };
 
   // cache encoded -> StableId for ids we encounter
