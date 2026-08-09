@@ -18,113 +18,147 @@ Bun-based monorepo containing PostgreSQL tooling packages.
 
 ## Packages
 
-- **packages/pg-delta** (`@supabase/pg-delta`): PostgreSQL schema diff and migration tool. Compares two live databases and generates DDL migration scripts.
-- **packages/pg-topo** (`@supabase/pg-topo`): Topological sorting for SQL DDL statements. Pure library that accepts SQL content strings, extracts dependencies, and produces a deterministic execution order. Includes an optional filesystem adapter for discovering/reading `.sql` files.
+- **packages/pg-delta** (`@supabase/pg-delta`): PostgreSQL schema-diff and migration engine (a clean-room rewrite; the CLI binary is `pgdelta`). It extracts two schemas into a normalized, content-addressed **fact base** using a live/shadow Postgres, diffs generically, emits an ordered DDL plan, and **proves** the plan converges (state + data preservation) on a clone. See `packages/pg-delta/README.md` and `docs/architecture/` for depth.
+- **packages/pg-topo** (`@supabase/pg-topo`): Topological sorting for SQL DDL statements. Pure library that accepts SQL content strings, extracts dependencies, and produces a deterministic execution order. Includes an optional filesystem adapter for discovering/reading `.sql` files. It is an **optional peer** of pg-delta (used only by the reorder-assist / `schema lint` frontends), never by the diffing core.
 
 ## Quick Reference
-
-> **Important:** Always use `bun run test`, never bare `bun test`. The `test` script in `package.json` includes required flags.
 
 ```bash
 # Install all dependencies
 bun install
 
-# Build all packages
+# Build all packages (tsc -> dist for Node/Deno consumers)
 bun run build
 
-# Test all packages
-bun run test
-
 # Test specific package
-bun run test:pg-delta
+bun run test:pg-delta          # pg-delta unit tests (bun test src/)
 bun run test:pg-topo
 
-# Type check all
+# Type check / lint / knip (all packages)
 bun run check-types
-
-# Lint and format all
 bun run format-and-lint
+bun run knip
 
 # Run a single package's tests directly
-cd packages/pg-delta && bun run test src/     # Unit tests only
-cd packages/pg-delta && bun run test tests/   # Integration tests (Docker required)
-cd packages/pg-topo && bun run test           # All tests (Docker required)
+cd packages/pg-delta && bun test src/     # Unit tests (no Docker)
+cd packages/pg-delta && bun test tests/   # Integration tests (Docker required)
+cd packages/pg-topo && bun run test       # All tests (Docker required)
 
-# Test against a specific PostgreSQL version
-PGDELTA_TEST_POSTGRES_VERSIONS=17 bun run test tests/
+# Choose the Postgres image for pg-delta integration/corpus tests
+PGDELTA_TEST_IMAGE=postgres:17-alpine bun test tests/engine.test.ts
 ```
 
 ## Architecture
 
-- Both packages are runtime-agnostic: importable in Bun, Node.js, or Deno
-- Conditional exports: `bun` condition serves TypeScript source directly, `import` serves compiled JS
-- `pg-delta` uses the `pg` npm library for database connections (works in Bun via Node.js compat)
-- `pg-topo` is pure static analysis — no runtime database dependency in the library itself
-- Integration tests use `testcontainers` to spin up PostgreSQL Docker containers
-- Oxc handles formatting and linting: `oxfmt` (config at `.oxfmtrc.json`) and `oxlint` (config at `.oxlintrc.json`)
-- Changesets manage versioning across both packages
+- Both packages are runtime-agnostic: importable in Bun, Node.js, or Deno.
+- Conditional exports: the `bun` condition serves TypeScript source directly; `import`/`require`/`default` serve compiled `dist/` JS (produced by `bun run build` — `tsc` with `rewriteRelativeImportExtensions`, so the `.ts` import specifiers become `.js` on emit). `dist/` is gitignored; consumers get it from the published tarball.
+- `pg-delta` uses the `pg` npm library for database connections (works in Bun via Node.js compat).
+- `pg-topo` is pure static analysis — no runtime database dependency in the library itself.
+- Integration tests use `testcontainers` to spin up PostgreSQL Docker containers.
+- Oxc handles formatting and linting: `oxfmt` (config at `.oxfmtrc.json`) and `oxlint` (config at `.oxlintrc.json`).
+- Changesets manage versioning across both packages.
 
-### pg-delta core is self-contained
+### pg-delta: Postgres is the only elaborator
 
-`pg-delta`'s core diffing / planning path (`src/core/objects/**`, `src/core/catalog*`, `src/core/plan/**`, `src/core/sort/**`) must stay runnable from **pg_catalog + its own utilities only**. Do not reach into `@supabase/pg-topo` — or any other SQL-parser / AST library — from this path, even as a "best-effort" helper.
+The engine never parses SQL to understand it. Every state is resolved by a real
+PostgreSQL instance (a live DB, or a shadow DB loaded from `.sql` files) and read
+back out of the catalog into a normalized, content-addressed fact base
+(`src/core/fact.ts`, `src/core/hash.ts`, `src/core/stable-id.ts`). Diffing is
+generic (`src/core/diff.ts`) — there are **no per-object-type change classes**.
 
-When a change class needs dependency edges for `requires` or `creates`:
+- **Do not reach for an external SQL parser / AST library in the diffing path**
+  (`src/core/**`, `src/extract/**`, `src/plan/**`). If you need a dependency edge,
+  it comes from `pg_depend`, sourced at **extract time** in `src/extract/**` and
+  carried on the fact as a dependency edge — never re-derived by parsing
+  `pg_get_expr()` output while diffing.
+- **Never semantically edit or regex-transform SQL text in the engine** —
+  including `pg_get_functiondef` / `pg_get_expr` output and non-diffing replay
+  paths such as seed and export. If a statement cannot be replayed verbatim in
+  some context, skip the fact with a clear diagnostic or source structured data
+  from the catalog (e.g. `pg_proc.proconfig`) to decide — never rewrite the DDL.
+  The presentation-only formatter in `src/frontends/sql-format/**` is the sole
+  exception: it may change casing and layout, never meaning, and its output is
+  gated by `load(export(db)) ≡ db` fidelity coverage.
+- `@supabase/pg-topo` is an **optional peer** used only by the dev-experience
+  frontends (`src/frontends/sql-order.ts`, `schema lint`) — importing the core
+  never pulls it in. `canReorder()` probes availability; absence throws
+  `ReorderUnavailableError` with an install hint.
+- Ordering falls out of the fact grain (cycles are structurally hard to form);
+  the failure mode is a more verbose script, not an unsortable plan.
+- Every plan is validated by the **proof loop** (`src/proof/prove.ts`): apply to
+  a clone, re-extract, compare hashes (state proof) and check seeded rows survive
+  (data proof). The corpus (`tests/engine.test.ts`) runs this end-to-end.
 
-1. **First, check `pg_depend`.** Postgres records expression-level dependencies automatically (policy `USING` / `WITH CHECK` via `recordDependencyOnExpr`, `CHECK` constraints, generated columns, column defaults, view rewrite rules, trigger functions, SQL-language function bodies, sequence ownership, etc.). That catalog is authoritative and already used extensively in `src/core/depend.ts`; extend it instead of inventing a second source of truth.
-2. **Source the list at extract time.** Join `pg_depend` in the object's extractor (`<object>.model.ts`) so the resolved schema+name (or stable-id) list is carried on the model. The change class then iterates that list in `requires` — no parsing happens while diffing.
-3. **Keep derived metadata out of `dataFields`.** Fields populated from `pg_depend` change lockstep with their source expression (`using_expression`, `with_check_expression`, etc.), so including them in equality adds no signal and creates noisy diffs.
-4. **Don't re-parse what Postgres already parsed.** Re-parsing `pg_get_expr()` output with an external AST library to recover references is a sign you missed a `pg_depend` row. Find it.
-
-`pg-topo` is fine as a **dev-time** utility inside pg-delta — for example, `src/core/test-utils/assert-valid-sql.ts` uses `validateSqlSyntax` to sanity-check serialized DDL in unit tests. That usage is scoped to tests and does not leak into the diffing path.
-
-### Serialize Options
-
-When adding or changing a serialize option in `pg-delta`, keep the typing and ownership split consistent:
-
-- Define the shared serializer option fields in `packages/pg-delta/src/core/integrations/serialize/serialize.types.ts`. This file is the single source of truth for `SerializeOptions`.
-- If an option is only relevant to one change family, derive a local alias from the shared type in `serialize.types.ts` with `Pick<...>` (for example `SchemaSerializeOptions` or `ExtensionSerializeOptions`) instead of creating a new standalone options type.
-- Do not define a separate local `SerializeOptions` type in `packages/pg-delta/src/core/integrations/serialize/dsl.ts`. The DSL should import the shared type and pass it through.
-- `packages/pg-delta/src/core/objects/base.change.ts` should expose `serialize(options?: SerializeOptions)`.
-- Concrete change classes under `packages/pg-delta/src/core/objects/**/changes/*.ts` must accept either the shared `SerializeOptions` or a derived alias, even when the option is unused. Use `_options?: SerializeOptions` for unused parameters so the full `Change` union accepts `change.serialize(rule.options)`.
-- Keep product-specific serialization behavior in integrations such as `packages/pg-delta/src/core/integrations/supabase.ts` unless the behavior is truly generic for all users. Integration-specific rules belong in the serialize DSL before they belong in core change logic.
-- Do not redesign the global serializer options as a union of per-change option types unless the serialize DSL itself is also being redesigned to tie `when` clauses to specific change subtypes. With the current free-form `FilterPattern`, one shared global contract is the intended model.
-
-When adding a new serialize option, update tests at the same time:
-
-- Add or update focused coverage in `packages/pg-delta/src/core/integrations/serialize/dsl.test.ts`.
-- Add or update the relevant object serializer test next to the concrete change class (for example `extension.create.test.ts`).
-- If the behavior is user-facing, update one existing end-to-end regression or add one targeted integration test. Prefer reusing an existing regression over creating duplicate integration coverage.
+Integration/policy behavior lives in `src/policy/**` (baselines, extension
+handlers) and `src/integrations/**` (profiles: `raw` | `supabase` | custom).
+SQL rendering/formatting is in `src/frontends/sql-format/**` and `src/plan/render-sql.ts`.
 
 ## Test Patterns
 
 ### pg-delta unit tests
 
-Standard `describe`/`test`/`expect` from `bun:test`. No database needed. Located in `packages/pg-delta/src/**/*.test.ts`.
+Standard `describe`/`test`/`expect` from `bun:test`. No database needed. Located in `packages/pg-delta/src/**/*.test.ts`. Run with `bun test src/`.
 
 ### pg-delta integration tests
 
-Use `withDb(pgVersion, callback)` / `withDbIsolated(pgVersion, callback)` wrapper from `tests/utils.ts`. Located in `packages/pg-delta/tests/**/*.test.ts`.
+Located in `packages/pg-delta/tests/**/*.test.ts`. They provision Postgres via
+`testcontainers`, keyed on the `PGDELTA_TEST_IMAGE` env var (default
+`postgres:17-alpine`). Use the helpers in `tests/containers.ts`:
 
 ```typescript
-import { describe, test } from "bun:test";
-import { withDb } from "../utils.ts";
-import { POSTGRES_VERSIONS } from "../constants.ts";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createTestDb, type TestDb } from "./containers.ts";
+import { extract } from "../src/extract/extract.ts";
 
-for (const pgVersion of POSTGRES_VERSIONS) {
-  describe(`my feature (pg${pgVersion})`, () => {
-    test(
-      "test name",
-      withDb(pgVersion, async (db) => {
-        // db.main and db.branch are pg Pool instances
-      }),
-    );
-  });
-}
+// createTestDb() gives an isolated database on the shared cluster singleton.
 ```
+
+- The **corpus** (`tests/engine.test.ts`, scenarios under `corpus/`) is the
+  primary correctness gate — see "corpus progress" below.
+- Supabase-image tests (`supabase-*.test.ts`, `dbdev-*.test.ts`,
+  `extension-intent-*.test.ts`, etc.) self-skip unless
+  `PGDELTA_NEXT_SUPABASE_TESTS=1`; CI runs the stock-alpine path only.
 
 ### pg-topo tests
 
 Use `bun:test` with testcontainers for PostgreSQL validation. Located in `packages/pg-topo/test/`.
+
+- `test/global-setup.ts` is preloaded to pull Docker images.
+- `test/support/postgres/postgres-container.ts` owns container lifecycle (Bun's native `SQL` class).
+- Unit tests pass inline SQL strings to `analyzeAndSort(sql: string[])`.
+- Integration tests use `analyzeAndSortFromFiles(roots)` or `analyzeAndSortFromRandomizedStatements` for filesystem fixtures.
+
+## pg-topo internals
+
+A 6-stage pipeline: **parse → classify → extract → build graph → topological sort → result**.
+
+| Directory | Responsibility |
+|---|---|
+| `src/ingest/parse.ts` | SQL content parsing (plpgsql-parser), no filesystem |
+| `src/classify/` | Statement classification (40 types) |
+| `src/extract/` | Dependency extraction from the AST |
+| `src/graph/` | Graph building + topological sort (Kahn's algorithm) |
+| `src/annotations/` | `-- pg-topo:` comment directive parsing |
+| `src/model/` | Core types and `ObjectRef` identity |
+| `src/from-files.ts` | Filesystem adapter (discovery + read, delegates to core) |
+| `src/ingest/discover.ts` | `.sql` discovery — used only by the from-files adapter |
+
+Cyclic input is not an error: the sort falls back to a deterministic cycles-last
+order and reports `CYCLE_DETECTED`, which callers **must** handle before
+executing the result directly.
+
+```typescript
+import { analyzeAndSort, analyzeAndSortFromFiles } from "@supabase/pg-topo";
+
+// Pure library (no filesystem)
+const { ordered, diagnostics, graph } = await analyzeAndSort([
+  "create table app.users(id int primary key);",
+  "create view app.user_ids as select id from app.users;",
+]);
+
+// Filesystem adapter (discovers and reads .sql files)
+const result = await analyzeAndSortFromFiles(["./sql/"]);
+```
 
 ## Changesets
 
@@ -136,7 +170,7 @@ Use the changeset CLI to generate one:
 bunx changeset
 ```
 
-This will prompt you to select affected packages and choose the version bump type (`patch` for fixes, `minor` for new features, `major` for breaking changes). Commit the generated `.changeset/*.md` file alongside your code changes. Changesets automate versioning and releases on merge to main.
+This will prompt you to select affected packages and choose the version bump type (`patch` for fixes, `minor` for new features, `major` for breaking changes). Commit the generated `.changeset/*.md` file alongside your code changes. Changesets automate versioning and releases on merge to main. The repo is in changesets **pre/alpha mode** (`.changeset/pre.json`): a `major`/`minor`/`patch` bump increments the `-alpha.N` counter rather than the base version.
 
 ## Conventional Commits
 
@@ -162,49 +196,46 @@ The `Lint Pull Request` CI check (see `.github/workflows/lint-pull-request.yml`)
 
 ## CI
 
-- GitHub Actions with `dorny/paths-filter` detects which packages changed
-- Only affected packages are tested
-- pg-delta integration tests are sharded across 15 runners x 3 PG versions
-- Changesets automate releases on merge to main
+- GitHub Actions with `dorny/paths-filter` detects which packages changed (`.github/actions/detect-changes`). Only affected packages are tested.
+- pg-delta test jobs in `.github/workflows/tests.yml`:
+  - `pg-delta-unit` — `bun test src/`.
+  - `pg-delta-corpus` — the proof loop (`tests/engine.test.ts`), matrix of **PG 14–18 × 4 shards** (`PGDELTA_TEST_IMAGE` + `PGDELTA_NEXT_SHARD`).
+  - `pg-delta-integration` — everything except the corpus loop, matrix of **PG 14–18**.
+  - `pg-delta-integration-pg15-compat` / `pg-delta-integration-pg17-compat` — stable status-check names (for branch protection) that aggregate the corpus + integration matrices.
+- `check-types` and `format-and-lint` build `@supabase/pg-topo` first, because pg-delta type-checks its optional peer through pg-topo's gitignored `dist/*.d.ts`.
+- Changesets automate releases on merge to main; `release-preview` publishes a `pkg-pr-new` preview of both packages.
 
 When changing shard count or PG versions, update all of these locations:
 
-- `.github/workflows/tests.yml` — `shard_index`, `shard_total` in the matrix; the `pg-delta-build-test-images` matrix (`postgres_version`, `alpine_tag`, `pg_branch`) **must** stay in sync with `ALPINE_TAG_FOR_PG_MAJOR` in `packages/pg-delta/tests/alpine-tags.ts`
-- `scripts/coverage.ts` — default `--shards` value (doc comment + code)
-- This file (`AGENTS.md` / `CLAUDE.md`) — both the CI section and the Testing Discipline section
+- `.github/workflows/tests.yml` — the `postgres_version` list and `shard` list in `pg-delta-corpus`, and the `postgres_version` list in `pg-delta-integration`.
+- This file (`AGENTS.md` / `CLAUDE.md`) — both the CI section and the Testing Discipline section.
 
-### Prebuilt `dummy_seclabel` test image
+### Coverage
 
-The `pg-delta-test:<major>` postgres image (which preloads the
-`dummy_seclabel` contrib so integration tests can exercise
-`SECURITY LABEL`) is **prebuilt once per PG version on GHCR** rather than
-rebuilt by every shard. The flow:
+Local coverage is produced by the `@supabase/bun-istanbul-coverage` preload,
+which instruments the source globs in `.nycrc.json` (both packages' `src/`) and
+writes per-process istanbul JSON to `NYC_OUTPUT_DIR`. Each package's
+`scripts/run-tests.ts` injects that preload **only when `BUN_COVERAGE=1`** and is
+otherwise a transparent passthrough to `bun test` (so CI, which calls `bun test`
+directly, is unaffected).
 
-1. `pg-delta-test-image-hash` job hashes
-   `packages/pg-delta/tests/dummy-seclabel.Dockerfile` +
-   `packages/pg-delta/tests/alpine-tags.ts` and decides whether the
-   run can push (same-repo) or must fall back to inline builds (forked PR).
-2. `pg-delta-build-test-images` (matrix on PG version) probes
-   `ghcr.io/<repo>/pg-delta-test:<major>-<hash>` with
-   `docker manifest inspect`; if missing, it builds with `buildx`
-   (GitHub Actions cache) and pushes.
-3. Each `pg-delta-integration` shard logs into GHCR, pulls the prebuilt
-   image, and retags it locally as `pg-delta-test:<major>`. The
-   `image.exists(...)` short-circuit in
-   `packages/pg-delta/tests/postgres-alpine.ts::buildPostgresTestImage`
-   then skips the docker build entirely.
-4. On forked PRs the prebuild is skipped and `buildPostgresTestImage`
-   builds inline at test time (current behavior). `getBuildInvocationCount()`
-   in that file is exposed only so `tests/postgres-alpine.test.ts` can
-   verify the short-circuit doesn't regress.
+```bash
+bun run coverage                         # pg-topo + pg-delta (unit + integration + corpus), then nyc report
+bun run coverage --unit-only             # skip pg-delta's slow integration + corpus (pg-topo still runs; Docker required)
+bun run coverage --pg-image postgres:17-alpine   # pin the PG image for pg-delta integration/corpus
+bun run coverage --skip-tests            # regenerate the report from an existing .nyc_output
+```
 
-When you change `dummy-seclabel.Dockerfile` or `ALPINE_TAG_FOR_PG_MAJOR`,
-the hash flips automatically and the next CI run rebuilds + republishes;
-no manual cache invalidation is needed. If you add a new PG version,
-update **all three** of: `ALPINE_TAG_FOR_PG_MAJOR` in `tests/alpine-tags.ts`, the
-`pg-delta-build-test-images` matrix in `tests.yml`, and the
-`postgres_version` list in `pg-delta-integration` / `pg-delta-unit` /
-the compat aggregator jobs.
+Reports land in `.coverage-artifacts/` (HTML/lcov/json-summary). Docker is
+required — pg-topo and pg-delta integration/corpus use testcontainers.
+
+CI uploads **pg-topo coverage only** (`pg-delta-*` jobs run without
+`BUN_COVERAGE`); pg-delta coverage is a local-on-demand tool by choice, because
+instrumenting the corpus PG-version × shard matrix in CI is disproportionately
+costly. To restore pg-delta coverage in CI, set `BUN_COVERAGE=1` +
+`NYC_OUTPUT_DIR` on the `pg-delta-*` jobs and upload their `.nyc_output` as a
+`coverage-*` artifact (the aggregation job already merges everything matching
+`coverage-*`).
 
 ## Agent Workflow
 
@@ -231,7 +262,7 @@ Every bug fix and every feature with a well-defined acceptance criterion follows
 1. **RED first.** Author the regression test(s) against the current (broken) code. Run the focused test and confirm it **fails for the right reason** — an assertion mismatch, a missing symbol, or a runtime error that matches the bug. A test that fails because of a typo or wrong import does not count.
 2. **Capture the failure.** Save the assertion excerpt or test-runner summary (just the relevant lines). This goes into the follow-up commit message and/or PR description so reviewers can see the regression was real.
 3. **GREEN.** Apply the production change. Re-run the same focused test and confirm it passes.
-4. **No regressions.** Run the broader focused suites for the package(s) you touched (unit tests, and integration tests for the affected area when iterating locally) plus `bun run format-and-lint:fix && bun run check-types && bun run knip --fix`.
+4. **No regressions.** Run the broader focused suites for the package(s) you touched (unit tests, and integration tests / the corpus for the affected area when iterating locally) plus `bun run format-and-lint:fix && bun run check-types && bun run knip` (never `knip --fix` — see Common Issues).
 
 **Commit shape.** Prefer splitting the work into two commits on the working branch:
 
@@ -250,19 +281,66 @@ If a repository policy or reviewer asks for a single squashed commit, keep the R
 
 ### Testing Discipline
 
-pg-delta has 45+ integration test files across 3 PG versions, sharded across 15 CI runners. Never run the full suite while iterating.
+pg-delta has a large integration + corpus suite across PG 14–18. Never run the full suite while iterating.
 
 **During development:**
 
-- pg-topo: `cd packages/pg-topo && bun run test` is fine (small test suite)
-- pg-delta unit tests: `cd packages/pg-delta && bun run test src/<path-to-specific-test>.test.ts`
-- pg-delta integration tests: `cd packages/pg-delta && bun run test tests/integration/<specific-file>.test.ts` — one file at a time
-- Run a single test within a file: `bun run test --test-name-pattern "<pattern>" <file>`
-- Limit PG versions to speed up iteration: `PGDELTA_TEST_POSTGRES_VERSIONS=17 bun run test tests/integration/<file>`
+- pg-topo: `cd packages/pg-topo && bun run test` is fine (small test suite).
+- pg-delta unit tests: `cd packages/pg-delta && bun test src/<path-to-specific-test>.test.ts`.
+- pg-delta integration tests: `cd packages/pg-delta && bun test tests/<specific-file>.test.ts` — one file at a time.
+- Run a single test within a file: `bun test --test-name-pattern "<pattern>" <file>`.
+- Pick the PG image to speed up iteration: `PGDELTA_TEST_IMAGE=postgres:17-alpine bun test tests/<file>`.
 
 **Final validation only:**
 
-- Run `bun run test:pg-delta` (full suite) only after all changes are complete and targeted tests pass
+- Run `bun run test:pg-delta` (unit) plus a full corpus run for at least one PG version after all changes are complete and targeted tests pass.
+
+### Test container hygiene & corpus progress
+
+**No leaked containers.** Integration tests use testcontainers, whose Ryuk
+reaper removes a run's containers when the test process dies. **Keep Ryuk
+enabled** — never set `TESTCONTAINERS_RYUK_DISABLED`. Leaks still accumulate when
+the Docker daemon restarts (orphaning what Ryuk tracked) or a run is killed
+before Ryuk connects, and the shared cluster singletons in
+`packages/pg-delta/tests/containers.ts` are not stopped explicitly.
+Reclaim orphans with:
+
+```bash
+cd packages/pg-delta
+bun run docker:clean            # remove testcontainers older than 60m (safe during an active run)
+bun run docker:clean --dry-run  # preview only
+bun run docker:clean --all      # remove ALL testcontainers — only when no tests are running
+```
+
+It targets only the `org.testcontainers=true` label and is age-guarded, so a run
+in flight is never touched. Good as a periodic / CI post-step. Check for leaks
+with `docker ps` (look for many idle `postgres:1[58]-alpine` containers hours/days old).
+
+**Run the corpus to validate engine/planner changes — it is cheap.** The full
+corpus (every scenario, both directions) is **~2–3 min per PG version** (e.g.
+420 cases in ~150s on `postgres:17-alpine`). Any change to the diff / planner /
+compaction / proof path should be gated on a full corpus run for at least one PG
+version before you call it "no regressions" — focused suites + blast-radius
+reasoning are not a substitute, because the corpus is the only thing that proves
+every scenario still applies and converges. A cosmetic compaction change in
+particular fires across many unrelated scenarios, so reason about it, then run
+the corpus.
+
+```bash
+PGDELTA_TEST_IMAGE=postgres:17-alpine bun test tests/engine.test.ts
+```
+
+**Live corpus progress.** `bun test` buffers its own reporter when stdout is a
+pipe, so a piped/background corpus run prints nothing until it finishes (still a
+short wait, but a background/CI run shows no interim signal). Set
+`PGDELTA_NEXT_PROGRESS=1` to stream a
+`corpus <image> [done/total pct%] PASS|FAIL <scenario>` line per scenario to
+stderr (a raw fd-2 write that bypasses the buffering). Off by default so an
+interactive TTY run keeps bun's native reporter clean.
+
+```bash
+PGDELTA_NEXT_PROGRESS=1 PGDELTA_TEST_IMAGE=postgres:17-alpine bun test tests/engine.test.ts
+```
 
 ### Running integration tests in a sandbox (no systemd, no Docker daemon)
 
@@ -295,109 +373,64 @@ yourself instead of giving up and skipping integration coverage:
    docker info | grep -A1 "Registry Mirrors"   # confirm
    ```
 
-3. **Pre-pull only the images you need.** `tests/global-setup.ts` pulls *all*
-   Alpine + Supabase tags listed in `tests/constants.ts` at startup. Always
-   limit the matrix with `PGDELTA_TEST_POSTGRES_VERSIONS=17` (or `15`) so the
-   preload only fetches the tags relevant to your run:
+3. **Pre-pull only the image you need**, then point the tests at it:
 
    ```bash
-   docker pull postgres:17.6-alpine
-   docker pull supabase/postgres:17.6.1.107   # only if your test uses withDbSupabase*
-   ```
-
-4. **Skip the `dummy_seclabel` image with `PGDELTA_SKIP_DUMMY_SECLABEL_BUILD=1`.**
-   The default integration path requires the `pg-delta-test:<major>` image
-   (stock alpine + the upstream `dummy_seclabel` test contrib so SECURITY
-   LABEL tests can run). CI prebuilds it and uploads to
-   `ghcr.io/supabase/pg-toolbelt/pg-delta-test:<major>-<hash>`. In sandboxes
-   you usually cannot get it either way:
-
-   - `pkg-containers.githubusercontent.com` (where GHCR keeps the actual
-     blobs) is typically *not* on the Claude Code web egress allow-list, so
-     `docker pull ghcr.io/supabase/pg-toolbelt/pg-delta-test:...` fails with
-     `403 Forbidden` even though the package is public.
-   - Building locally from `dummy-seclabel.Dockerfile` fetches
-     `https://dl-cdn.alpinelinux.org/` over TLS, which the sandbox also
-     intercepts (`TLS: server certificate not trusted`), so `apk add` fails
-     before `dummy_seclabel.so` can be compiled.
-
-   `buildPostgresTestImage` in `packages/pg-delta/tests/postgres-alpine.ts`
-   honors `PGDELTA_SKIP_DUMMY_SECLABEL_BUILD=1` (or `true`) by returning the
-   plain `postgres:<alpine_tag>` image instead. The container constructor
-   already gates the `shared_preload_libraries=dummy_seclabel` flag on the
-   tag prefix, so stock alpine boots cleanly. The two test files that
-   actually need the module (`tests/integration/security-label-operations.test.ts`,
-   `tests/integration/security-label-filter.test.ts`) skip themselves via
-   `describe.skipIf(...)` when the flag is set; `tests/postgres-alpine.test.ts`
-   (which asserts the `pg-delta-test:` tag) does too. **Never set this flag
-   in CI** — security-label coverage would silently disappear.
-
-5. **Run integration tests as usual** — the global-setup will reuse the cached
-   images:
-
-   ```bash
+   docker pull postgres:17-alpine
    cd packages/pg-delta
-   PGDELTA_SKIP_DUMMY_SECLABEL_BUILD=1 \
-   PGDELTA_TEST_POSTGRES_VERSIONS=17 \
-     bun run test tests/integration/<file>.test.ts
+   PGDELTA_TEST_IMAGE=postgres:17-alpine bun test tests/<file>.test.ts
    ```
+
+   Supabase-image tests self-skip unless `PGDELTA_NEXT_SUPABASE_TESTS=1`, so the
+   stock-alpine image is enough for the corpus and most integration files. The
+   `security-label-proof` test builds the `dummy-seclabel.Dockerfile` inline via
+   testcontainers; it self-skips (`skipSeclabelProof`) when that build can't run.
 
 If you cannot get Docker running (e.g. the sandbox blocks `dockerd`'s
-networking even with the mirror), say so explicitly in your final report —
-do not silently skip the integration step. For unit-only iteration, you can
-bypass the bunfig `preload` (which loads `tests/global-setup.ts` and tries to
-contact the Docker daemon) by invoking `bun test` from outside the package
-directory:
-
-```bash
-cd /tmp && bun test /home/user/pg-toolbelt/packages/pg-delta/src/...
-```
-
-This is a workaround for fast unit-test feedback only; integration tests
-still need a working Docker daemon.
+networking even with the mirror), say so explicitly in your final report — do
+not silently skip the integration step. For fast unit-only feedback you can run
+`bun test src/` (no Docker needed).
 
 ### Upgrading Supabase test images
 
-When changing `packages/pg-delta/tests/constants.ts`, especially
-`POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG`, treat the generated Supabase
-baseline fixtures as part of the upgrade.
+When changing the Supabase image pinned in `packages/pg-delta/tests/containers.ts`
+(`SUPABASE_IMAGE`), treat the generated Supabase baseline fixtures as part of the
+upgrade.
 
-- Do **not** hand-edit `packages/pg-delta/tests/integration/fixtures/supabase-base-init/*.sql`.
-  Regenerate them with the maintainer script.
-- Regenerate all supported fixtures:
-  `cd packages/pg-delta && env -u PGDELTA_TEST_POSTGRES_VERSIONS bun run sync-base-images`
-- Regenerate a single version while iterating:
-  `cd packages/pg-delta && PGDELTA_TEST_POSTGRES_VERSIONS=17 bun run sync-base-images`
-- The sync script is expected to:
-  - create a temporary `supabase start` project pinned to the exact image tag
-  - diff a bare `supabase/postgres` container against the fully bootstrapped
-    local stack
-  - write `tests/integration/fixtures/supabase-base-init/<major>_fullstack_container_init.sql`
-  - replay that SQL into a fresh test-style Supabase container and require a
-    final zero-diff validation
-- `withDbSupabaseIsolated(...)` automatically replays the generated base-init
-  fixture. Any test that starts `SupabasePostgreSqlContainer` manually must call
-  `applySupabaseBaseInit(...)` from `packages/pg-delta/tests/utils.ts` before
-  asserting on Supabase-managed objects or applying project migrations.
-- After upgrading the image tags, rerun the focused regression tests before
-  considering the upgrade done:
-  - `cd packages/pg-delta && PGDELTA_TEST_POSTGRES_VERSIONS=15,17 bun run test tests/integration/supabase-base-init.test.ts tests/integration/catalog-model.test.ts tests/integration/supabase-dsl-e2e.test.ts`
-  - `cd packages/pg-delta && PGDELTA_TEST_POSTGRES_VERSIONS=15 bun run test tests/integration/dbdev-roundtrip.test.ts`
-- If the sync script or focused tests reveal new schemas, roles, grants, or
-  comments, update pg-delta’s Supabase handling (for example
-  `packages/pg-delta/src/core/integrations/supabase.ts` or the relevant
-  extraction/diff/serialization logic) instead of papering over the problem by
-  editing the generated SQL fixture by hand.
+- Do **not** hand-edit `packages/pg-delta/tests/fixtures/supabase-base-init/*.sql`.
+  Regenerate them with the maintainer script:
+  `cd packages/pg-delta && bun run sync-base-images`.
+- The Supabase-image integration tests (`supabase-*.test.ts`, `dbdev-*.test.ts`,
+  `extension-intent-*.test.ts`, `profile-e2e-*.test.ts`) require
+  `PGDELTA_NEXT_SUPABASE_TESTS=1` and the `SUPABASE_IMAGE` pulled locally. Run
+  them after an image change before considering the upgrade done.
+- If the sync reveals new schemas, roles, grants, or comments, update pg-delta's
+  Supabase handling (`src/integrations/**`, `src/policy/**`, or the relevant
+  extraction/diff logic) instead of hand-editing the generated SQL fixture.
 
 ### Test Coverage Expectations
 
 All code changes must be covered by tests:
 
-- Unit tests go in `src/` next to the code (e.g., `src/core/objects/foo/foo.diff.test.ts`)
-- Integration tests go in `tests/integration/` using `withDb`/`withDbIsolated` patterns
-- **pg-delta:** Every fix or feat must be covered by at least one integration test that proves it works end-to-end (e.g. roundtrip or diff applied against a real DB).
-- Prefer `roundtripFidelityTest` for pg-delta integration coverage instead of hand-rolled `createPlan` + apply assertions. Use custom plan assertions only when validating planner internals that roundtrip utilities cannot express.
-- Follow existing test patterns in the codebase
+- Unit tests go in `src/` next to the code (e.g., `src/plan/rules/helpers.test.ts`).
+- Integration tests go in `tests/` using the `tests/containers.ts` helpers.
+- **pg-delta:** Every fix or feat must be covered end-to-end. Prefer adding or
+  extending a **corpus scenario** (`corpus/<name>/{a,b}.sql`) so the proof loop
+  exercises it in both directions, rather than a hand-rolled plan+apply assertion.
+  Use a focused integration test only when validating engine internals the corpus
+  cannot express.
+- **Seed corpus tables so the data-preservation proof has teeth.** The proof
+  loop auto-seeds each empty kept table with `INSERT … DEFAULT VALUES`, but a
+  table with a NOT NULL-without-default / FK / unique / check column cannot be
+  seeded that way and stays EMPTY — getting zero fingerprint/count coverage.
+  When you add or extend a scenario whose tables can't take the default insert,
+  ship seed files: `corpus/<name>/seed.sql` (INSERTs against `a.sql`, applied in
+  the FORWARD direction) and `corpus/<name>/seed-b.sql` (against `b.sql`, applied
+  in REVERSE) with one minimal row per such table, so the proof actually
+  fingerprints real data. Adding an `autoseed-allowlist.ts` entry is the
+  **fallback** for tables that genuinely cannot or should not be seeded (e.g. a
+  BEFORE INSERT trigger that suppresses the row, or a scenario whose whole point
+  is a constraint interplay) — not the default.
 - Author tests **before** the production change per **Test-Driven Fixes** above — a new test that has never failed does not prove the regression was real.
 
 ### Snapshot Assertions
@@ -410,12 +443,40 @@ expect(result.sql).toMatchInlineSnapshot(`
 `);
 ```
 
-Start with an empty inline snapshot assertion, run the test once so Bun fills in the expected value automatically, and update snapshots intentionally with `bun run test -u -- "pattern"`.
+Start with an empty inline snapshot assertion, run the test once so Bun fills in the expected value automatically, and update snapshots intentionally with `bun test -u <file>`.
 
 ### Kaizen (Continuous Improvement)
 
 Whenever you are told you made a mistake — whether in commands, coding style, or guidelines — extract a generalizable lesson and propose a change to these agent guidelines so the same mistake does not happen again.
 
+### Automated-review loops (Codex and similar bots)
+
+Bot reviewers re-review every push and will keep finding locally-valid issues
+forever — including issues that exist only in your previous round's fix. Left
+unchecked this compounds into scope creep (real incident: PR #368 grew from a
+~200-line fix to ~1,700 lines over 12 review rounds before being trimmed back).
+Rules of engagement:
+
+- **Cap the loop.** After ~2–3 rounds of bot findings on the same PR, stop
+  auto-fixing. Re-read the remaining findings as a set and ask: are these still
+  about the issue being fixed, or are they re-litigating a broader contract
+  (error handling, hardening, performance) one corner at a time?
+- **Scope test per finding.** Fix it in the PR only if it is (a) a defect in
+  code this PR adds, AND (b) reachable without an adversarial or wildly
+  unusual setup. Pre-existing behavior the PR merely touched, and hardening
+  against threat models the surrounding code doesn't defend against, get
+  recorded instead of fixed.
+- **Record instead of re-fixing.** Deliberately-deferred findings go in
+  `docs/roadmap/pg-delta-next-follow-ups.md` (see the per-PR triage sections
+  there, e.g. "PR #368 review triage"). Reply to the bot thread with a link to
+  that section — never silently ignore a finding, and never fix it just to
+  make the thread go away.
+- **Escalate.** When you stop the loop, say so on the PR and hand it to a
+  human reviewer with a summary of what was fixed vs deferred.
+
 ### Common Issues
 
-- Lint errors can usually be detected and auto-fixed by running `bun run format-and-lint:fix && bun run check-types && bun run knip --fix`. Run this after you finish code changes to ensure you don't introduce lint errors into the project.
+- Lint errors can usually be detected and auto-fixed by running `bun run format-and-lint:fix && bun run check-types && bun run knip`. Run this after you finish code changes to ensure you don't introduce lint errors into the project.
+- **Never run `knip --fix`, and never delete an export because knip reports it "unused".** Both packages are consumed as libraries, so an export with no in-repo importer can still be a consumer's API; that's exactly why `knip.json` demotes the `exports`/`types` rules to `"warn"` (report-only, doesn't fail CI). `knip --fix` promotes those warnings into deletions and strips the `export` keyword repo-wide. Only the error-severity findings (e.g. unused dependencies) gate CI — fix those by hand (or via a targeted `knip.json` entry such as `ignoreDependencies` when knip can't see a reference, e.g. `import.meta.resolve(...)`). (Real incident: `knip --fix` stripped 9 library exports across 15 files; a reviewer had to ask for them back.)
+- `bun run check-types` and `bun run knip` need `packages/pg-topo/dist` to exist (`bun run build` first) — without it, type-checking fails with `Cannot find module '@supabase/pg-topo'` spurious errors. The knip CI job runs *without* that build, so when verifying knip locally, match CI by temporarily removing `packages/pg-topo/dist`.
+- **Never revert `oxfmt` / `oxlint --fix` output to keep a diff scoped.** The `Format and lint` CI check runs `oxfmt --check` over the whole repo, so any formatting drift the auto-fixer touched — even on lines you didn't author — fails CI once the branch merges. If the formatter reformats unrelated/pre-existing lines, keep those changes; if you want to isolate them, commit the formatting-only changes as a separate `chore`/`style` commit rather than reverting them. (Real incident: an implementer reverted an `oxfmt` ternary rewrap "to keep the diff scoped"; the drift shipped in the squash-merge and failed `Format and lint` on the downstream PR.)

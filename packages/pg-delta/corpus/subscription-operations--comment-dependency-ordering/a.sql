@@ -1,0 +1,1 @@
+CREATE PUBLICATION corpus_sub_dep_pub FOR ALL TABLES;

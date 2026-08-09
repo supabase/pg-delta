@@ -1,0 +1,1 @@
+-- Empty source: engine must order CREATE EXTENSION before CREATE INDEX

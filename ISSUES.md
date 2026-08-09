@@ -26,7 +26,7 @@ Please include:
 - the PostgreSQL version(s) involved
 - whether this is plain PostgreSQL or Supabase
 - the exact `pg-delta` command and flags you ran
-- whether you used `plan`, `apply`, `sync`, `catalog-export`, `declarative export`, or `declarative apply`
+- which command you ran — `plan`, `apply`, `render`, `prove`, `diff`, `drift`, `snapshot`, `schema export`, `schema apply`, or `schema lint`
 - the relevant schema input:
   - SQL needed to create the source and target state, or
   - a minimal declarative schema directory, or
@@ -43,10 +43,10 @@ The best reports make it obvious how to turn the bug into a regression test. Use
 - a minimal setup SQL snippet for both sides of the diff
 - the smallest failing scenario you could reduce it to
 - whether the issue reproduces on all supported PostgreSQL versions or only one
-- whether `--integration supabase` is required
+- whether `--profile supabase` is required
 - any debug output that narrows the problem down
 
-When contributors work on a fix, they will usually need to add targeted coverage under `packages/pg-delta/tests/integration/` and, when useful, a focused unit test next to the affected source.
+When contributors work on a fix, they will usually need to add targeted coverage under `packages/pg-delta/tests/` and, when useful, a focused unit test next to the affected source.
 
 ## Tips for strong `pg-delta` repros
 

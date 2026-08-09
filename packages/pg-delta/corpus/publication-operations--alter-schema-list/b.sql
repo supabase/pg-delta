@@ -1,0 +1,5 @@
+CREATE SCHEMA pub_a;
+CREATE SCHEMA pub_b;
+CREATE TABLE pub_a.alpha (id INT);
+CREATE TABLE pub_b.beta (id INT);
+CREATE PUBLICATION pub_schemas FOR TABLES IN SCHEMA pub_a, pub_b;

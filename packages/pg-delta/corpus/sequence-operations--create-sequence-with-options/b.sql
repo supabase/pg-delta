@@ -1,0 +1,9 @@
+CREATE SCHEMA test_schema;
+CREATE SEQUENCE test_schema.custom_seq
+  AS integer
+  INCREMENT BY 2
+  MINVALUE 10
+  MAXVALUE 1000
+  START WITH 10
+  CACHE 5
+  CYCLE;

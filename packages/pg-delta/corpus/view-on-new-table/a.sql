@@ -1,0 +1,1 @@
+-- empty: table AND dependent view both arrive in b (ordering test)

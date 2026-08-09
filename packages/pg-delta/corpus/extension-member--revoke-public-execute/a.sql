@@ -1,0 +1,1 @@
+CREATE EXTENSION hstore SCHEMA public;

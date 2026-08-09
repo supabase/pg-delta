@@ -1,0 +1,2 @@
+CREATE SCHEMA test_schema;
+CREATE SEQUENCE test_schema.test_seq INCREMENT BY 5 CACHE 10;

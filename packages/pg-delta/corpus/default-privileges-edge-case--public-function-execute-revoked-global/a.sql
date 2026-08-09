@@ -1,0 +1,2 @@
+-- state A: built-in defaults — PUBLIC keeps its default EXECUTE on new functions
+-- (no ALTER DEFAULT PRIVILEGES customization).

@@ -1,0 +1,10 @@
+{
+  "a-to-b": {
+    "require": ["alter:view"],
+    "forbid": ["replacement:view"]
+  },
+  "b-to-a": {
+    "require": ["alter:view"],
+    "forbid": ["replacement:view"]
+  }
+}

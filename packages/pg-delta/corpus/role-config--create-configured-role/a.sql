@@ -1,0 +1,1 @@
+-- state A: the role does not exist at all

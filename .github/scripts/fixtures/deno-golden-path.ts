@@ -1,4 +1,4 @@
-import { formatSqlStatements } from "@supabase/pg-delta";
+import { formatSqlStatements } from "@supabase/pg-delta/sql-format";
 import { analyzeAndSort } from "@supabase/pg-topo";
 
 function assert(condition: boolean, message: string): void {

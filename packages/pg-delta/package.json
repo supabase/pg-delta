@@ -1,7 +1,7 @@
 {
   "name": "@supabase/pg-delta",
   "version": "1.0.0-alpha.33",
-  "description": "PostgreSQL migrations made easy",
+  "description": "PostgreSQL migrations made easy — clean-room schema-diff engine that proves its migrations converge",
   "keywords": [
     "diff",
     "migrations",
@@ -20,12 +20,14 @@
     "directory": "packages/pg-delta"
   },
   "bin": {
-    "pgdelta": "./dist/cli/bin/cli.js"
+    "pgdelta": "./dist/cli/main.js"
   },
   "files": [
     "dist",
     "src",
     "README.md",
+    "COVERAGE.md",
+    "MIGRATION.md",
     "LICENSE"
   ],
   "type": "module",
@@ -36,71 +38,106 @@
     ".": {
       "bun": "./src/index.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./integrations/supabase": {
-      "bun": "./src/core/integrations/supabase.ts",
-      "import": "./dist/core/integrations/supabase.js",
-      "require": "./dist/core/integrations/supabase.js",
-      "types": "./dist/core/integrations/supabase.d.ts",
-      "default": "./dist/core/integrations/supabase.js"
+    "./extract": {
+      "bun": "./src/extract/extract.ts",
+      "import": "./dist/extract/extract.js",
+      "types": "./dist/extract/extract.d.ts",
+      "default": "./dist/extract/extract.js"
     },
-    "./declarative": {
-      "bun": "./src/core/declarative-apply/index.ts",
-      "import": "./dist/core/declarative-apply/index.js",
-      "require": "./dist/core/declarative-apply/index.js",
-      "types": "./dist/core/declarative-apply/index.d.ts",
-      "default": "./dist/core/declarative-apply/index.js"
+    "./plan": {
+      "bun": "./src/plan/plan.ts",
+      "import": "./dist/plan/plan.js",
+      "types": "./dist/plan/plan.d.ts",
+      "default": "./dist/plan/plan.js"
     },
-    "./catalog-export": {
-      "bun": "./src/core/catalog-export/index.ts",
-      "import": "./dist/core/catalog-export/index.js",
-      "require": "./dist/core/catalog-export/index.js",
-      "types": "./dist/core/catalog-export/index.d.ts",
-      "default": "./dist/core/catalog-export/index.js"
+    "./apply": {
+      "bun": "./src/apply/apply.ts",
+      "import": "./dist/apply/apply.js",
+      "types": "./dist/apply/apply.d.ts",
+      "default": "./dist/apply/apply.js"
+    },
+    "./proof": {
+      "bun": "./src/proof/prove.ts",
+      "import": "./dist/proof/prove.js",
+      "types": "./dist/proof/prove.d.ts",
+      "default": "./dist/proof/prove.js"
+    },
+    "./frontends": {
+      "bun": "./src/frontends/index.ts",
+      "import": "./dist/frontends/index.js",
+      "types": "./dist/frontends/index.d.ts",
+      "default": "./dist/frontends/index.js"
+    },
+    "./sql-order": {
+      "bun": "./src/frontends/sql-order.ts",
+      "import": "./dist/frontends/sql-order.js",
+      "types": "./dist/frontends/sql-order.d.ts",
+      "default": "./dist/frontends/sql-order.js"
+    },
+    "./sql-format": {
+      "bun": "./src/frontends/sql-format/index.ts",
+      "import": "./dist/frontends/sql-format/index.js",
+      "types": "./dist/frontends/sql-format/index.d.ts",
+      "default": "./dist/frontends/sql-format/index.js"
+    },
+    "./core": {
+      "bun": "./src/core/index.ts",
+      "import": "./dist/core/index.js",
+      "types": "./dist/core/index.d.ts",
+      "default": "./dist/core/index.js"
+    },
+    "./policy": {
+      "bun": "./src/policy/policy.ts",
+      "import": "./dist/policy/policy.js",
+      "types": "./dist/policy/policy.d.ts",
+      "default": "./dist/policy/policy.js"
+    },
+    "./integrations": {
+      "bun": "./src/integrations/index.ts",
+      "import": "./dist/integrations/index.js",
+      "types": "./dist/integrations/index.d.ts",
+      "default": "./dist/integrations/index.js"
     }
   },
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "check-types": "tsc --noEmit",
-    "docs": "typedoc",
     "format-and-lint": "oxfmt --check . && oxlint --deny-warnings",
     "format-and-lint:fix": "oxfmt . && oxlint --fix",
     "knip": "knip",
-    "pgdelta": "bun src/cli/bin/cli.ts",
-    "sync-base-images": "bun scripts/sync-supabase-base-images.ts",
-    "test": "bun scripts/run-tests.ts",
-    "test:unit": "bun run test src/",
-    "test:integration": "bun run test tests/",
-    "update-empty-baseline": "bun scripts/update-empty-catalog-baseline.ts",
-    "version": "changeset version && bun install --no-frozen-lockfile && bun run format-and-lint:fix"
+    "pgdelta": "bun src/cli/main.ts",
+    "test": "bun scripts/run-tests.ts src/",
+    "test:integration": "bun scripts/run-tests.ts tests/",
+    "test:all": "bun scripts/run-tests.ts src/ tests/",
+    "docker:clean": "bun scripts/clean-testcontainers.ts",
+    "sync-base-images": "bun scripts/sync-supabase-base-images.ts"
   },
   "dependencies": {
-    "@stricli/core": "^1.2.4",
-    "@supabase/pg-topo": "^1.0.0-alpha.3",
-    "@ts-safeql/sql-tag": "^0.2.0",
-    "chalk": "^5.6.2",
     "debug": "^4.3.7",
     "pg": "^8.17.2",
-    "picomatch": "^4.0.3",
-    "zod": "^4.2.1"
+    "pg-connection-string": "^2.13.0"
   },
   "devDependencies": {
     "@supabase/bun-istanbul-coverage": "workspace:*",
-    "@tsconfig/node-ts": "^23.6.2",
-    "@tsconfig/node24": "^24.0.3",
+    "@supabase/pg-topo": "^1.0.0-alpha.3",
     "@types/bun": "^1.3.9",
     "@types/debug": "^4.1.12",
     "@types/node": "^24.10.4",
     "@types/pg": "^8.11.10",
-    "@types/picomatch": "^4.0.2",
-    "dedent": "^1.7.1",
     "knip": "^5.75.2",
     "testcontainers": "^11.10.0",
-    "typedoc": "^0.28.17",
     "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "@supabase/pg-topo": "^1.0.0-alpha.3"
+  },
+  "peerDependenciesMeta": {
+    "@supabase/pg-topo": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=20.0.0"

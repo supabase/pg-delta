@@ -1,0 +1,20 @@
+{
+  "a-to-b": {
+    "require": ["alter:column"],
+    "forbid": ["replacement:column", "replacement:table"],
+    "expectedFailure": {
+      "assertion": "require:alter:column",
+      "issue": "https://github.com/supabase/pg-toolbelt/issues/332",
+      "reason": "column STORAGE is not extracted, so the planner sees no delta"
+    }
+  },
+  "b-to-a": {
+    "require": ["alter:column"],
+    "forbid": ["replacement:column", "replacement:table"],
+    "expectedFailure": {
+      "assertion": "require:alter:column",
+      "issue": "https://github.com/supabase/pg-toolbelt/issues/332",
+      "reason": "column STORAGE is not extracted, so the planner sees no delta"
+    }
+  }
+}

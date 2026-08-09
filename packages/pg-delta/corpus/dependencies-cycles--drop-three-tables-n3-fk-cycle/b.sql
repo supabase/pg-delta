@@ -1,0 +1,1 @@
+-- state B: all three tables dropped

@@ -1,0 +1,1 @@
+-- state A: no FDW or server

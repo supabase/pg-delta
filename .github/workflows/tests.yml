@@ -109,8 +109,18 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
+      # pg-delta type-checks its optional @supabase/pg-topo peer through the
+      # `types` field (dist/*.d.ts), which is gitignored and not produced by
+      # install. Build it so the sql-order reorder assist type-checks.
+      - name: Build @supabase/pg-topo (provides .d.ts for the type check)
+        if: needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
+        working-directory: packages/pg-topo
+        run: bun run build
       - name: Check types (pg-delta)
-        if: needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true'
+        # pg-delta imports @supabase/pg-topo at runtime, so a pg-topo change
+        # (e.g. an exported-type or ordering-contract change) must re-run
+        # pg-delta's suites even when no packages/pg-delta/** file changed.
+        if: needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
         run: bun run --filter '@supabase/pg-delta' check-types
       - name: Check types (pg-topo)
         if: needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
@@ -128,6 +138,13 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
+      # pg-delta type-checks its optional @supabase/pg-topo peer through the
+      # `types` field (dist/*.d.ts), which is gitignored and not produced by
+      # install. oxlint-tsgolint does real type-checking, so it needs the same
+      # build the check-types job requires.
+      - name: Build @supabase/pg-topo (provides .d.ts for oxlint-tsgolint)
+        working-directory: packages/pg-topo
+        run: bun run build
       - name: Format and lint
         run: bun run format-and-lint
       - name: Test contribution gate
@@ -156,10 +173,11 @@ jobs:
     if: >-
       needs.detect-changes.outputs.is-release-pr != 'true' &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
+      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-delta: Unit tests"
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -167,251 +185,92 @@ jobs:
         uses: ./.github/actions/setup
       - name: Run unit tests
         working-directory: packages/pg-delta
-        env:
-          BUN_COVERAGE: "1"
-          NYC_OUTPUT_DIR: ${{ github.workspace }}/packages/pg-delta/.nyc_output
-        run: bun run test:unit
-      - name: Upload coverage
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: coverage-pg-delta-unit
-          path: packages/pg-delta/.nyc_output/
-          retention-days: 1
-          include-hidden-files: true
+        run: bun test src/
 
-  pg-delta-test-image-hash:
+  pg-delta-corpus:
     if: >-
       needs.detect-changes.outputs.is-release-pr != 'true' &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
+      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
-    name: "pg-delta: Compute test image hash"
+    name: "pg-delta: Corpus (PG ${{ matrix.postgres_version }}, shard ${{ matrix.shard }})"
     runs-on: ubuntu-latest
-    outputs:
-      hash: ${{ steps.hash.outputs.hash }}
-      can_push: ${{ steps.context.outputs.can_push }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Compute content hash
-        id: hash
-        # Hash both the Dockerfile and the file owning ALPINE_TAG_FOR_PG_MAJOR
-        # so a change to either produces a fresh image tag without colliding
-        # with previously-published ones. (Alpine tags live in alpine-tags.ts
-        # alone so unrelated edits to postgres-alpine.ts do not bump the hash.)
-        run: |
-          HASH=$(cat \
-            packages/pg-delta/tests/dummy-seclabel.Dockerfile \
-            packages/pg-delta/tests/alpine-tags.ts \
-            | sha256sum | cut -c1-12)
-          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
-      - name: Resolve build/push capability
-        id: context
-        # Forked PRs cannot push to GHCR (no write token), so they fall back
-        # to building the image inline inside `buildPostgresTestImage`.
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ] && \
-             [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
-            echo "can_push=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "can_push=true" >> "$GITHUB_OUTPUT"
-          fi
-
-  pg-delta-build-test-images:
-    if: >-
-      needs.pg-delta-test-image-hash.outputs.can_push == 'true'
-    needs:
-      - detect-changes
-      - pg-delta-test-image-hash
-    name: "pg-delta: Build test image (PG ${{ matrix.postgres_version }})"
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      packages: write
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        # Keep `alpine_tag` in sync with `ALPINE_TAG_FOR_PG_MAJOR` in
-        # `packages/pg-delta/tests/alpine-tags.ts`. The hash job picks
-        # up changes to Dockerfile or alpine-tags so a forgotten update
-        # produces a fresh tag rather than reusing a stale image.
-        include:
-          - postgres_version: 15
-            alpine_tag: "3.19"
-            pg_branch: REL_15_STABLE
-          - postgres_version: 17
-            alpine_tag: "3.23"
-            pg_branch: REL_17_STABLE
-          - postgres_version: 18
-            alpine_tag: "3.23"
-            pg_branch: REL_18_STABLE
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Login to GHCR
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
-        with:
-          timeout_minutes: 2
-          max_attempts: 3
-          retry_wait_seconds: 5
-          # Defensive against the same GHCR auth flake that bites the
-          # shard runners — see `pg-delta-integration` below.
-          command: |
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: Resolve image reference
-        id: ref
-        run: |
-          REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          IMAGE="ghcr.io/${REPO_LC}/pg-delta-test:${{ matrix.postgres_version }}-${{ needs.pg-delta-test-image-hash.outputs.hash }}"
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-      - name: Check if image already published
-        id: probe
-        # `docker manifest inspect` is read-only and avoids re-running the
-        # build (and its `apk add alpine-sdk` + source compile) when the
-        # Dockerfile hasn't changed since the last main-branch run.
-        run: |
-          if docker manifest inspect "${{ steps.ref.outputs.image }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Set up Docker Buildx
-        if: steps.probe.outputs.exists != 'true'
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-      - name: Build and push
-        if: steps.probe.outputs.exists != 'true'
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
-        with:
-          context: packages/pg-delta/tests
-          file: packages/pg-delta/tests/dummy-seclabel.Dockerfile
-          push: true
-          tags: ${{ steps.ref.outputs.image }}
-          build-args: |
-            PG_MAJOR=${{ matrix.postgres_version }}
-            PG_BRANCH=${{ matrix.pg_branch }}
-            ALPINE_TAG=${{ matrix.alpine_tag }}
-          cache-from: type=gha,scope=pg-delta-test-${{ matrix.postgres_version }}
-          cache-to: type=gha,mode=max,scope=pg-delta-test-${{ matrix.postgres_version }}
-
-  pg-delta-integration:
-    if: >-
-      needs.detect-changes.outputs.is-release-pr != 'true' &&
-      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true') &&
-      !cancelled() &&
-      (
-        needs.pg-delta-build-test-images.result == 'success' ||
-        (
-          needs.pg-delta-build-test-images.result == 'skipped' &&
-          needs.pg-delta-test-image-hash.outputs.can_push != 'true'
-        )
-      )
-    needs:
-      - detect-changes
-      - pg-delta-test-image-hash
-      - pg-delta-build-test-images
-    name: "pg-delta: Integration (PG ${{ matrix.postgres_version }}, shard ${{ matrix.shard_index }}/${{ matrix.shard_total }})"
-    runs-on: ubuntu-latest
-    timeout-minutes: 14
-    permissions:
-      contents: read
-      packages: read
-    strategy:
-      fail-fast: false
-      matrix:
-        postgres_version: [15, 17, 18]
-        shard_index: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-        shard_total: [15]
+        postgres_version: ["14", "15", "16", "17", "18"]
+        shard: ["0/4", "1/4", "2/4", "3/4"]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
-      - name: Login to GHCR
-        if: needs.pg-delta-test-image-hash.outputs.can_push == 'true'
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
-        with:
-          timeout_minutes: 2
-          max_attempts: 3
-          retry_wait_seconds: 5
-          # GHCR's API is occasionally flaky for anonymous-token logins
-          # (`context deadline exceeded` on `ghcr.io/v2/`). The shard had
-          # nothing else to do at this point, so retry the auth round-trip
-          # instead of failing the whole job.
-          command: |
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: Pull prebuilt test image
-        # On forked PRs `can_push=false` and we let `buildPostgresTestImage`
-        # build the image inline at test time (current behavior). On main
-        # and same-repo PRs we pull the prebuilt image and retag it as
-        # `pg-delta-test:<major>` so the existing test code (which keys
-        # off that tag prefix) finds it via `image.exists` and skips the
-        # docker build entirely.
-        if: needs.pg-delta-test-image-hash.outputs.can_push == 'true'
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
-        with:
-          timeout_minutes: 3
-          max_attempts: 3
-          retry_wait_seconds: 5
-          # Same GHCR flake category as the login step above — `docker pull`
-          # can hit `Client.Timeout exceeded while awaiting headers` from
-          # `pkg-containers.githubusercontent.com`. Retry rather than fail.
-          command: |
-            REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-            REMOTE="ghcr.io/${REPO_LC}/pg-delta-test:${{ matrix.postgres_version }}-${{ needs.pg-delta-test-image-hash.outputs.hash }}"
-            LOCAL="pg-delta-test:${{ matrix.postgres_version }}"
-            docker pull "$REMOTE"
-            docker tag "$REMOTE" "$LOCAL"
-      - name: Run integration tests (shard)
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          command: |
-            cd packages/pg-delta
-            ALL_FILES=$(find tests/ -name "*.test.ts" | sort)
-            TOTAL=${{ matrix.shard_total }}
-            INDEX=$(( ${{ matrix.shard_index }} - 1 ))
-            SHARD_FILES=$(echo "$ALL_FILES" | awk "NR % $TOTAL == $INDEX")
-            if [ -z "$SHARD_FILES" ]; then
-              echo "No test files for this shard, skipping"
-              exit 0
-            fi
-            echo "Running shard ${{ matrix.shard_index }}/$TOTAL with files:"
-            echo "$SHARD_FILES"
-            echo "$SHARD_FILES" | xargs bun run test
+      - name: Corpus proof loop (both directions)
+        working-directory: packages/pg-delta
         env:
-          PGDELTA_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
-          BUN_COVERAGE: "1"
-          NYC_OUTPUT_DIR: ${{ github.workspace }}/packages/pg-delta/.nyc_output
-      - name: Upload coverage
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: coverage-integration-pg${{ matrix.postgres_version }}-shard-${{ matrix.shard_index }}
-          path: packages/pg-delta/.nyc_output/
-          retention-days: 1
-          include-hidden-files: true
+          PGDELTA_TEST_IMAGE: postgres:${{ matrix.postgres_version }}-alpine
+          PGDELTA_NEXT_SHARD: ${{ matrix.shard }}
+        run: bun test tests/engine.test.ts
 
+  pg-delta-integration:
+    if: >-
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
+      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
+    needs: detect-changes
+    name: "pg-delta: Integration (PG ${{ matrix.postgres_version }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres_version: ["14", "15", "16", "17", "18"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Run integration tests (everything except the corpus proof loop)
+        working-directory: packages/pg-delta
+        env:
+          PGDELTA_TEST_IMAGE: postgres:${{ matrix.postgres_version }}-alpine
+        run: |
+          # The corpus proof loop (engine.test.ts) runs in its own sharded job.
+          find tests -maxdepth 1 -name '*.test.ts' ! -name 'engine.test.ts' \
+            | sort | xargs bun test
+
+  # Stable status-check names for branch protection. The integration/corpus
+  # matrices produce per-version/per-shard job names that are unstable to
+  # require directly, so these aggregators expose a fixed pass/fail signal.
   pg-delta-integration-pg15-compat:
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     needs:
-      - pg-delta-build-test-images
+      # detect-changes must be a direct dependency so this aggregator can tell
+      # "no pg-delta changes → matrices legitimately skipped" (stay green) apart
+      # from "detect-changes itself FAILED → matrices skipped through unmet needs"
+      # (must fail). Without it the always() gate below accepts the skipped
+      # matrices as success and the aggregator goes green on a broken run.
+      - detect-changes
+      - pg-delta-corpus
       - pg-delta-integration
     name: "pg-delta: Integration (PostgreSQL 15)"
     runs-on: ubuntu-latest
     steps:
-      - name: Validate prebuilt test image status
-        # A failed prebuild silently skips the integration matrix, which
-        # would otherwise look indistinguishable from "no pg-delta changes
-        # to test". Surface the failure here so the aggregator turns red.
+      - name: Validate detect-changes result
+        # A failed/cancelled detect-changes skips the matrices through unmet
+        # needs; that must fail the aggregator rather than pass on the skips
+        # below. A successful/skipped detect-changes (no pg-delta changes) is a
+        # legitimate skip and stays green.
         run: |
-          if [ "${{ needs.pg-delta-build-test-images.result }}" != "success" ] && [ "${{ needs.pg-delta-build-test-images.result }}" != "skipped" ]; then
-            echo "Prebuilt test image status: ${{ needs.pg-delta-build-test-images.result }}"
+          if [ "${{ needs.detect-changes.result }}" == "failure" ] || [ "${{ needs.detect-changes.result }}" == "cancelled" ]; then
+            echo "detect-changes result: ${{ needs.detect-changes.result }}"
+            exit 1
+          fi
+      - name: Validate corpus matrix status
+        run: |
+          if [ "${{ needs.pg-delta-corpus.result }}" != "success" ] && [ "${{ needs.pg-delta-corpus.result }}" != "skipped" ]; then
+            echo "Corpus matrix status: ${{ needs.pg-delta-corpus.result }}"
             exit 1
           fi
       - name: Validate integration matrix status
@@ -424,15 +283,31 @@ jobs:
   pg-delta-integration-pg17-compat:
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     needs:
-      - pg-delta-build-test-images
+      # detect-changes must be a direct dependency so this aggregator can tell
+      # "no pg-delta changes → matrices legitimately skipped" (stay green) apart
+      # from "detect-changes itself FAILED → matrices skipped through unmet needs"
+      # (must fail). Without it the always() gate below accepts the skipped
+      # matrices as success and the aggregator goes green on a broken run.
+      - detect-changes
+      - pg-delta-corpus
       - pg-delta-integration
     name: "pg-delta: Integration (PostgreSQL 17)"
     runs-on: ubuntu-latest
     steps:
-      - name: Validate prebuilt test image status
+      - name: Validate detect-changes result
+        # A failed/cancelled detect-changes skips the matrices through unmet
+        # needs; that must fail the aggregator rather than pass on the skips
+        # below. A successful/skipped detect-changes (no pg-delta changes) is a
+        # legitimate skip and stays green.
         run: |
-          if [ "${{ needs.pg-delta-build-test-images.result }}" != "success" ] && [ "${{ needs.pg-delta-build-test-images.result }}" != "skipped" ]; then
-            echo "Prebuilt test image status: ${{ needs.pg-delta-build-test-images.result }}"
+          if [ "${{ needs.detect-changes.result }}" == "failure" ] || [ "${{ needs.detect-changes.result }}" == "cancelled" ]; then
+            echo "detect-changes result: ${{ needs.detect-changes.result }}"
+            exit 1
+          fi
+      - name: Validate corpus matrix status
+        run: |
+          if [ "${{ needs.pg-delta-corpus.result }}" != "success" ] && [ "${{ needs.pg-delta-corpus.result }}" != "skipped" ]; then
+            echo "Corpus matrix status: ${{ needs.pg-delta-corpus.result }}"
             exit 1
           fi
       - name: Validate integration matrix status
@@ -442,14 +317,41 @@ jobs:
             exit 1
           fi
 
+  pg-topo-tests:
+    if: >-
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
+      (needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
+    needs: detect-changes
+    name: "pg-topo: Tests"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Run tests
+        working-directory: packages/pg-topo
+        env:
+          BUN_COVERAGE: "1"
+          NYC_OUTPUT_DIR: ${{ github.workspace }}/packages/pg-topo/.nyc_output
+        run: bun run test
+      - name: Upload coverage
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: coverage-pg-topo
+          path: packages/pg-topo/.nyc_output/
+          retention-days: 1
+          include-hidden-files: true
+
   coverage:
     if: >-
       !cancelled() &&
-      (needs.pg-delta-unit.result != 'skipped' || needs.pg-delta-integration.result != 'skipped' || needs.pg-topo-tests.result != 'skipped')
+      needs.pg-topo-tests.result != 'skipped'
     continue-on-error: true
     needs:
-      - pg-delta-unit
-      - pg-delta-integration
       - pg-topo-tests
     name: "Coverage report"
     runs-on: ubuntu-latest
@@ -512,35 +414,6 @@ jobs:
           name: coverage-report
           path: .coverage-artifacts/
           retention-days: 30
-          include-hidden-files: true
-
-  pg-topo-tests:
-    if: >-
-      needs.detect-changes.outputs.is-release-pr != 'true' &&
-      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      (needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
-    needs: detect-changes
-    name: "pg-topo: Tests"
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Setup
-        uses: ./.github/actions/setup
-      - name: Run tests
-        working-directory: packages/pg-topo
-        env:
-          BUN_COVERAGE: "1"
-          NYC_OUTPUT_DIR: ${{ github.workspace }}/packages/pg-topo/.nyc_output
-        run: bun run test
-      - name: Upload coverage
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: coverage-pg-topo
-          path: packages/pg-topo/.nyc_output/
-          retention-days: 1
           include-hidden-files: true
 
   deno2-library-e2e:

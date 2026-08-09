@@ -1,0 +1,1 @@
+-- Empty state: every object from a.sql is dropped in dependency order.

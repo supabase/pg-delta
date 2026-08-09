@@ -1,13 +1,22 @@
 {
-  "extends": [
-    "@tsconfig/node24/tsconfig.json",
-    "@tsconfig/node-ts/tsconfig.json"
-  ],
   "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "declaration": true,
+    "skipLibCheck": true,
     "outDir": "./dist",
-    "declaration": true
+    "rootDir": "./src",
+    "noEmit": false
   },
-  "rootDir": "./src",
-  "include": ["./src"],
-  "exclude": ["**/*.test.ts", "src/typedoc.ts"]
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/typedoc.ts"]
 }

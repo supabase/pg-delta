@@ -1,0 +1,1 @@
+INSERT INTO t.profiles (id, role) VALUES ('11111111-1111-1111-1111-111111111111', 'admin');

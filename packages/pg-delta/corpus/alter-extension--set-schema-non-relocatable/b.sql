@@ -1,0 +1,3 @@
+CREATE SCHEMA schema_b;
+
+CREATE EXTENSION xml2 SCHEMA schema_b;

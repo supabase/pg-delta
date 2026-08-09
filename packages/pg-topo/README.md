@@ -21,6 +21,23 @@ Execution order then becomes fragile:
 
 `pg-topo` performs static analysis over SQL ASTs, builds a dependency graph, and returns the sorted order plus diagnostics.
 
+## Role: an advisory dev-layer assist
+
+`pg-topo` is **advisory** static analysis, never a trusted source of truth. Its
+`ObjectRef` identity is approximate and it cannot resolve fundamentally
+runtime-only cases, so consumers must treat its order and diagnostics as a
+best-effort aid, not a guarantee.
+
+Its primary consumer is [`@supabase/pg-delta`](../pg-delta), which uses
+it as the **statement reordering assist for shadow loading**: it splits and
+pre-sorts declarative SQL files so an ephemeral shadow database converges in
+fewer rounds, while Postgres remains the actual elaborator
+([target-architecture §4.4.1](../../docs/architecture/target-architecture.md)).
+pg-delta declares pg-topo an _optional peer dependency_ and loads it through
+a guarded dynamic `import()`, so the assist degrades cleanly when pg-topo is
+absent — it can only fail to _build_ the shadow (a visible error), never corrupt
+the extracted schema.
+
 ## Current Scope
 
 - Pure library API (no CLI yet, no filesystem dependency in core)

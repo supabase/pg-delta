@@ -1,0 +1,1 @@
+-- state A: nothing exists

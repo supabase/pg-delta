@@ -1,0 +1,1 @@
+-- empty: sequence + table whose default references it (ordering test)

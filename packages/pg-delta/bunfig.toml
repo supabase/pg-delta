@@ -1,27 +1,6 @@
-# KNOWN BUG: Bun ignores [test] settings in bunfig.toml (oven-sh/bun#17664, oven-sh/bun#7789).
-# All test config is applied via CLI flags in package.json scripts instead.
-# Kept here for documentation / when the bug is fixed.
-
 [test]
-preload = ["./tests/global-setup.ts"]
-timeout = 15000
-# concurrentTestGlob = "tests/integration/*.test.ts"
-coverageSkipTestFiles = true
-coveragePathIgnorePatterns = [
-  # Test infrastructure (helpers, container management, roundtrip harness)
-  "tests/constants.ts",
-  "tests/container-manager.ts",
-  "tests/global-setup.ts",
-  "tests/integration/roundtrip.ts",
-  "tests/postgres-alpine.ts",
-  "tests/postgres-ssl.ts",
-  "tests/ssl-utils.ts",
-  "tests/supabase-postgres.ts",
-  "tests/utils.ts",
-  # Abstract base classes (0% funcs by design, no runtime logic)
-  "**/changes/*.base.ts",
-  # Debug-only visualization (gated behind DEBUG=pg-delta:graph)
-  "src/core/sort/debug-visualization.ts",
-  # Separate package leaking into report
-  "../pg-topo/**",
-]
+# Guard the test process against stray process.exit() calls in in-process code
+# (CLI command handlers must throw and let main() be the sole exiter). See
+# tests/no-process-exit-guard.ts. Applies only to `bun test`, so subprocess CLI
+# runs (Bun.spawn ["bun", main.ts, …]) keep their real exit codes.
+preload = ["./tests/no-process-exit-guard.ts"]

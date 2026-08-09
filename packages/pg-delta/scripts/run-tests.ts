@@ -1,13 +1,17 @@
 /**
- * Test runner that resolves global-setup and test paths from this script's
- * location, so `bun run test` works correctly whether invoked from the
- * package directory or from the monorepo root (e.g. via `bun run --filter '*' test`).
+ * Test runner wrapper. With `BUN_COVERAGE` unset it is a transparent
+ * passthrough to `bun test <args>`, so `bun run test` / `test:integration` /
+ * `test:all` behave exactly as a bare `bun test src/` etc. When `BUN_COVERAGE=1`
+ * it injects the `@supabase/bun-istanbul-coverage` preload so source files are
+ * Istanbul-instrumented and per-process coverage JSON is written to
+ * `NYC_OUTPUT_DIR` (consumed by `nyc report` via the root `bun run coverage`).
+ *
+ * This mirrors `packages/pg-topo/scripts/run-tests.ts`. pg-delta tests manage
+ * their own containers (`tests/containers.ts`) and need no global-setup preload,
+ * so the wrapper adds nothing else — CI keeps invoking `bun test` directly.
  */
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const pkgRoot = join(import.meta.dir, "..");
-const globalSetup = join(pkgRoot, "tests", "global-setup.ts");
 const args = process.argv.slice(2);
 
 const coveragePreload = fileURLToPath(
@@ -17,30 +21,9 @@ const coverageArgs =
   process.env.BUN_COVERAGE === "1" ? ["--preload", coveragePreload] : [];
 
 const proc = Bun.spawn({
-  cmd: [
-    "bun",
-    "test",
-    ...coverageArgs,
-    "--preload",
-    globalSetup,
-    "--concurrent",
-    "--timeout",
-    "30000",
-    "--max-concurrency",
-    "3",
-    "--retry=5",
-    ...args,
-  ],
-  cwd: pkgRoot,
+  cmd: ["bun", "test", ...coverageArgs, ...args],
+  cwd: fileURLToPath(new URL("..", import.meta.url)),
   stdio: ["inherit", "inherit", "inherit"],
-  env: {
-    // Limit the number of pool connections to 1 to avoid overwhelming the alpine containers
-    // on local dev
-    PGDELTA_POOL_MAX: "1",
-    PGDELTA_CONNECTION_TIMEOUT_MS: "2000",
-    PGDELTA_CONNECT_TIMEOUT_MS: "2000",
-    ...process.env,
-  },
 });
 
 const exitCode = await proc.exited;

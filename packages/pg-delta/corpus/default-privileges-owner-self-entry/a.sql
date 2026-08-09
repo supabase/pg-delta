@@ -1,0 +1,1 @@
+-- state A: empty — no roles, no schemas, no default privileges

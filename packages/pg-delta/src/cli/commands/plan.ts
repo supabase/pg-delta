@@ -1,256 +1,236 @@
 /**
- * Plan command - compute schema diff and preview changes.
+ * plan --source <pg-url> --desired <pg-url>
+ *      [--renames auto|prompt|off] [--no-compact] [--out <plan.json>]
+ *      [--accept-rename <from>=<to>] (repeatable)
+ *
+ * Extract both databases, plan, write serializePlan to --out (default stdout).
+ * Print a human summary to stderr: action count, safety report, rename
+ * candidates (prompt-mode candidates listed as questions with from/to),
+ * filtered-delta count.
+ *
+ * --accept-rename <from>=<to>
+ *   Confirm one rename candidate identified during a prior --renames prompt run.
+ *   <from> and <to> are the encoded stable-ids printed in the prompt output
+ *   (e.g. table:public.users).  Repeatable; each flag names one confirmed rename.
+ *   In prompt mode, accepted renames become real renames; unconfirmed unambiguous
+ *   candidates are treated as drop+create.
  */
+import { plan } from "../../plan/plan.ts";
+import { serializePlan } from "../../plan/artifact.ts";
+import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
+import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
+import { makePool } from "../pool.ts";
+import { parseFlags, UsageError } from "../flags.ts";
+import { PROFILE_IDS, resolveCliProfile } from "../profile.ts";
+import type { RenameMode } from "../../plan/renames.ts";
+import { writeFileSync } from "node:fs";
+import {
+  connectionEndpointHash,
+  databaseIdentityObservationUnavailableCode,
+  databaseIdentityStamp,
+  observeDatabaseIdentity,
+  type DatabaseIdentityObservationUnavailableCode,
+} from "../connection-safety.ts";
 
-import { mkdir, readdir, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { buildCommand, type CommandContext } from "@stricli/core";
-import { deserializeCatalog } from "../../core/catalog.snapshot.ts";
-import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
-import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
-import { createPlan } from "../../core/plan/index.ts";
-import { renderPlanFiles } from "../../core/plan/render.ts";
-import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
-import { setCommandExitCode } from "../exit-code.ts";
-import { resolveIntegrationOptions } from "../utils/integrations.ts";
-import { isPostgresUrl, loadCatalogFromFile } from "../utils/resolve-input.ts";
-import { formatPlanForDisplay } from "../utils.ts";
+const USAGE =
+  "Usage: pgdelta plan --source <pg-url> --desired <pg-url> " +
+  `[--profile ${PROFILE_IDS}] ` +
+  "[--renames auto|prompt|off] [--no-compact] [--out <plan.json>] " +
+  "[--accept-rename <from>=<to>] ... [--restrict-to-applier] [--strict-coverage] " +
+  "[--unsafe-show-secrets]\n";
 
-export const planCommand = buildCommand({
-  parameters: {
-    flags: {
-      source: {
-        kind: "parsed",
-        brief:
-          "Source (current state): postgres URL or catalog snapshot file path. Omit for empty baseline.",
-        parse: String,
-        optional: true,
-      },
-      target: {
-        kind: "parsed",
-        brief:
-          "Target (desired state): postgres URL or catalog snapshot file path",
-        parse: String,
-      },
-      format: {
-        kind: "enum",
-        brief: "Output format override: json (plan) or sql (script).",
-        values: ["json", "sql"] as const,
-        optional: true,
-      },
-      output: {
-        kind: "parsed",
-        brief:
-          "Write output to file (stdout by default). If format is not set: .sql infers sql, .json infers json, otherwise uses human output.",
-        parse: String,
-        optional: true,
-      },
-      "output-dir": {
-        kind: "parsed",
-        brief:
-          "Write numbered SQL migration files to a directory using transaction-aware plan units.",
-        parse: String,
-        optional: true,
-      },
-      role: {
-        kind: "parsed",
-        brief:
-          "Role to use when executing the migration (SET ROLE will be added to statements).",
-        parse: String,
-        optional: true,
-      },
-      filter: {
-        kind: "parsed",
-        brief:
-          'Filter DSL as inline JSON to filter changes (e.g., \'{"schema":"public"}\').',
-        parse: (value: string): FilterDSL => {
-          try {
-            return JSON.parse(value) as FilterDSL;
-          } catch (error) {
-            throw new Error(
-              `Invalid filter JSON: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        },
-        optional: true,
-      },
-      serialize: {
-        kind: "parsed",
-        brief:
-          'Serialize DSL as inline JSON array (e.g., \'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]\').',
-        parse: (value: string): SerializeDSL => {
-          try {
-            return JSON.parse(value) as SerializeDSL;
-          } catch (error) {
-            throw new Error(
-              `Invalid serialize JSON: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        },
-        optional: true,
-      },
-      integration: {
-        kind: "parsed",
-        brief:
-          "Integration name (e.g., 'supabase') or path to integration JSON file (must end with .json). Loads from core/integrations/ or file path.",
-        parse: String,
-        optional: true,
-      },
-      "sql-format": {
-        kind: "boolean",
-        brief: "Format SQL output (opt-in for --format sql or .sql output).",
-        optional: true,
-      },
-      "sql-format-options": {
-        kind: "parsed",
-        brief:
-          'SQL format options as inline JSON (e.g., \'{"keywordCase":"upper","maxWidth":100}\').',
-        parse: (value: string): SqlFormatOptions => {
-          try {
-            return JSON.parse(value) as SqlFormatOptions;
-          } catch (error) {
-            throw new Error(
-              `Invalid SQL format JSON: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        },
-        optional: true,
-      },
-    },
-    aliases: {
-      s: "source",
-      t: "target",
-      o: "output",
-    },
-  },
-  docs: {
-    brief: "Compute schema diff and preview changes",
-    fullDescription: `
-Compute the schema diff between two PostgreSQL databases (source → target),
-and preview it for review or scripting. Defaults to tree display;
-json/sql outputs are available for artifacts or piping.
-    `.trim(),
-  },
-  async func(
-    this: CommandContext,
-    flags: {
-      source?: string;
-      target: string;
-      format?: "json" | "sql";
-      output?: string;
-      "output-dir"?: string;
-      role?: string;
-      filter?: FilterDSL;
-      serialize?: SerializeDSL;
-      integration?: string;
-      "sql-format"?: boolean;
-      "sql-format-options"?: SqlFormatOptions;
-    },
-  ) {
-    const {
-      filter,
-      serialize,
-      emptyCatalog: integrationEmptyCatalog,
-    } = await resolveIntegrationOptions({
-      filter: flags.filter,
-      serialize: flags.serialize,
-      integration: flags.integration,
+export function formatPlanIdentityWarning(
+  code: DatabaseIdentityObservationUnavailableCode,
+): string {
+  if (code === "42883") {
+    return (
+      "WARNING: plan could not observe the source PostgreSQL lineage/database identity because " +
+      "pg_catalog.pg_control_system() is unavailable on this server. The plan remains applicable, " +
+      "but CLI prove will require --allow-unverified-source-identity. To retain verified identity " +
+      "checks, re-plan against a PostgreSQL server that provides pg_catalog.pg_control_system().\n"
+    );
+  }
+  return (
+    "WARNING: plan could not observe the source PostgreSQL lineage/database identity. " +
+    "The plan remains applicable, but CLI prove will require " +
+    "--allow-unverified-source-identity. To retain verified identity checks, grant " +
+    "EXECUTE on pg_catalog.pg_control_system() to the connection role and re-plan.\n"
+  );
+}
+
+export async function cmdPlan(args: string[]): Promise<void> {
+  let parsed;
+  try {
+    parsed = parseFlags(args, {
+      source: { type: "value", required: true },
+      desired: { type: "value", required: true },
+      profile: { type: "value" },
+      renames: { type: "value" },
+      "no-compact": { type: "boolean" },
+      out: { type: "value" },
+      "accept-rename": { type: "multi" },
+      "restrict-to-applier": { type: "boolean" },
+      "strict-coverage": { type: "boolean" },
+      "unsafe-show-secrets": { type: "boolean" },
     });
-
-    const resolvedSource = flags.source
-      ? isPostgresUrl(flags.source)
-        ? flags.source
-        : await loadCatalogFromFile(flags.source)
-      : integrationEmptyCatalog
-        ? deserializeCatalog(integrationEmptyCatalog)
-        : null;
-
-    const resolvedTarget = isPostgresUrl(flags.target)
-      ? flags.target
-      : await loadCatalogFromFile(flags.target);
-
-    const planResult = await createPlan(resolvedSource, resolvedTarget, {
-      role: flags.role,
-      filter,
-      serialize,
-    });
-    if (!planResult) {
-      this.process.stdout.write("No changes detected.\n");
-      return;
+  } catch (err) {
+    if (err instanceof UsageError) {
+      throw new UsageError(`${err.message}\n${USAGE.trimEnd()}`);
     }
+    throw err;
+  }
 
-    if (flags.output && flags["output-dir"]) {
-      throw new Error("Use either --output or --output-dir, not both.");
-    }
+  const { flags } = parsed;
+  const sourceUrl = flags["source"];
+  const desiredUrl = flags["desired"];
+  const compact = !flags["no-compact"];
+  const outPath = flags["out"];
+  const acceptRenameRaw = flags["accept-rename"]; // string[]
 
-    if (flags["output-dir"]) {
-      await prepareOutputDirectory(flags["output-dir"]);
-      const files = renderPlanFiles(planResult.plan, {
-        sqlFormatOptions:
-          flags["sql-format"] || flags["sql-format-options"]
-            ? (flags["sql-format-options"] ?? {})
-            : undefined,
-      });
-      for (const file of files) {
-        await writeFile(
-          path.join(flags["output-dir"], file.path),
-          file.sql,
-          "utf-8",
-        );
-      }
-      this.process.stdout.write(
-        `${files.length} migration file${files.length === 1 ? "" : "s"} written to ${flags["output-dir"]}\n`,
+  // --renames default for CLI is "prompt"
+  let renames: RenameMode = "prompt";
+  if (flags["renames"] !== undefined) {
+    const v = flags["renames"];
+    if (v !== "auto" && v !== "prompt" && v !== "off") {
+      throw new UsageError(
+        `--renames must be auto, prompt, or off (got: ${v})`,
       );
-      setCommandExitCode(2);
-      return;
+    }
+    renames = v;
+  }
+
+  // parse --accept-rename <from>=<to> entries
+  const acceptRenames: Array<{ from: StableId; to: StableId }> = [];
+  for (const entry of acceptRenameRaw) {
+    const eqIdx = entry.indexOf("=");
+    if (eqIdx === -1) {
+      throw new UsageError(
+        `--accept-rename value must be in <from>=<to> form (got: ${entry})`,
+      );
+    }
+    const fromStr = entry.slice(0, eqIdx);
+    const toStr = entry.slice(eqIdx + 1);
+    try {
+      acceptRenames.push({ from: parseId(fromStr), to: parseId(toStr) });
+    } catch (e) {
+      throw new UsageError(
+        `--accept-rename: invalid stable-id in "${entry}": ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  const src = makePool(sourceUrl);
+  const dst = makePool(desiredUrl);
+  try {
+    // redaction mode is passed into profile resolution so a profile-declared
+    // baseline captured in the OTHER mode is rejected (its secret-bearing facts
+    // would hash differently and silently stop subtracting).
+    const redactSecrets = !flags["unsafe-show-secrets"];
+    // Resolve the profile against the SOURCE pool (the source is the apply
+    // target): this composes handler-aware extraction, the profile's policy +
+    // baseline, and — with --restrict-to-applier — the applier capability. All
+    // three flow into planOptions so plan == prove == apply (P0/P2).
+    const ctx = await resolveCliProfile(src.pool, flags["profile"], {
+      restrictToApplier: flags["restrict-to-applier"],
+      redactSecrets,
+    });
+
+    process.stderr.write("Extracting source...\n");
+    process.stderr.write("Extracting desired...\n");
+    const [sourceResult, desiredResult] = await Promise.all([
+      ctx.extract(src.pool, { redactSecrets }),
+      ctx.extract(dst.pool, { redactSecrets }),
+    ]);
+    let sourceIdentity;
+    try {
+      sourceIdentity = databaseIdentityStamp(
+        await observeDatabaseIdentity(src.pool),
+      );
+    } catch (error) {
+      const code = databaseIdentityObservationUnavailableCode(error);
+      if (code === undefined) throw error;
+      process.stderr.write(formatPlanIdentityWarning(code));
     }
 
-    const outputPath = flags.output;
-    let effectiveFormat: "tree" | "json" | "sql";
-    if (flags.format) {
-      effectiveFormat = flags.format;
-    } else if (outputPath?.endsWith(".sql")) {
-      effectiveFormat = "sql";
-    } else if (outputPath?.endsWith(".json")) {
-      effectiveFormat = "json";
-    } else {
-      effectiveFormat = "tree";
-    }
-
-    const { content, label } = formatPlanForDisplay(
-      planResult,
-      effectiveFormat,
+    // surface extraction diagnostics (review finding 2); --strict-coverage
+    // refuses to plan while user objects the engine cannot manage exist
+    printDiagnostics(sourceResult.diagnostics, { label: "source" });
+    printDiagnostics(desiredResult.diagnostics, { label: "desired" });
+    exitIfBlocking(
+      [...sourceResult.diagnostics, ...desiredResult.diagnostics],
       {
-        disableColors: !!outputPath,
-        showUnsafeFlagSuggestion: false,
-        sqlFormatOptions:
-          flags["sql-format"] || flags["sql-format-options"]
-            ? (flags["sql-format-options"] ?? {})
-            : undefined,
+        strictCoverage: flags["strict-coverage"],
+        action: "plan",
       },
     );
 
-    if (outputPath) {
-      await writeFile(outputPath, content, "utf-8");
-      this.process.stdout.write(`${label} written to ${outputPath}\n`);
-    } else {
-      this.process.stdout.write(content);
-      if (!content.endsWith("\n")) {
-        this.process.stdout.write("\n");
+    const planOptions = {
+      renames,
+      compact,
+      // stamp the redaction mode on the artifact so apply/prove re-extract the
+      // target identically for the fingerprint gate (an unsafe plan fingerprinted
+      // over unredacted secrets must not be gated against a redacted re-extract).
+      redactSecrets,
+      ...(acceptRenames.length > 0 ? { acceptRenames } : {}),
+      ...ctx.planOptions, // policy, capability, baseline (from the profile)
+    };
+    const thePlan = plan(
+      sourceResult.factBase,
+      desiredResult.factBase,
+      planOptions,
+    );
+    // Credential-free origin stamp: prove uses this only to reject the most
+    // dangerous endpoint mixup (`--clone` accidentally receives SOURCE_URL).
+    thePlan.source.endpointHash = connectionEndpointHash(sourceUrl);
+    if (sourceIdentity !== undefined) {
+      thePlan.source.identity = sourceIdentity;
+    }
+
+    // human summary → stderr
+    process.stderr.write(`\nPlan summary:\n`);
+    process.stderr.write(`  actions:          ${thePlan.actions.length}\n`);
+    process.stderr.write(
+      `  filtered deltas:  ${thePlan.filteredDeltas.length}\n`,
+    );
+    process.stderr.write(
+      `  destructive:      ${thePlan.safetyReport.destructiveActions}\n`,
+    );
+    process.stderr.write(
+      `  rewrite risk:     ${thePlan.safetyReport.rewriteRiskActions}\n`,
+    );
+    process.stderr.write(
+      `  non-transactional:${thePlan.safetyReport.nonTransactionalActions}\n`,
+    );
+
+    if (thePlan.renameCandidates.length > 0) {
+      process.stderr.write(`\nRename candidates:\n`);
+      for (const c of thePlan.renameCandidates) {
+        const fromStr = encodeId(c.from);
+        const toStr = encodeId(c.to);
+        if (renames === "prompt" && c.status === "unambiguous") {
+          process.stderr.write(
+            `  ? Rename ${fromStr} -> ${toStr}? (${c.status})\n`,
+          );
+          process.stderr.write(
+            `    To confirm, rerun with: --accept-rename ${fromStr}=${toStr}\n`,
+          );
+        } else {
+          process.stderr.write(
+            `  ${c.status}: ${fromStr} -> ${toStr}${c.reason ? ` (${c.reason})` : ""}\n`,
+          );
+        }
       }
     }
 
-    // Exit code 2 indicates changes were detected
-    setCommandExitCode(2);
-  },
-});
+    const json = serializePlan(thePlan);
 
-async function prepareOutputDirectory(outputDir: string): Promise<void> {
-  await mkdir(outputDir, { recursive: true });
-  const entries = await readdir(outputDir);
-  if (entries.length > 0) {
-    throw new Error(
-      `Output directory is not empty: ${outputDir}. Choose an empty directory to avoid stale migration files.`,
-    );
+    if (outPath) {
+      writeFileSync(outPath, json, "utf8");
+      process.stderr.write(`\nPlan written to ${outPath}\n`);
+    } else {
+      process.stdout.write(json + "\n");
+    }
+  } finally {
+    await Promise.all([src.end(), dst.end()]);
   }
 }

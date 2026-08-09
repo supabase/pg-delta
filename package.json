@@ -5,13 +5,12 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "bun run --filter '*' build",
+    "build": "bun run --filter '@supabase/pg-topo' build && bun run --filter '!@supabase/pg-topo' build",
     "coverage": "bun scripts/coverage.ts",
     "check-types": "bun run --filter '*' check-types",
     "format-and-lint": "oxfmt --check . && oxlint --deny-warnings",
     "format-and-lint:fix": "oxfmt . && oxlint --fix",
     "knip": "bun run --filter '*' knip",
-    "docs:pg-delta": "bun run --filter '@supabase/pg-delta' docs",
     "test:contribution-gate": "bun test ./.github/scripts/contribution-gate.test.ts",
     "test:pg-delta": "bun run --filter '@supabase/pg-delta' test",
     "test:pg-topo": "bun run --filter '@supabase/pg-topo' test",

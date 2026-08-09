@@ -1,13 +1,21 @@
 /**
- * Local coverage runner: runs pg-topo, pg-delta unit, and pg-delta integration
- * shards with Istanbul instrumentation, then generates reports via nyc.
+ * Local coverage runner: runs pg-topo and pg-delta test suites with Istanbul
+ * instrumentation (via each package's `BUN_COVERAGE`-aware `run-tests.ts`), then
+ * generates a merged report via nyc.
  *
- * Usage: bun run coverage [--pg-versions 15,17] [--shards 15] [--skip-tests]
+ * Coverage is produced by the `@supabase/bun-istanbul-coverage` preload, which
+ * instruments the source globs in `.nycrc.json` and writes per-process JSON to
+ * `NYC_OUTPUT_DIR`. nyc then merges every `.nyc_output/*.json` into one report.
+ *
+ * Usage: bun run coverage [--pg-image postgres:17-alpine] [--unit-only] [--skip-tests]
  *
  * Options:
- *   --pg-versions  Comma-separated PG versions for integration (default: 17)
- *   --shards       Number of integration shards (default: 15)
- *   --skip-tests   Use existing .nyc_output only; no test runs (report only)
+ *   --pg-image    PostgreSQL image for pg-delta integration + corpus
+ *                 (default: engine/container default; forwarded as PGDELTA_TEST_IMAGE)
+ *   --unit-only   Skip pg-delta's slow integration + corpus suites; run only
+ *                 pg-delta src/ unit tests plus the pg-topo suite. (pg-topo has
+ *                 no no-Docker subset, so a Docker daemon is still required.)
+ *   --skip-tests  Use existing .nyc_output only; no test runs (report only)
  */
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm } from "node:fs/promises";
@@ -41,54 +49,38 @@ async function run(
   return proc.exited;
 }
 
-async function listPgDeltaTestFiles(): Promise<string[]> {
-  const files: string[] = [];
-  async function walk(dir: string, prefix: string) {
-    const entries = await readdir(dir, { withFileTypes: true });
-    for (const e of entries) {
-      const rel = `${prefix}${e.name}`;
-      if (e.isDirectory()) {
-        await walk(join(dir, e.name), `${rel}/`);
-      } else if (e.name.endsWith(".test.ts")) {
-        files.push(rel);
-      }
-    }
-  }
-  await walk(join(pgDeltaRoot, "tests"), "tests/");
-  files.sort();
-  return files;
-}
-
 function parseArgs() {
   const args = process.argv.slice(2);
-  let pgVersions = [17];
-  let shards = 15;
+  let pgImage: string | undefined;
+  let unitOnly = false;
   let skipTests = false;
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--pg-versions" && args[i + 1]) {
-      pgVersions = args[++i].split(",").map((v) => Number(v.trim()));
-      if (pgVersions.some((v) => Number.isNaN(v)))
-        fail("--pg-versions must be comma-separated numbers (e.g. 15,17)");
-    } else if (args[i] === "--shards" && args[i + 1]) {
-      shards = Number(args[++i]);
-      if (Number.isNaN(shards) || shards < 1)
-        fail("--shards must be a positive number");
+    if (args[i] === "--pg-image" && args[i + 1]) {
+      pgImage = args[++i];
+    } else if (args[i] === "--unit-only") {
+      unitOnly = true;
     } else if (args[i] === "--skip-tests") {
       skipTests = true;
     }
   }
 
-  return { pgVersions, shards, skipTests };
+  return { pgImage, unitOnly, skipTests };
 }
 
-const coverageEnv = { BUN_COVERAGE: "1", NYC_OUTPUT_DIR: nycOutputDir };
-
 async function main(): Promise<void> {
-  const { pgVersions, shards, skipTests } = parseArgs();
+  const { pgImage, unitOnly, skipTests } = parseArgs();
+  const coverageEnv: Record<string, string> = {
+    BUN_COVERAGE: "1",
+    NYC_OUTPUT_DIR: nycOutputDir,
+  };
+  const pgDeltaEnv = pgImage
+    ? { ...coverageEnv, PGDELTA_TEST_IMAGE: pgImage }
+    : coverageEnv;
+
   log("Options");
-  console.log(`  pg-versions: ${pgVersions.join(", ")}`);
-  console.log(`  shards: ${shards}`);
+  console.log(`  pg-image:   ${pgImage ?? "(engine default)"}`);
+  console.log(`  unit-only:  ${unitOnly}`);
   console.log(`  skip-tests: ${skipTests}`);
 
   if (skipTests) {
@@ -112,38 +104,26 @@ async function main(): Promise<void> {
     });
     if (topoExit !== 0) fail("pg-topo tests failed");
 
-    log("Step 2: pg-delta unit");
-    const unitExit = await run(["bun", "run", "test:unit"], {
+    log("Step 2: pg-delta unit (src/)");
+    const unitExit = await run(["bun", "run", "test"], {
       cwd: pgDeltaRoot,
       env: coverageEnv,
     });
     if (unitExit !== 0) fail("pg-delta unit tests failed");
 
-    log("Step 3: pg-delta integration shards");
-    const allTestFiles = await listPgDeltaTestFiles();
-    console.log(`  Total test files: ${allTestFiles.length}`);
-    const failedShards: string[] = [];
-    for (const pgVer of pgVersions) {
-      for (let shardIndex = 1; shardIndex <= shards; shardIndex++) {
-        const index0 = shardIndex - 1;
-        const shardFiles = allTestFiles.filter((_, i) => i % shards === index0);
-        const name = `pg${pgVer}-shard-${shardIndex}`;
-        if (shardFiles.length === 0) continue;
-        console.log(`  ${name}: ${shardFiles.length} files`);
-        const shardExit = await run(["bun", "run", "test", ...shardFiles], {
-          cwd: pgDeltaRoot,
-          env: {
-            ...coverageEnv,
-            PGDELTA_TEST_POSTGRES_VERSIONS: String(pgVer),
-          },
-        });
-        if (shardExit !== 0) failedShards.push(name);
+    if (unitOnly) {
+      console.log("\n  --unit-only: skipping pg-delta integration + corpus");
+    } else {
+      log("Step 3: pg-delta integration + corpus (tests/)");
+      const integrationExit = await run(["bun", "run", "test:integration"], {
+        cwd: pgDeltaRoot,
+        env: pgDeltaEnv,
+      });
+      if (integrationExit !== 0) {
+        console.warn(
+          "\n  WARNING: pg-delta integration/corpus tests failed — report will reflect partial coverage",
+        );
       }
-    }
-    if (failedShards.length > 0) {
-      console.warn(
-        `\n  WARNING: ${failedShards.length} shard(s) failed: ${failedShards.join(", ")}`,
-      );
     }
   }
 

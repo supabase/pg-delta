@@ -1,0 +1,1 @@
+CREATE PUBLICATION corpus_sub_create_pub FOR ALL TABLES;

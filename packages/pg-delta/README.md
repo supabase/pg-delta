@@ -1,193 +1,180 @@
-# pg-delta
+# @supabase/pg-delta
 
-PostgreSQL migrations made easy.
+Compare two PostgreSQL schemas, emit an ordered DDL migration — and **prove**
+that migration converges, with your data intact, before you trust it.
 
-Generate migration scripts by comparing two PostgreSQL databases. Automatically detects schema differences and creates safe, ordered migration scripts. Supports both imperative diff-based migrations and declarative file-based schema management.
+`pg-delta` never parses SQL to understand it. Every state is resolved by a real
+PostgreSQL instance (a live database, or a shadow database populated from your
+`.sql` files) and read back out of the catalog. The CLI binary is `pgdelta`.
 
-## Features
+> **Status:** published as a breaking-change alpha (`1.0.0-alpha.x`). This is a
+> clean-room rebuild that replaced the legacy engine outright — the CLI, the
+> public API, and the persisted artifact formats are all new. Nothing carries
+> over. Upgrading from `1.0.0-alpha.33` or earlier? See [MIGRATION.md](./MIGRATION.md).
 
-- 🔍 Compare databases and generate migration scripts automatically
-- 🔒 Safety-first: detects data-loss operations and requires explicit confirmation
-- 📋 Plan-based workflow: preview changes before applying, store plans for version control
-- 📁 Declarative schemas: export/apply schemas as version-controlled `.sql` files
-- 🎯 Integration DSL: filter and customize serialization with JSON-based rules
-- 🛠️ Developer-friendly: interactive CLI with tree-formatted change previews
-
-## Installation
-
-```bash
-npm install @supabase/pg-delta
-```
-
-Or use with `npx`:
+## Install
 
 ```bash
-npx @supabase/pg-delta --source <source> --target <target>
+npm install @supabase/pg-delta      # library
+npx @supabase/pg-delta --help       # CLI, no install
 ```
 
-## Quick Start
+Requires Node.js >= 20. Also runs on Bun and Deno.
 
-### CLI Usage
+## Quick start
 
-The CLI provides two paradigms: **imperative** (diff-based migrations) and **declarative** (file-based schemas).
-
-#### Imperative: diff-based migrations
-
-**Sync (default)** - Plan and apply changes in one go:
+**Diff two databases and apply the result:**
 
 ```bash
-pg-delta sync \
-  --source postgresql://user:pass@localhost:5432/source_db \
-  --target postgresql://user:pass@localhost:5432/target_db
+pgdelta plan --source postgres://…/current --desired postgres://…/target --out plan.json
+pgdelta render --plan plan.json --out migration.sql   # review the SQL
+pgdelta apply  --plan plan.json --target postgres://…/current
 ```
 
-**Plan** - Preview changes before applying:
+**Keep your schema as `.sql` files:**
 
 ```bash
-pg-delta plan \
-  --source postgresql://user:pass@localhost:5432/source_db \
-  --target postgresql://user:pass@localhost:5432/target_db \
-  --output plan.json
+pgdelta schema export --source postgres://…/db --out-dir ./schema
+# …edit ./schema/**.sql…
+pgdelta schema apply  --dir ./schema --shadow postgres://…/scratch --target postgres://…/db
 ```
 
-**Apply** - Apply a previously created plan:
+**As a library:**
 
-```bash
-pg-delta apply \
-  --plan plan.json \
-  --source postgresql://user:pass@localhost:5432/source_db \
-  --target postgresql://user:pass@localhost:5432/target_db
+```ts
+import { extract } from "@supabase/pg-delta/extract";
+import { plan } from "@supabase/pg-delta/plan";
+import { apply } from "@supabase/pg-delta/apply";
+import { provePlan } from "@supabase/pg-delta/proof";
+
+const source = await extract(sourcePool);
+const desired = await extract(desiredPool);
+
+const migration = plan(source.factBase, desired.factBase);
+await provePlan(migration, clonePool, desired.factBase); // optional but recommended
+await apply(migration, sourcePool);
 ```
 
-#### Declarative: file-based schemas
+## Commands
 
-**Declarative export** - Export a database schema as `.sql` files:
+| Command | What it does |
+|---|---|
+| `plan` | Diff two databases → a versioned plan artifact |
+| `apply` | Execute a plan against a target (fingerprint-gated) |
+| `render` | Write a plan out as reviewable `.sql` |
+| `prove` | Apply a plan to a clone and verify convergence + data preservation |
+| `diff` | Human-readable difference summary, no artifact |
+| `drift` | Compare a live database against a saved snapshot |
+| `snapshot` | Serialize a database's fact base to a file |
+| `schema export` | Write a database out as declarative `.sql` files |
+| `schema apply` | Load `.sql` files into a shadow, then plan/apply against a target |
+| `schema lint` | Statically check `.sql` files for load-order problems (no database) |
 
-```bash
-pg-delta declarative export \
-  --target postgresql://user:pass@localhost:5432/mydb \
-  --output ./declarative-schemas/
+Run `pgdelta <command> --help` for flags.
+
+## How it works
+
+```text
+extract   read a database into a fact base
+          (one content-addressed fact per table, column, constraint, policy, grant, …)
+   ↓
+diff      compare two fact bases → deltas (generic; zero per-object-type code)
+   ↓
+plan      deltas → ordered atomic DDL actions
+          (one rule table, one dependency graph, one deterministic sort)
+   ↓
+prove     apply to a throwaway clone, re-extract, compare
+   ↓
+apply     execute against the real target
 ```
 
-**Declarative apply** - Apply `.sql` files to a database:
+Because everything lives at one grain — the fact — the diff needs no per-kind
+code and the ordering needs no cycle-breakers.
 
-```bash
-pg-delta declarative apply \
-  --path ./declarative-schemas/ \
-  --target postgresql://user:pass@localhost:5432/fresh_db
-```
+**The proof loop** is what makes a plan trustworthy. It applies the plan to a
+clone, re-extracts, and checks two things: **state** (zero drift deltas against
+the desired fact base) and **data** (rows survive). It reports honest per-table
+coverage rather than a bare boolean — `contentMode` is `fingerprint` for a
+non-empty table whose schema is unchanged, `count` for one whose schema changed,
+and `none` for an empty table. `ok` means "everything checked passed", not
+"everything is fine"; seed your tables to give it teeth.
 
-#### Utilities
+## What's covered
 
-**Catalog export** - Snapshot a database catalog to JSON for offline diffing:
+Schemas, roles (incl. configs and memberships), default privileges, extensions,
+tables (incl. partitioned, `INHERITS`, replica identity), columns, defaults,
+constraints (table + domain), indexes, sequences, views, materialized views,
+functions, procedures, aggregates, triggers, policies, rewrite rules, event
+triggers, domains, enum/composite/range types, collations, publications,
+subscriptions, FDWs/servers/user-mappings/foreign tables, comments, ACLs, and
+security labels.
 
-```bash
-pg-delta catalog-export \
-  --target postgresql://user:pass@localhost:5432/mydb \
-  --output snapshot.json
-```
+Object kinds the engine doesn't model — casts, operators, text-search
+configuration, statistics objects, languages, transforms — are **detected and
+reported** as `unmodeled_kind` diagnostics, never silently dropped.
+See [COVERAGE.md](./COVERAGE.md) for the authoritative map and the deliberate
+exclusions.
 
-The snapshot can be used as `--source` or `--target` for `plan` and `declarative export`, enabling offline diffs without a live database connection.
+## Integration profiles
 
-See the [Workflow Guide](./docs/workflow.md) for end-to-end examples combining these commands.
+`--profile raw | supabase | <path-to-custom>` declares what the engine manages.
+A profile carries policy rules (which objects are yours vs. the platform's),
+extension intent handlers (`pg_cron`, `pg_partman`), assumed schemas and roles,
+and secret redaction (FDW options, subscription conninfo). A custom profile can
+also declare a **baseline** — a snapshot subtracted from both sides so platform
+objects stay invisible with no per-command flag. The baseline's digest is
+stamped on plan and export artifacts and reconciled at apply/prove, so
+`plan == prove == apply` holds and a swapped or edited baseline fails loudly.
 
-### Using Integrations
+## Statement reordering assist (opt-in)
 
-Use built-in integrations or custom JSON files:
+`loadSqlFiles` is parser-free: it sequences whole *files* into the shadow, so it
+tolerates cross-file disorder but cannot reorder statements *within* a file. The
+opt-in reordering assist splits files into one-statement units and topologically
+pre-sorts them via [`@supabase/pg-topo`](https://www.npmjs.com/package/@supabase/pg-topo).
 
-```bash
-# Built-in Supabase integration
-pg-delta sync --source <source> --target <target> --integration supabase
-
-# Custom integration file
-pg-delta sync --source <source> --target <target> --integration ./my-integration.json
-```
-
-### Programmatic Usage
-
-```typescript
-import { main } from "@supabase/pg-delta";
-
-const result = await main(
-  "postgresql://source",
-  "postgresql://target"
-);
-
-if (result) {
-  console.log(result.migrationScript);
-}
-```
-
-For plan-based workflow:
-
-```typescript
-import { createPlan, applyPlan } from "@supabase/pg-delta";
-
-// Create a plan
-const planResult = await createPlan(sourceUrl, targetUrl, {
-  filter: { schema: "public" },
-  serialize: [{ when: { type: "schema" }, options: { skipAuthorization: true } }]
-});
-
-if (planResult) {
-  // Apply the plan
-  const result = await applyPlan(
-    planResult.plan,
-    sourceUrl,
-    targetUrl
-  );
-}
-```
+- **Subpath:** `@supabase/pg-delta/sql-order` exposes `orderForShadow(files)` /
+  `analyzeForShadow(files)`, `canReorder()`, and the typed
+  `ReorderUnavailableError`.
+- **Dependency posture:** `@supabase/pg-topo` is an **optional peer**, loaded
+  only through a guarded dynamic `import()`. Importing the core never pulls the
+  libpg-query WASM parser. If the peer is absent the subpath throws with an
+  install hint; `canReorder()` probes instead.
+- **CLI:** `schema apply` runs the assist by default (`--no-reorder` opts out).
+  `schema lint --dir <dir>` runs the analyzer statically, with no database.
 
 ## Documentation
 
-- [Workflow Guide](./docs/workflow.md) - Full flow documentation for all commands and end-to-end workflows
-- [CLI Reference](./docs/cli.md) - Complete CLI documentation with all commands and options
-- [API Reference](./docs/api.md) - Programmatic API documentation
-- [Integrations](./docs/integrations.md) - Using and creating integrations with the DSL system
-- [Sorting & Safety](./docs/sorting.md) - How migrations are ordered for safety
+| | |
+|---|---|
+| Using it — CLI and API | [getting-started.md](https://github.com/supabase/pg-toolbelt/blob/main/docs/getting-started.md) |
+| Why it was rebuilt | [overview.md](https://github.com/supabase/pg-toolbelt/blob/main/docs/overview.md) |
+| How it works, in depth | [architecture/](https://github.com/supabase/pg-toolbelt/tree/main/docs/architecture) |
+| What it models, and what it doesn't | [COVERAGE.md](./COVERAGE.md) |
+| Upgrading from the legacy engine | [MIGRATION.md](./MIGRATION.md) |
 
-## Key Concepts
+## Development
 
-### Plan-Based Workflow
+```bash
+bun test src/                                            # unit tests, no Docker
+bun test tests/                                          # integration, Docker required
+bun run check-types
 
-`pg-delta` uses a plan-based workflow that provides:
+PGDELTA_TEST_IMAGE=postgres:15-alpine bun test tests/    # pick a PG version
+PGDELTA_NEXT_ONLY=enum bun test tests/engine.test.ts     # one corpus subset
+PGDELTA_NEXT_SHARD=0/4 bun test tests/engine.test.ts     # one shard
+PGDELTA_NEXT_SOAK=200 bun test tests/generative.test.ts  # bigger generative soak
+bun scripts/benchmark.ts                                 # timing numbers
+```
 
-- **Preview before apply**: Review changes before executing them
-- **Self-contained plans**: Plans store filtering and serialization rules
-- **Reproducibility**: Plans can be version-controlled and shared
-- **Safety checks**: Automatic detection of data-loss operations
+The **corpus** (`corpus/`, 321 scenarios) is the primary correctness gate: every
+scenario is proven in both directions, with compact and uncompacted plan
+artifacts built and applied independently — so compaction is enforced as
+cosmetic rather than load-bearing. CI runs it across PostgreSQL 14–18.
 
-### Integration DSL
-
-Integrations use a JSON-based DSL for filtering and serialization:
-
-- **Filter DSL**: Pattern matching to include/exclude changes
-- **Serialization DSL**: Rules to customize SQL generation
-- **Serializable**: Can be stored in plans and passed as CLI flags
-
-See [Integrations Documentation](./docs/integrations.md) for complete details.
-
-## Use Cases
-
-- Generate migrations between environments (dev → staging → production)
-- Compare database states and review differences
-- Automate migration creation in CI/CD pipelines
-- Maintain schema version control with plan files
-- Export and version-control schemas as declarative `.sql` files
-- Apply declarative schemas to fresh databases (provisioning, restore)
-- Snapshot databases for offline, reproducible diffs
-- Filter platform-specific changes (e.g., Supabase system schemas)
-
-## Contributing
-
-Please follow the repository-level guide in [../../CONTRIBUTING.md](../../CONTRIBUTING.md).
-
-In particular:
-
-- Open an issue first.
-- Wait for maintainer triage via one of `✨ Feature`, `🐛 Bug`, `📘 Docs`, or `🛠️ Chore` before opening a pull request.
-- Use [../../ISSUES.md](../../ISSUES.md) when reporting `pg-delta` bugs so maintainers have what they need to reproduce them.
+Compaction is on by default (`--no-compact` opts out) and folds column clauses
+into `CREATE TABLE`, elides redundant drops and default-ACL churn, and folds
+co-created ownership into the `CREATE`.
 
 ## License
 

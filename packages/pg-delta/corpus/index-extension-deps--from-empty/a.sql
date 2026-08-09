@@ -1,0 +1,1 @@
+-- Explicitly empty: plan generated from null source (no objects at all)

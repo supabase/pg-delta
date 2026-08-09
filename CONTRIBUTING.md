@@ -37,6 +37,7 @@ bun run build
 bun run check-types
 bun run format-and-lint
 bun run test
+bun run coverage
 ```
 
 Always use `bun run test`, not bare `bun test`, so the repository's test wrapper and flags are preserved.
@@ -44,7 +45,7 @@ Always use `bun run test`, not bare `bun test`, so the repository's test wrapper
 ## Contribution expectations
 
 - Keep changes focused and scoped to the approved issue.
-- Add or update tests for code changes.
+- Add or update tests for code changes. **New code is expected to come with test coverage** — cover the lines and branches your change introduces. Check locally with `bun run coverage` (HTML report in `.coverage-artifacts/`; use `--unit-only` for a quick pass that skips pg-delta's slow integration + corpus suites).
 - Add a changeset for user-facing fixes or features.
 - Prefer targeted package tests while iterating, then run broader validation before finishing.
 

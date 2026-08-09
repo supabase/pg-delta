@@ -1,0 +1,10 @@
+{
+  "a-to-b": {
+    "require": ["rename:role"],
+    "forbid": ["alter:policy"]
+  },
+  "b-to-a": {
+    "require": ["rename:role"],
+    "forbid": ["alter:policy"]
+  }
+}

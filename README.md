@@ -9,6 +9,19 @@ Monorepo for Supabase PostgreSQL tooling.
 | [`@supabase/pg-delta`](./packages/pg-delta) | PostgreSQL schema diff and migration tool | [![npm](https://img.shields.io/npm/v/@supabase/pg-delta)](https://www.npmjs.com/package/@supabase/pg-delta) |
 | [`@supabase/pg-topo`](./packages/pg-topo) | Topological sorting for SQL DDL statements | [![npm](https://img.shields.io/npm/v/@supabase/pg-topo)](https://www.npmjs.com/package/@supabase/pg-topo) |
 
+## Documentation
+
+Start at **[docs/](./docs/README.md)**, which routes by what you need:
+
+| I want to… | Read |
+|---|---|
+| Use it — CLI and programmatic API | [docs/getting-started.md](./docs/getting-started.md) |
+| Understand why the engine was rebuilt | [docs/overview.md](./docs/overview.md) |
+| Understand how it works | [docs/architecture/README.md](./docs/architecture/README.md) |
+| Work on it | [docs/architecture/onboarding.md](./docs/architecture/onboarding.md) |
+| Know what it models and excludes | [packages/pg-delta/COVERAGE.md](./packages/pg-delta/COVERAGE.md) |
+| See what's next | [docs/roadmap/](./docs/roadmap/README.md) |
+
 ## Development
 
 ### Prerequisites
@@ -30,9 +43,27 @@ bun run build           # Build all packages
 bun run test            # Test all packages
 bun run test:pg-delta   # Test pg-delta only
 bun run test:pg-topo    # Test pg-topo only
+bun run coverage        # Test coverage report (all packages)
 bun run check-types     # Type check all packages
 bun run format-and-lint # Format and lint all code
 ```
+
+### Test coverage
+
+`bun run coverage` runs both packages' suites with Istanbul instrumentation and
+writes an HTML/lcov report to `.coverage-artifacts/` (open
+`.coverage-artifacts/index.html`). Docker is required (the suites use
+testcontainers).
+
+```bash
+bun run coverage                               # everything (unit + integration + corpus)
+bun run coverage --unit-only                   # skip pg-delta's slow integration + corpus suites
+bun run coverage --pg-image postgres:17-alpine # pin the PostgreSQL image for pg-delta
+bun run coverage --skip-tests                  # regenerate the report from the last run
+```
+
+New code is expected to come with test coverage — see
+[CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ### Working with individual packages
 

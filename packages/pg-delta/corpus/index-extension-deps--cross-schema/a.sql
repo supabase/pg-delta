@@ -1,0 +1,1 @@
+-- Empty source: extension must be created before index in another schema

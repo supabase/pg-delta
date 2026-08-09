@@ -1,0 +1,1 @@
+-- state B: all objects dropped

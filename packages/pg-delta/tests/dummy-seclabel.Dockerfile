@@ -1,16 +1,18 @@
-# Custom test image that extends postgres:<version>-alpine with the
-# `dummy_seclabel` test contrib module installed. This module registers
-# the "dummy" security label provider so that integration tests can
-# exercise PostgreSQL's SECURITY LABEL statement end-to-end without
-# needing SELinux or any other platform-specific provider.
+# Custom test image: postgres:<version>-alpine + the `dummy_seclabel` test
+# contrib module. That module registers the "dummy" SECURITY LABEL provider,
+# which stores labels VERBATIM and accepts any string — exactly what an
+# end-to-end roundtrip proof needs (a real provider such as pgsodium validates
+# and normalizes labels against its own grammar, so the apply→re-extract→compare
+# proof would couple to that grammar). It also needs no SELinux. Used only by
+# tests/security-label-proof.test.ts via tests/containers.ts::seclabelCluster.
 #
 # Build args:
-#   PG_MAJOR    — PostgreSQL major version (15 or 17)
-#   PG_BRANCH   — PostgreSQL git branch (e.g. REL_17_STABLE)
+#   PG_MAJOR    — PostgreSQL major version (15 / 17 / 18)
+#   PG_BRANCH   — matching PostgreSQL git branch (e.g. REL_17_STABLE)
 #   ALPINE_TAG  — Alpine base tag that ships postgresql<PG_MAJOR>-dev
-#                 (pg15 needs alpine 3.19, pg17 uses the runtime's own 3.23)
+#                 (pg15 → 3.19; pg17/18 → 3.23)
 
-# Global build args (must be re-declared inside each stage to use them)
+# Global build args (re-declared inside each stage that uses them)
 ARG PG_MAJOR=17
 ARG PG_BRANCH=REL_17_STABLE
 ARG ALPINE_TAG=3.23

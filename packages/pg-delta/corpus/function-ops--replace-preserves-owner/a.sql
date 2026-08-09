@@ -1,0 +1,6 @@
+DO $$ BEGIN CREATE ROLE corpus_fn_owner NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE SCHEMA s;
+
+CREATE FUNCTION s.f() RETURNS int LANGUAGE sql AS 'SELECT 1';
+ALTER FUNCTION s.f() OWNER TO corpus_fn_owner;

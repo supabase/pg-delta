@@ -1,3 +1,31 @@
+/**
+ * Maintainer workflow: regenerate the Supabase baseline fixture replayed by
+ * integration tests that need a realistic post-`supabase start` target.
+ *
+ * For the pinned Supabase image (tests/containers.ts `SUPABASE_IMAGE`) we:
+ *   1. stop any running local Supabase stacks (free the default ports)
+ *   2. boot a BARE `supabase/postgres:<tag>` container (the "before" — just the
+ *      image, before the service stack bootstraps its own schemas)
+ *   3. `supabase start` a temp project pinned to the SAME tag (the "after" —
+ *      every service ran its init/migrations)
+ *   4. diff bare -> full with pg-delta ITSELF (raw plan: cluster-global
+ *      roles + memberships + default privileges + auth/storage/realtime schemas
+ *      all captured), render it to SQL, and write
+ *      tests/fixtures/supabase-base-init/<major>.sql
+ *   5. ZERO-DIFF GATE: replay the fixture into a FRESH bare container, re-extract,
+ *      and require a subsequent bare->full plan to be empty. A non-empty plan
+ *      means the fixture is incomplete and the script fails.
+ *
+ * Dogfooding the diff (rather than a pg_dump delta) gets redaction and every
+ * ACL/role/default-privilege edge case the engine already handles for free.
+ *
+ * USAGE
+ *   cd packages/pg-delta
+ *   DOCKER_HOST=unix:///.../docker.sock bun run sync-base-images
+ *
+ * NOTE: not for CI — it needs Docker + the Supabase CLI and produces a committed
+ * artifact. Regenerate locally when SUPABASE_IMAGE changes and commit the result.
+ */
 import {
   access,
   mkdir,
@@ -8,128 +36,58 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { Pool } from "pg";
-import { GenericContainer, Wait } from "testcontainers";
-import { createPool, endPool } from "../src/core/postgres-config.ts";
+import pg from "pg";
 import {
-  POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
-  SUPABASE_POSTGRES_VERSIONS,
-  type SupabasePostgresVersion,
-} from "../tests/constants.ts";
-import { SupabasePostgreSqlContainer } from "../tests/supabase-postgres.js";
-import { applySupabaseBaseInit } from "../tests/utils.ts";
+  GenericContainer,
+  Wait,
+  type StartedTestContainer,
+} from "testcontainers";
+import { extract } from "../src/extract/extract.ts";
+import { plan } from "../src/plan/plan.ts";
+import { renderPlanSql } from "../src/plan/render-sql.ts";
+import { SUPABASE_BARE_MAJOR, SUPABASE_IMAGE } from "../tests/containers.ts";
+import { supabaseBaseInitFixturePath } from "../tests/supabase-base-init.ts";
 
-/**
- * Maintainer workflow for regenerating the "base init" SQL replayed by
- * Supabase-isolated integration tests.
- *
- * For each supported Postgres major version we:
- * 1. start a temporary `supabase start` project pinned to the exact image tag
- * 2. start a bare `supabase/postgres` container for the same tag
- * 3. diff bare -> full stack with `pgdelta plan` and persist that SQL
- * 4. replay the generated SQL into a fresh test-style Supabase container
- * 5. require a final zero-diff validation against the full stack
- *
- * This keeps the committed fixtures in sync with image upgrades and proves that
- * the same SQL our tests replay is sufficient to reach the full-stack schema.
- */
-const SUPABASE_BASE_INIT_FIXTURE_DIRECTORY =
-  "tests/integration/fixtures/supabase-base-init";
-
-const POSTGRES_PORT = 5432;
-// `supabase start` always exposes the database on 54322 inside the temporary
-// local project; we patch the project config to control which major version/tag
-// that local stack boots with.
-const SUPABASE_LOCAL_DB_URL =
-  "postgres://postgres:postgres@127.0.0.1:54322/postgres";
+const SUPABASE_BIN = process.env["SUPABASE_BIN"] ?? "supabase";
+const SUPABASE_TAG = SUPABASE_IMAGE.split(":")[1] ?? "17.6.1.135";
+// `supabase start` exposes the local stack DB on 54322 by default; we free that
+// port (step 1) before starting the temp project. Connect as `supabase_admin`
+// on both sides — pg-delta extract is current_user-sensitive for owner
+// edges / grants / default privileges, so the diff must be symmetric.
+const FULL_DB_URL = `postgres://supabase_admin:postgres@127.0.0.1:54322/postgres`;
 const pkgRoot = join(import.meta.dir, "..");
-const supabaseBin = join(
-  pkgRoot,
-  "node_modules",
-  ".bin",
-  process.platform === "win32" ? "supabase.cmd" : "supabase",
-);
 
-export function ensureSupabaseDbMajorVersion(
+/** Patch only `[db].major_version` in a Supabase config.toml, preserving the
+ *  rest (the CLI owns the surrounding TOML). Ported from the old package. */
+function ensureSupabaseDbMajorVersion(
   configToml: string,
   majorVersion: number,
 ): string {
-  // Supabase CLI owns the surrounding TOML, so keep the patch deliberately
-  // small: replace or inject only `[db].major_version` and preserve the rest.
   const newline = configToml.includes("\r\n") ? "\r\n" : "\n";
   const lines = configToml.split(/\r?\n/);
   const dbSectionIndex = lines.findIndex((line) => line.trim() === "[db]");
-
   if (dbSectionIndex === -1) {
     throw new Error("Supabase config is missing a [db] section");
   }
-
   let nextSectionIndex = lines.findIndex(
     (line, index) =>
       index > dbSectionIndex &&
       line.trim().startsWith("[") &&
       line.trim().endsWith("]"),
   );
-
-  if (nextSectionIndex === -1) {
-    nextSectionIndex = lines.length;
-  }
-
+  if (nextSectionIndex === -1) nextSectionIndex = lines.length;
   const majorVersionLineIndex = lines.findIndex(
     (line, index) =>
       index > dbSectionIndex &&
       index < nextSectionIndex &&
       line.trim().startsWith("major_version"),
   );
-
   if (majorVersionLineIndex === -1) {
     lines.splice(dbSectionIndex + 1, 0, `major_version = ${majorVersion}`);
   } else {
     lines[majorVersionLineIndex] = `major_version = ${majorVersion}`;
   }
-
   return lines.join(newline);
-}
-
-export function buildPgdeltaPlanCommand(options: {
-  source: string;
-  target: string;
-  format?: "sql" | "json";
-  output?: string;
-  sqlFormat?: boolean;
-}): string[] {
-  // Use the public CLI entrypoint even though this script lives inside the repo:
-  // the goal is to validate the real maintainer workflow, not just the internals.
-  const command = [
-    "bun",
-    "run",
-    "pgdelta",
-    "plan",
-    "--source",
-    options.source,
-    "--target",
-    options.target,
-  ];
-
-  if (options.format) {
-    command.push("--format", options.format);
-  }
-
-  if (options.output) {
-    command.push("--output", options.output);
-  }
-
-  if (options.sqlFormat) {
-    command.push("--sql-format");
-  }
-
-  return command;
-}
-
-export function getSupabaseBaseInitFixtureRelativePath(
-  version: number,
-): string {
-  return `${SUPABASE_BASE_INIT_FIXTURE_DIRECTORY}/${version}_fullstack_container_init.sql`;
 }
 
 async function runCommand(options: {
@@ -144,35 +102,25 @@ async function runCommand(options: {
     stderr: "pipe",
     env: process.env,
   });
-
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
-
-  const allowedExitCodes = options.allowedExitCodes ?? [0];
-  if (!allowedExitCodes.includes(exitCode)) {
-    // Bubble up full stdout/stderr because most failures here come from external
-    // tools (Supabase CLI, Docker, pgdelta) where the captured command output is
-    // the primary debugging signal.
-    const commandLabel = options.cmd.join(" ");
+  const allowed = options.allowedExitCodes ?? [0];
+  if (!allowed.includes(exitCode)) {
     throw new Error(
-      `Command failed with exit code ${exitCode}: ${commandLabel}\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+      `Command failed (${exitCode}): ${options.cmd.join(" ")}\nstdout:\n${stdout}\nstderr:\n${stderr}`,
     );
   }
-
   return { stdout, stderr, exitCode };
 }
 
 async function waitForPool(
-  pool: Pool,
-  retries = 30,
+  pool: pg.Pool,
+  retries = 40,
   delayMs = 2_000,
 ): Promise<void> {
-  // Container/CLI health checks can turn green before the database is actually
-  // ready to accept application connections. Poll the real connection path we
-  // will use for diffing/replay before moving to the next phase.
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const client = await pool.connect();
@@ -189,322 +137,276 @@ async function waitForPool(
   }
 }
 
-function createManagedPool(connectionString: string): Pool {
-  // The sync workflow starts and stops a lot of ephemeral containers. These two
-  // errors are expected during teardown and shouldn't hide the real failure.
-  return createPool(connectionString, {
+function managedPool(connectionString: string): pg.Pool {
+  const pool = new pg.Pool({
+    connectionString,
+    max: 3,
     connectionTimeoutMillis: 20_000,
-    onError: (err: Error & { code?: string }) => {
-      if (err.code === "57P01" || err.code === "53100") return;
-      console.error("Pool error:", err);
-    },
   });
+  // 57P01 (admin shutdown) / 53100 (disk full) are expected during the many
+  // ephemeral container teardowns; don't let them crash the process.
+  pool.on("error", (err: Error & { code?: string }) => {
+    if (err.code === "57P01" || err.code === "53100") return;
+    console.error("Pool error:", err);
+  });
+  return pool;
 }
 
-async function stopSupabaseStack(workdir: string): Promise<void> {
-  try {
-    await runCommand({
-      cmd: [supabaseBin, "stop", "--yes", "--no-backup", "--workdir", workdir],
-      cwd: pkgRoot,
-      allowedExitCodes: [0],
-    });
-  } catch (error) {
-    // Cleanup should not mask the original generation/validation error.
-    console.warn(
-      `[sync-base-images] Failed to stop Supabase stack for ${workdir}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
+async function stopAllSupabaseStacks(): Promise<void> {
+  console.log("[sync] Stopping any running Supabase stacks (stop --all)...");
+  await runCommand({
+    cmd: [SUPABASE_BIN, "stop", "--all", "--no-backup"],
+    cwd: pkgRoot,
+    // `stop --all` exits non-zero when nothing is running on some CLI versions.
+    allowedExitCodes: [0, 1],
+  });
 }
 
 async function prepareSupabaseProject(
   workdir: string,
-  postgresVersion: SupabasePostgresVersion,
+  major: number,
 ): Promise<void> {
   await runCommand({
-    cmd: [supabaseBin, "init", "--yes", "--workdir", workdir],
+    cmd: [SUPABASE_BIN, "init", "--yes", "--workdir", workdir],
     cwd: pkgRoot,
   });
-
   const supabaseDir = join(workdir, "supabase");
   const configPath = join(supabaseDir, "config.toml");
   const configToml = await readFile(configPath, "utf-8");
-
   await writeFile(
     configPath,
-    ensureSupabaseDbMajorVersion(configToml, postgresVersion),
+    ensureSupabaseDbMajorVersion(configToml, major),
     "utf-8",
   );
-
-  // The CLI uses this temp file to pick the exact Postgres image tag. Without
-  // it we would only pin the major version, not the concrete image build our
-  // tests use from `tests/constants.ts`.
+  // Pin the EXACT image tag (not just the major) the way the CLI expects, so the
+  // full stack boots the same build as the bare container we diff against.
   await mkdir(join(supabaseDir, ".temp"), { recursive: true });
   await writeFile(
     join(supabaseDir, ".temp", "postgres-version"),
-    `${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[postgresVersion]}\n`,
+    `${SUPABASE_TAG}\n`,
     "utf-8",
   );
 }
 
-type BareSupabaseContainer = {
-  connectionUri: string;
+async function startBareContainer(): Promise<{
+  uri: string;
   stop: () => Promise<void>;
-};
-
-/**
- * Build the connection URL for the local `supabase start` stack as a specific
- * database role.
- *
- * This matters because pg-delta diffs are sensitive to `current_user` for some
- * Supabase-managed grants/comments/default-privilege cases.
- */
-function buildLocalSupabaseUrl(username: string): string {
-  // `current_user` affects grants/comments/default privilege diffs for Supabase
-  // objects, so both generation and validation must use the same login role as
-  // the path they are comparing against.
-  const url = new URL(SUPABASE_LOCAL_DB_URL);
-  url.username = username;
-  url.password = "postgres";
-  return url.toString();
-}
-
-/**
- * Rewrite a connection string to log in as the requested role.
- *
- * We use this for the bare comparison container because the container itself is
- * started with the stock `postgres` bootstrap user, but the diff must run as
- * the same role that the full local Supabase stack exposes to us during tests
- * and validation (`supabase_admin`).
- */
-function buildConnectionUrlForUser(
-  connectionUri: string,
-  username: string,
-): string {
-  // The bare comparison container starts as `postgres`, but we diff it as
-  // `supabase_admin` to match the local Supabase stack and the test runtime.
-  const url = new URL(connectionUri);
-  url.username = username;
-  url.password = "postgres";
-  return url.toString();
-}
-
-async function startBareSupabaseContainer(
-  postgresVersion: SupabasePostgresVersion,
-): Promise<BareSupabaseContainer> {
-  const tag = POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[postgresVersion];
-  // Start the raw image with the stock Docker entrypoint. This is the "before"
-  // side of the diff: just the base Postgres image, before the rest of the
-  // Supabase services have bootstrapped their own schemas and tables.
-  const startedContainer = await new GenericContainer(
-    `supabase/postgres:${tag}`,
+}> {
+  console.log(`[sync] Booting bare ${SUPABASE_IMAGE}...`);
+  const container: StartedTestContainer = await new GenericContainer(
+    SUPABASE_IMAGE,
   )
-    .withLabels({ "pg-toolbelt.package": "pg-delta" })
-    .withExposedPorts(POSTGRES_PORT)
-    .withStartupTimeout(120_000)
-    .withWaitStrategy(
-      Wait.forLogMessage("database system is ready to accept connections"),
-    )
     .withEnvironment({
+      POSTGRES_USER: "supabase_admin",
       POSTGRES_PASSWORD: "postgres",
+      POSTGRES_DB: "postgres",
     })
+    .withExposedPorts(5432)
+    .withWaitStrategy(Wait.forHealthCheck())
+    .withStartupTimeout(180_000)
+    .withTmpFs({ "/var/lib/postgresql/data": "rw,noexec,nosuid,size=1024m" })
     .start();
-
-  const url = new URL("", "postgres://");
-  url.hostname = "127.0.0.1";
-  url.port = startedContainer.getMappedPort(POSTGRES_PORT).toString();
-  url.pathname = "postgres";
-  url.username = "postgres";
-  url.password = "postgres";
-
-  return {
-    connectionUri: url.toString(),
-    stop: async () => {
-      // Normalize teardown to `Promise<void>` so the orchestration code can
-      // treat both bare and validated containers the same way.
-      await startedContainer.stop();
-    },
-  };
+  const uri = `postgres://supabase_admin:postgres@${container.getHost()}:${container.getMappedPort(5432)}/postgres`;
+  return { uri, stop: () => container.stop().then(() => undefined) };
 }
 
-/**
- * Start a Supabase container using the same wrapper as the test suite.
- *
- * Validation uses this container shape, not the raw GenericContainer above, so
- * that the generated SQL is proven against the exact startup path used by
- * `withDbSupabaseIsolated(...)`.
- */
-async function startValidatedSupabaseContainer(
-  postgresVersion: SupabasePostgresVersion,
-): Promise<BareSupabaseContainer> {
-  const tag = POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[postgresVersion];
-  // Validation intentionally uses the same container wrapper as the test suite.
-  // If zero-diff passes here, we know the generated SQL is valid for the actual
-  // runtime path used by `withDbSupabaseIsolated(...)`, not just for a custom
-  // one-off container shape in this script.
-  const startedContainer = await new SupabasePostgreSqlContainer(
-    `supabase/postgres:${tag}`,
-  ).start();
-
-  return {
-    connectionUri: startedContainer.getConnectionUri(),
-    stop: async () => {
-      // Match the bare-container helper above: callers only care that teardown
-      // completes, not about the stopped-container object that testcontainers
-      // returns.
-      await startedContainer.stop();
-    },
-  };
+/** Fail loudly if `supabase start` booted a different image than the bare
+ *  container — the fixture would otherwise bake in version-skewed schema. */
+async function assertFullStackTag(): Promise<void> {
+  const { stdout } = await runCommand({
+    cmd: [
+      "docker",
+      "ps",
+      "--filter",
+      "name=supabase_db_",
+      "--format",
+      "{{.Image}}",
+    ],
+    cwd: pkgRoot,
+  });
+  const image = stdout.trim().split("\n")[0] ?? "";
+  if (!image.endsWith(`:${SUPABASE_TAG}`)) {
+    throw new Error(
+      `Full stack DB image is "${image}", expected tag "${SUPABASE_TAG}". ` +
+        `The .temp/postgres-version pin did not take (Supabase CLI ${SUPABASE_TAG} mismatch); ` +
+        `the fixture would be version-skewed. Aborting.`,
+    );
+  }
+  console.log(`[sync] Full stack DB image confirmed: ${image}`);
 }
 
-/**
- * Generate and validate the replay SQL for one Postgres major version.
- *
- * The important distinction in this flow is:
- * - bare container: "just the image"
- * - full stack: `supabase start` after the other services have initialized it
- * - validated container: a fresh test-style container after replaying the SQL
- *
- * If the validated container still diffs against the full stack, the generated
- * fixture is incomplete and the script must fail.
- */
-async function generateFixtureForVersion(
-  postgresVersion: SupabasePostgresVersion,
-): Promise<void> {
+/** Apply each action on its own (autocommit, continue-on-error) to surface
+ *  EVERY action that fails to apply, not just the first. `check_function_bodies`
+ *  is disabled once on the session so forward-referencing bodies elaborate, the
+ *  same as the batch replay. Cascade victims (an action failing because an
+ *  earlier one did) are included — the list sizes the convergence gaps. */
+async function enumerateReplayFailures(
+  pool: pg.Pool,
+  actions: ReadonlyArray<{ sql: string }>,
+): Promise<Array<{ i: number; sql: string; message: string }>> {
+  const failures: Array<{ i: number; sql: string; message: string }> = [];
+  const client = await pool.connect();
+  try {
+    await client.query("SET check_function_bodies = off");
+    for (let i = 0; i < actions.length; i++) {
+      const sql = actions[i]!.sql;
+      try {
+        await client.query(sql);
+      } catch (e) {
+        failures.push({
+          i,
+          sql: (sql.split("\n")[0] ?? sql).slice(0, 160),
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+  } finally {
+    client.release();
+  }
+  return failures;
+}
+
+async function generateFixture(major: number): Promise<void> {
   const workdir = await mkdtemp(
-    join(tmpdir(), `pg-delta-supabase-sync-pg${postgresVersion}-`),
+    join(tmpdir(), `pgdelta-supabase-sync-pg${major}-`),
   );
-  const fixtureRelativePath =
-    getSupabaseBaseInitFixtureRelativePath(postgresVersion);
-  const fixturePath = join(pkgRoot, fixtureRelativePath);
+  const fixturePath = supabaseBaseInitFixturePath(major);
 
-  let fullstackPool: Pool | undefined;
-  let fullstackValidationPool: Pool | undefined;
-  let barePool: Pool | undefined;
-  let validatedPool: Pool | undefined;
-  let bareContainer:
-    | Awaited<ReturnType<typeof startBareSupabaseContainer>>
-    | undefined;
-  let validatedContainer:
-    | Awaited<ReturnType<typeof startBareSupabaseContainer>>
-    | undefined;
+  let fullPool: pg.Pool | undefined;
+  let barePool: pg.Pool | undefined;
+  let validatedPool: pg.Pool | undefined;
+  let bare: Awaited<ReturnType<typeof startBareContainer>> | undefined;
+  let validated: Awaited<ReturnType<typeof startBareContainer>> | undefined;
 
   try {
-    console.log(
-      `[sync-base-images] Preparing Supabase project for pg${postgresVersion}`,
-    );
-    await prepareSupabaseProject(workdir, postgresVersion);
-
-    // Bring up the full local stack first so the target side of the diff reflects
-    // every service-owned migration that `supabase start` applies on boot.
-    console.log(
-      `[sync-base-images] Starting full stack for pg${postgresVersion}`,
-    );
+    // ── Full stack (after) ─────────────────────────────────────────────────
+    await prepareSupabaseProject(workdir, major);
+    console.log(`[sync] supabase start (pg${major}, tag ${SUPABASE_TAG})...`);
     await runCommand({
-      cmd: [supabaseBin, "start", "--yes", "--workdir", workdir],
+      cmd: [SUPABASE_BIN, "start", "--workdir", workdir],
       cwd: pkgRoot,
     });
+    await assertFullStackTag();
+    fullPool = managedPool(FULL_DB_URL);
+    await waitForPool(fullPool);
 
-    fullstackPool = createManagedPool(SUPABASE_LOCAL_DB_URL);
-    console.log(`[sync-base-images] Waiting for full stack database readiness`);
-    await waitForPool(fullstackPool);
-
-    console.log(
-      `[sync-base-images] Starting bare supabase/postgres container for pg${postgresVersion}`,
-    );
-    bareContainer = await startBareSupabaseContainer(postgresVersion);
-    barePool = createManagedPool(bareContainer.connectionUri);
-    console.log(
-      `[sync-base-images] Waiting for bare container readiness at ${bareContainer.connectionUri}`,
-    );
+    // ── Bare image (before) ────────────────────────────────────────────────
+    bare = await startBareContainer();
+    barePool = managedPool(bare.uri);
     await waitForPool(barePool);
 
+    // ── Diff bare -> full, render, persist ──────────────────────────────────
+    console.log(`[sync] Extracting bare + full and planning delta...`);
+    const [base, full] = await Promise.all([
+      extract(barePool, { redactSecrets: true }),
+      extract(fullPool, { redactSecrets: true }),
+    ]);
+    const thePlan = plan(base.factBase, full.factBase, {
+      renames: "off",
+      compact: true,
+    });
+    console.log(`[sync] Delta: ${thePlan.actions.length} action(s).`);
+    const body = renderPlanSql(thePlan);
+    const header =
+      `-- Supabase baseline: delta from bare ${SUPABASE_IMAGE} to \`supabase start\`.\n` +
+      `-- Generated by scripts/sync-supabase-base-images.ts — DO NOT EDIT BY HAND.\n` +
+      `-- Regenerate with: bun run sync-base-images\n\n`;
     await mkdir(dirname(fixturePath), { recursive: true });
-    console.log(`[sync-base-images] Generating ${fixtureRelativePath}`);
-    // Generate the replay SQL by diffing the bare image against the fully
-    // bootstrapped local stack. Allow exit code 2 here because `pgdelta plan`
-    // uses it to signal "changes detected", which is exactly what we want.
-    const bareDiffUrl = buildConnectionUrlForUser(
-      bareContainer.connectionUri,
-      "supabase_admin",
-    );
-    await runCommand({
-      cmd: buildPgdeltaPlanCommand({
-        source: bareDiffUrl,
-        target: buildLocalSupabaseUrl("supabase_admin"),
-        output: fixturePath,
-        sqlFormat: true,
-      }),
-      cwd: pkgRoot,
-      allowedExitCodes: [0, 2],
-    });
+    await writeFile(fixturePath, header + body, "utf-8");
+    console.log(`[sync] Wrote ${fixturePath}`);
 
+    // ── Zero-diff gate ──────────────────────────────────────────────────────
     console.log(
-      `[sync-base-images] Validating generated fixture for pg${postgresVersion}`,
+      `[sync] Validating fixture (replay -> re-diff must be empty)...`,
     );
-    validatedContainer = await startValidatedSupabaseContainer(postgresVersion);
-    validatedPool = createManagedPool(validatedContainer.connectionUri);
-    console.log(
-      `[sync-base-images] Waiting for validated container readiness at ${validatedContainer.connectionUri}`,
-    );
+    validated = await startBareContainer();
+    validatedPool = managedPool(validated.uri);
     await waitForPool(validatedPool);
-    // Replay the committed fixture through the same helper exported to tests.
-    // This guarantees that script validation and test runtime share the exact
-    // same "post-start" setup behavior.
-    await applySupabaseBaseInit(validatedPool, postgresVersion);
-
-    // Compare as `supabase_admin` on both sides. The remaining diff here is the
-    // exact signal we care about: "does the test runtime baseline match the
-    // stack that `supabase start` produced?"
-    fullstackValidationPool = createManagedPool(
-      buildLocalSupabaseUrl("supabase_admin"),
-    );
-    await waitForPool(fullstackValidationPool);
-
-    // Final contract of this script: after replaying the generated SQL into a
-    // fresh test-style container, `pgdelta plan` must report no remaining diff.
-    // If this exits 2, the fixture is incomplete and the script fails.
-    await runCommand({
-      cmd: buildPgdeltaPlanCommand({
-        source: validatedContainer.connectionUri,
-        target: buildLocalSupabaseUrl("supabase_admin"),
-        format: "sql",
-        sqlFormat: true,
-      }),
-      cwd: pkgRoot,
-      allowedExitCodes: [0],
+    // Replay exactly as `applySupabaseBaseInit` does: one multi-statement batch
+    // on a single connection (implicit transaction). On failure the whole batch
+    // rolls back, so the DB is clean again — re-apply action-by-action to
+    // enumerate EVERY failing action (not just the first), which is what sizes
+    // the remaining convergence gaps.
+    if (body.trim() !== "") {
+      try {
+        await validatedPool.query(body);
+      } catch (batchErr) {
+        const failures = await enumerateReplayFailures(
+          validatedPool,
+          thePlan.actions,
+        );
+        const detail = failures
+          .map((f) => `  [action ${f.i}] ${f.message}\n       ${f.sql}`)
+          .join("\n");
+        throw new Error(
+          `Fixture replay FAILED — ${failures.length} action(s) do not apply ` +
+            `(first batch error: ${batchErr instanceof Error ? batchErr.message : String(batchErr)}).\n${detail}`,
+        );
+      }
+    }
+    const replayed = await extract(validatedPool, { redactSecrets: true });
+    const gate = plan(replayed.factBase, full.factBase, {
+      renames: "off",
+      compact: true,
     });
+    // PGDELTA_SYNC_DEBUG_DIR=<dir>: dump both gate-side snapshots for offline
+    // analysis of residuals (avoids re-running `supabase start` per hypothesis).
+    const debugDir = process.env["PGDELTA_SYNC_DEBUG_DIR"];
+    if (debugDir) {
+      await mkdir(debugDir, { recursive: true });
+      const { serializeSnapshot } = await import("../src/core/snapshot.ts");
+      await writeFile(
+        join(debugDir, `replayed-${major}.json`),
+        serializeSnapshot(replayed.factBase, { pgVersion: replayed.pgVersion }),
+        "utf-8",
+      );
+      await writeFile(
+        join(debugDir, `full-${major}.json`),
+        serializeSnapshot(full.factBase, { pgVersion: full.pgVersion }),
+        "utf-8",
+      );
+      console.log(`[sync] Debug snapshots written to ${debugDir}`);
+    }
+    if (gate.actions.length !== 0) {
+      const residual = gate.actions.map((a) => `  ${a.sql};`).join("\n");
+      throw new Error(
+        `Zero-diff gate FAILED: ${gate.actions.length} residual action(s) after replay.\n${residual}`,
+      );
+    }
+    console.log(`[sync] Zero-diff gate passed for pg${major}. ✅`);
   } finally {
-    await Promise.all([
-      barePool ? endPool(barePool) : Promise.resolve(),
-      validatedPool ? endPool(validatedPool) : Promise.resolve(),
-      fullstackValidationPool
-        ? endPool(fullstackValidationPool)
-        : Promise.resolve(),
-      fullstackPool ? endPool(fullstackPool) : Promise.resolve(),
-    ]);
-    await Promise.all([
-      bareContainer ? bareContainer.stop() : Promise.resolve(),
-      validatedContainer ? validatedContainer.stop() : Promise.resolve(),
-    ]);
-    // Always tear down the temporary CLI project, even after generation or
-    // validation failures, so reruns start from a clean slate.
-    await stopSupabaseStack(workdir);
+    await Promise.all(
+      [fullPool, barePool, validatedPool]
+        .filter((p): p is pg.Pool => p !== undefined)
+        .map((p) => p.end().catch(() => {})),
+    );
+    await Promise.all(
+      [bare, validated]
+        .filter(
+          (c): c is { uri: string; stop: () => Promise<void> } =>
+            c !== undefined,
+        )
+        .map((c) => c.stop().catch(() => {})),
+    );
+    await runCommand({
+      cmd: [SUPABASE_BIN, "stop", "--workdir", workdir, "--no-backup"],
+      cwd: pkgRoot,
+      allowedExitCodes: [0, 1],
+    }).catch((e) =>
+      console.warn(`[sync] stop failed: ${e instanceof Error ? e.message : e}`),
+    );
     await rm(workdir, { recursive: true, force: true });
   }
 }
 
-export async function syncSupabaseBaseImages(): Promise<void> {
-  await access(supabaseBin);
-
-  // Keep fixture generation serialized by version to avoid multiple local
-  // Supabase stacks fighting over the CLI's fixed localhost ports.
-  for (const postgresVersion of SUPABASE_POSTGRES_VERSIONS) {
-    await generateFixtureForVersion(postgresVersion);
-  }
+async function main(): Promise<void> {
+  await access(pkgRoot);
+  await stopAllSupabaseStacks();
+  await generateFixture(SUPABASE_BARE_MAJOR);
 }
 
 if (import.meta.main) {
-  await syncSupabaseBaseImages().catch((error) => {
+  main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   });

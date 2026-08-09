@@ -1,12 +1,17 @@
 {
-  "extends": [
-    "@tsconfig/node24/tsconfig.json",
-    "@tsconfig/node-ts/tsconfig.json"
-  ],
   "compilerOptions": {
-    "paths": {
-      "@supabase/pg-topo": ["../pg-topo/src/index.ts"]
-    }
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023"],
+    "types": ["bun", "node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true
   },
-  "include": ["./src", "./tests", "./scripts"]
+  "include": ["src", "tests", "corpus", "scripts"]
 }
