@@ -66,6 +66,7 @@ interface ConfigRow {
   maintenance_order: number | null;
   is_sub_partition_set: boolean;
   is_sub_partition_child: boolean;
+  is_pgmq_queue: boolean;
 }
 
 /** A `part_config` row with partman 5.3.1's own defaults, plus the auto-created
@@ -103,6 +104,7 @@ const config = (
   maintenance_order: null,
   is_sub_partition_set: false,
   is_sub_partition_child: false,
+  is_pgmq_queue: false,
   ...overrides,
 });
 
@@ -112,16 +114,20 @@ interface ChildRow {
   name: string;
 }
 
-/** Build a fake ctx: detect() returns partman's install schema (or no rows when
- *  the extension is absent); the descendant walk and the part_config projection
- *  return the supplied rows. */
+/** Build a fake ctx: the extension-schema probes return partman's (and pgmq's)
+ *  install schema, or no rows when that extension is absent; the descendant walk
+ *  and the part_config projection return the supplied rows. */
 function fakeCtx(
   rows: { children?: ChildRow[]; configs?: ConfigRow[] },
   installed = true,
+  pgmqSchema: string | null = "pgmq",
 ): HandlerContext {
   return {
     query: async (sql: string): Promise<Row[]> => {
       if (/pg_extension/i.test(sql)) {
+        if (/'pgmq'/.test(sql)) {
+          return pgmqSchema === null ? [] : [{ schema: pgmqSchema }];
+        }
         return installed ? [{ schema: "partman" }] : [];
       }
       if (/descendants\b/i.test(sql) && !/part_config_sub/i.test(sql)) {
@@ -402,6 +408,92 @@ describe("pgPartmanHandler.capture", () => {
       "public.events_p2026",
     );
   });
+
+  test("a pgmq-OWNED parent (a partitioned queue's q_/a_ table) emits no fact and one INTENT_UNSUPPORTED warning", async () => {
+    const ctx = fakeCtx({
+      configs: [
+        config({
+          parent_schema: "pgmq",
+          parent_name: "q_jobs",
+          is_pgmq_queue: true,
+        }),
+        config({
+          parent_schema: "pgmq",
+          parent_name: "a_jobs",
+          is_pgmq_queue: true,
+        }),
+        // a sibling ORDINARY parent in the same run: the guard must not be
+        // over-broad and swallow user registrations too
+        config({ parent_schema: "public", parent_name: "events" }),
+      ],
+    });
+    const current = buildFactBase(
+      [
+        partmanFact,
+        tableFact("pgmq", "q_jobs"),
+        tableFact("pgmq", "a_jobs"),
+        tableFact("public", "events"),
+      ],
+      [],
+    );
+
+    const result = await pgPartmanHandler.capture(ctx, current);
+
+    expect(result.facts.map((f) => (f.id as { key: string }).key)).toEqual([
+      "public.events",
+    ]);
+    expect(result.diagnostics).toHaveLength(2);
+    expect(result.diagnostics?.[0]?.code).toBe(INTENT_UNSUPPORTED);
+    expect(result.diagnostics?.[0]?.severity).toBe("warning");
+    expect(result.diagnostics?.[0]?.message).toMatch(/pgmq/);
+    expect(result.diagnostics?.[0]?.message).toMatch(/pgmq\.q_jobs/);
+    expect(result.diagnostics?.[0]?.context).toEqual({
+      ext: "pg_partman",
+      intentKind: "parent",
+    });
+  });
+
+  test("a pgmq-owned parent leaks NO facts or edges — not even its template table", async () => {
+    const ctx = fakeCtx({
+      configs: [
+        config({
+          parent_schema: "pgmq",
+          parent_name: "q_jobs",
+          template_schema: "public",
+          template_name: "my_template",
+          is_pgmq_queue: true,
+        }),
+      ],
+    });
+    const current = buildFactBase(
+      [partmanFact, tableFact("pgmq", "q_jobs"), tableFact("public", "my_template")],
+      [],
+    );
+
+    const result = await pgPartmanHandler.capture(ctx, current);
+
+    expect(result.facts).toEqual([]);
+    expect(result.edges).toEqual([]);
+  });
+
+  test("pgmq NOT installed → ordinary parents still capture (the queue probe degrades)", async () => {
+    const ctx = fakeCtx(
+      { configs: [config({ parent_schema: "public", parent_name: "events" })] },
+      true,
+      null,
+    );
+    const current = buildFactBase(
+      [partmanFact, tableFact("public", "events")],
+      [],
+    );
+
+    const result = await pgPartmanHandler.capture(ctx, current);
+
+    expect(result.facts.map((f) => (f.id as { key: string }).key)).toEqual([
+      "public.events",
+    ]);
+    expect(result.diagnostics ?? []).toEqual([]);
+  });
 });
 
 describe("pgPartmanHandler.intentKinds.parent", () => {
@@ -461,6 +553,17 @@ describe("pgPartmanHandler.intentKinds.parent", () => {
     );
   });
 
+  test("create: create_parent REPORTS its ACCESS EXCLUSIVE lock on the parent", () => {
+    // pg_partman 5.3.1 takes it EXPLICITLY inside create_parent
+    // (`LOCK TABLE %I.%I IN ACCESS EXCLUSIVE MODE`), so the intent-rule default
+    // of "none" would under-report the plan's strongest lock.
+    const actions = parentRule?.create(
+      parentFact("public.events"),
+      undefined as never,
+    );
+    expect(actions?.[0]?.lockClass).toBe("accessExclusive");
+  });
+
   test("create: the call CONSUMES the parent table so it orders after CREATE TABLE", () => {
     const actions = parentRule?.create(
       parentFact("public.events"),
@@ -498,6 +601,8 @@ describe("pgPartmanHandler.intentKinds.parent", () => {
       undefined as never,
     );
     expect(actions).toHaveLength(2);
+    // plain row DML on partman's registry — no relation lock to report
+    expect(actions?.[1]?.lockClass).toBeUndefined();
     expect(actions?.[1]?.sql).toMatchInlineSnapshot(
       `"update "partman".part_config set "retention" = '3 months', "retention_schema" = NULL, "retention_keep_index" = true, "retention_keep_table" = false, "retention_keep_publication" = false, "optimize_constraint" = 10, "infinite_time_partitions" = true, "inherit_privileges" = false, "constraint_valid" = true, "ignore_default_data" = true, "maintenance_order" = NULL where "parent_table" = 'public.events'"`,
     );
@@ -533,6 +638,8 @@ describe("pgPartmanHandler.intentKinds.parent", () => {
       `"delete from "partman".part_config where "parent_table" = 'public.events'"`,
     );
     expect(action?.dataLoss ?? "none").toBe("none");
+    // plain row DML on partman's registry — no relation lock to report
+    expect(action?.lockClass).toBeUndefined();
   });
 });
 

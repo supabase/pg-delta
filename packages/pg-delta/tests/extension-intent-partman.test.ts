@@ -564,6 +564,72 @@ describe.skipIf(!runSupabaseBareTests)(
       }
     }, 180_000);
 
+    test("a pgmq-OWNED partitioned queue is not captured as create_parent intent, while its partitions stay managedBy", async () => {
+      const cluster = await supabaseCluster();
+      const db = await cluster.createDb("partman_b_pgmq_queue");
+      try {
+        // an ORDINARY user parent (public.events) plus a pgmq partitioned
+        // queue. `pgmq.create_partitioned` registers BOTH `pgmq.q_pq` and
+        // `pgmq.a_pq` in partman's part_config, but the queue tables are
+        // pgmq's — the pgmq handler deliberately emits NO fact for a
+        // partitioned queue, and under the Supabase profile the whole `pgmq`
+        // schema is projected out. Replaying them as `create_parent` would
+        // consume a table nothing creates.
+        await seedPartmanParent(db);
+        await db.pool.query(`CREATE EXTENSION pgmq`);
+        await db.pool.query(`SELECT pgmq.create_partitioned('pq')`);
+
+        const extracted = await extract(db.pool, {
+          handlers: [pgPartmanHandler],
+        });
+
+        // the user's parent IS intent; neither queue table is
+        const intentKeys = extracted.factBase
+          .facts()
+          .filter((f) => f.id.kind === "extensionIntent")
+          .map((f) => (f.id as { key: string }).key);
+        expect(intentKeys).toEqual(["public.events"]);
+
+        // …and every skipped row says why
+        const unsupported = extracted.diagnostics.filter(
+          (d) => d.code === "intent-unsupported",
+        );
+        expect(unsupported.length).toBeGreaterThan(0);
+        expect(unsupported.map((d) => d.message).join("\n")).toMatch(/pgmq/);
+
+        // Phase A is untouched: the queue's OWN partitions (created by partman,
+        // not extension members) are still tagged managedBy, so nothing plans a
+        // DROP TABLE against them.
+        const queueParts = extracted.factBase
+          .facts()
+          .filter(
+            (f) =>
+              f.id.kind === "table" &&
+              f.id.schema === "pgmq" &&
+              /^[qa]_pq_/.test(f.id.name),
+          );
+        expect(queueParts.length).toBeGreaterThan(0);
+        for (const part of queueParts) {
+          expect(
+            extracted.factBase
+              .outgoingEdges(part.id)
+              .some((e) => e.kind === "managedBy"),
+          ).toBe(true);
+        }
+        // which is exactly what the managed view relies on
+        const managed = resolveView(extracted.factBase, undefined);
+        expect(
+          managed
+            .facts()
+            .filter(
+              (f) => f.id.kind === "table" && f.id.schema === "pgmq",
+            ),
+        ).toEqual([]);
+      } finally {
+        await db.drop();
+      }
+    }, 180_000);
+
     // ── the load-bearing deliverable (CLI-2044) ─────────────────────────────
     test("ROUND TRIP: export → load into a fresh shadow → re-extract yields a CONFIGURED parent and an empty diff", async () => {
       const cluster = await supabaseCluster();
