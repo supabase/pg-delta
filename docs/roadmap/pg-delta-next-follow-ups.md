@@ -1274,7 +1274,101 @@ Round 4 (final round — loop capped per the automated-review policy):
 - **Note for CLI-2054 (pgmq partitioned queues).** The CLI-2054 triage above
   anticipated that this handler would make pgmq's partitioned queues replayable
   by sourcing their intervals from `part_config`. That revisit is deliberately
-  NOT done here: a pgmq partitioned queue's parent is registered in
-  `part_config` like any other, so the intervals ARE now captured, but wiring
-  pgmq's `create_partitioned` to consume another handler's facts is a
-  cross-handler dependency this slice did not take on.
+  NOT done here — and after the PR #400 review fix below, pgmq-owned
+  `part_config` rows (both the `q_` queue table and the `a_` archive table that
+  `pgmq.create_partitioned` registers) are explicitly SKIPPED with an
+  `INTENT_UNSUPPORTED` warning rather than captured. Capturing them produced a
+  wrong replay: an export / from-empty plan contained
+  `create_parent('pgmq.q_x', …)` consuming a table nothing in the plan creates,
+  and a live↔live diff whose desired side lacked the queue planned a
+  `DELETE FROM part_config` that would disable pgmq's own maintenance. Making
+  partitioned queues replayable therefore needs BOTH a pgmq-side intent (the
+  intervals re-sourced from `part_config`) and cross-handler ordering — a
+  dependency no slice has taken on yet.
+
+## PR #400 review triage (Codex) — pg_partman create_parent intent
+
+Five findings; two fixed in the PR (partman scope only), two deferred here, one
+redirected to the pgmq PR (#399).
+
+- **Fixed — pgmq-owned `part_config` rows leaked into create_parent intents
+  (P1).** See the reworded CLI-2054 note above for the failure modes. The fix
+  resolves pgmq's installed schema from `pg_extension` and skips rows whose
+  parent matches a registered queue in `<pgmq_schema>.meta` (both `q_` and `a_`
+  prefixes — `create_partitioned` registers TWO parents, verified on pgmq
+  1.5.1). Detection must come from the catalog: handler capture runs on the
+  RAW pre-projection fact base, so neither fact presence nor cross-handler
+  `managedBy` edges can identify the rows.
+
+- **Fixed — `create_parent` under-reported its relation lock (P2).** The
+  replay spec inherited the intent-rule default `lockClass: "none"`, but
+  `create_parent` takes an explicit `LOCK TABLE … IN ACCESS EXCLUSIVE MODE` on
+  the parent (`pg_partman--5.3.1.sql:1348`). Now `accessExclusive`. The
+  settings `UPDATE` and the deregister `DELETE` stay `"none"` (plain row DML).
+
+- **Deferred — version-keyed handler gating (P1/P2, two findings).** The
+  partman capture projects 5.3.1-audited `part_config` columns
+  (`time_encoder`, `maintenance_order`, …) and pgmq's projects `is_unlogged`;
+  on an older installed extension version the query fails with
+  `undefined_column` and aborts extraction instead of degrading to filter-only
+  behavior. This is the `versions?` handler field the architecture doc already
+  promises (`docs/architecture/extension-intent.md` §risks: "handlers are
+  version-keyed; unsupported versions degrade to filter-only with a notice")
+  but which was never implemented — and it equally affects the shipped pg_cron
+  handler (comment-only "stable since 1.4" posture). Fixing it per-handler
+  inside feature PRs is piecemeal hardening of a framework contract; do it
+  once, across pg_cron + pgmq + pg_partman: resolve `extversion` in capture,
+  compare against a per-handler supported range, and degrade to Phase-A
+  tagging plus a diagnostic outside it.
+
+- **Redirected to PR #399 — `pgmq.drop_queue` lock class (P2).** Valid
+  one-liner (`drop_queue` drops the queue and archive tables → access
+  exclusive), but it is pgmq-handler code owned by the stacked pgmq PR, not
+  this one. Landed there (see the PR #399 triage above).
+
+### Round 2 (post-rebase)
+
+Codex's second pass ran against a rebase that had transiently dropped the
+round-1 fixes (restored since), so one finding is a stale artifact. The other
+two are real but out of this PR's partman scope; recorded here.
+
+- **Stale — "the claimed accessExclusive fix is absent".** True of the
+  reviewed commit only: the branch was rebased over the round-1 push before
+  the re-review ran. The fix commits are restored on top of the rebase;
+  nothing to change.
+
+- **Verified, redirected to the plan/export plumbing — `schema export`
+  bypasses the desired-side intent gates.** The chain is real:
+  `buildSchemaExport` → `reconstructManagedView` → `resolveView` →
+  `buildFactBase` (twice), and `buildFactBase` constructs a fresh
+  `FactBase` whose `.diagnostics` is always `[]` (the constructor cannot
+  carry them), so by the time `export-sql-files` calls `plan()` the
+  desired-side `INTENT_UNKEYED` / `INTENT_UNSUPPORTED` gates read empty
+  diagnostics and pass. Consequence: exporting a database that holds an
+  unreplayable intent (partitioned pgmq queue, sub-partitioned partman set)
+  silently emits an incomplete bare schema instead of failing loudly. NOT
+  new to the partman PR — the `INTENT_UNKEYED` gate on main has the same
+  hole for pg_cron — and the fix (preserve diagnostics across managed-view
+  reconstruction, or evaluate the gate on the pre-projection base) is
+  fact-base/plan plumbing shared with the gate that shipped on the pgmq
+  side of this stack. Fix it there as its own slice, with an export-path
+  regression test.
+
+- **Deferred — arg-backed payload changes on a MATERIALIZED partition set
+  do not converge (Codex round 2 raised the `p_default_table` true→false
+  corner).** Every intent `payloadAttrs` entry is `"replace"` (drop +
+  create), so any arg-backed change replays `DELETE FROM part_config` +
+  `create_parent(...)` against a parent whose partitions (and default
+  partition) already exist physically. For `defaultTable` specifically the
+  replay cannot converge: `create_parent(p_default_table := false)` does
+  not remove the existing default partition, and the next capture recomputes
+  `defaultTable` from `pg_partitioned_table.partdefid`, so the diff
+  reappears (the proof loop reports the drift — the failure is loud, not
+  silent). This is one corner of a class: the intent-rule interface has no
+  in-place ALTER hook, and the handler's `create()` sees only the desired
+  fact, so a faithful transition (`DETACH`/`DROP` of the default partition
+  under the data-loss gate) cannot be expressed today. Needs either an
+  alter-capable intent rule or a planner-level transition gate — the same
+  planner-machinery family as the two-round drop above. Until then the
+  supported path for repartitioning a live set is partman's own tooling,
+  not a pg-delta replay.
