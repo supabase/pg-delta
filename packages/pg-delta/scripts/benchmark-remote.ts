@@ -291,12 +291,25 @@ export interface RunRecord {
   rssBytes: number;
 }
 
+/** `"profile"` for queries issued while `resolveProfile` is still running
+ *  (against the source pool, before extraction starts) — `"extract"` for
+ *  everything from there on. The probe is attached before `resolveProfile`
+ *  runs, so profile-resolution queries land in the JSONL too (useful), but
+ *  they must never be folded into a side's `queryCount` / `queryMsSum` /
+ *  `clientResidual`, which describe extraction specifically. */
+export type QueryPhase = "profile" | "extract";
+
 export interface QueryRecord {
   kind: "query";
   runId: string;
   iteration: number;
+  /** Warmup and measured iterations both number from 0 — this field (not
+   *  `iteration`) is the only reliable way to exclude warmup records from a
+   *  measured-only summary. */
+  warmup: boolean;
   side: Side;
   seq: number;
+  phase: QueryPhase;
   /** Catalog relation + a truncated prefix of OUR OWN SQL. Never user DDL. */
   label: string;
   ms: number;
@@ -352,12 +365,21 @@ function errorCode(error: unknown): string | undefined {
 class QuerySink {
   readonly records: QueryRecord[] = [];
   readonly #seq: Record<Side, number> = { source: 0, target: 0 };
+  /** Starts in the `"profile"` phase — the probe is attached before
+   *  `resolveProfile` runs. Call `markExtractPhase()` once `resolveProfile`
+   *  resolves, before extraction starts. */
+  #phase: QueryPhase = "profile";
 
   constructor(
     private readonly runId: string,
     private readonly iteration: number,
+    private readonly warmup: boolean,
     private readonly withBytes: boolean,
   ) {}
+
+  markExtractPhase(): void {
+    this.#phase = "extract";
+  }
 
   record(
     side: Side,
@@ -371,8 +393,10 @@ class QuerySink {
       kind: "query",
       runId: this.runId,
       iteration: this.iteration,
+      warmup: this.warmup,
       side,
       seq: this.#seq[side]++,
+      phase: this.#phase,
       label,
       ms,
       rows: rows?.length ?? 0,
@@ -388,12 +412,33 @@ class QuerySink {
   }
 }
 
+/** True when the last element of `args` is a Node-style `(err, result) =>
+ *  void` callback — i.e. the CALLBACK overload of `client.query`, which
+ *  returns `undefined` rather than a promise. `pg-pool`'s own `Pool.query`
+ *  ALWAYS calls the underlying `client.query` this way (it builds its own
+ *  callback internally, regardless of whether ITS caller awaited a promise —
+ *  see `pg-pool`'s `query()`), so this is the ONLY way a query issued via
+ *  `pool.query(...)` (as `resolveProfile`'s `probeApplierCapability` /
+ *  `probePgMajor` do) is ever observable here. */
+function callbackArgOf(
+  args: readonly unknown[],
+):
+  | ((err: unknown, result: { rows: unknown[] } | undefined) => void)
+  | undefined {
+  const last = args[args.length - 1];
+  return typeof last === "function"
+    ? (last as (err: unknown, result: { rows: unknown[] } | undefined) => void)
+    : undefined;
+}
+
 /**
  * Wrap `pool.connect` so every checked-out client's `query` is timed, then hand
  * back a detach function that restores BOTH `pool.connect` and every client it
  * wrapped. Measurement only — mirrors scripts/perf-timing.ts, but also handles
  * `connect`'s callback overload (which `pool.query` uses internally, and
- * `resolveProfile` calls `pool.query` directly).
+ * `resolveProfile` calls `pool.query` directly) AND `query`'s own callback
+ * overload (see `callbackArgOf`), so profile-resolution queries are captured
+ * at all, not just extraction's promise-form `client.query` calls.
  */
 function attachQueryProbe(
   pool: pg.Pool,
@@ -422,16 +467,46 @@ function attachQueryProbe(
     });
     (client as { query: unknown }).query = (...args: unknown[]) => {
       const start = performance.now();
+      const label = queryLabel(sqlTextOf(args[0]));
+      const callback = callbackArgOf(args);
+      if (callback !== undefined) {
+        // Callback overload (pg-pool's internal `Pool.query()` shape) — wrap
+        // the callback itself instead of the (nonexistent) return value.
+        const wrappedArgs = [...args];
+        wrappedArgs[wrappedArgs.length - 1] = (
+          error: unknown,
+          result: { rows: unknown[] } | undefined,
+        ) => {
+          if (error != null) {
+            sink.record(
+              side,
+              label,
+              performance.now() - start,
+              undefined,
+              false,
+              errorCode(error),
+            );
+          } else {
+            sink.record(
+              side,
+              label,
+              performance.now() - start,
+              result?.rows,
+              true,
+            );
+          }
+          callback(error, result);
+        };
+        return originalQuery(...wrappedArgs);
+      }
       const returned = originalQuery(...args);
-      // pg's client.query has a callback overload that returns void, not a
-      // promise (pg-pool uses it internally) — only time the promise form.
+      // Neither overload matched (e.g. no query text) — nothing to time.
       if (
         returned == null ||
         typeof (returned as { then?: unknown }).then !== "function"
       ) {
         return returned;
       }
-      const label = queryLabel(sqlTextOf(args[0]));
       return (returned as Promise<{ rows: unknown[] }>).then(
         (result) => {
           sink.record(
@@ -607,7 +682,11 @@ function sideStats(
   side: Side,
   extractConcurrency: number,
 ): SideStats {
-  const mine = records.filter((r) => r.side === side);
+  // Profile-resolution queries (issued before `resolveProfile` returns) are
+  // real work, but attributing them to extraction would understate
+  // `clientResidual` in serial runs — extraction's `extractMs` never covers
+  // that time. Keep them in the JSONL; exclude them here.
+  const mine = records.filter((r) => r.side === side && r.phase === "extract");
   let queryMsSum = 0;
   for (const record of mine) queryMsSum += record.ms;
   return {
@@ -675,7 +754,7 @@ export async function runBenchmark(
       const warmup = index < options.warmups;
       const iteration = warmup ? index : index - options.warmups;
       const phases = emptyPhases();
-      const sink = new QuerySink(runId, iteration, options.bytes);
+      const sink = new QuerySink(runId, iteration, warmup, options.bytes);
       const cpuBefore = process.cpuUsage();
       const wallStart = performance.now();
 
@@ -702,148 +781,166 @@ export async function runBenchmark(
 
       let record: RunRecord;
       try {
-        // Explicit first connect per side, BEFORE profile resolution, so the
-        // TLS handshake / auth cost is isolated instead of hiding inside the
-        // first extraction. Skipped (0) when the pool is already warm.
-        if (!options.reusePools || index === 0) {
-          await timed(phases, "sourceFirstConnect", async () => {
-            (await pools.source.connect()).release();
-          });
-          await timed(phases, "targetFirstConnect", async () => {
-            (await pools.target.connect()).release();
-          });
-        }
-
-        // Resolve against the SOURCE pool: the source is the apply target, so
-        // its capability / baseline govern the managed view (see cmdPlan).
-        const resolved: ResolvedProfile = await timed(
-          phases,
-          "profileResolve",
-          () =>
-            resolveProfile(pools.source, integrationProfile, {
-              redactSecrets: true,
-            }),
-        );
-
-        const extractOptions = {
-          redactSecrets: true,
-          concurrency: options.extractConcurrency,
-          ...(options.statementTimeoutMs !== undefined
-            ? { statementTimeoutMs: options.statementTimeoutMs }
-            : {}),
-        };
-
-        let extractSourceMs = 0;
-        let extractTargetMs = 0;
-        const intervalStart = performance.now();
-        const [sourceResult, targetResult] = await Promise.all([
-          (async () => {
-            const start = performance.now();
-            try {
-              return await resolved.extract(pools.source, extractOptions);
-            } finally {
-              extractSourceMs = performance.now() - start;
-            }
-          })(),
-          (async () => {
-            const start = performance.now();
-            try {
-              return await resolved.extract(pools.target, extractOptions);
-            } finally {
-              extractTargetMs = performance.now() - start;
-            }
-          })(),
-        ]);
-        phases.extractInterval = performance.now() - intervalStart;
-        phases.extractSource = extractSourceMs;
-        phases.extractTarget = extractTargetMs;
-
-        // Where cmdPlan calls printDiagnostics + exitIfBlocking. Here advisory
-        // diagnostics are only COUNTED (into each side's `diagnostics` field):
-        // a real project always has some, and aborting on one would make the
-        // benchmark unusable. Nothing is printed — a diagnostic message can
-        // quote a user object's definition.
-        const planOptions: PlanOptions = {
-          renames: "off",
-          compact: true,
-          redactSecrets: true,
-          ...resolved.planOptions, // policy, capability, baseline, intentRules
-        };
-        const thePlan = await timed(phases, "plan", () =>
-          plan(sourceResult.factBase, targetResult.factBase, planOptions),
-        );
-
-        // allowDrops: a real source→target diff routinely drops; the gate is a
-        // safety prompt for humans, irrelevant to a read-only measurement.
-        const rendered = await timed(phases, "render", () =>
-          renderPlanFiles(thePlan, { allowDrops: true }),
-        );
-        let sqlBytes = 0;
-        for (const file of rendered.files) {
-          sqlBytes += Buffer.byteLength(file.contents, "utf8");
-        }
-
-        let formatOk = true;
-        await timed(phases, "format", () => {
-          try {
-            formatSqlStatements(rendered.files.map((file) => file.contents));
-          } catch {
-            formatOk = false;
+        try {
+          // Explicit first connect per side, BEFORE profile resolution, so the
+          // TLS handshake / auth cost is isolated instead of hiding inside the
+          // first extraction. Skipped (0) when the pool is already warm.
+          if (!options.reusePools || index === 0) {
+            await timed(phases, "sourceFirstConnect", async () => {
+              (await pools.source.connect()).release();
+            });
+            await timed(phases, "targetFirstConnect", async () => {
+              (await pools.target.connect()).release();
+            });
           }
-        });
 
-        const cpu = process.cpuUsage(cpuBefore);
-        record = {
-          kind: "run",
-          schemaVersion: SCHEMA_VERSION,
-          runId,
-          iteration,
-          warmup,
-          engine: "next",
-          profile: options.profileId,
-          poolMode: options.reusePools ? "reused" : "fresh",
-          reverse: options.reverse,
-          extractConcurrency: options.extractConcurrency,
-          runLabel,
-          pgMajor: pgMajorOf(sourceResult.pgVersion),
-          rttMs,
-          wallMs: performance.now() - wallStart,
-          cpuUserMs: cpu.user / 1000,
-          cpuSystemMs: cpu.system / 1000,
-          phases,
-          source: sideStats(
-            sourceResult,
-            extractSourceMs,
-            sink.records,
-            "source",
-            options.extractConcurrency,
-          ),
-          target: sideStats(
-            targetResult,
-            extractTargetMs,
-            sink.records,
-            "target",
-            options.extractConcurrency,
-          ),
-          actions: thePlan.actions.length,
-          sqlBytes,
-          formatOk,
-          rssBytes: process.memoryUsage().rss,
-        };
-      } finally {
-        for (const restore of detach) restore();
-      }
+          // Resolve against the SOURCE pool: the source is the apply target, so
+          // its capability / baseline govern the managed view (see cmdPlan).
+          const resolved: ResolvedProfile = await timed(
+            phases,
+            "profileResolve",
+            () =>
+              resolveProfile(pools.source, integrationProfile, {
+                redactSecrets: true,
+              }),
+          );
+          // Everything from here on is extraction proper — queries recorded
+          // before this point (profile resolution, against the source pool)
+          // stay in the JSONL but are excluded from side attribution/summaries.
+          sink.markExtractPhase();
 
-      if (!options.reusePools) {
-        await timed(phases, "poolShutdown", () =>
-          Promise.all([pools.source.end(), pools.target.end()]),
-        );
-      } else if (index === total - 1 && shared !== undefined) {
-        const closing = shared;
-        shared = undefined;
-        await timed(phases, "poolShutdown", () =>
-          Promise.all([closing.source.end(), closing.target.end()]),
-        );
+          const extractOptions = {
+            redactSecrets: true,
+            concurrency: options.extractConcurrency,
+            ...(options.statementTimeoutMs !== undefined
+              ? { statementTimeoutMs: options.statementTimeoutMs }
+              : {}),
+          };
+
+          let extractSourceMs = 0;
+          let extractTargetMs = 0;
+          const intervalStart = performance.now();
+          const [sourceResult, targetResult] = await Promise.all([
+            (async () => {
+              const start = performance.now();
+              try {
+                return await resolved.extract(pools.source, extractOptions);
+              } finally {
+                extractSourceMs = performance.now() - start;
+              }
+            })(),
+            (async () => {
+              const start = performance.now();
+              try {
+                return await resolved.extract(pools.target, extractOptions);
+              } finally {
+                extractTargetMs = performance.now() - start;
+              }
+            })(),
+          ]);
+          phases.extractInterval = performance.now() - intervalStart;
+          phases.extractSource = extractSourceMs;
+          phases.extractTarget = extractTargetMs;
+
+          // Where cmdPlan calls printDiagnostics + exitIfBlocking. Here advisory
+          // diagnostics are only COUNTED (into each side's `diagnostics` field):
+          // a real project always has some, and aborting on one would make the
+          // benchmark unusable. Nothing is printed — a diagnostic message can
+          // quote a user object's definition.
+          const planOptions: PlanOptions = {
+            renames: "off",
+            compact: true,
+            redactSecrets: true,
+            ...resolved.planOptions, // policy, capability, baseline, intentRules
+          };
+          const thePlan = await timed(phases, "plan", () =>
+            plan(sourceResult.factBase, targetResult.factBase, planOptions),
+          );
+
+          // allowDrops: a real source→target diff routinely drops; the gate is a
+          // safety prompt for humans, irrelevant to a read-only measurement.
+          const rendered = await timed(phases, "render", () =>
+            renderPlanFiles(thePlan, { allowDrops: true }),
+          );
+          let sqlBytes = 0;
+          for (const file of rendered.files) {
+            sqlBytes += Buffer.byteLength(file.contents, "utf8");
+          }
+
+          let formatOk = true;
+          await timed(phases, "format", () => {
+            try {
+              formatSqlStatements(rendered.files.map((file) => file.contents));
+            } catch {
+              formatOk = false;
+            }
+          });
+
+          const cpu = process.cpuUsage(cpuBefore);
+          record = {
+            kind: "run",
+            schemaVersion: SCHEMA_VERSION,
+            runId,
+            iteration,
+            warmup,
+            engine: "next",
+            profile: options.profileId,
+            poolMode: options.reusePools ? "reused" : "fresh",
+            reverse: options.reverse,
+            extractConcurrency: options.extractConcurrency,
+            runLabel,
+            pgMajor: pgMajorOf(sourceResult.pgVersion),
+            rttMs,
+            wallMs: performance.now() - wallStart,
+            cpuUserMs: cpu.user / 1000,
+            cpuSystemMs: cpu.system / 1000,
+            phases,
+            source: sideStats(
+              sourceResult,
+              extractSourceMs,
+              sink.records,
+              "source",
+              options.extractConcurrency,
+            ),
+            target: sideStats(
+              targetResult,
+              extractTargetMs,
+              sink.records,
+              "target",
+              options.extractConcurrency,
+            ),
+            actions: thePlan.actions.length,
+            sqlBytes,
+            formatOk,
+            rssBytes: process.memoryUsage().rss,
+          };
+        } finally {
+          for (const restore of detach) restore();
+        }
+
+        if (!options.reusePools) {
+          await timed(phases, "poolShutdown", () =>
+            Promise.all([pools.source.end(), pools.target.end()]),
+          );
+        } else if (index === total - 1 && shared !== undefined) {
+          const closing = shared;
+          shared = undefined;
+          await timed(phases, "poolShutdown", () =>
+            Promise.all([closing.source.end(), closing.target.end()]),
+          );
+        }
+      } catch (error) {
+        // A failure anywhere above (connect/extract/plan/render, or even the
+        // normal shutdown just attempted) must not leak a live fresh pool to
+        // whatever caught runBenchmark()'s rejection — always end it,
+        // best-effort, before propagating. Reused pools are the caller's
+        // responsibility across iterations (see the outer `finally` below).
+        if (!options.reusePools) {
+          await Promise.all([pools.source.end(), pools.target.end()]).catch(
+            () => {},
+          );
+        }
+        throw error;
       }
       // poolShutdown lands after the record was built; re-read it so the
       // artifact carries the real value (phases is the same object).
@@ -891,7 +988,6 @@ export function printSummary(
     console.log("\nno measured iterations");
     return;
   }
-  const measuredIterations = new Set(measured.map((run) => run.iteration));
 
   console.log(`\nphases over ${measured.length} measured iteration(s), ms`);
   console.log(
@@ -956,7 +1052,12 @@ export function printSummary(
     const byLabel = new Map<string, number[]>();
     for (const query of queries) {
       if (query.side !== side) continue;
-      if (!measuredIterations.has(query.iteration)) continue;
+      // Warmup and measured iterations both number from 0 — `warmup` (not
+      // `iteration`) is what actually distinguishes them.
+      if (query.warmup) continue;
+      // Profile-resolution queries are excluded from the per-side attribution
+      // above; keep the top-queries ranking consistent with that.
+      if (query.phase !== "extract") continue;
       const bucket = byLabel.get(query.label);
       if (bucket === undefined) byLabel.set(query.label, [query.ms]);
       else bucket.push(query.ms);

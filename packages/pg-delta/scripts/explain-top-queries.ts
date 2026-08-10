@@ -415,6 +415,12 @@ async function main(options: ExplainOptions): Promise<void> {
 
   const client = await pool.connect();
   let trackIoTiming = "unknown";
+  // A fatal pass-level failure (e.g. session setup after client acquisition)
+  // is caught below so best-effort rollback/cleanup + the partial report still
+  // run, but it must not let the process exit 0 — rethrown at the end of
+  // `main` once cleanup is done. Individual per-query failures are already
+  // savepoint-isolated (see the try/catch inside the loop) and never set this.
+  let fatalError: unknown;
   const rows: Array<{
     label: string;
     captureMs: number;
@@ -539,6 +545,7 @@ async function main(options: ExplainOptions): Promise<void> {
     console.error(
       `fatal error during EXPLAIN pass: code=${errorCode(error)} name=${errorName(error)}`,
     );
+    fatalError = error;
   } finally {
     client.release();
   }
@@ -583,6 +590,13 @@ async function main(options: ExplainOptions): Promise<void> {
   }
 
   console.log(`\nartifacts: ${artifactsDir}`);
+
+  // Cleanup (rollback, client release, pool.end) is done and the partial
+  // report is printed — now surface the fatal failure so automation can't
+  // mistake an incomplete run for success.
+  if (fatalError !== undefined) {
+    throw fatalError;
+  }
 }
 
 // ── CLI entry ───────────────────────────────────────────────────────────────
