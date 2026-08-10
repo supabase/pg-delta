@@ -39,8 +39,12 @@ partition at every level stays tagged `managedBy`, so nothing ever plans a
 `DROP TABLE` against them, and partman's auto-created template table is now
 tagged too.
 
-Note for existing callers driving `plan()` directly with `pgPartmanHandler`
-(rather than through `resolveProfile`): the handler now emits intent facts, so
-`plan()` must be given its replay rules via
-`intentRules: buildIntentRuleIndex([pgPartmanHandler])`. Without them the rule
-resolver throws rather than silently dropping declared intent.
+Note for existing callers passing `pgPartmanHandler` to `extract()` and then
+driving `plan()` directly: the handler now emits intent facts, and `plan()`
+must be given their replay rules or the rule resolver throws rather than
+silently dropping declared intent. The supported way to obtain them is a
+profile: wrap the handlers in an `IntegrationProfile`
+(`{ id, handlers: [pgPartmanHandler, …] }`), call `resolveProfile(profile)`,
+and spread the returned `planOptions` (which carries `intentRules`) into
+`plan()` — hand-assembling the recipe without a profile is not a supported
+composition.
