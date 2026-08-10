@@ -43,7 +43,9 @@ interface QueueRow {
 /** A `pgmq.meta` row plus the two operational table names Postgres derives
  *  from it (`lower('q_' || queue_name)` / `lower('a_' || …)`, exactly what
  *  `pgmq.format_table_name` does). */
-const queue = (overrides: Partial<QueueRow> & { queue_name: string }): QueueRow => ({
+const queue = (
+  overrides: Partial<QueueRow> & { queue_name: string },
+): QueueRow => ({
   is_partitioned: false,
   is_unlogged: false,
   qtable: `q_${overrides.queue_name.toLowerCase()}`,
@@ -173,7 +175,9 @@ describe("pgmqHandler.capture", () => {
 
     const result = await pgmqHandler.capture(ctx, current);
 
-    expect((result.facts[0]?.id as { key: string }).key).toBe("MixedCase");
+    expect(result.facts.map((f) => (f.id as { key: string }).key)).toEqual([
+      "MixedCase",
+    ]);
     expect(result.edges.filter((e) => e.kind === "managedBy")).toEqual([
       { from: tableId("q_mixedcase"), to: PGMQ, kind: "managedBy" },
       { from: tableId("a_mixedcase"), to: PGMQ, kind: "managedBy" },
@@ -199,8 +203,9 @@ describe("pgmqHandler.capture", () => {
     const result = await pgmqHandler.capture(ctx, current);
 
     // only the non-partitioned queue becomes a fact
-    expect(result.facts).toHaveLength(1);
-    expect((result.facts[0]?.id as { key: string }).key).toBe("jobs");
+    expect(result.facts.map((f) => (f.id as { key: string }).key)).toEqual([
+      "jobs",
+    ]);
 
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics?.[0]?.code).toBe(INTENT_UNSUPPORTED);
@@ -213,7 +218,9 @@ describe("pgmqHandler.capture", () => {
   });
 
   test("a partitioned queue's operational tables are STILL tagged managedBy (they are pgmq's, intent or not)", async () => {
-    const ctx = fakeCtx([queue({ queue_name: "events", is_partitioned: true })]);
+    const ctx = fakeCtx([
+      queue({ queue_name: "events", is_partitioned: true }),
+    ]);
     const current = buildFactBase(
       [pgmqFact, tableFact("q_events"), tableFact("a_events")],
       [],

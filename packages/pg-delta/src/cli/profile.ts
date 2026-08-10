@@ -14,6 +14,7 @@ import {
   type ExtensionHandler,
   type IntegrationProfile,
   makePgCronHandler,
+  pgmqHandler,
   pgPartmanHandler,
   rawProfile,
   type ResolvedProfile,
@@ -54,6 +55,9 @@ const HANDLER_FACTORY_BY_NAME = new Map<
   (resolvedDefaultOwner: string | undefined) => ExtensionHandler
 >([
   [pgPartmanHandler.extension, () => pgPartmanHandler],
+  // pgmq takes no configuration: its registry records no owner or role, so
+  // there is no policy-derived knob to inject (see src/policy/extensions/pgmq.ts).
+  [pgmqHandler.extension, () => pgmqHandler],
   [
     "pg_cron",
     (resolvedDefaultOwner) =>

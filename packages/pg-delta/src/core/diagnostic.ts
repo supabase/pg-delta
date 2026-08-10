@@ -30,6 +30,19 @@ export const INTENT_UNKEYED = "intent-unkeyed";
  *  warning is the early signal that a plain connection will be rejected. */
 export const INTENT_PRIVILEGED = "intent-privileged";
 
+/** Diagnostic code for an extension-intent object the handler can KEY but
+ *  cannot faithfully REPLAY, because the extension's own catalog does not
+ *  record everything its constructor needs — today, a PARTITIONED pgmq queue
+ *  (`pgmq.meta` stores the `is_partitioned` flag but not the partition /
+ *  retention intervals, which live in pg_partman's `part_config`). Skip + warn
+ *  is the honest outcome: emitting a fact whose `create()` guesses the missing
+ *  arguments would produce a plan that can never converge. Distinct from
+ *  {@link INTENT_UNKEYED} (no stable identity at all) and
+ *  {@link INTENT_PRIVILEGED} (replayable, but only by a superuser). Warning
+ *  only — `plan()` does not gate on it, so an unsupported object in the DESIRED
+ *  state is simply left unmanaged rather than failing the plan. */
+export const INTENT_UNSUPPORTED = "intent-unsupported";
+
 /** Diagnostic code for a `pg_user_mapping` row whose options a non-superuser
  *  extraction could not read (the `pg_user_mappings` fallback view NULLs
  *  `umoptions` for a row the caller isn't authorized on — see

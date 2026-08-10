@@ -131,10 +131,9 @@ describe.skipIf(!runSupabaseBareTests)(
         // dropping a queue destroys every message still in it
         expect(dropAction?.dataLoss).toBe("destructive");
 
-        const report = await apply(thePlan, src.pool, {
-          ...ctx.applyOptions,
-          allowDataLoss: true,
-        });
+        // `allow-data-loss` is a CLI-level gate, not an `apply()` option — the
+        // library applies a destructive action as planned.
+        const report = await apply(thePlan, src.pool, ctx.applyOptions);
         expect(report.status).toBe("applied");
 
         const { rows } = await src.pool.query(`SELECT * FROM pgmq.meta`);
@@ -209,7 +208,12 @@ describe.skipIf(!runSupabaseBareTests)(
           .flatMap((f) => f.sql.split("\n"))
           .map((l) => l.trim())
           .filter((l) => /^select pgmq\./i.test(l));
-        expect(replays).toMatchInlineSnapshot();
+        expect(replays).toMatchInlineSnapshot(`
+          [
+            "select pgmq.create_unlogged('fast');",
+            "select pgmq.create('jobs');",
+          ]
+        `);
 
         // ...and no message data was exported
         expect(files.map((f) => f.sql).join("\n")).not.toMatch(/hello/);
