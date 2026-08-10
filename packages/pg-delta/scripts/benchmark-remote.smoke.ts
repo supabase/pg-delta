@@ -54,9 +54,51 @@ function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`smoke: ${message}`);
 }
 
+/** Best-effort string form of a non-Error thrown value, without relying on a
+ *  possibly-useless default `Object.prototype.toString` (`[object Object]`). */
+function describeUnknown(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value) ?? "(unserializable)";
+  } catch {
+    return "(unserializable)";
+  }
+}
+
+/** Replace every redaction needle in `text` with a placeholder — used both for
+ *  the artifact-leak assertion below and to scrub a caught error before it is
+ *  ever handed to console.error (a pg error's `.message`/`.stack` can embed the
+ *  host, port, user, password, or database name). */
+function redact(text: string, needles: readonly string[]): string {
+  let scrubbed = text;
+  for (const needle of needles) {
+    scrubbed = scrubbed.split(needle).join("[redacted]");
+  }
+  return scrubbed;
+}
+
 const cluster = await sharedCluster();
 const dbA = await cluster.createDb("bench_src");
 const dbB = await cluster.createDb("bench_tgt");
+
+// Built once, up front, so BOTH the artifact-leak assertion and the failure
+// scrubbing below (which must survive even a connection error) share the same
+// needle list. host/port/user/password are identical for A and B (one shared
+// container) — only the database name differs.
+const urlA = new URL(dbA.uri);
+const secrets: Array<[string, string]> = [
+  ["host", urlA.hostname],
+  ["port", urlA.port],
+  ["username", urlA.username],
+  ["password", urlA.password],
+  ["database A", dbA.name],
+  ["database B", dbB.name],
+  ["uri A", dbA.uri],
+  ["uri B", dbB.uri],
+].filter((entry): entry is [string, string] => entry[1] !== "");
 
 let failure: unknown;
 try {
@@ -127,16 +169,6 @@ try {
   }
 
   // ── redaction: no connection detail anywhere in the artifact ─────────────
-  const url = new URL(dbA.uri);
-  const secrets: Array<[string, string]> = [
-    ["host", url.hostname],
-    ["port", url.port],
-    ["username", url.username],
-    ["password", url.password],
-    ["database A", dbA.name],
-    ["database B", dbB.name],
-    ["uri", dbA.uri],
-  ].filter((entry): entry is [string, string] => entry[1] !== "");
   for (const [what, needle] of secrets) {
     assert(
       !raw.includes(needle),
@@ -166,7 +198,30 @@ try {
 }
 
 if (failure !== undefined) {
-  console.error(failure);
+  // Never hand the raw `failure` to console — a pg error's message/stack can
+  // transitively embed the host/port/user/password/db name (e.g. a connection
+  // failure quotes the connection string). Print name/code plus the message
+  // and stack with every known needle scrubbed instead.
+  const name = failure instanceof Error ? failure.name : typeof failure;
+  const code =
+    failure !== null && typeof failure === "object" && "code" in failure
+      ? String((failure as { code: unknown }).code)
+      : undefined;
+  const message = redact(
+    failure instanceof Error ? failure.message : describeUnknown(failure),
+    secrets.map(([, needle]) => needle),
+  );
+  console.error(
+    `smoke failed: name=${name}${code !== undefined ? ` code=${code}` : ""} message=${message}`,
+  );
+  if (failure instanceof Error && failure.stack !== undefined) {
+    console.error(
+      redact(
+        failure.stack,
+        secrets.map(([, needle]) => needle),
+      ),
+    );
+  }
   process.exit(1);
 }
 process.exit(0);

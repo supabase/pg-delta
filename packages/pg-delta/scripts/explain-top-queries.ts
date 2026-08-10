@@ -231,12 +231,23 @@ function attachQueryProbe(pool: pg.Pool, sink: CapturedQuery[]): () => void {
         return returned;
       }
       const sql = sqlTextOf(args[0]);
-      return (returned as Promise<{ rows: unknown[] }>).then(
+      return (
+        returned as Promise<{ rows: unknown[] } | { rows: unknown[] }[]>
+      ).then(
         (result) => {
+          // The session-setup batch (src/extract/scope.ts::makeBatchRunner)
+          // sends a multi-statement string over the simple query protocol, and
+          // node-pg resolves those with an ARRAY of per-statement results
+          // instead of one result object — sum rows across them. That batch's
+          // SQL starts with BEGIN/SET, so NON_QUERY_PREFIXES already excludes
+          // it from EXPLAIN ranking below regardless of its row count.
+          const rows = Array.isArray(result)
+            ? result.reduce((sum, one) => sum + one.rows.length, 0)
+            : result.rows.length;
           sink.push({
             sql,
             ms: performance.now() - start,
-            rows: result.rows.length,
+            rows,
             ok: true,
           });
           return result;
@@ -317,13 +328,16 @@ function flattenNodes(node: PlanNode, acc: PlanNode[] = []): PlanNode[] {
   return acc;
 }
 
-function sumBuffers(
-  node: PlanNode,
+/** EXPLAIN BUFFERS counters are INCLUSIVE of every child node already — the
+ *  root node's count IS the query total, so summing recursively across the
+ *  tree double- (triple-, ...) counts every buffer touched below the root.
+ *  Actual Total Time is inclusive the same way, and the topNodes display
+ *  above already treats it as such (no summing there either). */
+function rootBuffers(
+  plan: PlanNode,
   key: "Shared Hit Blocks" | "Shared Read Blocks",
 ): number {
-  let total = (node[key] as number | undefined) ?? 0;
-  for (const child of node.Plans ?? []) total += sumBuffers(child, key);
-  return total;
+  return (plan[key] as number | undefined) ?? 0;
 }
 
 function describeNode(node: PlanNode): string {
@@ -444,10 +458,16 @@ async function main(options: ExplainOptions): Promise<void> {
       const slug = slugOf(query.sql);
       const filename = `${i + 1}-${slug}.json`;
 
+      // A failed EXPLAIN (e.g. statement_timeout firing on a heavy query)
+      // aborts the shared transaction — every later query would then fail with
+      // 25P02 (in_failed_sql_transaction) instead of its own error. A SAVEPOINT
+      // around each EXPLAIN scopes the damage to just that one query.
       try {
+        await client.query("SAVEPOINT q");
         const explainResult = await client.query(
           `EXPLAIN (ANALYZE, BUFFERS, SETTINGS, FORMAT JSON) ${query.sql}`,
         );
+        await client.query("RELEASE SAVEPOINT q");
         const plan = (explainResult.rows[0] as { "QUERY PLAN": ExplainPlan[] })[
           "QUERY PLAN"
         ][0]!;
@@ -475,13 +495,17 @@ async function main(options: ExplainOptions): Promise<void> {
           captureMs: query.captureMs,
           executionMs: plan["Execution Time"] ?? null,
           planningMs: plan["Planning Time"] ?? null,
-          sharedHit: sumBuffers(plan.Plan, "Shared Hit Blocks"),
-          sharedRead: sumBuffers(plan.Plan, "Shared Read Blocks"),
+          sharedHit: rootBuffers(plan.Plan, "Shared Hit Blocks"),
+          sharedRead: rootBuffers(plan.Plan, "Shared Read Blocks"),
           actualRows: plan.Plan["Actual Rows"] ?? null,
           topNodes,
           error: null,
         });
       } catch (error) {
+        // Roll back to the savepoint so the shared transaction stays usable for
+        // the remaining ranked queries — a bare catch here would leave it
+        // aborted and every subsequent EXPLAIN would fail with 25P02.
+        await client.query("ROLLBACK TO SAVEPOINT q").catch(() => {});
         rows.push({
           label,
           captureMs: query.captureMs,

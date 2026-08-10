@@ -253,6 +253,11 @@ export interface SideStats {
    *  server/network time from client-side JS (decode + FactBase build). */
   queryMsSum: number;
   extractMs: number;
+  /** `extractMs - queryMsSum` — the part of extraction NOT spent waiting on a
+   *  query (row decoding, FactBase construction, handlers). `null` whenever
+   *  `extractConcurrency > 1`: concurrent query durations overlap, so their sum
+   *  no longer bounds `extractMs` and the subtraction goes negative/meaningless. */
+  clientResidual: number | null;
   diagnostics: number;
 }
 
@@ -600,6 +605,7 @@ function sideStats(
   extractMs: number,
   records: readonly QueryRecord[],
   side: Side,
+  extractConcurrency: number,
 ): SideStats {
   const mine = records.filter((r) => r.side === side);
   let queryMsSum = 0;
@@ -610,6 +616,7 @@ function sideStats(
     queryCount: mine.length,
     queryMsSum,
     extractMs,
+    clientResidual: extractConcurrency > 1 ? null : extractMs - queryMsSum,
     diagnostics: result.diagnostics.length,
   };
 }
@@ -809,12 +816,14 @@ export async function runBenchmark(
             extractSourceMs,
             sink.records,
             "source",
+            options.extractConcurrency,
           ),
           target: sideStats(
             targetResult,
             extractTargetMs,
             sink.records,
             "target",
+            options.extractConcurrency,
           ),
           actions: thePlan.actions.length,
           sqlBytes,
@@ -922,16 +931,22 @@ export function printSummary(
   );
 
   // Client-side residual: the part of a side's extraction wall-time NOT spent
-  // waiting on a query — row decoding, FactBase construction, handlers.
+  // waiting on a query — row decoding, FactBase construction, handlers. Only
+  // meaningful when queries run serially; with extractConcurrency > 1 their
+  // durations overlap, so wall - sqlSum no longer bounds anything.
   console.log("\nper-side attribution (p50 over measured iterations, ms)");
   for (const side of ["source", "target"] as const) {
     const wall = summarize(measured.map((r) => r[side].extractMs)).p50;
     const sql = summarize(measured.map((r) => r[side].queryMsSum)).p50;
     const stats = measured[measured.length - 1]![side];
+    const residual =
+      stats.clientResidual === null
+        ? "n/a (parallel)".padStart(7)
+        : (wall - sql).toFixed(0).padStart(7);
     console.log(
       `${side.padEnd(8)} extract=${wall.toFixed(0).padStart(7)}  ` +
         `sqlSum=${sql.toFixed(0).padStart(7)}  ` +
-        `clientResidual=${(wall - sql).toFixed(0).padStart(7)}  ` +
+        `clientResidual=${residual}  ` +
         `queries=${String(stats.queryCount).padStart(4)}  ` +
         `facts=${stats.facts}  edges=${stats.edges}  diagnostics=${stats.diagnostics}`,
     );
