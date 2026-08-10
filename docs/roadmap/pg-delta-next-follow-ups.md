@@ -831,3 +831,31 @@ oversized key past its advertised total-length budget. One further finding is
   exactly this divergence, so the failure is pre-announced. Revisit if a real
   profile hits it.
 
+
+## PR #401 review triage (Codex) — wrappers-FDW suppression
+
+Two findings on the CLI-1470 fix. P1 was fixed in the PR; P2 is recorded here.
+
+- **Fixed (P1) — bare `DROP EXTENSION "wrappers"` when the desired state
+  omits the dashboard-installed extension.** With wrappers-provisioned FDWs
+  projected out (Rule 6c), keeping the extension itself managed planned a
+  bare drop that PostgreSQL rejects (the suppressed FDW still depends on the
+  extension's handler/validator functions). Fix: `wrappers` joined
+  `SUPABASE_SYSTEM_EXTENSIONS` — it is dashboard-installed, never declared in
+  user schema files, so the same platform judgment as `pg_graphql` (#5555)
+  applies; the extension and its FDWs are now assumed-present together.
+
+- **Deferred (P2) — `isNamedObjectPredicate()` / `containsWildcardMatcher()`
+  do not inspect `edgeTo`, so a concrete `edgeTo: { name: "wrappers" }`
+  selector in a CUSTOM policy without explicit `audit` metadata defaults to
+  the `suspicious` projection-audit classification.** Deferred by design
+  judgment, not oversight: no `edgeTo` form was ever classified as a
+  named-object selector (including a concrete `schema`), and the default is
+  arguably correct — an edge-based rule pins a concrete *provenance*, not
+  concrete named objects; it still excludes an unbounded class of dependents
+  (every FDW depending on `wrappers`), which is exactly what the audit's
+  "suspicious" bucket exists to surface. `suspicious` is a review flag, not
+  a behavior change, and explicit `audit` metadata (which the Supabase rule
+  supplies) is the intended escape hatch for a policy author who has made
+  the judgment deliberately. Revisit only if a real custom-policy consumer
+  hits audit friction with a pinned edgeTo selector.

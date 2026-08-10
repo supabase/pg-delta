@@ -151,6 +151,14 @@ export const SUPABASE_SYSTEM_EXTENSIONS = [
   "pg_stat_statements",
   "pgsodium",
   "supabase_vault",
+  // Installed by the dashboard when the user enables a wrapper integration,
+  // never declared in user schema files — same judgment as pg_graphql. Also
+  // load-bearing for Rule 6c below (CLI-1470): with wrappers-provisioned FDWs
+  // projected out, a managed `DROP EXTENSION "wrappers"` would be a bare drop
+  // PostgreSQL rejects (the suppressed FDW still depends on the extension's
+  // handler/validator), so the extension and its FDWs are platform-managed
+  // together.
+  "wrappers",
 ] as const;
 
 /** Supabase platform-created publications: provisioned at project init (by the
