@@ -268,6 +268,35 @@ describe.skipIf(!runSupabaseBareTests)("supabase policy e2e", () => {
     }
   }, 180_000);
 
+  test("omitting the wrappers integration from desired state plans no DROP EXTENSION wrappers (CLI-1470)", async () => {
+    const cluster = await supabaseCluster();
+    const main = await cluster.createDb("supa_dsl_wrapdrop_main");
+    const branch = await cluster.createDb("supa_dsl_wrapdrop_branch");
+    try {
+      // A dashboard-enabled integration installs `wrappers` + the FDW on the
+      // live project; the user's declarative files never mention either. With
+      // the FDW projected out (Rule 6c) but the extension still managed, the
+      // plan would carry a bare `DROP EXTENSION "wrappers"` that PostgreSQL
+      // rejects — the suppressed FDW still depends on the extension's
+      // handler/validator (PR #401 review, P1). Both are platform-managed:
+      // the plan must touch neither.
+      await main.pool.query(`
+        CREATE SCHEMA IF NOT EXISTS extensions;
+        CREATE EXTENSION IF NOT EXISTS wrappers WITH SCHEMA extensions;
+        CREATE FOREIGN DATA WRAPPER stripe_like
+          HANDLER extensions.wasm_fdw_handler
+          VALIDATOR extensions.wasm_fdw_validator;
+      `);
+      const sql = await supabasePlanSql(main, branch);
+      expect(sql.filter((s) => /DROP EXTENSION "wrappers"/.test(s))).toEqual(
+        [],
+      );
+      expect(sql.filter((s) => /FOREIGN DATA WRAPPER/.test(s))).toEqual([]);
+    } finally {
+      await Promise.all([main.drop(), branch.drop()]);
+    }
+  }, 180_000);
+
   test("preserves a user-owned postgres_fdw server, foreign table, and user mapping", async () => {
     const cluster = await supabaseCluster();
     const main = await cluster.createDb("supa_dsl_pgfdw_main");
