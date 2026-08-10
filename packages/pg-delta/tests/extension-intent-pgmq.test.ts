@@ -181,6 +181,77 @@ describe.skipIf(!runSupabaseBareTests)(
       }
     }, 180_000);
 
+    // ── partitioned queues: unmanaged, but only BLOCKING on a key collision ──
+    test("a partitioned queue with no same-name source queue is left unmanaged — the plan neither throws nor replays it", async () => {
+      const cluster = await supabaseCluster();
+      const src = await cluster.createDb("pgmq_parted_src");
+      const desired = await cluster.createDb("pgmq_parted_desired");
+      try {
+        await src.pool.query(`CREATE EXTENSION pgmq`);
+        // DESIRED: a PARTITIONED queue only pgmq/pg_partman can describe. Its
+        // intervals live in part_config, so capture skips the fact and warns
+        // (intent-unsupported). Nothing on the source side holds `parted`, so
+        // this is benign drift — the plan must proceed.
+        await desired.pool.query(`CREATE EXTENSION pgmq`);
+        await desired.pool.query(`CREATE EXTENSION pg_partman`);
+        await desired.pool.query(
+          `SELECT pgmq.create_partitioned('parted', '10000', '100000')`,
+        );
+
+        const ctx = await resolveProfile(src.pool, pgmqProfile);
+        const sourceFb = (await ctx.extract(src.pool)).factBase;
+        const desiredFb = (await ctx.extract(desired.pool)).factBase;
+
+        // the warning rides the fact base rather than blocking the plan
+        expect(
+          desiredFb.diagnostics.some(
+            (d) => d.code === "intent-unsupported" && /parted/.test(d.message),
+          ),
+        ).toBe(true);
+
+        const thePlan = plan(sourceFb, desiredFb, {
+          ...ctx.planOptions,
+          renames: "off",
+        });
+        // ...and no replay is invented for it
+        expect(thePlan.actions.map((a) => a.sql).join("\n")).not.toMatch(
+          /pgmq\.create\w*\('parted'\)/,
+        );
+      } finally {
+        await Promise.all([src.drop(), desired.drop()]);
+      }
+    }, 180_000);
+
+    test("a same-key collision — regular queue in the source, PARTITIONED in the desired — is refused at plan time", async () => {
+      const cluster = await supabaseCluster();
+      const src = await cluster.createDb("pgmq_clash_src");
+      const desired = await cluster.createDb("pgmq_clash_desired");
+      try {
+        // SOURCE: a regular (manageable) queue `clash`.
+        await src.pool.query(`CREATE EXTENSION pgmq`);
+        await src.pool.query(`SELECT pgmq.create('clash')`);
+        // DESIRED: the SAME name as a partitioned queue — captured as a
+        // diagnostic, not a fact. Ungated the diff reads that as a removal and
+        // plans a bare destructive `pgmq.drop_queue('clash')` whose proof
+        // falsely converges, because the desired re-extract skips it too.
+        await desired.pool.query(`CREATE EXTENSION pgmq`);
+        await desired.pool.query(`CREATE EXTENSION pg_partman`);
+        await desired.pool.query(
+          `SELECT pgmq.create_partitioned('clash', '10000', '100000')`,
+        );
+
+        const ctx = await resolveProfile(src.pool, pgmqProfile);
+        const sourceFb = (await ctx.extract(src.pool)).factBase;
+        const desiredFb = (await ctx.extract(desired.pool)).factBase;
+
+        expect(() =>
+          plan(sourceFb, desiredFb, { ...ctx.planOptions, renames: "off" }),
+        ).toThrow(/cannot replay[\s\S]*pgmq\/queue 'clash'/);
+      } finally {
+        await Promise.all([src.drop(), desired.drop()]);
+      }
+    }, 180_000);
+
     // ── the load-bearing deliverable (CLI-2054) ─────────────────────────────
     test("ROUND TRIP: export → load into a fresh shadow → re-extract converges", async () => {
       const cluster = await supabaseCluster();
