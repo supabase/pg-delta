@@ -1,0 +1,163 @@
+import { describe, expect, test } from "bun:test";
+import {
+  MAX_EXTRACT_CONCURRENCY,
+  resolveStreamCount,
+  runSlottedJobs,
+} from "./parallel.ts";
+
+describe("resolveStreamCount", () => {
+  test("undefined and 1 mean the serial path", () => {
+    expect(resolveStreamCount(undefined, 5)).toBe(1);
+    expect(resolveStreamCount(1, 5)).toBe(1);
+  });
+
+  test("a request within the pool's capacity is honored", () => {
+    expect(resolveStreamCount(4, 5)).toBe(4);
+    expect(resolveStreamCount(5, 5)).toBe(5);
+  });
+
+  test("clamps to the pool's max so connect() can never queue", () => {
+    // the coordinator holds one client for the whole extraction, so asking the
+    // pool for more than it can hand out would block forever
+    expect(resolveStreamCount(8, 5)).toBe(5);
+    expect(resolveStreamCount(4, 1)).toBe(1);
+    expect(resolveStreamCount(4, 2)).toBe(2);
+  });
+
+  test("clamps to the hard cap", () => {
+    expect(resolveStreamCount(100, 100)).toBe(MAX_EXTRACT_CONCURRENCY);
+    expect(MAX_EXTRACT_CONCURRENCY).toBe(8);
+  });
+
+  test("an unknown pool max falls back to node-pg's default of 10", () => {
+    expect(resolveStreamCount(6, undefined)).toBe(6);
+    expect(resolveStreamCount(20, undefined)).toBe(MAX_EXTRACT_CONCURRENCY);
+  });
+
+  test("a nonsense request is rejected instead of silently coerced", () => {
+    for (const bad of [0, -1, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => resolveStreamCount(bad, 5)).toThrow(/concurrency/i);
+    }
+  });
+});
+
+/** The rejection value of `promise`, awaited (so nothing is left dangling) and
+ *  asserted to have happened at all. */
+async function rejection(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+  } catch (error) {
+    return error;
+  }
+  throw new Error("expected the promise to reject, but it resolved");
+}
+
+describe("runSlottedJobs", () => {
+  const deferred = <T>(): {
+    promise: Promise<T>;
+    resolve: (value: T) => void;
+    reject: (error: unknown) => void;
+  } => {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+
+  test("results are slotted by JOB index, never completion order", async () => {
+    const gates = [deferred<string>(), deferred<string>(), deferred<string>()];
+    const run = runSlottedJobs(
+      gates.map((gate) => () => gate.promise),
+      3,
+    );
+    // settle backwards — a completion-order merge would produce c,b,a
+    gates[2]!.resolve("c");
+    await Promise.resolve();
+    gates[0]!.resolve("a");
+    await Promise.resolve();
+    gates[1]!.resolve("b");
+    expect(await run).toEqual(["a", "b", "c"]);
+  });
+
+  test("more jobs than streams still slot in job order", async () => {
+    const jobs = Array.from({ length: 23 }, (_, index) => async () => {
+      // deliberately inverted delays: later jobs finish first
+      await Bun.sleep((23 - index) % 5);
+      return index;
+    });
+    expect(await runSlottedJobs(jobs, 4)).toEqual(
+      Array.from({ length: 23 }, (_, index) => index),
+    );
+  });
+
+  test("never runs more than `streamCount` jobs at once", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const jobs = Array.from({ length: 20 }, () => async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await Bun.sleep(1);
+      inFlight--;
+      return 0;
+    });
+    await runSlottedJobs(jobs, 3);
+    expect(peak).toBe(3);
+  });
+
+  test("each job is told which stream it runs on", async () => {
+    const streams = await runSlottedJobs(
+      Array.from({ length: 12 }, () => async (stream: number) => stream),
+      3,
+    );
+    expect(new Set(streams)).toEqual(new Set([0, 1, 2]));
+  });
+
+  test("the first failure wins and no later job is started", async () => {
+    const started: number[] = [];
+    const boom = new Error("first");
+    const jobs = Array.from({ length: 10 }, (_, index) => async () => {
+      started.push(index);
+      if (index === 1) throw boom;
+      if (index === 2) throw new Error("second");
+      await Bun.sleep(1);
+      return index;
+    });
+    // one stream → strictly sequential, so "first" is unambiguous
+    expect(await rejection(runSlottedJobs(jobs, 1))).toBe(boom);
+    expect(started).toEqual([0, 1]);
+  });
+
+  test("in-flight jobs are awaited before rejecting (no dangling work)", async () => {
+    const slow = deferred<number>();
+    let slowSettled = false;
+    const jobs = [
+      async () => {
+        const value = await slow.promise;
+        slowSettled = true;
+        return value;
+      },
+      async () => {
+        throw new Error("fast failure");
+      },
+    ];
+    const run = runSlottedJobs(jobs, 2);
+    // the failure has already happened, but the slow job is still open: the
+    // scheduler must not reject until it settles, or the caller would ROLLBACK
+    // a connection with a query still on the wire
+    await Bun.sleep(5);
+    expect(slowSettled).toBe(false);
+    slow.resolve(1);
+    expect((await rejection(run)) as Error).toHaveProperty(
+      "message",
+      "fast failure",
+    );
+    expect(slowSettled).toBe(true);
+  });
+
+  test("an empty job list is a no-op", async () => {
+    expect(await runSlottedJobs([], 4)).toEqual([]);
+  });
+});
