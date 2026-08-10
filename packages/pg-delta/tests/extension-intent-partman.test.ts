@@ -616,13 +616,19 @@ describe.skipIf(!runSupabaseBareTests)(
               .some((e) => e.kind === "managedBy"),
           ).toBe(true);
         }
-        // which is exactly what the managed view relies on
+        // which is exactly what the managed view relies on. (The queue's OWN
+        // `q_pq` / `a_pq` tables survive here because only the partman handler
+        // is composed — tagging those is the pgmq handler's job, and the
+        // Supabase profile projects the whole schema out anyway.)
         const managed = resolveView(extracted.factBase, undefined);
         expect(
           managed
             .facts()
             .filter(
-              (f) => f.id.kind === "table" && f.id.schema === "pgmq",
+              (f) =>
+                f.id.kind === "table" &&
+                f.id.schema === "pgmq" &&
+                /^[qa]_pq_/.test(f.id.name),
             ),
         ).toEqual([]);
       } finally {

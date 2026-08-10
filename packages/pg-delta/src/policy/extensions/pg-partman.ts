@@ -121,6 +121,19 @@
  * `managedBy` either way — the Phase-A walk is recursive, so it already covers
  * every sub-level — so nothing plans a `DROP TABLE` against them.
  *
+ * ### pgmq-owned parents are scoped OUT
+ * `pgmq.create_partitioned(q)` creates `pgmq.q_<q>` / `pgmq.a_<q>` as its own
+ * tables and registers BOTH in `part_config`. Replaying those as `create_parent`
+ * is wrong twice over: the replay would `consume` a table nothing in the plan
+ * creates (the pgmq handler deliberately emits no fact for a partitioned queue,
+ * and the Supabase profile projects the whole `pgmq` schema out), so an
+ * export / from-empty load cannot apply; and a live↔live diff whose desired side
+ * lacks the queue would plan `DELETE FROM part_config` against a live database,
+ * silently disabling pgmq's own partition maintenance. Both rows therefore emit
+ * an `INTENT_UNSUPPORTED` warning and NO fact, exactly like the sub-partition
+ * case. Phase A is deliberately NOT restricted, so the queue's partitions stay
+ * tagged `managedBy` and nothing plans a `DROP TABLE` against them.
+ *
  * ### `drop` deregisters; it does not destroy
  * There is no single-statement inverse of `create_parent`: `undo_partition()`
  * requires a separate `p_target_table` to move rows into and is batched by
@@ -155,13 +168,17 @@ function quoteIdent(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
 }
 
-/** Resolve the schema pg_partman is installed into, or null if absent. */
-async function detect(ctx: HandlerContext): Promise<string | null> {
+/** Resolve the schema `extname` is installed into, or null if absent. Used for
+ *  pg_partman itself and — see the pgmq scope-out below — for pgmq. */
+async function extensionSchema(
+  ctx: HandlerContext,
+  extname: string,
+): Promise<string | null> {
   const rows = await ctx.query(
     `SELECT n.nspname AS schema
        FROM pg_extension e
        JOIN pg_namespace n ON n.oid = e.extnamespace
-      WHERE e.extname = 'pg_partman'`,
+      WHERE e.extname = ${lit(extname)}`,
   );
   return (rows[0]?.["schema"] as string | undefined) ?? null;
 }
@@ -208,6 +225,7 @@ interface ConfigRow {
   maintenance_order: number | null;
   is_sub_partition_set: boolean;
   is_sub_partition_child: boolean;
+  is_pgmq_queue: boolean;
 }
 
 /** The captured intent of one registered parent. Split (a) / (b) exactly as the
@@ -349,8 +367,9 @@ export const pgPartmanHandler: ExtensionHandler = {
     ctx: HandlerContext,
     current: FactBase,
   ): Promise<CaptureResult> {
-    const schema = await detect(ctx);
+    const schema = await extensionSchema(ctx, "pg_partman");
     if (schema === null) return { facts: [], edges: [] };
+    const pgmqSchema = await extensionSchema(ctx, "pgmq");
 
     const facts: Fact[] = [];
     const edges: DependencyEdge[] = [];
@@ -396,6 +415,30 @@ export const pgPartmanHandler: ExtensionHandler = {
     // `default_table` comes from `pg_partitioned_table.partdefid` — the only
     // structural record of `p_default_table`, which partman does not store.
     // The two sub-partition flags mark rows this slice cannot replay.
+    //
+    // `is_pgmq_queue` marks the OTHER unreplayable shape: a queue table
+    // `pgmq.create_partitioned(...)` registered for itself (see the header).
+    // It has to come from the CATALOG — pgmq's own registry — because neither
+    // cheaper signal exists at capture time:
+    //   * fact presence: handlers run at the END of `extract()` on the RAW,
+    //     unfiltered fact base; the Supabase profile's `pgmq` system-schema
+    //     projection happens later, in `plan()`. `current.has(q_x)` is TRUE here.
+    //   * a cross-handler `managedBy` edge: handlers run sequentially and each
+    //     one is handed the PRE-handler fact base, so pgmq's edges are invisible.
+    // The name test mirrors pgmq's `format_table_name`
+    // (`lower(prefix || '_' || queue_name)`), spelled out rather than calling
+    // that internal helper so it does not depend on a particular pgmq version,
+    // and referencing only `meta.queue_name`, which every version has. BOTH
+    // prefixes are covered: `create_partitioned` registers the `q_` queue table
+    // AND its `a_` archive table (verified on pgmq 1.5.1).
+    const isPgmqQueue =
+      pgmqSchema === null
+        ? "false"
+        : `(pn.nspname = ${lit(pgmqSchema)} AND EXISTS (
+                  SELECT 1 FROM ${quoteIdent(pgmqSchema)}.meta m
+                   WHERE pc_rel.relname IN (lower('q_' || m.queue_name),
+                                            lower('a_' || m.queue_name))
+                ))`;
     const configs = (await ctx.query(
       `WITH RECURSIVE managed_parents AS (
          SELECT to_regclass(parent_table)::oid AS oid
@@ -438,6 +481,7 @@ export const pgPartmanHandler: ExtensionHandler = {
               pc.constraint_valid               AS constraint_valid,
               pc.ignore_default_data            AS ignore_default_data,
               pc.maintenance_order              AS maintenance_order,
+              ${isPgmqQueue}                    AS is_pgmq_queue,
               EXISTS (
                 SELECT 1 FROM ${quoteIdent(schema)}.part_config_sub s
                  WHERE s.sub_parent = pc.parent_table
@@ -458,6 +502,29 @@ export const pgPartmanHandler: ExtensionHandler = {
 
     for (const row of configs) {
       const key = `${row.parent_schema}.${row.parent_name}`;
+
+      // pgmq's, not the user's — skipped BEFORE the template handling below so
+      // the row leaks no fact and no edge at all.
+      if (row.is_pgmq_queue) {
+        diagnostics.push({
+          code: INTENT_UNSUPPORTED,
+          severity: "warning",
+          message:
+            `pg_partman parent '${key}' is a pgmq-managed queue table registered ` +
+            `by pgmq.create_partitioned(), so replaying it through create_parent() ` +
+            `cannot converge: the queue table is extension-managed rather than ` +
+            `user DDL, and pgmq itself captures no intent for a partitioned ` +
+            `queue. Its registration is left unmanaged (never deregistered) and ` +
+            `its partitions stay tagged managedBy; cross-handler replay of ` +
+            `partitioned queues is a recorded follow-up`,
+          // `key` is the collision-gate contract (same as the sub-partition
+          // skip below): a keyless diagnostic would hit plan()'s conservative
+          // fallback and refuse the whole plan; with the key, both sides skip
+          // the same row so no collision forms and this stays a warning.
+          context: { ext: "pg_partman", intentKind: "parent", key },
+        });
+        continue;
+      }
 
       if (row.is_sub_partition_set || row.is_sub_partition_child) {
         diagnostics.push({
@@ -597,6 +664,12 @@ export const pgPartmanHandler: ExtensionHandler = {
           {
             sql: `select ${s}.create_parent(${args.join(", ")})`,
             consumes,
+            // create_parent takes it EXPLICITLY on the parent —
+            // `LOCK TABLE %I.%I IN ACCESS EXCLUSIVE MODE`, the only such LOCK in
+            // pg_partman--5.3.1.sql's create_parent body (line 1348) — so the
+            // intent-rule default of "none" would under-report the plan's
+            // strongest lock. (Its ATTACH PARTITIONs are weaker; this dominates.)
+            lockClass: "accessExclusive",
           },
         ];
 

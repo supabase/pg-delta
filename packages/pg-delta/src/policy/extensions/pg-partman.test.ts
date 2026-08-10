@@ -447,9 +447,13 @@ describe("pgPartmanHandler.capture", () => {
     expect(result.diagnostics?.[0]?.severity).toBe("warning");
     expect(result.diagnostics?.[0]?.message).toMatch(/pgmq/);
     expect(result.diagnostics?.[0]?.message).toMatch(/pgmq\.q_jobs/);
+    // `key` rides on the context per the collision-gate contract, so a
+    // desired-side partitioned queue warns instead of tripping the
+    // conservative keyless refusal in plan().
     expect(result.diagnostics?.[0]?.context).toEqual({
       ext: "pg_partman",
       intentKind: "parent",
+      key: "pgmq.q_jobs",
     });
   });
 
@@ -466,7 +470,11 @@ describe("pgPartmanHandler.capture", () => {
       ],
     });
     const current = buildFactBase(
-      [partmanFact, tableFact("pgmq", "q_jobs"), tableFact("public", "my_template")],
+      [
+        partmanFact,
+        tableFact("pgmq", "q_jobs"),
+        tableFact("public", "my_template"),
+      ],
       [],
     );
 
