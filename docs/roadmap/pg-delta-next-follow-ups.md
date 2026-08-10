@@ -1112,4 +1112,17 @@ Deferred (recorded here, not fixed in the PR):
   are already explicitly unmanaged (`intent-unsupported`); their removal
   semantics belong to the same follow-up that makes them replayable
   (part_config-sourced intervals, above), not to this PR.
+- **Partitioned→regular transition of the same queue name (Codex round 3).**
+  Source has a partitioned queue `X` (skipped, source-side diagnostic —
+  non-fatal by design), desired declares a regular queue `X` (fact). The plan
+  emits `pgmq.create('X')`, which no-ops against the existing registration
+  (pgmq's create is `IF NOT EXISTS`), so apply/proof FAILS TO CONVERGE —
+  loudly, via the designed proof backstop; nothing is destroyed and nothing
+  falsely passes. Declined in-PR: an explicit early rejection needs
+  source-side diagnostics to carry the queue key plus a diagnostic ×
+  desired-add join in `plan()` — new machinery for one transition of the
+  already-unmanaged partitioned family. This corner (like the two above)
+  dissolves entirely once partitioned queues become replayable via
+  part_config-sourced intervals; fix it there, not transition-by-transition.
+  Review loop capped at this round per the automated-review policy.
 
