@@ -1064,19 +1064,15 @@ executors fail closed on stamped artifacts; `assertPlanId` preflight added to
   practice.
 ## CLI-2054 triage — pgmq intent capture and replay
 
-- **Deferred — `plan()` does not gate on a desired-side `intent-unsupported`
-  diagnostic.** A PARTITIONED pgmq queue is keyable but not faithfully
-  replayable (`pgmq.meta` stores only the `is_partitioned` flag; the
-  partition/retention intervals live in pg_partman's `part_config`), so the
-  handler skips the fact and emits a capture-time `intent-unsupported`
-  warning (`src/core/diagnostic.ts`). Consequence: a partitioned queue
-  declared in the DESIRED state is silently left unmanaged rather than
-  failing the plan the way a desired-side `intent-unkeyed` does. Fail-loud
-  gating (mirror the `INTENT_UNKEYED` desired-side check in `plan()`) is the
-  follow-up; deferred because it touches planner machinery this slice
-  deliberately left alone. Also the natural place to revisit whether the
-  intervals can be sourced from `part_config` once the pg_partman intent
-  handler (CLI-2044) lands, making partitioned queues replayable instead.
+- **RESOLVED in-PR — `plan()` now gates on a desired-side
+  `intent-unsupported` diagnostic** (Codex round-2 P1 sharpened the
+  consequence: a regular→partitioned transition of the same queue name
+  planned a bare destructive `drop_queue` whose proof falsely converged,
+  because the desired re-extract skipped the fact too). The gate mirrors the
+  `INTENT_UNKEYED` desired-side check in `plan()`. Still open here: whether
+  the intervals can be sourced from `part_config` once the pg_partman intent
+  handler (CLI-2044) lands, making partitioned queues replayable instead of
+  refused.
 
 ### PR #399 review triage (Codex)
 
@@ -1107,8 +1103,9 @@ Deferred (recorded here, not fixed in the PR):
   declarative path converges through the loader's retry rounds and the
   plan/apply path fails LOUDLY via the proof, never silently. The clean fix
   (remap pruned dependency edges onto the intent fact before projection) is
-  planner/resolveView machinery — same bucket as the desired-side
-  `intent-unsupported` plan() gate above; do them together.
+  planner/resolveView machinery — deferred as its own design piece (the
+  desired-side `intent-unsupported` plan() gate, originally bucketed with
+  it, shipped in-PR after the round-2 P1).
 - **Partitioned-queue interplay with `DROP EXTENSION pgmq`.** A partitioned
   queue emits no intent fact, so a desired state that removes pgmq relies on
   member-cascade to take the operational tables with it. Partitioned queues

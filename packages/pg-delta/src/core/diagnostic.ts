@@ -38,9 +38,11 @@ export const INTENT_PRIVILEGED = "intent-privileged";
  *  is the honest outcome: emitting a fact whose `create()` guesses the missing
  *  arguments would produce a plan that can never converge. Distinct from
  *  {@link INTENT_UNKEYED} (no stable identity at all) and
- *  {@link INTENT_PRIVILEGED} (replayable, but only by a superuser). Warning
- *  only — `plan()` does not gate on it, so an unsupported object in the DESIRED
- *  state is simply left unmanaged rather than failing the plan. */
+ *  {@link INTENT_PRIVILEGED} (replayable, but only by a superuser). A warning
+ *  on the SOURCE side (unmanaged drift, left untouched); on the DESIRED side
+ *  `plan()` treats it as fatal, mirroring {@link INTENT_UNKEYED} — the skipped
+ *  fact would otherwise turn a same-key transition (regular → partitioned
+ *  queue) into a bare destructive drop whose proof falsely converges. */
 export const INTENT_UNSUPPORTED = "intent-unsupported";
 
 /** Diagnostic code for a `pg_user_mapping` row whose options a non-superuser

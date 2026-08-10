@@ -27,7 +27,11 @@
  * `pgmq.meta` alone would have to guess them and could never converge, so a
  * partitioned queue emits an `INTENT_UNSUPPORTED` warning and NO fact. Its
  * operational tables are still tagged `managedBy` (they are pgmq's either way),
- * so nothing plans a `DROP TABLE` against them.
+ * so nothing plans a `DROP TABLE` against them. On the SOURCE side that means
+ * unmanaged drift; on the DESIRED side `plan()` refuses outright (see the gate
+ * in plan.ts) — the skipped fact would otherwise turn a regular→partitioned
+ * transition of the same queue name into a bare destructive `drop_queue` whose
+ * proof falsely converges.
  *
  * NO `shadowPrecheck`: pgmq's functions work in ANY database (pg_cron's
  * single-database constraint has no pgmq analogue), which is exactly what lets

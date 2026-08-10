@@ -29,4 +29,7 @@ Partitioned queues are deliberately left unmanaged: `pgmq.meta` records only the
 intervals live in pg_partman's `part_config`, so a faithful replay is not
 derivable from pgmq's catalog. Such a queue emits a new `intent-unsupported`
 warning instead of a fact that could never converge — its operational tables are
-still tagged, so nothing plans to drop them.
+still tagged, so nothing plans to drop them. On the DESIRED side `plan()` treats
+the diagnostic as fatal (mirroring the unkeyed-intent gate): the skipped fact
+would otherwise turn a regular→partitioned transition of the same queue name
+into a bare destructive `pgmq.drop_queue(...)` whose proof falsely converges.

@@ -2,7 +2,11 @@
  * The planner (target-architecture §3.4–3.6): deltas × rule table → atomic
  * actions → one mixed dependency graph → one deterministic sort.
  */
-import { INTENT_UNKEYED, USER_MAPPING_UNREADABLE } from "../core/diagnostic.ts";
+import {
+  INTENT_UNKEYED,
+  INTENT_UNSUPPORTED,
+  USER_MAPPING_UNREADABLE,
+} from "../core/diagnostic.ts";
 import { subjectOf, type Delta } from "../core/diff.ts";
 import type { FactBase } from "../core/fact.ts";
 import { encodeId, isSatelliteId, type StableId } from "../core/stable-id.ts";
@@ -305,6 +309,22 @@ export function plan(
     throw new Error(
       `plan: the desired state declares intent the engine cannot key — name it so it can be managed:\n` +
         unkeyed.map((d) => `  - ${d.message}`).join("\n"),
+    );
+  }
+  // Same posture for a desired-side intent the handler can key but cannot
+  // faithfully REPLAY (a PARTITIONED pgmq queue, a sub-partitioned partman
+  // set): the capture skipped the fact, so the diff sees only the source side.
+  // Left ungated, a same-key transition (regular → partitioned queue) plans a
+  // bare destructive drop whose proof falsely CONVERGES — the desired
+  // re-extract skips the fact too. (A SOURCE-side unsupported intent is just
+  // unmanaged drift — left untouched.)
+  const unreplayable = rawDesired.diagnostics.filter(
+    (d) => d.code === INTENT_UNSUPPORTED,
+  );
+  if (unreplayable.length > 0) {
+    throw new Error(
+      `plan: the desired state declares intent the engine cannot replay — remove it from the declarative source and manage it outside pg-delta:\n` +
+        unreplayable.map((d) => `  - ${d.message}`).join("\n"),
     );
   }
 
