@@ -10,7 +10,7 @@
  * registered rule fails loudly. No Docker — synthetic fact bases.
  */
 import { describe, expect, test } from "bun:test";
-import { INTENT_UNKEYED } from "../core/diagnostic.ts";
+import { INTENT_UNKEYED, INTENT_UNSUPPORTED } from "../core/diagnostic.ts";
 import { buildFactBase, type Fact } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
 import { plan } from "./plan.ts";
@@ -203,6 +203,36 @@ describe("plan() — extension intent wiring", () => {
       severity: "warning",
       message: "cron job (command: delete from x) has no jobname",
       context: { ext: "pg_cron", intentKind: "job" },
+    });
+    const desired = buildFactBase(baseFacts, []);
+    expect(() => plan(source, desired, { intentRules })).not.toThrow();
+  });
+
+  // A desired-side unsupported intent (keyable but not replayable — e.g. a
+  // PARTITIONED pgmq queue) must abort like an unkeyed one: the skipped fact
+  // otherwise turns a same-key transition into a bare destructive drop whose
+  // proof falsely converges (the desired re-extract skips the fact too).
+  test("a desired-side unsupported-intent diagnostic aborts the plan", () => {
+    const source = buildFactBase(baseFacts, []);
+    const desired = buildFactBase(baseFacts, []);
+    desired.diagnostics.push({
+      code: INTENT_UNSUPPORTED,
+      severity: "warning",
+      message: "pgmq queue 'jobs' is PARTITIONED and cannot be replayed",
+      context: { ext: "pgmq", intentKind: "queue" },
+    });
+    expect(() => plan(source, desired, { intentRules })).toThrow(
+      /cannot replay|PARTITIONED/i,
+    );
+  });
+
+  test("a source-side unsupported-intent diagnostic does NOT abort (unmanaged drift)", () => {
+    const source = buildFactBase(baseFacts, []);
+    source.diagnostics.push({
+      code: INTENT_UNSUPPORTED,
+      severity: "warning",
+      message: "pgmq queue 'jobs' is PARTITIONED and cannot be replayed",
+      context: { ext: "pgmq", intentKind: "queue" },
     });
     const desired = buildFactBase(baseFacts, []);
     expect(() => plan(source, desired, { intentRules })).not.toThrow();
