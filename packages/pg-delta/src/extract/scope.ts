@@ -412,17 +412,16 @@ export interface ExtractContext {
   pushSeclabel: (target: StableId, provider: string, label: string) => void;
 }
 
-export async function createExtractContext(
+/** The timeout-aware query runner bound to one connection. Extracted so a
+ *  worker connection in the bounded-parallel path (see ./parallel.ts) gets the
+ *  IDENTICAL 57014 → ExtractionTimeoutError mapping the coordinator has. */
+export type QueryRunner = (sql: string) => Promise<Row[]>;
+
+export function makeQueryRunner(
   client: PoolClient,
   statementTimeoutMs?: number,
-  redactSecrets = true,
-): Promise<ExtractContext> {
-  const facts: Fact[] = [];
-  const edges: DependencyEdge[] = [];
-  const diagnostics: Diagnostic[] = [];
-  const factDiagnostics: Diagnostic[] = [];
-
-  const q = async (sql: string): Promise<Row[]> => {
+): QueryRunner {
+  return async (sql: string): Promise<Row[]> => {
     try {
       return (await client.query(sql)).rows as Row[];
     } catch (error) {
@@ -435,20 +434,70 @@ export async function createExtractContext(
       throw error;
     }
   };
+}
 
-  // Single combined round trip for both pieces of version metadata every
-  // extraction needs: `server_version` (the exact string `SHOW server_version`
-  // used to return, fed into ExtractResult.pgVersion) and `server_version_num`
-  // (the major-version gate several per-family builders used to each re-probe
-  // with their own `SELECT current_setting('server_version_num')` round trip).
+/** The version metadata every extraction needs, probed ONCE per extraction —
+ *  including the parallel path, where the coordinator's probe is handed to every
+ *  worker context instead of each re-probing (see ./parallel.ts). */
+export interface ServerVersionInfo {
+  serverVersion: string;
+  serverVersionNum: number;
+  pgMajor: number;
+}
+
+/**
+ * Single combined round trip for both pieces of version metadata every
+ * extraction needs: `server_version` (the exact string `SHOW server_version`
+ * used to return, fed into ExtractResult.pgVersion) and `server_version_num`
+ * (the major-version gate several per-family builders used to each re-probe
+ * with their own `SELECT current_setting('server_version_num')` round trip).
+ */
+async function probeServerVersion(q: QueryRunner): Promise<ServerVersionInfo> {
   const versionRow = (
     await q(
       `SELECT current_setting('server_version') AS version, current_setting('server_version_num')::int AS num`,
     )
   )[0];
-  const serverVersion = (versionRow?.["version"] as string) ?? "unknown";
   const serverVersionNum = Number(versionRow?.["num"] ?? 0);
-  const pgMajor = Math.floor(serverVersionNum / 10000);
+  return {
+    serverVersion: (versionRow?.["version"] as string) ?? "unknown",
+    serverVersionNum,
+    pgMajor: Math.floor(serverVersionNum / 10000),
+  };
+}
+
+/**
+ * The never-errors JIT-disable statement for a given server major. See the call
+ * site in extract.ts for the full rationale — the short version is that a failed
+ * statement poisons the WHOLE transaction, so this must be structurally
+ * incapable of erroring. Shared with the parallel path so every worker
+ * connection gets the same treatment as the coordinator.
+ */
+export function jitOffSql(pgMajor: number): string {
+  return pgMajor >= 15
+    ? "SELECT set_config('jit', 'off', true) WHERE has_parameter_privilege(current_user, 'jit', 'SET')"
+    : "SET LOCAL jit = off";
+}
+
+/**
+ * A FRESH accumulator context over an existing query runner + already-probed
+ * version metadata: its own facts / edges / diagnostics buffers and its own push
+ * helpers closing over them, and no round trips of its own.
+ *
+ * The bounded-parallel path (./parallel.ts) gives every scheduled family its own
+ * collector so per-family results can be slotted by family INDEX and merged in
+ * the fixed call order — completion order must never reach the output.
+ */
+export function createCollectorContext(
+  q: QueryRunner,
+  version: ServerVersionInfo,
+  redactSecrets: boolean,
+): ExtractContext {
+  const facts: Fact[] = [];
+  const edges: DependencyEdge[] = [];
+  const diagnostics: Diagnostic[] = [];
+  const factDiagnostics: Diagnostic[] = [];
+  const { serverVersion, serverVersionNum, pgMajor } = version;
 
   /** Helper: push a fact plus its optional comment/acl satellite facts. */
   const pushWithMeta = (
@@ -574,4 +623,19 @@ export async function createExtractContext(
     pushOwnerEdge,
     pushSeclabel,
   };
+}
+
+/**
+ * The coordinator's context: a query runner on `client` plus the one version
+ * probe the whole extraction gets. The parallel path builds its per-family
+ * collectors with `createCollectorContext` and hands them THIS context's probed
+ * values, so no worker ever spends a second probe round trip.
+ */
+export async function createExtractContext(
+  client: PoolClient,
+  statementTimeoutMs?: number,
+  redactSecrets = true,
+): Promise<ExtractContext> {
+  const q = makeQueryRunner(client, statementTimeoutMs);
+  return createCollectorContext(q, await probeServerVersion(q), redactSecrets);
 }

@@ -30,6 +30,11 @@
  *   --reverse                 swap the source/target roles without touching env
  *   --profile supabase|raw    integration profile (default supabase)
  *   --statement-timeout <ms>  passthrough to extraction's statementTimeoutMs
+ *   --extract-concurrency <n> passthrough to extraction's `concurrency` (default
+ *                             1 = serial). >1 fans the catalog families out over
+ *                             N connections sharing one exported snapshot — the
+ *                             thing this benchmark exists to measure. Still
+ *                             READ-ONLY; it just uses more of the pool.
  *   --bytes                   also record approximate per-query result bytes
  *                             (JSON.stringify — adds CPU INSIDE the measured
  *                             extraction interval, so it is off by default)
@@ -128,6 +133,8 @@ export interface BenchmarkOptions {
   reverse: boolean;
   profileId: ProfileId;
   bytes: boolean;
+  /** Concurrent catalog-query streams per extraction (1 = serial). */
+  extractConcurrency: number;
   statementTimeoutMs?: number | undefined;
   /** Defaults to `<package>/.bench-artifacts`. */
   artifactsDir?: string | undefined;
@@ -141,6 +148,7 @@ export const DEFAULT_OPTIONS: BenchmarkOptions = {
   reverse: false,
   profileId: "supabase",
   bytes: false,
+  extractConcurrency: 1,
 };
 
 /** Bad flags / missing env — the CLI wrapper turns this into exit(1) + usage. */
@@ -149,7 +157,7 @@ export class BenchmarkUsageError extends Error {}
 const USAGE = `Usage: ${ENV_SOURCE_URL}=<url> ${ENV_TARGET_URL}=<url> \\
   bun scripts/benchmark-remote.ts [--iterations <n>] [--warmups <n>]
     [--reuse-pools] [--reverse] [--profile supabase|raw]
-    [--statement-timeout <ms>] [--bytes] [--quiet]
+    [--statement-timeout <ms>] [--extract-concurrency <n>] [--bytes] [--quiet]
 
 Connection strings are read ONLY from the environment:
   ${ENV_SOURCE_URL}   source (the apply target) connection string
@@ -187,6 +195,14 @@ export function parseBenchmarkArgs(argv: string[]): BenchmarkOptions {
       case "--statement-timeout":
         options.statementTimeoutMs = positive(value(++i, arg), arg);
         break;
+      case "--extract-concurrency": {
+        const streams = positive(value(++i, arg), arg);
+        if (streams < 1) {
+          throw new BenchmarkUsageError(`${arg} must be at least 1`);
+        }
+        options.extractConcurrency = streams;
+        break;
+      }
       case "--profile": {
         const id = value(++i, arg);
         if (id !== "supabase" && id !== "raw") {
@@ -250,6 +266,9 @@ export interface RunRecord {
   profile: ProfileId;
   poolMode: "fresh" | "reused";
   reverse: boolean;
+  /** Catalog-query streams per extraction (1 = the serial path). Records which
+   *  extraction strategy the phase timings below actually measured. */
+  extractConcurrency: number;
   runLabel: string | null;
   pgMajor: number | null;
   rttMs: Record<Side, { minMs: number; medianMs: number }>;
@@ -618,9 +637,9 @@ export async function runBenchmark(
   log(
     `profile=${options.profileId} poolMode=${
       options.reusePools ? "reused" : "fresh"
-    } reverse=${options.reverse} warmups=${options.warmups} iterations=${
-      options.iterations
-    }`,
+    } reverse=${options.reverse} extractConcurrency=${
+      options.extractConcurrency
+    } warmups=${options.warmups} iterations=${options.iterations}`,
   );
 
   const rttMs: Record<Side, { minMs: number; medianMs: number }> = {
@@ -701,6 +720,7 @@ export async function runBenchmark(
 
         const extractOptions = {
           redactSecrets: true,
+          concurrency: options.extractConcurrency,
           ...(options.statementTimeoutMs !== undefined
             ? { statementTimeoutMs: options.statementTimeoutMs }
             : {}),
@@ -776,6 +796,7 @@ export async function runBenchmark(
           profile: options.profileId,
           poolMode: options.reusePools ? "reused" : "fresh",
           reverse: options.reverse,
+          extractConcurrency: options.extractConcurrency,
           runLabel,
           pgMajor: pgMajorOf(sourceResult.pgVersion),
           rttMs,

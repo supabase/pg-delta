@@ -8,9 +8,11 @@
  *   library-side codec builds identity strings (guardrail 1)
  *
  * Capture model: a single REPEATABLE READ READ ONLY transaction on one
- * connection — consistent by construction. (Parallel workers via
- * `pg_export_snapshot()` are a later optimization; serial is the documented
- * fallback and plenty fast at current scale.)
+ * connection — consistent by construction. `ExtractOptions.concurrency` opts
+ * into fanning the families out over additional connections that all import the
+ * coordinator's `pg_export_snapshot()`, which is the same one moment in database
+ * time (see ./parallel.ts); serial remains the default and the fallback, and the
+ * two produce byte-identical output.
  *
  * Kind coverage is the full v1 set — see packages/pg-delta/COVERAGE.md for
  * the authoritative list (schemas, roles + memberships, extensions, tables and
@@ -39,8 +41,10 @@ import {
 } from "../core/fact.ts";
 import type { ExtensionHandler, HandlerContext } from "./handler.ts";
 import {
+  applyDependencyRows,
   extractDependencyEdges,
   extractInheritanceEdges,
+  fetchDependencyRows,
 } from "./dependencies.ts";
 import { extractEventTriggers } from "./event-triggers.ts";
 import { extractForeign } from "./foreign.ts";
@@ -60,9 +64,20 @@ import { extractRolesAndGrants } from "./roles.ts";
 import { extractAggregates, extractRoutines } from "./routines.ts";
 import { extractSchemasAndExtensions } from "./schemas.ts";
 import {
+  closeSnapshotWorkers,
+  exportSnapshot,
+  openSnapshotWorkers,
+  resolveStreamCount,
+  runSlottedJobs,
+} from "./parallel.ts";
+import {
+  createCollectorContext,
   createExtractContext,
+  type ExtractContext,
   ExtractionTimeoutError,
+  jitOffSql,
   pruneOrphanedSatellites,
+  type Row,
 } from "./scope.ts";
 import { extractSecurityLabels } from "./security-labels.ts";
 import { extractCollations, extractDomains, extractTypes } from "./types.ts";
@@ -99,39 +114,119 @@ export interface ExtractOptions {
    * extractions must use the SAME setting or the diff is meaningless.
    */
   redactSecrets?: boolean;
+  /**
+   * Opt-in number of concurrent catalog-query streams (default 1 = serial, the
+   * pre-existing code path exactly). Above 1, the coordinator exports its
+   * snapshot with `pg_export_snapshot()` and the extractor families are fanned
+   * out over that many connections from the SAME pool, all importing that
+   * snapshot — so the capture is still one consistent moment in database time and
+   * the output (facts, edges, diagnostics, fingerprint) is byte-identical to a
+   * serial run. It only buys wall time, and it only buys much on a high-latency
+   * link, where the serial extractor is dominated by ~40 sequential round trips.
+   *
+   * Clamped to the pool's own `max` (the coordinator holds a client for the whole
+   * extraction, so requesting more than the pool can spare would deadlock on
+   * `connect()`) and to a hard cap of 8. Degrades SILENTLY to serial — no extra
+   * diagnostic, identical output — whenever the snapshot cannot be shared
+   * (a standby, a pooler that blocks `SET TRANSACTION SNAPSHOT`, a `max: 1` pool).
+   * Must be an integer >= 1.
+   */
+  concurrency?: number;
+}
+
+/**
+ * THE extraction order, and the single source of truth for it: the serial path
+ * awaits these in sequence, and the bounded-parallel scheduler merges its
+ * per-family result slots in exactly this order. Every entry takes only an
+ * `ExtractContext` and reads nothing another family produced, which is what makes
+ * them freely schedulable.
+ *
+ * `extractDependencyEdges` is deliberately NOT here: its row post-processing is
+ * the one place in the extractor that reads `ctx.facts`, so it is split (SQL half
+ * schedulable, processing half deferred to after the merge — see
+ * ./dependencies.ts) and both paths run it last.
+ */
+const FAMILIES: readonly ((ctx: ExtractContext) => Promise<void>)[] = [
+  extractRolesAndGrants,
+  extractSchemasAndExtensions,
+  extractTables,
+  extractColumns,
+  extractTableConstraints,
+  extractIndexes,
+  extractSequences,
+  extractViews,
+  extractRoutines,
+  extractTriggers,
+  extractPolicies,
+  extractDomains,
+  extractTypes,
+  extractCollations,
+  extractEventTriggers,
+  extractRules,
+  extractAggregates,
+  extractForeign,
+  extractPublications,
+  extractSubscriptions,
+  extractSecurityLabels,
+  extractInheritanceEdges,
+];
+
+/** `target.push(...source)` without the spread's argument-count ceiling — these
+ *  arrays are per-family catalog output and can be very large. */
+function appendAll<T>(target: T[], source: readonly T[]): void {
+  for (const item of source) target.push(item);
+}
+
+/**
+ * Open the extraction transaction on the COORDINATOR client. (Worker connections
+ * in the parallel path do the equivalent setup themselves, plus the snapshot
+ * import that must come first — see openSnapshotWorkers in ./parallel.ts.)
+ *
+ * Also the recovery point when `pg_export_snapshot()` fails: that poisons the
+ * transaction, so the serial fallback re-opens a clean one through here.
+ */
+async function beginExtractionTransaction(
+  client: PoolClient,
+  statementTimeoutMs: number | undefined,
+): Promise<void> {
+  await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+  // Canonicalize the deparse path (pg_dump convention, post-CVE-2018-1058):
+  // `format_type` and every `pg_get_*def` / `pg_get_expr` path-relativizes
+  // names, so anything visible on the session `search_path` comes back
+  // UNQUALIFIED. Pinning to `pg_catalog` forces every non-catalog reference to
+  // be schema-qualified, so the SAME catalog hashes identically regardless of
+  // the database's / role's / connection's default path. SET LOCAL scopes it
+  // to this transaction and is discarded on COMMIT/ROLLBACK, so pooled
+  // connections are untouched.
+  await client.query("SET LOCAL search_path TO 'pg_catalog'");
+  // Opt-in per-statement budget: a runaway catalog query on a pathological
+  // schema aborts with an actionable ExtractionTimeoutError (see scope.ts q())
+  // instead of hanging. Default is unlimited — never abort a legitimate
+  // large extraction unless the caller asked for a budget.
+  if (statementTimeoutMs !== undefined) {
+    await client.query(
+      `SET LOCAL statement_timeout = ${Math.max(0, Math.floor(statementTimeoutMs))}`,
+    );
+  }
 }
 
 export async function extract(
   pool: Pool,
   options: ExtractOptions = {},
 ): Promise<ExtractResult> {
+  // Validated BEFORE a client is checked out, so a bad option can never leak a
+  // connection or an open transaction.
+  const streams = resolveStreamCount(options.concurrency, pool.options?.max);
   const client = await pool.connect();
   try {
-    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-    // Canonicalize the deparse path (pg_dump convention, post-CVE-2018-1058):
-    // `format_type` and every `pg_get_*def` / `pg_get_expr` path-relativizes
-    // names, so anything visible on the session `search_path` comes back
-    // UNQUALIFIED. Pinning to `pg_catalog` forces every non-catalog reference to
-    // be schema-qualified, so the SAME catalog hashes identically regardless of
-    // the database's / role's / connection's default path. SET LOCAL scopes it
-    // to this transaction and is discarded on COMMIT/ROLLBACK, so pooled
-    // connections are untouched.
-    await client.query("SET LOCAL search_path TO 'pg_catalog'");
-    // Opt-in per-statement budget: a runaway catalog query on a pathological
-    // schema aborts with an actionable ExtractionTimeoutError (see scope.ts q())
-    // instead of hanging. Default is unlimited — never abort a legitimate
-    // large extraction unless the caller asked for a budget.
-    if (options.statementTimeoutMs !== undefined) {
-      await client.query(
-        `SET LOCAL statement_timeout = ${Math.max(0, Math.floor(options.statementTimeoutMs))}`,
-      );
-    }
+    await beginExtractionTransaction(client, options.statementTimeoutMs);
     const result = await extractOnClient(
       client,
       options.source ?? "liveDb",
       options.statementTimeoutMs,
       options.handlers ?? [],
       options.redactSecrets ?? true,
+      streams > 1 ? { pool, streams } : undefined,
     );
     await client.query("COMMIT");
     return result;
@@ -149,6 +244,7 @@ async function extractOnClient(
   statementTimeoutMs: number | undefined,
   handlers: readonly ExtensionHandler[],
   redactSecrets: boolean,
+  parallel: { pool: Pool; streams: number } | undefined,
 ): Promise<ExtractResult> {
   const ctx = await createExtractContext(
     client,
@@ -179,11 +275,7 @@ async function extractOnClient(
   // ever tightened. See tests/extract-jit-off.test.ts for the detail.)
   // PG 14 has neither `has_parameter_privilege` nor parameter ACLs, so the
   // plain SET LOCAL is used there unconditionally.
-  await client.query(
-    ctx.pgMajor >= 15
-      ? "SELECT set_config('jit', 'off', true) WHERE has_parameter_privilege(current_user, 'jit', 'SET')"
-      : "SET LOCAL jit = off",
-  );
+  await client.query(jitOffSql(ctx.pgMajor));
 
   // Explicit, loud opt-out: disabling redaction means real credentials flow
   // into plan SQL, snapshot, export, the plan artifact, and the fingerprint.
@@ -201,30 +293,24 @@ async function extractOnClient(
 
   // The call order IS the extraction order: facts / edges / diagnostics are
   // accumulated in `ctx` in the order these run, so this sequence is preserved
-  // exactly from the pre-split single-function extractor.
-  await extractRolesAndGrants(ctx);
-  await extractSchemasAndExtensions(ctx);
-  await extractTables(ctx);
-  await extractColumns(ctx);
-  await extractTableConstraints(ctx);
-  await extractIndexes(ctx);
-  await extractSequences(ctx);
-  await extractViews(ctx);
-  await extractRoutines(ctx);
-  await extractTriggers(ctx);
-  await extractPolicies(ctx);
-  await extractDomains(ctx);
-  await extractTypes(ctx);
-  await extractCollations(ctx);
-  await extractEventTriggers(ctx);
-  await extractRules(ctx);
-  await extractAggregates(ctx);
-  await extractForeign(ctx);
-  await extractPublications(ctx);
-  await extractSubscriptions(ctx);
-  await extractSecurityLabels(ctx);
-  await extractInheritanceEdges(ctx);
-  await extractDependencyEdges(ctx);
+  // exactly from the pre-split single-function extractor. It is also the order
+  // the bounded-parallel scheduler merges its per-family slots in, which is what
+  // makes the two paths produce byte-identical output (see FAMILIES below).
+  const parallelised =
+    parallel === undefined
+      ? false
+      : await extractFamiliesInParallel(
+          ctx,
+          client,
+          parallel.pool,
+          parallel.streams,
+          statementTimeoutMs,
+          redactSecrets,
+        );
+  if (!parallelised) {
+    for (const family of FAMILIES) await family(ctx);
+    await extractDependencyEdges(ctx);
+  }
 
   // drop metadata satellites whose target was filtered (Item 4a) before
   // building — a satellite with a missing target would otherwise throw
@@ -284,4 +370,108 @@ async function extractOnClient(
   // never silently missed (review finding 1). Same snapshot, one round-trip.
   ctx.diagnostics.push(...(await detectUnmodeledKinds(client, ctx.pgMajor)));
   return { factBase, pgVersion, diagnostics: ctx.diagnostics };
+}
+
+/**
+ * Run `FAMILIES` (plus the pg_depend resolver's SQL half) across `streams`
+ * connections that all import the coordinator's exported snapshot, then merge the
+ * per-family results into `ctx` in FAMILY order.
+ *
+ * Returns false when it declined — snapshot export refused, or a worker could not
+ * be set up — having left the coordinator's transaction in a clean, usable state
+ * so the caller can just run the serial path. Declining is SILENT by design: it
+ * emits no diagnostic, because `concurrency` must never change what a caller
+ * sees, only how long the extraction takes.
+ *
+ * The coordinator's transaction is what keeps the exported snapshot alive, so it
+ * stays open across all worker activity (extract() COMMITs long after this
+ * returns) and every worker is rolled back and released before this returns —
+ * on the success and the failure path alike.
+ */
+async function extractFamiliesInParallel(
+  ctx: ExtractContext,
+  client: PoolClient,
+  pool: Pool,
+  streams: number,
+  statementTimeoutMs: number | undefined,
+  redactSecrets: boolean,
+): Promise<boolean> {
+  const snapshotId = await exportSnapshot(client);
+  if (snapshotId === undefined) {
+    // A failed statement poisons the WHOLE transaction, and
+    // `pg_export_snapshot()` cannot be shielded by a SAVEPOINT (Postgres refuses
+    // to export from a subtransaction), so the only route back to a usable serial
+    // path is a fresh transaction. Note what is NOT repeated: the version probe —
+    // `ctx` already holds it, so the whole extraction still costs exactly one.
+    await client.query("ROLLBACK").catch(() => {});
+    await beginExtractionTransaction(client, statementTimeoutMs);
+    await client.query(jitOffSql(ctx.pgMajor));
+    return false;
+  }
+
+  // Stream 0 IS the coordinator (it holds the snapshot and runs families like any
+  // other stream); streams 1..n-1 are the extra clients.
+  const workers = await openSnapshotWorkers(
+    pool,
+    snapshotId,
+    streams - 1,
+    statementTimeoutMs,
+    ctx.pgMajor,
+  );
+  // the coordinator's transaction is untouched by a failed worker setup, so the
+  // serial path can proceed on it as-is
+  if (workers === undefined) return false;
+
+  try {
+    const runners = [ctx.q, ...workers.map((worker) => worker.q)];
+    const version = {
+      serverVersion: ctx.serverVersion,
+      serverVersionNum: ctx.serverVersionNum,
+      pgMajor: ctx.pgMajor,
+    };
+
+    // Every family gets its OWN collector, so its output can be slotted by family
+    // index; a family that shared a stream's buffers would interleave with
+    // whatever else that stream ran.
+    let dependRows: readonly Row[] = [];
+    const jobs: ((stream: number) => Promise<ExtractContext | undefined>)[] =
+      FAMILIES.map(
+        (family) =>
+          async (stream: number): Promise<ExtractContext> => {
+            const collector = createCollectorContext(
+              runners[stream]!,
+              version,
+              redactSecrets,
+            );
+            await family(collector);
+            return collector;
+          },
+      );
+    // The pg_depend resolver is the single most expensive query in the extractor,
+    // so its SQL half joins the schedule as one more job rather than staying on
+    // the coordinator's critical path. It contributes no facts/edges of its own —
+    // only rows for the post-merge step below — hence the undefined slot.
+    jobs.push(async (stream: number): Promise<undefined> => {
+      dependRows = await fetchDependencyRows({ q: runners[stream]! });
+      return undefined;
+    });
+
+    const slots = await runSlottedJobs(jobs, streams);
+
+    // Deterministic merge: family order, NEVER completion order. This is the
+    // whole equivalence argument — see ./parallel.ts.
+    for (const collector of slots) {
+      if (collector === undefined) continue;
+      appendAll(ctx.facts, collector.facts);
+      appendAll(ctx.edges, collector.edges);
+      appendAll(ctx.diagnostics, collector.diagnostics);
+      appendAll(ctx.factDiagnostics, collector.factDiagnostics);
+    }
+    // last, exactly as in the serial order, and against the MERGED facts (it
+    // reads them to decide GENERATED-column shadow edges)
+    applyDependencyRows(ctx, dependRows);
+    return true;
+  } finally {
+    await closeSnapshotWorkers(workers);
+  }
 }

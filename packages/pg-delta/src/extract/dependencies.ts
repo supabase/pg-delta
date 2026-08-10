@@ -1,7 +1,7 @@
 /** Dependency edges: inheritance / partition edges and the authoritative
  *  pg_depend resolver (target-architecture §3.2, milestone A set-based form). */
 import { encodeId, type StableId } from "../core/stable-id.ts";
-import { type ExtractContext, SYSTEM_SCHEMAS } from "./scope.ts";
+import { type ExtractContext, type Row, SYSTEM_SCHEMAS } from "./scope.ts";
 
 export async function extractInheritanceEdges(
   ctx: ExtractContext,
@@ -34,10 +34,18 @@ export async function extractInheritanceEdges(
   }
 }
 
-export async function extractDependencyEdges(
-  ctx: ExtractContext,
-): Promise<void> {
-  const { q, edges, diagnostics } = ctx;
+/**
+ * The SQL half of the pg_depend resolver. It touches ONLY `ctx.q` — nothing in
+ * this query depends on the facts extracted so far — so the bounded-parallel
+ * scheduler (./parallel.ts) can run it concurrently with the other families and
+ * post-process its rows after the join. Kept as one function with
+ * `applyDependencyRows` below via `extractDependencyEdges`, which is what the
+ * serial path still calls.
+ */
+export async function fetchDependencyRows(
+  ctx: Pick<ExtractContext, "q">,
+): Promise<readonly Row[]> {
+  const { q } = ctx;
   // ── dependency edges from pg_depend (the authoritative source, P1) ───
   // Resolve each pg_depend endpoint to a StableId, set-based. The old form ran
   // a ~160-line correlated CASE scalar subquery TWICE per pg_depend row
@@ -48,7 +56,7 @@ export async function extractDependencyEdges(
   // prevents cross-catalog OID collisions). The json_build_object shapes are
   // byte-identical to the old resolver, so toId() below is unchanged — only the
   // evaluation strategy differs (the depend-edges oracle test pins the result).
-  const dependRows = await q(`
+  return await q(`
     WITH dep AS (
       SELECT d.classid, d.objid, d.objsubid,
              d.refclassid, d.refobjid, d.refobjsubid
@@ -338,7 +346,20 @@ export async function extractDependencyEdges(
     JOIN resolved rr ON rr.classid = dep.refclassid
                     AND rr.objid = dep.refobjid
                     AND rr.objsubid = dep.refobjsubid`);
+}
 
+/**
+ * The row-processing half of the pg_depend resolver. This is the ONLY place in
+ * the whole extractor that READS facts pushed by other families (`ctx.facts`,
+ * for `defaultFactIds` below), so the bounded-parallel path must defer it until
+ * after the per-family merge — and run it in its serial position (last), so the
+ * edges and diagnostics it appends land exactly where they do today.
+ */
+export function applyDependencyRows(
+  ctx: ExtractContext,
+  dependRows: readonly Row[],
+): void {
+  const { edges, diagnostics } = ctx;
   const toId = (raw: unknown): StableId | undefined => {
     if (raw == null) return undefined;
     const o = raw as Record<string, string>;
@@ -473,4 +494,11 @@ export async function extractDependencyEdges(
       edges.push({ from: columnFrom, to, kind: "depends" });
     }
   }
+}
+
+/** Fetch + post-process in one go: the serial extraction path's family. */
+export async function extractDependencyEdges(
+  ctx: ExtractContext,
+): Promise<void> {
+  applyDependencyRows(ctx, await fetchDependencyRows(ctx));
 }
