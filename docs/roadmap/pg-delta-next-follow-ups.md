@@ -1078,3 +1078,41 @@ executors fail closed on stamped artifacts; `assertPlanId` preflight added to
   intervals can be sourced from `part_config` once the pg_partman intent
   handler (CLI-2044) lands, making partitioned queues replayable instead.
 
+### PR #399 review triage (Codex)
+
+Fixed: `drop_queue` now reports `lockClass: "accessExclusive"` (it DROPs the
+`q_*`/`a_*` relations; the intent adapter's `"none"` default misrepresented a
+destructive drop as lock-free in the safety report).
+
+Deferred (recorded here, not fixed in the PR):
+
+- **Old-pgmq catalog shapes are not probed.** `capture()` selects
+  `is_partitioned`/`is_unlogged` from `pgmq.meta` unconditionally; a pgmq
+  older than 0.31 (mid-2023, before those columns existed) fails extraction
+  with a loud `undefined_column` naming `pgmq.meta`. Every pgmq Supabase has
+  ever shipped (≥1.4) has both columns, so this is unreachable on the
+  Supabase profile; it needs a raw/custom profile composed against a 3+
+  year old pgmq. The failure is loud and actionable (upgrade pgmq or drop
+  the handler from the profile), and pg-cron makes the same
+  stable-catalog-shape assumption. Revisit only if a real profile hits it:
+  the fix shape is a column-presence probe degrading to filter-only capture
+  with a diagnostic.
+- **User DDL referencing operational queue tables can order before the
+  replay.** A user view/FK on `pgmq.q_<name>` has its dependency edge pruned
+  when `resolveView` projects the `managedBy` table out, and intent replay
+  sorts late (weight 90), so a from-empty apply can attempt the view before
+  `pgmq.create()`. Referencing pgmq's operational tables in own DDL is
+  discouraged upstream; before this PR the same desired state was strictly
+  worse (no replay existed at all — the table never appeared); the
+  declarative path converges through the loader's retry rounds and the
+  plan/apply path fails LOUDLY via the proof, never silently. The clean fix
+  (remap pruned dependency edges onto the intent fact before projection) is
+  planner/resolveView machinery — same bucket as the desired-side
+  `intent-unsupported` plan() gate above; do them together.
+- **Partitioned-queue interplay with `DROP EXTENSION pgmq`.** A partitioned
+  queue emits no intent fact, so a desired state that removes pgmq relies on
+  member-cascade to take the operational tables with it. Partitioned queues
+  are already explicitly unmanaged (`intent-unsupported`); their removal
+  semantics belong to the same follow-up that makes them replayable
+  (part_config-sourced intervals, above), not to this PR.
+

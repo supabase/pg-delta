@@ -190,10 +190,14 @@ export const pgmqHandler: ExtensionHandler = {
         const key = (fact.id as Extract<StableId, { kind: "extensionIntent" }>)
           .key;
         // DESTRUCTIVE: `drop_queue` drops the queue AND archive tables, so every
-        // message still in flight (and every archived one) is destroyed.
+        // message still in flight (and every archived one) is destroyed. It
+        // DROPs those existing relations, so it takes ACCESS EXCLUSIVE on them —
+        // override the intent adapter's "none" default so the safety report
+        // does not present a destructive drop as lock-free.
         return {
           sql: `select pgmq.drop_queue(${lit(key)})`,
           dataLoss: "destructive",
+          lockClass: "accessExclusive",
         };
       },
     } satisfies IntentKindRule,
