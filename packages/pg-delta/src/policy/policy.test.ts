@@ -1284,7 +1284,9 @@ describe("factMatches — edgeTo predicate", () => {
     const fb = buildFactBase([extFact, fdwFact], [edge]);
     expect(
       factMatches(
-        { edgeTo: { edgeKind: "depends", kind: "extension", name: "wrappers" } },
+        {
+          edgeTo: { edgeKind: "depends", kind: "extension", name: "wrappers" },
+        },
         fdwFact,
         fb,
       ),
@@ -1318,7 +1320,11 @@ describe("factMatches — edgeTo predicate", () => {
       parent: fdwId,
       payload: {},
     };
-    const umFact: Fact = { id: umId, parent: { kind: "server", name: "srv" }, payload: {} };
+    const umFact: Fact = {
+      id: umId,
+      parent: { kind: "server", name: "srv" },
+      payload: {},
+    };
     const edge: DependencyEdge = { from: fdwId, to: umId, kind: "depends" };
     const fb = buildFactBase([fdwFact, srvFact, umFact], [edge]);
     expect(factMatches({ edgeTo: { name: "*" } }, fdwFact, fb)).toBe(false);
