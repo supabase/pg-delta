@@ -1062,3 +1062,19 @@ executors fail closed on stamped artifacts; `assertPlanId` preflight added to
   `changeset pre exit` runs — a release-train side effect worse than the
   labeling nit. Breaking-in-alpha ships as `minor` here by established
   practice.
+## CLI-2054 triage — pgmq intent capture and replay
+
+- **Deferred — `plan()` does not gate on a desired-side `intent-unsupported`
+  diagnostic.** A PARTITIONED pgmq queue is keyable but not faithfully
+  replayable (`pgmq.meta` stores only the `is_partitioned` flag; the
+  partition/retention intervals live in pg_partman's `part_config`), so the
+  handler skips the fact and emits a capture-time `intent-unsupported`
+  warning (`src/core/diagnostic.ts`). Consequence: a partitioned queue
+  declared in the DESIRED state is silently left unmanaged rather than
+  failing the plan the way a desired-side `intent-unkeyed` does. Fail-loud
+  gating (mirror the `INTENT_UNKEYED` desired-side check in `plan()`) is the
+  follow-up; deferred because it touches planner machinery this slice
+  deliberately left alone. Also the natural place to revisit whether the
+  intervals can be sourced from `part_config` once the pg_partman intent
+  handler (CLI-2044) lands, making partitioned queues replayable instead.
+
