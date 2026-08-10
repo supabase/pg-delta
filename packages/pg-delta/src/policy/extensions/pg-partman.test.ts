@@ -372,9 +372,12 @@ describe("pgPartmanHandler.capture", () => {
     expect(result.diagnostics?.[0]?.code).toBe(INTENT_UNSUPPORTED);
     expect(result.diagnostics?.[0]?.severity).toBe("warning");
     expect(result.diagnostics?.[0]?.message).toMatch(/public\.events/);
+    // `key` is the collision-gate contract: plan() rebuilds the would-be
+    // intent id from this context to refuse only same-key collisions
     expect(result.diagnostics?.[0]?.context).toEqual({
       ext: "pg_partman",
       intentKind: "parent",
+      key: "public.events",
     });
   });
 
@@ -395,6 +398,9 @@ describe("pgPartmanHandler.capture", () => {
     expect(result.facts).toEqual([]);
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics?.[0]?.code).toBe(INTENT_UNSUPPORTED);
+    expect(result.diagnostics?.[0]?.context?.["key"]).toBe(
+      "public.events_p2026",
+    );
   });
 });
 

@@ -469,7 +469,11 @@ export const pgPartmanHandler: ExtensionHandler = {
             `${schema}.part_config_sub row and a part_config row per sub-parent), ` +
             `so its registration is left unmanaged; its partitions are still ` +
             `tagged managedBy and are never dropped`,
-          context: { ext: "pg_partman", intentKind: "parent" },
+          // `key` is the collision-gate contract (see plan()'s unsupported-
+          // intent gate): it lets a same-key collision with a fact on the
+          // opposite side refuse the plan while a standalone sub-partitioned
+          // set stays a non-blocking warning.
+          context: { ext: "pg_partman", intentKind: "parent", key },
         });
         continue;
       }
