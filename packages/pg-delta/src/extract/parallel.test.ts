@@ -160,4 +160,57 @@ describe("runSlottedJobs", () => {
   test("an empty job list is a no-op", async () => {
     expect(await runSlottedJobs([], 4)).toEqual([]);
   });
+
+  // extract.ts's `runFamiliesAcrossStreams` puts the pg_depend resolver — by
+  // far the most expensive single query in the extractor — at job index 0,
+  // ahead of the 22 family jobs, specifically so it is PULLED first instead of
+  // becoming a serial tail once every other job has already finished (see
+  // ./extract.ts). These tests pin the scheduler guarantee that reordering
+  // relies on: job 0 always starts in the very first pulled batch, and the
+  // merge stays index-ordered regardless of what any individual job returns.
+  test("job 0 starts in the first pulled batch, never deferred behind later jobs", async () => {
+    const startOrder: number[] = [];
+    // Mirrors extract.ts's shape: 1 expensive job (index 0, the dependency
+    // fetch) + 22 cheap ones (the families), at a stream count well below the
+    // job count — exactly where the old append-at-the-end order regressed to
+    // a serial tail.
+    const jobs = [
+      async (): Promise<number> => {
+        startOrder.push(0);
+        await Bun.sleep(20); // the expensive one
+        return 0;
+      },
+      ...Array.from(
+        { length: 22 },
+        (_unused, index) => async (): Promise<number> => {
+          startOrder.push(index + 1);
+          return index + 1;
+        },
+      ),
+    ];
+    const result = await runSlottedJobs(jobs, 4);
+    // job 0 is among the first `streamCount` jobs STARTED, not the last —
+    // that is what "pulled first" means (pull order is index order; only the
+    // finish order can vary with concurrency).
+    expect(startOrder.slice(0, 4)).toContain(0);
+    expect(startOrder[startOrder.length - 1]).not.toBe(0);
+    expect(result).toEqual(Array.from({ length: 23 }, (_, index) => index));
+  });
+
+  test("deterministic merge: an undefined-returning job (dependency fetch) keeps its index slot regardless of completion time", async () => {
+    // The dependency job contributes no collector of its own (extract.ts's
+    // merge loop treats an `undefined` slot as "skip"); it must still occupy
+    // its own array position so family slots either side of it are unaffected.
+    const jobs: (() => Promise<string | undefined>)[] = [
+      async () => {
+        await Bun.sleep(15); // slow AND resolves last
+        return undefined;
+      },
+      async () => "family-a",
+      async () => "family-b",
+      async () => "family-c",
+    ];
+    const slots = await runSlottedJobs(jobs, 4);
+    expect(slots).toEqual([undefined, "family-a", "family-b", "family-c"]);
+  });
 });

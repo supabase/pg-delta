@@ -463,27 +463,36 @@ async function runFamiliesAcrossStreams(
   // index; a family that shared a stream's buffers would interleave with
   // whatever else that stream ran.
   let dependRows: readonly Row[] = [];
-  const jobs: ((stream: number) => Promise<ExtractContext | undefined>)[] =
-    FAMILIES.map(
-      (family) =>
-        async (stream: number): Promise<ExtractContext> => {
-          const collector = createCollectorContext(
-            runners[stream]!,
-            version,
-            redactSecrets,
-          );
-          await family(collector);
-          return collector;
-        },
-    );
-  // The pg_depend resolver is the single most expensive query in the extractor,
-  // so its SQL half joins the schedule as one more job rather than staying on
-  // the coordinator's critical path. It contributes no facts/edges of its own —
-  // only rows for the post-merge step below — hence the undefined slot.
-  jobs.push(async (stream: number): Promise<undefined> => {
-    dependRows = await fetchDependencyRows({ q: runners[stream]! });
-    return undefined;
-  });
+  const familyJobs: ((
+    stream: number,
+  ) => Promise<ExtractContext | undefined>)[] = FAMILIES.map(
+    (family) =>
+      async (stream: number): Promise<ExtractContext> => {
+        const collector = createCollectorContext(
+          runners[stream]!,
+          version,
+          redactSecrets,
+        );
+        await family(collector);
+        return collector;
+      },
+  );
+  // The pg_depend resolver is the single most expensive query in the
+  // extractor. `runSlottedJobs` pulls jobs off this array in INDEX order (see
+  // ./parallel.ts's `pull`), so it must be job 0, not the last one — appended
+  // after all 22 family jobs, it would only start once a stream freed up from
+  // the rest of the schedule and become a serial tail at low stream counts.
+  // Putting it first here changes PULL order only: it contributes no
+  // facts/edges of its own (only rows for the post-merge step below), so its
+  // slot is always `undefined` and the merge loop below — which is what
+  // actually determines fact/edge order — skips it regardless of position.
+  const jobs: ((stream: number) => Promise<ExtractContext | undefined>)[] = [
+    async (stream: number): Promise<undefined> => {
+      dependRows = await fetchDependencyRows({ q: runners[stream]! });
+      return undefined;
+    },
+    ...familyJobs,
+  ];
 
   // The stream count follows the connections we ACTUALLY have, never what was
   // requested: a busy shared pool can yield fewer workers than asked for, and a
