@@ -3,6 +3,7 @@
  * actions → one mixed dependency graph → one deterministic sort.
  */
 import {
+  type Diagnostic,
   INTENT_UNKEYED,
   INTENT_UNSUPPORTED,
   USER_MAPPING_UNREADABLE,
@@ -290,6 +291,35 @@ export interface PlanOptions {
   intentRules?: IntentRuleIndex;
 }
 
+/** Rebuild the intent id an {@link INTENT_UNSUPPORTED} diagnostic WOULD have
+ *  produced, so the opposite side's fact base can be probed for a same-key
+ *  collision. Null when the emitting handler did not carry the identifying
+ *  triple in its context (see the code's doc comment for how each side treats
+ *  that). Nothing here parses the message — the context is the contract. */
+function unsupportedIntentId(d: Diagnostic): StableId | null {
+  const ext = d.context?.["ext"];
+  const intentKind = d.context?.["intentKind"];
+  const key = d.context?.["key"];
+  if (
+    typeof ext !== "string" ||
+    typeof intentKind !== "string" ||
+    typeof key !== "string"
+  ) {
+    return null;
+  }
+  return { kind: "extensionIntent", ext, intentKind, key };
+}
+
+/** One bullet of a collision error: name the object so the reader can find it
+ *  without decoding the handler's prose, then quote the handler's own message.
+ *  Reads the context directly rather than re-narrowing the id, so the FactKind
+ *  literal stays confined to `unsupportedIntentId` above. */
+function describeUnsupported(d: Diagnostic): string {
+  if (unsupportedIntentId(d) === null) return `  - ${d.message}`;
+  const { ext, intentKind, key } = d.context as Record<string, string>;
+  return `  - ${ext}/${intentKind} '${key}': ${d.message}`;
+}
+
 export function plan(
   rawSource: FactBase,
   rawDesired: FactBase,
@@ -311,20 +341,44 @@ export function plan(
         unkeyed.map((d) => `  - ${d.message}`).join("\n"),
     );
   }
-  // Same posture for a desired-side intent the handler can key but cannot
-  // faithfully REPLAY (a PARTITIONED pgmq queue, a sub-partitioned partman
-  // set): the capture skipped the fact, so the diff sees only the source side.
-  // Left ungated, a same-key transition (regular → partitioned queue) plans a
-  // bare destructive drop whose proof falsely CONVERGES — the desired
-  // re-extract skips the fact too. (A SOURCE-side unsupported intent is just
-  // unmanaged drift — left untouched.)
-  const unreplayable = rawDesired.diagnostics.filter(
-    (d) => d.code === INTENT_UNSUPPORTED,
-  );
-  if (unreplayable.length > 0) {
+  // An intent the handler can KEY but cannot faithfully REPLAY (a PARTITIONED
+  // pgmq queue) is skipped at capture with a warning, so the fact is missing on
+  // that side. Standing alone — on either side, or symmetrically on both — that
+  // is benign: the object is unmanaged and the diff never touches it. It only
+  // turns wrong when the OPPOSITE side manages a fact under the SAME key, and
+  // then it is wrong in both directions:
+  //   - unsupported DESIRED × source fact → the diff reads as a removal and
+  //     plans a bare destructive drop whose proof falsely CONVERGES (the
+  //     desired re-extract skips the fact too);
+  //   - unsupported SOURCE × desired fact → the plan emits a create that no-ops
+  //     against the still-live registration and the proof fails much later with
+  //     a confusing fingerprint mismatch.
+  // So gate on the collision, not on the side. `unsupportedIntentId` rebuilds
+  // the would-be id from the diagnostic's context to do the lookup.
+  const desiredCollisions = rawDesired.diagnostics.filter((d) => {
+    if (d.code !== INTENT_UNSUPPORTED) return false;
+    const id = unsupportedIntentId(d);
+    // No key (a handler predating the key-carrying context): collision-freedom
+    // is unprovable, so stay conservative on the DESIRED side and refuse.
+    return id === null || rawSource.has(id);
+  });
+  if (desiredCollisions.length > 0) {
     throw new Error(
-      `plan: the desired state declares intent the engine cannot replay — remove it from the declarative source and manage it outside pg-delta:\n` +
-        unreplayable.map((d) => `  - ${d.message}`).join("\n"),
+      `plan: the desired state declares intent the engine cannot replay under a key the source still manages — converge it manually outside pg-delta, or align the declaration with the source's current form:\n` +
+        desiredCollisions.map(describeUnsupported).join("\n"),
+    );
+  }
+  const sourceCollisions = rawSource.diagnostics.filter((d) => {
+    if (d.code !== INTENT_UNSUPPORTED) return false;
+    const id = unsupportedIntentId(d);
+    // Mirror image, but a keyless source-side diagnostic stays a warning: with
+    // no key there is nothing the desired side could collide with by name.
+    return id !== null && rawDesired.has(id);
+  });
+  if (sourceCollisions.length > 0) {
+    throw new Error(
+      `plan: the source holds intent the engine cannot replay under a key the desired state declares — converge it manually outside pg-delta, or align the declaration with the source's current form:\n` +
+        sourceCollisions.map(describeUnsupported).join("\n"),
     );
   }
 

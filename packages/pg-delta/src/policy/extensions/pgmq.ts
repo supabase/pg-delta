@@ -26,12 +26,18 @@
  * intervals live in pg_partman's `part_config`. A replay derived from
  * `pgmq.meta` alone would have to guess them and could never converge, so a
  * partitioned queue emits an `INTENT_UNSUPPORTED` warning and NO fact. Its
- * operational tables are still tagged `managedBy` (they are pgmq's either way),
- * so nothing plans a `DROP TABLE` against them. On the SOURCE side that means
- * unmanaged drift; on the DESIRED side `plan()` refuses outright (see the gate
- * in plan.ts) — the skipped fact would otherwise turn a regular→partitioned
- * transition of the same queue name into a bare destructive `drop_queue` whose
- * proof falsely converges.
+ * operational tables are still tagged `managedBy` (they are pgmq's either way)
+ * — the `q_`/`a_` parents AND every partition beneath them, discovered through
+ * `pg_inherits`, so the whole family projects out TOGETHER rather than leaving
+ * a partition stranded on a parent that was projected away —
+ * so nothing plans a `DROP TABLE` against them. On EITHER side, a partitioned
+ * queue standing alone is just unmanaged drift and the plan proceeds. The
+ * diagnostic carries the queue name as its context `key` so `plan()`'s
+ * collision gate can reconstruct the would-be intent id: it refuses only when
+ * the OPPOSITE side manages a regular queue of the SAME name, where the skipped
+ * fact would otherwise turn the transition into a bare destructive `drop_queue`
+ * whose proof falsely converges (desired-side) or a no-op `create` that fails
+ * the proof much later (source-side).
  *
  * NO `shadowPrecheck`: pgmq's functions work in ANY database (pg_cron's
  * single-database constraint has no pgmq analogue), which is exactly what lets
@@ -120,6 +126,45 @@ export const pgmqHandler: ExtensionHandler = {
         ORDER BY m.queue_name`,
     )) as unknown as QueueRow[];
 
+    // A PARTITIONED queue's `q_`/`a_` relations are partitioned PARENTS whose
+    // partitions are relations in their own right, so tagging only the parent
+    // leaves each partition a managed fact whose parent has been projected out
+    // — a stranded requirement that fails the action-graph guard on a
+    // from-empty apply. Sourced from `pg_inherits` rather than guessed from
+    // pg_partman's `_p<n>` / `_default` naming. One query for the whole schema;
+    // empty for a database with no partitioned queue.
+    const inheritsRows = (await ctx.query(
+      `SELECT p.relname AS parent, c.relname AS child
+         FROM pg_inherits i
+         JOIN pg_class c ON c.oid = i.inhrelid
+         JOIN pg_class p ON p.oid = i.inhparent
+         JOIN pg_namespace pn ON pn.oid = p.relnamespace
+         JOIN pg_namespace cn ON cn.oid = c.relnamespace
+        WHERE pn.nspname = ${lit(schema)} AND cn.nspname = ${lit(schema)}`,
+    )) as unknown as { parent: string; child: string }[];
+    const childrenOf = new Map<string, string[]>();
+    for (const r of inheritsRows) {
+      const siblings = childrenOf.get(r.parent);
+      if (siblings) siblings.push(r.child);
+      else childrenOf.set(r.parent, [r.child]);
+    }
+    /** A table and every partition beneath it (sub-partitioning included). */
+    function withDescendants(root: string): string[] {
+      const out: string[] = [];
+      const queue = [root];
+      const seen = new Set<string>([root]);
+      while (queue.length > 0) {
+        const name = queue.shift()!;
+        out.push(name);
+        for (const child of childrenOf.get(name) ?? []) {
+          if (seen.has(child)) continue; // defensive: inheritance is acyclic
+          seen.add(child);
+          queue.push(child);
+        }
+      }
+      return out;
+    }
+
     const facts: Fact[] = [];
     const edges: DependencyEdge[] = [];
     const diagnostics: Diagnostic[] = [];
@@ -135,7 +180,10 @@ export const pgmqHandler: ExtensionHandler = {
             `retention intervals are not recorded in ${schema}.meta (they live in ` +
             `pg_partman's part_config), so it cannot be replayed faithfully and ` +
             `is left unmanaged`,
-          context: { ext: "pgmq", intentKind: "queue" },
+          // `key` is load-bearing, not decoration: plan()'s collision gate
+          // rebuilds the would-be intent id from this context to look the queue
+          // up in the opposite side's fact base.
+          context: { ext: "pgmq", intentKind: "queue", key: row.queue_name },
         });
       } else {
         const id = queueIntentId(row.queue_name);
@@ -163,10 +211,15 @@ export const pgmqHandler: ExtensionHandler = {
       // sequence is an IDENTITY sequence (internal dependency, never its own
       // fact) and the `vt` / `archived_at` indexes are children of these
       // tables.
-      for (const name of [row.qtable, row.atable]) {
-        const child: StableId = { kind: "table", schema, name };
-        if (!current.has(child)) continue;
-        edges.push({ from: child, to: PGMQ, kind: "managedBy" });
+      //
+      // For a PARTITIONED queue the family extends to each partition (see
+      // `withDescendants`); for a regular one the walk yields just the table.
+      for (const root of [row.qtable, row.atable]) {
+        for (const name of withDescendants(root)) {
+          const child: StableId = { kind: "table", schema, name };
+          if (!current.has(child)) continue;
+          edges.push({ from: child, to: PGMQ, kind: "managedBy" });
+        }
       }
     }
 

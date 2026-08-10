@@ -54,10 +54,19 @@ const queue = (
 });
 
 /** Build a fake ctx: detect() returns pgmq's install schema (or no rows when
- *  the extension is absent); the registry query returns the supplied rows. */
-function fakeCtx(queues: QueueRow[], installed = true): HandlerContext {
+ *  the extension is absent); the registry query returns the supplied rows; the
+ *  `pg_inherits` query returns `inherits` (parent→partition pairs, how a
+ *  partitioned queue's family is discovered — empty for a plain database). */
+function fakeCtx(
+  queues: QueueRow[],
+  installed = true,
+  inherits: { parent: string; child: string }[] = [],
+): HandlerContext {
   return {
     query: async (sql: string): Promise<Row[]> => {
+      if (/pg_inherits/i.test(sql)) {
+        return inherits as unknown as Row[];
+      }
       if (/pg_extension/i.test(sql)) {
         return installed ? [{ schema: "pgmq" }] : [];
       }
@@ -211,9 +220,12 @@ describe("pgmqHandler.capture", () => {
     expect(result.diagnostics?.[0]?.code).toBe(INTENT_UNSUPPORTED);
     expect(result.diagnostics?.[0]?.severity).toBe("warning");
     expect(result.diagnostics?.[0]?.message).toMatch(/events/);
+    // `key` completes the would-be intent id so plan()'s collision gate can
+    // probe the opposite side's fact base for a same-name queue.
     expect(result.diagnostics?.[0]?.context).toEqual({
       ext: "pgmq",
       intentKind: "queue",
+      key: "events",
     });
   });
 
@@ -232,6 +244,56 @@ describe("pgmqHandler.capture", () => {
     expect(result.edges.filter((e) => e.kind === "managedBy")).toEqual([
       { from: tableId("q_events"), to: PGMQ, kind: "managedBy" },
       { from: tableId("a_events"), to: PGMQ, kind: "managedBy" },
+    ]);
+  });
+
+  test("a partitioned queue's PARTITIONS are tagged too, so the whole family projects out together", async () => {
+    // Tagging only the `q_`/`a_` parents leaves each partition a managed fact
+    // whose parent has been projected out — a stranded requirement that fails
+    // the action-graph guard when the queue is planned from empty. The family
+    // comes from pg_inherits, never from pg_partman's `_p<n>`/`_default`
+    // naming, and sub-partitions are followed transitively.
+    const ctx = fakeCtx(
+      [queue({ queue_name: "events", is_partitioned: true })],
+      true,
+      [
+        { parent: "q_events", child: "q_events_p0" },
+        { parent: "q_events", child: "q_events_default" },
+        { parent: "q_events_p0", child: "q_events_p0_sub" },
+        { parent: "a_events", child: "a_events_default" },
+        // an unrelated partitioned table in the same schema is NOT pgmq's
+        { parent: "unrelated", child: "unrelated_p0" },
+      ],
+    );
+    const current = buildFactBase(
+      [
+        pgmqFact,
+        tableFact("q_events"),
+        tableFact("q_events_p0"),
+        tableFact("q_events_default"),
+        tableFact("q_events_p0_sub"),
+        tableFact("a_events"),
+        tableFact("a_events_default"),
+        tableFact("unrelated"),
+        tableFact("unrelated_p0"),
+      ],
+      [],
+    );
+
+    const result = await pgmqHandler.capture(ctx, current);
+
+    expect(result.facts).toEqual([]);
+    expect(
+      result.edges
+        .filter((e) => e.kind === "managedBy")
+        .map((e) => (e.from as { name: string }).name),
+    ).toEqual([
+      "q_events",
+      "q_events_p0",
+      "q_events_default",
+      "q_events_p0_sub",
+      "a_events",
+      "a_events_default",
     ]);
   });
 

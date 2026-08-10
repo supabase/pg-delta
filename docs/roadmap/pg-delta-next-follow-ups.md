@@ -1064,12 +1064,15 @@ executors fail closed on stamped artifacts; `assertPlanId` preflight added to
   practice.
 ## CLI-2054 triage — pgmq intent capture and replay
 
-- **RESOLVED in-PR — `plan()` now gates on a desired-side
-  `intent-unsupported` diagnostic** (Codex round-2 P1 sharpened the
+- **RESOLVED in-PR — `plan()` now has a collision-scoped
+  `intent-unsupported` gate** (Codex round-2 P1 sharpened the
   consequence: a regular→partitioned transition of the same queue name
   planned a bare destructive `drop_queue` whose proof falsely converged,
-  because the desired re-extract skipped the fact too). The gate mirrors the
-  `INTENT_UNKEYED` desired-side check in `plan()`. Still open here: whether
+  because the desired re-extract skipped the fact too). It shipped first as
+  an unconditional desired-side refusal mirroring the `INTENT_UNKEYED`
+  check, then was narrowed to fire only when the opposite side manages a
+  fact under the SAME key — an unconditional gate blocked benign diffs whose
+  desired state merely contained a partitioned queue. Still open here: whether
   the intervals can be sourced from `part_config` once the pg_partman intent
   handler (CLI-2044) lands, making partitioned queues replayable instead of
   refused.
@@ -1112,17 +1115,22 @@ Deferred (recorded here, not fixed in the PR):
   are already explicitly unmanaged (`intent-unsupported`); their removal
   semantics belong to the same follow-up that makes them replayable
   (part_config-sourced intervals, above), not to this PR.
-- **Partitioned→regular transition of the same queue name (Codex round 3).**
-  Source has a partitioned queue `X` (skipped, source-side diagnostic —
-  non-fatal by design), desired declares a regular queue `X` (fact). The plan
-  emits `pgmq.create('X')`, which no-ops against the existing registration
-  (pgmq's create is `IF NOT EXISTS`), so apply/proof FAILS TO CONVERGE —
-  loudly, via the designed proof backstop; nothing is destroyed and nothing
-  falsely passes. Declined in-PR: an explicit early rejection needs
-  source-side diagnostics to carry the queue key plus a diagnostic ×
-  desired-add join in `plan()` — new machinery for one transition of the
-  already-unmanaged partitioned family. This corner (like the two above)
-  dissolves entirely once partitioned queues become replayable via
-  part_config-sourced intervals; fix it there, not transition-by-transition.
-  Review loop capped at this round per the automated-review policy.
+Also fixed after the round-3 triage:
+
+- **Partitioned→regular transition of the same queue name (Codex round 3) —
+  now FIXED.** Source has a partitioned queue `X` (skipped, source-side
+  diagnostic), desired declares a regular queue `X` (fact). The plan emitted
+  `pgmq.create('X')`, which no-ops against the existing registration (pgmq's
+  create is `IF NOT EXISTS`), so apply/proof failed to converge — loudly, via
+  the proof backstop, but with a confusing fingerprint mismatch instead of a
+  plan-time error. Originally declined because an early rejection needed
+  source-side diagnostics to carry the queue key plus a diagnostic × opposite-
+  side join in `plan()`. That machinery was then built anyway to
+  COLLISION-SCOPE the desired-side gate (which was too strict — it blocked any
+  diff whose desired state merely contained a partitioned queue), so the
+  mirror-image direction came free: the same key-carrying context and the same
+  `FactBase.has` probe, run the other way round. Both directions now throw at
+  plan time naming the ext/intentKind/key and which side holds the unreplayable
+  form. The residual corner (making partitioned queues replayable via
+  part_config-sourced intervals) is still the follow-up above.
 
