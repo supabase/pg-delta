@@ -30,9 +30,18 @@
  */
 import createDebug from "debug";
 import type { Pool, PoolClient } from "pg";
-import { jitOffSql, makeQueryRunner, type QueryRunner } from "./scope.ts";
+import {
+  makeBatchRunner,
+  makeQueryRunner,
+  type QueryRunner,
+  workerSessionStatements,
+} from "./scope.ts";
 
 const log = createDebug("pgdelta:extract");
+
+/** Error text for a debug line, without assuming an Error was thrown. */
+const message = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 /** Hard ceiling on catalog-query streams, whatever the caller asks for. Past a
  *  handful of connections the remaining serialization is server-side (catalog
@@ -129,34 +138,11 @@ export interface SnapshotWorker {
  *  server and goes straight into SQL text — a pooler could hand back anything. */
 const SNAPSHOT_ID = /^[A-Za-z0-9_.-]{1,64}$/;
 
-/**
- * Export the coordinator's snapshot, or return undefined when the server refuses
- * (a hot standby, a pooler that blocks it, …).
- *
- * A failed statement poisons the WHOLE transaction and `pg_export_snapshot()`
- * explicitly "cannot export a snapshot from a subtransaction", so a SAVEPOINT
- * cannot protect this call: the caller MUST restart the coordinator transaction
- * before falling back to serial. That is the only reason this is a separate,
- * clearly-named step.
- */
-export async function exportSnapshot(
-  client: PoolClient,
-): Promise<string | undefined> {
-  try {
-    const rows = (await client.query("SELECT pg_export_snapshot() AS id"))
-      .rows as { id?: unknown }[];
-    const id = rows[0]?.id;
-    if (typeof id === "string" && SNAPSHOT_ID.test(id)) return id;
-    log("snapshot export returned an unusable identifier; going serial");
-    return undefined;
-  } catch (error) {
-    log(
-      "pg_export_snapshot() failed (%s); going serial",
-      error instanceof Error ? error.message : String(error),
-    );
-    return undefined;
-  }
-}
+export const isUsableSnapshotId = (id: string): boolean => SNAPSHOT_ID.test(id);
+
+/** Stable label for a worker's setup batch, so a `statement_timeout` firing
+ *  during setup still names what was running. */
+const WORKER_SETUP_LABEL = "snapshot worker session setup";
 
 /**
  * Clients `pool` can hand out RIGHT NOW without queueing behind another
@@ -175,55 +161,94 @@ function spareCapacity(pool: Pool): number {
 }
 
 /**
- * Check out up to `count` extra clients and put each in a REPEATABLE READ READ
- * ONLY transaction bound to the coordinator's exported snapshot, with the same
- * session setup the coordinator has (pg_catalog search_path, the optional
- * statement budget, JIT off).
+ * Check out up to `count` spare clients, ALL AT ONCE and WITHOUT waiting for the
+ * coordinator's session setup.
  *
- * Returns undefined — after rolling back and releasing everything it opened — if
- * ANY worker cannot be set up, so the caller falls back to serial rather than
- * extracting half in parallel. An empty array is also a "go serial" answer for
- * the caller's purposes (one stream is the serial path), and is what a fully busy
- * shared pool yields.
+ * A `pool.connect()` is a round trip of its own — a full TCP+TLS handshake on a
+ * cold pool — and it needs nothing from the coordinator except the snapshot id,
+ * which arrives later. Doing this concurrently with the coordinator's opening
+ * batch, and in one burst rather than one worker at a time, is most of the setup
+ * prefix this function exists to remove.
+ *
+ * Never throws and never queues: a connect that fails simply yields one fewer
+ * stream. The clients come back RAW — no transaction has been started on them, so
+ * a caller that changes its mind just has to `releaseClients` them.
  */
-export async function openSnapshotWorkers(
+export async function reserveWorkerClients(
   pool: Pool,
-  snapshotId: string,
   count: number,
+): Promise<PoolClient[]> {
+  const wanted = Math.min(count, spareCapacity(pool));
+  if (wanted <= 0) return [];
+  const settled = await Promise.allSettled(
+    Array.from({ length: wanted }, () => pool.connect()),
+  );
+  const clients: PoolClient[] = [];
+  for (const outcome of settled) {
+    if (outcome.status === "fulfilled") clients.push(outcome.value);
+    else {
+      log(
+        "worker connect failed (%s); continuing with fewer streams",
+        message(outcome.reason),
+      );
+    }
+  }
+  return clients;
+}
+
+/** Hand back clients that were reserved but never put into a transaction. */
+export function releaseClients(clients: readonly PoolClient[]): void {
+  for (const client of clients) client.release();
+}
+
+/**
+ * Put every reserved client into the coordinator's snapshot with ONE round trip
+ * each, all in parallel — so worker setup costs one RTT in total, not one per
+ * statement per worker.
+ *
+ * Returns undefined — after rolling back and releasing every client it was given —
+ * if ANY worker's setup failed: half the streams sharing the snapshot is not a
+ * state worth reasoning about, so the caller falls back to serial. An empty input
+ * yields an empty array, which the caller also treats as "go serial" (one stream
+ * IS the serial path), and is what a fully busy shared pool produces.
+ */
+export async function setupSnapshotWorkers(
+  clients: readonly PoolClient[],
+  snapshotId: string,
   statementTimeoutMs: number | undefined,
   pgMajor: number,
 ): Promise<SnapshotWorker[] | undefined> {
-  const workers: SnapshotWorker[] = [];
-  const wanted = Math.min(count, spareCapacity(pool));
-  try {
-    for (let i = 0; i < wanted; i++) {
-      const client = await pool.connect();
-      // registered BEFORE the first statement, so a failure mid-setup still
-      // rolls this client back and releases it in the catch below
-      workers.push({ client, q: makeQueryRunner(client, statementTimeoutMs) });
-      await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-      // MUST be the first statement of the transaction — Postgres rejects it
-      // after any query ("SET TRANSACTION SNAPSHOT must be called before any
-      // query"). From here this connection sees exactly the coordinator's
-      // catalog, so families can be split across connections freely.
-      await client.query(`SET TRANSACTION SNAPSHOT '${snapshotId}'`);
-      await client.query("SET LOCAL search_path TO 'pg_catalog'");
-      if (statementTimeoutMs !== undefined) {
-        await client.query(
-          `SET LOCAL statement_timeout = ${Math.max(0, Math.floor(statementTimeoutMs))}`,
-        );
-      }
-      await client.query(jitOffSql(pgMajor));
-    }
-    return workers;
-  } catch (error) {
+  if (clients.length === 0) return [];
+  const statements = workerSessionStatements(
+    snapshotId,
+    statementTimeoutMs,
+    pgMajor,
+  );
+  // Wrapped BEFORE any statement runs so the cleanup path below covers all of
+  // them uniformly (ROLLBACK + release), whether a given client's batch
+  // succeeded, failed, or aborted its transaction partway through.
+  const workers: SnapshotWorker[] = clients.map((client) => ({
+    client,
+    q: makeQueryRunner(client, statementTimeoutMs),
+  }));
+  const settled = await Promise.allSettled(
+    workers.map((worker) =>
+      makeBatchRunner(worker.client, statementTimeoutMs)(
+        statements,
+        WORKER_SETUP_LABEL,
+      ),
+    ),
+  );
+  const failure = settled.find((outcome) => outcome.status === "rejected");
+  if (failure !== undefined) {
     log(
       "snapshot worker setup failed (%s); going serial",
-      error instanceof Error ? error.message : String(error),
+      message((failure as PromiseRejectedResult).reason),
     );
     await closeSnapshotWorkers(workers);
     return undefined;
   }
+  return workers;
 }
 
 /** ROLLBACK (best effort — the transaction is read-only, there is nothing to

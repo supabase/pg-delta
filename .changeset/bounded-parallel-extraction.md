@@ -14,7 +14,8 @@ work.
 The output is byte-identical to a serial extraction — same facts, same edge
 order, same diagnostics order, same fact-base fingerprint — because per-family
 results are slotted by family index and merged in the fixed call order, never in
-completion order. Default (`1` / unset) is exactly the previous code path.
+completion order. Default (`1` / unset) keeps the serial, single-connection
+capture.
 
 Requesting more streams than the pool's `max` clamps to it (the coordinator holds
 a client for the whole extraction, so over-requesting would deadlock on

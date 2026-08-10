@@ -436,6 +436,50 @@ export function makeQueryRunner(
   };
 }
 
+/**
+ * Runs a BATCH of parameterless setup statements in ONE round trip.
+ *
+ * node-pg sends a multi-statement string over the simple query protocol and hands
+ * back an ARRAY of results, one per statement in statement order — which is what
+ * lets the whole session preamble (and the version probe inside it) cost a single
+ * network round trip instead of one per statement. On a remote database that is
+ * the difference between ~5 RTT and ~1 RTT before any catalog work starts.
+ *
+ * Two properties every batch here must preserve:
+ *  - **No bind parameters.** The simple protocol cannot carry them.
+ *  - **No statement that can error.** PostgreSQL stops executing a multi-statement
+ *    string at the first failure and the whole transaction is left aborted, so a
+ *    fallible statement in a batch takes the entire session down with it.
+ */
+export type BatchRunner = (
+  statements: readonly string[],
+  label: string,
+) => Promise<Row[][]>;
+
+export function makeBatchRunner(
+  client: PoolClient,
+  statementTimeoutMs?: number,
+): BatchRunner {
+  return async (statements, label) => {
+    try {
+      const result = await client.query(statements.join(";\n"));
+      // a single-statement string comes back as one result object, not an array
+      const results = (Array.isArray(result) ? result : [result]) as {
+        rows: Row[];
+      }[];
+      return results.map((one) => one.rows);
+    } catch (error) {
+      if (
+        statementTimeoutMs !== undefined &&
+        (error as { code?: string }).code === QUERY_CANCELED
+      ) {
+        throw new ExtractionTimeoutError(label, statementTimeoutMs);
+      }
+      throw error;
+    }
+  };
+}
+
 /** The version metadata every extraction needs, probed ONCE per extraction —
  *  including the parallel path, where the coordinator's probe is handed to every
  *  worker context instead of each re-probing (see ./parallel.ts). */
@@ -443,6 +487,109 @@ export interface ServerVersionInfo {
   serverVersion: string;
   serverVersionNum: number;
   pgMajor: number;
+}
+
+const BEGIN_STATEMENT = "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY";
+
+// Canonicalize the deparse path (pg_dump convention, post-CVE-2018-1058):
+// `format_type` and every `pg_get_*def` / `pg_get_expr` path-relativizes names, so
+// anything visible on the session `search_path` comes back UNQUALIFIED. Pinning to
+// `pg_catalog` forces every non-catalog reference to be schema-qualified, so the
+// SAME catalog hashes identically regardless of the database's / role's /
+// connection's default path. SET LOCAL scopes it to this transaction and is
+// discarded on COMMIT/ROLLBACK, so pooled connections are untouched.
+const SEARCH_PATH_STATEMENT = "SET LOCAL search_path TO 'pg_catalog'";
+
+const VERSION_PROBE_STATEMENT = `SELECT current_setting('server_version') AS version, current_setting('server_version_num')::int AS num`;
+
+/** Opt-in per-statement budget: a runaway catalog query on a pathological schema
+ *  aborts with an actionable ExtractionTimeoutError (see makeQueryRunner) instead
+ *  of hanging. Default is unlimited — never abort a legitimate large extraction
+ *  unless the caller asked for a budget. */
+function statementTimeoutStatement(statementTimeoutMs: number): string {
+  return `SET LOCAL statement_timeout = ${Math.max(0, Math.floor(statementTimeoutMs))}`;
+}
+
+/** Stable label for the setup batch, so a `statement_timeout` that fires during
+ *  setup still names what was running (see makeBatchRunner / ExtractionTimeoutError). */
+const SETUP_BATCH_LABEL = "session setup";
+
+export interface OpenedSession {
+  version: ServerVersionInfo;
+  /** Present only when `exportSnapshot` was requested AND succeeded. */
+  snapshotId?: string;
+}
+
+/**
+ * Open the extraction transaction and learn the server version in ONE round trip:
+ * BEGIN + search_path + optional statement budget + version probe, and — for the
+ * bounded-parallel path — `pg_export_snapshot()` in the same batch, so worker
+ * connections can start importing the snapshot after a single RTT.
+ *
+ * Deliberately NOT in this batch: the JIT-off statement. Its form depends on the
+ * major version THIS batch discovers, and the >= 15 form calls
+ * `has_parameter_privilege()`, which does not exist on 14 — so it cannot be
+ * included speculatively without risking exactly the mid-batch error that would
+ * abort the transaction. It is a second round trip (see jitOffSql), which the
+ * parallel path overlaps with worker setup so it costs one RTT, not one per
+ * connection.
+ *
+ * Throws if any statement fails — including `pg_export_snapshot()` on a standby or
+ * behind a restrictive pooler, which leaves the transaction aborted. The caller
+ * recovers by rolling back and re-opening WITHOUT the export.
+ */
+export async function openExtractionSession(
+  batch: BatchRunner,
+  statementTimeoutMs: number | undefined,
+  exportSnapshot: boolean,
+): Promise<OpenedSession> {
+  const statements = [BEGIN_STATEMENT, SEARCH_PATH_STATEMENT];
+  if (statementTimeoutMs !== undefined) {
+    statements.push(statementTimeoutStatement(statementTimeoutMs));
+  }
+  const probeIndex = statements.push(VERSION_PROBE_STATEMENT) - 1;
+  const snapshotIndex = exportSnapshot
+    ? statements.push("SELECT pg_export_snapshot() AS id") - 1
+    : -1;
+
+  const results = await batch(statements, SETUP_BATCH_LABEL);
+  const versionRow = results[probeIndex]?.[0];
+  const serverVersionNum = Number(versionRow?.["num"] ?? 0);
+  const version: ServerVersionInfo = {
+    serverVersion: (versionRow?.["version"] as string) ?? "unknown",
+    serverVersionNum,
+    pgMajor: Math.floor(serverVersionNum / 10000),
+  };
+  if (snapshotIndex === -1) return { version };
+  const id = results[snapshotIndex]?.[0]?.["id"];
+  return typeof id === "string" ? { version, snapshotId: id } : { version };
+}
+
+/**
+ * The worker-side equivalent, as ONE round trip: join the coordinator's exported
+ * snapshot and adopt the identical session state.
+ *
+ * `SET TRANSACTION SNAPSHOT` must come immediately after BEGIN — PostgreSQL
+ * rejects it once the transaction has run any query — and it does work inside a
+ * multi-statement batch (verified against PG 17; the batch is one simple-query
+ * message, so nothing runs "before" it). `pgMajor` is already known here, so
+ * unlike the coordinator the worker's JIT-off rides along.
+ */
+export function workerSessionStatements(
+  snapshotId: string,
+  statementTimeoutMs: number | undefined,
+  pgMajor: number,
+): string[] {
+  const statements = [
+    BEGIN_STATEMENT,
+    `SET TRANSACTION SNAPSHOT '${snapshotId}'`,
+    SEARCH_PATH_STATEMENT,
+  ];
+  if (statementTimeoutMs !== undefined) {
+    statements.push(statementTimeoutStatement(statementTimeoutMs));
+  }
+  statements.push(jitOffSql(pgMajor));
+  return statements;
 }
 
 /**

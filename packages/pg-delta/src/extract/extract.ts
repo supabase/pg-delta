@@ -30,6 +30,7 @@
  * resulting fact / edge / diagnostic ordering is identical regardless of how
  * the builders are grouped into files.
  */
+import createDebug from "debug";
 import type { Pool, PoolClient } from "pg";
 import type { Diagnostic } from "../core/diagnostic.ts";
 import {
@@ -65,20 +66,33 @@ import { extractAggregates, extractRoutines } from "./routines.ts";
 import { extractSchemasAndExtensions } from "./schemas.ts";
 import {
   closeSnapshotWorkers,
-  exportSnapshot,
-  openSnapshotWorkers,
+  isUsableSnapshotId,
+  releaseClients,
+  reserveWorkerClients,
   resolveStreamCount,
   runSlottedJobs,
+  setupSnapshotWorkers,
+  type SnapshotWorker,
 } from "./parallel.ts";
 import {
   createCollectorContext,
-  createExtractContext,
   type ExtractContext,
   ExtractionTimeoutError,
   jitOffSql,
+  makeBatchRunner,
+  makeQueryRunner,
+  openExtractionSession,
+  type OpenedSession,
   pruneOrphanedSatellites,
+  type QueryRunner,
   type Row,
 } from "./scope.ts";
+
+const log = createDebug("pgdelta:extract");
+
+/** Error text for a debug line, without assuming an Error was thrown. */
+const errorText = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 import { extractSecurityLabels } from "./security-labels.ts";
 import { extractCollations, extractDomains, extractTypes } from "./types.ts";
 import { detectUnmodeledKinds } from "./unmodeled.ts";
@@ -177,39 +191,6 @@ function appendAll<T>(target: T[], source: readonly T[]): void {
   for (const item of source) target.push(item);
 }
 
-/**
- * Open the extraction transaction on the COORDINATOR client. (Worker connections
- * in the parallel path do the equivalent setup themselves, plus the snapshot
- * import that must come first — see openSnapshotWorkers in ./parallel.ts.)
- *
- * Also the recovery point when `pg_export_snapshot()` fails: that poisons the
- * transaction, so the serial fallback re-opens a clean one through here.
- */
-async function beginExtractionTransaction(
-  client: PoolClient,
-  statementTimeoutMs: number | undefined,
-): Promise<void> {
-  await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-  // Canonicalize the deparse path (pg_dump convention, post-CVE-2018-1058):
-  // `format_type` and every `pg_get_*def` / `pg_get_expr` path-relativizes
-  // names, so anything visible on the session `search_path` comes back
-  // UNQUALIFIED. Pinning to `pg_catalog` forces every non-catalog reference to
-  // be schema-qualified, so the SAME catalog hashes identically regardless of
-  // the database's / role's / connection's default path. SET LOCAL scopes it
-  // to this transaction and is discarded on COMMIT/ROLLBACK, so pooled
-  // connections are untouched.
-  await client.query("SET LOCAL search_path TO 'pg_catalog'");
-  // Opt-in per-statement budget: a runaway catalog query on a pathological
-  // schema aborts with an actionable ExtractionTimeoutError (see scope.ts q())
-  // instead of hanging. Default is unlimited — never abort a legitimate
-  // large extraction unless the caller asked for a budget.
-  if (statementTimeoutMs !== undefined) {
-    await client.query(
-      `SET LOCAL statement_timeout = ${Math.max(0, Math.floor(statementTimeoutMs))}`,
-    );
-  }
-}
-
 export async function extract(
   pool: Pool,
   options: ExtractOptions = {},
@@ -219,7 +200,6 @@ export async function extract(
   const streams = resolveStreamCount(options.concurrency, pool.options?.max);
   const client = await pool.connect();
   try {
-    await beginExtractionTransaction(client, options.statementTimeoutMs);
     const result = await extractOnClient(
       client,
       options.source ?? "liveDb",
@@ -246,11 +226,58 @@ async function extractOnClient(
   redactSecrets: boolean,
   parallel: { pool: Pool; streams: number } | undefined,
 ): Promise<ExtractResult> {
-  const ctx = await createExtractContext(
-    client,
-    statementTimeoutMs,
-    redactSecrets,
-  );
+  const q = makeQueryRunner(client, statementTimeoutMs);
+  const batch = makeBatchRunner(client, statementTimeoutMs);
+
+  // Reserve the worker clients NOW, in parallel with the coordinator's opening
+  // batch below. A `pool.connect()` is its own round trip (a full TCP+TLS
+  // handshake on a cold pool) and needs nothing from the coordinator except the
+  // snapshot id, which only exists once that batch resolves — so waiting for
+  // setup to finish before even asking for connections was pure dead time.
+  const reserving =
+    parallel === undefined
+      ? undefined
+      : reserveWorkerClients(parallel.pool, parallel.streams - 1);
+
+  // The reservations are owned by exactly one of these two, once: `takeReserved`
+  // to put them to work, `handBackReserved` to give them up. extract()'s own
+  // cleanup only knows about the coordinator's client, so anything that throws
+  // before the handover has to hand them back itself — and a double release is an
+  // error in node-pg, hence the latch.
+  let reservationsSettled = false;
+  const takeReserved = async (): Promise<PoolClient[]> => {
+    if (reserving === undefined || reservationsSettled) return [];
+    reservationsSettled = true;
+    return await reserving;
+  };
+  const handBackReserved = async (): Promise<void> => {
+    releaseClients(await takeReserved());
+  };
+
+  // ONE round trip: BEGIN + search_path + optional statement budget + the version
+  // probe (+ pg_export_snapshot for the parallel path). See openExtractionSession.
+  let opened: OpenedSession;
+  try {
+    opened = await openExtractionSession(
+      batch,
+      statementTimeoutMs,
+      parallel !== undefined,
+    );
+  } catch (error) {
+    if (parallel === undefined) throw error;
+    // The batch carried `pg_export_snapshot()`, which a standby or a restrictive
+    // pooler refuses — and a failed statement aborts the WHOLE transaction (it
+    // cannot even be shielded by a SAVEPOINT: Postgres refuses to export a
+    // snapshot from a subtransaction), so the only route back is a fresh one.
+    // Retrying WITHOUT the export both recovers and diagnoses: if that fails too,
+    // the snapshot was never the problem and the second error is the real one.
+    log("snapshot-sharing setup failed (%s); going serial", errorText(error));
+    await handBackReserved();
+    await client.query("ROLLBACK").catch(() => {});
+    opened = await openExtractionSession(batch, statementTimeoutMs, false);
+  }
+
+  const ctx = createCollectorContext(q, opened.version, redactSecrets);
 
   // JIT is pure per-execution overhead for catalog extraction — the
   // dependency-resolver query's cost estimate trips `jit_above_cost` and
@@ -275,7 +302,20 @@ async function extractOnClient(
   // ever tightened. See tests/extract-jit-off.test.ts for the detail.)
   // PG 14 has neither `has_parameter_privilege` nor parameter ACLs, so the
   // plain SET LOCAL is used there unconditionally.
-  await client.query(jitOffSql(ctx.pgMajor));
+  //
+  // That version dependence is also why this is a SECOND round trip rather than
+  // part of the opening batch: the >= 15 form calls `has_parameter_privilege()`,
+  // which does not exist on 14, so it cannot be sent speculatively alongside the
+  // probe that reveals the version. It is overlapped with worker setup below, so
+  // it costs one RTT for the whole extraction, not one per connection.
+  const settingJitOff = client
+    .query(jitOffSql(ctx.pgMajor))
+    // deliberately non-rejecting: a rejection here must not leave half-built
+    // workers unreleased in the Promise.all below
+    .then(
+      () => undefined,
+      (error: unknown) => error,
+    );
 
   // Explicit, loud opt-out: disabling redaction means real credentials flow
   // into plan SQL, snapshot, export, the plan artifact, and the fingerprint.
@@ -291,23 +331,54 @@ async function extractOnClient(
 
   const pgVersion = ctx.serverVersion;
 
+  // Worker setup and the coordinator's JIT-off travel together, so the whole
+  // preamble is 2 round trips regardless of the stream count. Neither side
+  // rejects, so a failure on one can never orphan the other's connections.
+  const usableSnapshot =
+    opened.snapshotId !== undefined && isUsableSnapshotId(opened.snapshotId)
+      ? opened.snapshotId
+      : undefined;
+  const reserved = await takeReserved();
+  const [workers, jitError] = await Promise.all([
+    usableSnapshot === undefined
+      ? Promise.resolve<SnapshotWorker[] | undefined>(undefined)
+      : setupSnapshotWorkers(
+          reserved,
+          usableSnapshot,
+          statementTimeoutMs,
+          ctx.pgMajor,
+        ),
+    settingJitOff,
+  ]);
+  if (jitError !== undefined) {
+    // exactly one owner of the reserved clients: a built worker set owns them
+    // (close it), a failed setupSnapshotWorkers already released them, and an
+    // unused reservation is released here.
+    if (workers !== undefined) await closeSnapshotWorkers(workers);
+    else if (usableSnapshot === undefined) releaseClients(reserved);
+    throw jitError;
+  }
+  // nothing to share the snapshot with — hand the reservations straight back
+  if (usableSnapshot === undefined) releaseClients(reserved);
+
   // The call order IS the extraction order: facts / edges / diagnostics are
   // accumulated in `ctx` in the order these run, so this sequence is preserved
   // exactly from the pre-split single-function extractor. It is also the order
   // the bounded-parallel scheduler merges its per-family slots in, which is what
   // makes the two paths produce byte-identical output (see FAMILIES below).
-  const parallelised =
-    parallel === undefined
-      ? false
-      : await extractFamiliesInParallel(
-          ctx,
-          client,
-          parallel.pool,
-          parallel.streams,
-          statementTimeoutMs,
-          redactSecrets,
-        );
-  if (!parallelised) {
+  if (workers !== undefined && workers.length > 0) {
+    try {
+      await runFamiliesAcrossStreams(
+        ctx,
+        [ctx.q, ...workers.map((worker) => worker.q)],
+        redactSecrets,
+      );
+    } finally {
+      // the coordinator's transaction keeps the snapshot alive, so it stays open
+      // (extract() COMMITs long after this) while every worker is closed here
+      await closeSnapshotWorkers(workers);
+    }
+  } else {
     for (const family of FAMILIES) await family(ctx);
     await extractDependencyEdges(ctx);
   }
@@ -373,105 +444,62 @@ async function extractOnClient(
 }
 
 /**
- * Run `FAMILIES` (plus the pg_depend resolver's SQL half) across `streams`
- * connections that all import the coordinator's exported snapshot, then merge the
- * per-family results into `ctx` in FAMILY order.
- *
- * Returns false when it declined — snapshot export refused, or a worker could not
- * be set up — having left the coordinator's transaction in a clean, usable state
- * so the caller can just run the serial path. Declining is SILENT by design: it
- * emits no diagnostic, because `concurrency` must never change what a caller
- * sees, only how long the extraction takes.
- *
- * The coordinator's transaction is what keeps the exported snapshot alive, so it
- * stays open across all worker activity (extract() COMMITs long after this
- * returns) and every worker is rolled back and released before this returns —
- * on the success and the failure path alike.
+ * Run `FAMILIES` (plus the pg_depend resolver's SQL half) across the given query
+ * runners — one per connection, `runners[0]` being the coordinator's — then merge
+ * the per-family results into `ctx` in FAMILY order.
  */
-async function extractFamiliesInParallel(
+async function runFamiliesAcrossStreams(
   ctx: ExtractContext,
-  client: PoolClient,
-  pool: Pool,
-  streams: number,
-  statementTimeoutMs: number | undefined,
+  runners: readonly QueryRunner[],
   redactSecrets: boolean,
-): Promise<boolean> {
-  const snapshotId = await exportSnapshot(client);
-  if (snapshotId === undefined) {
-    // A failed statement poisons the WHOLE transaction, and
-    // `pg_export_snapshot()` cannot be shielded by a SAVEPOINT (Postgres refuses
-    // to export from a subtransaction), so the only route back to a usable serial
-    // path is a fresh transaction. Note what is NOT repeated: the version probe —
-    // `ctx` already holds it, so the whole extraction still costs exactly one.
-    await client.query("ROLLBACK").catch(() => {});
-    await beginExtractionTransaction(client, statementTimeoutMs);
-    await client.query(jitOffSql(ctx.pgMajor));
-    return false;
+): Promise<void> {
+  const version = {
+    serverVersion: ctx.serverVersion,
+    serverVersionNum: ctx.serverVersionNum,
+    pgMajor: ctx.pgMajor,
+  };
+
+  // Every family gets its OWN collector, so its output can be slotted by family
+  // index; a family that shared a stream's buffers would interleave with
+  // whatever else that stream ran.
+  let dependRows: readonly Row[] = [];
+  const jobs: ((stream: number) => Promise<ExtractContext | undefined>)[] =
+    FAMILIES.map(
+      (family) =>
+        async (stream: number): Promise<ExtractContext> => {
+          const collector = createCollectorContext(
+            runners[stream]!,
+            version,
+            redactSecrets,
+          );
+          await family(collector);
+          return collector;
+        },
+    );
+  // The pg_depend resolver is the single most expensive query in the extractor,
+  // so its SQL half joins the schedule as one more job rather than staying on
+  // the coordinator's critical path. It contributes no facts/edges of its own —
+  // only rows for the post-merge step below — hence the undefined slot.
+  jobs.push(async (stream: number): Promise<undefined> => {
+    dependRows = await fetchDependencyRows({ q: runners[stream]! });
+    return undefined;
+  });
+
+  // The stream count follows the connections we ACTUALLY have, never what was
+  // requested: a busy shared pool can yield fewer workers than asked for, and a
+  // job scheduled onto a stream with no connection would have no query runner.
+  const slots = await runSlottedJobs(jobs, runners.length);
+
+  // Deterministic merge: family order, NEVER completion order. This is the
+  // whole equivalence argument — see ./parallel.ts.
+  for (const collector of slots) {
+    if (collector === undefined) continue;
+    appendAll(ctx.facts, collector.facts);
+    appendAll(ctx.edges, collector.edges);
+    appendAll(ctx.diagnostics, collector.diagnostics);
+    appendAll(ctx.factDiagnostics, collector.factDiagnostics);
   }
-
-  // Stream 0 IS the coordinator (it holds the snapshot and runs families like any
-  // other stream); streams 1..n-1 are the extra clients.
-  const workers = await openSnapshotWorkers(
-    pool,
-    snapshotId,
-    streams - 1,
-    statementTimeoutMs,
-    ctx.pgMajor,
-  );
-  // the coordinator's transaction is untouched by a failed worker setup, so the
-  // serial path can proceed on it as-is
-  if (workers === undefined) return false;
-
-  try {
-    const runners = [ctx.q, ...workers.map((worker) => worker.q)];
-    const version = {
-      serverVersion: ctx.serverVersion,
-      serverVersionNum: ctx.serverVersionNum,
-      pgMajor: ctx.pgMajor,
-    };
-
-    // Every family gets its OWN collector, so its output can be slotted by family
-    // index; a family that shared a stream's buffers would interleave with
-    // whatever else that stream ran.
-    let dependRows: readonly Row[] = [];
-    const jobs: ((stream: number) => Promise<ExtractContext | undefined>)[] =
-      FAMILIES.map(
-        (family) =>
-          async (stream: number): Promise<ExtractContext> => {
-            const collector = createCollectorContext(
-              runners[stream]!,
-              version,
-              redactSecrets,
-            );
-            await family(collector);
-            return collector;
-          },
-      );
-    // The pg_depend resolver is the single most expensive query in the extractor,
-    // so its SQL half joins the schedule as one more job rather than staying on
-    // the coordinator's critical path. It contributes no facts/edges of its own —
-    // only rows for the post-merge step below — hence the undefined slot.
-    jobs.push(async (stream: number): Promise<undefined> => {
-      dependRows = await fetchDependencyRows({ q: runners[stream]! });
-      return undefined;
-    });
-
-    const slots = await runSlottedJobs(jobs, streams);
-
-    // Deterministic merge: family order, NEVER completion order. This is the
-    // whole equivalence argument — see ./parallel.ts.
-    for (const collector of slots) {
-      if (collector === undefined) continue;
-      appendAll(ctx.facts, collector.facts);
-      appendAll(ctx.edges, collector.edges);
-      appendAll(ctx.diagnostics, collector.diagnostics);
-      appendAll(ctx.factDiagnostics, collector.factDiagnostics);
-    }
-    // last, exactly as in the serial order, and against the MERGED facts (it
-    // reads them to decide GENERATED-column shadow edges)
-    applyDependencyRows(ctx, dependRows);
-    return true;
-  } finally {
-    await closeSnapshotWorkers(workers);
-  }
+  // last, exactly as in the serial order, and against the MERGED facts (it
+  // reads them to decide GENERATED-column shadow edges)
+  applyDependencyRows(ctx, dependRows);
 }

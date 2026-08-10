@@ -164,6 +164,80 @@ function expectPoolDrained(pool: pg.Pool, max: number): void {
   expect(pool.idleCount).toBe(pool.totalCount);
 }
 
+// ── round-trip / session-state instrumentation ──────────────────────────────
+
+/**
+ * Fragments that only ever appear in SESSION SETUP sql. Each matching
+ * `client.query()` CALL is one network round trip, however many statements it
+ * batches — which is exactly the quantity these tests pin.
+ */
+const SETUP_MARKERS = [
+  "BEGIN ISOLATION LEVEL",
+  "SET LOCAL search_path",
+  "SET LOCAL statement_timeout",
+  "SET TRANSACTION SNAPSHOT",
+  "SET LOCAL jit",
+  "set_config('jit'",
+  "pg_export_snapshot()",
+  "current_setting('server_version')",
+];
+
+const isSetupCall = (sql: string): boolean =>
+  SETUP_MARKERS.some((marker) => sql.includes(marker));
+
+/** The GUCs and transaction characteristics that define the canonical extraction
+ *  session. Read in ONE round trip, off the connection actually extracting. */
+const SESSION_STATE_SQL = `SELECT current_setting('search_path') AS search_path,
+         current_setting('statement_timeout') AS statement_timeout,
+         current_setting('jit') AS jit,
+         current_setting('transaction_isolation') AS isolation,
+         current_setting('transaction_read_only') AS read_only`;
+
+interface ClientTrace {
+  /** `client.query()` calls that carried session setup — i.e. setup round trips. */
+  setupCalls: number;
+  /** Session state as it stood when this connection ran its first CATALOG query,
+   *  i.e. the state the extraction actually reads the catalog in. */
+  state?: Record<string, string>;
+}
+
+/**
+ * Wrap `pool.connect` so every checked-out client reports (a) how many setup
+ * round trips it paid and (b) the session state it was left in — captured lazily,
+ * immediately before its first non-setup query, which is the only moment where
+ * "setup finished" is observable from outside without changing the ordering that
+ * `SET TRANSACTION SNAPSHOT` depends on.
+ */
+function traceSetup(pool: pg.Pool): () => ClientTrace[] {
+  const traces: ClientTrace[] = [];
+  const realConnect = pool.connect.bind(pool);
+  // oxlint-disable-next-line no-explicit-any -- test double
+  (pool as any).connect = async () => {
+    const client = await realConnect();
+    const trace: ClientTrace = { setupCalls: 0 };
+    traces.push(trace);
+    const realQuery = client.query.bind(client);
+    let capturing = false;
+    // oxlint-disable-next-line no-explicit-any -- passthrough test double
+    (client as any).query = async (...args: any[]) => {
+      const sql = typeof args[0] === "string" ? args[0] : "";
+      if (isSetupCall(sql)) {
+        trace.setupCalls++;
+      } else if (trace.state === undefined && !capturing && sql !== "") {
+        capturing = true;
+        // oxlint-disable-next-line no-explicit-any -- passthrough test double
+        const probe = await (realQuery as any)(SESSION_STATE_SQL);
+        trace.state = probe.rows[0] as Record<string, string>;
+        capturing = false;
+      }
+      // oxlint-disable-next-line no-explicit-any -- passthrough test double
+      return (realQuery as any)(...args);
+    };
+    return client;
+  };
+  return () => traces;
+}
+
 let db: TestDb;
 
 beforeAll(async () => {
@@ -312,4 +386,165 @@ describe("extract: bounded-parallel extraction", () => {
     }
     expectPoolDrained(db.pool, 5);
   }, 60_000);
+
+  test("a refused snapshot export falls back to serial, silently", async () => {
+    // What a hot standby or a restrictive pooler does. The export rides in the
+    // coordinator's OPENING batch, so its failure aborts that transaction — the
+    // fallback has to roll back, re-open, and hand back the clients it had already
+    // reserved for workers (releasing a client twice is an error in node-pg, so
+    // this also pins that the reservation has exactly one owner).
+    const pool = new pg.Pool({ connectionString: db.uri, max: 5 });
+    pool.on("error", () => {});
+    const realConnect = pool.connect.bind(pool);
+    // oxlint-disable-next-line no-explicit-any -- test double
+    (pool as any).connect = async () => {
+      const client = await realConnect();
+      const realQuery = client.query.bind(client);
+      // oxlint-disable-next-line no-explicit-any -- passthrough test double
+      (client as any).query = (...args: any[]) => {
+        if (
+          typeof args[0] === "string" &&
+          args[0].includes("pg_export_snapshot()")
+        ) {
+          return Promise.reject(
+            Object.assign(
+              new Error("cannot export a snapshot during recovery"),
+              {
+                code: "55000",
+              },
+            ),
+          );
+        }
+        // oxlint-disable-next-line no-explicit-any -- passthrough test double
+        return (realQuery as any)(...args);
+      };
+      return client;
+    };
+
+    const serial = observe(await extract(db.pool));
+    const result = observe(await extract(pool, { concurrency: 4 }));
+    expect(result.rootHash).toBe(serial.rootHash);
+    expect(result.facts).toEqual(serial.facts);
+    expect(result.edges).toEqual(serial.edges);
+    // silent: falling back must not add a diagnostic
+    expect(result.diagnostics).toEqual(serial.diagnostics);
+    expectPoolDrained(pool, 5);
+    await pool.end();
+  }, 180_000);
+
+  test("fewer spare clients than requested still extracts correctly", async () => {
+    // spareCapacity() trims the worker count when a SHARED pool is already busy.
+    // The stream count then has to follow the workers we actually got — asking
+    // the scheduler for more streams than there are connections would hand a job
+    // an undefined query runner.
+    const pool = new pg.Pool({ connectionString: db.uri, max: 5 });
+    pool.on("error", () => {});
+    const serial = observe(await extract(db.pool));
+    // hog 3 of 5, leaving room for the coordinator + exactly one worker
+    const hogs = [
+      await pool.connect(),
+      await pool.connect(),
+      await pool.connect(),
+    ];
+    try {
+      const result = observe(await extract(pool, { concurrency: 4 }));
+      expect(result.rootHash).toBe(serial.rootHash);
+      expect(result.facts).toEqual(serial.facts);
+      expect(result.edges).toEqual(serial.edges);
+      expect(result.diagnostics).toEqual(serial.diagnostics);
+    } finally {
+      for (const hog of hogs) hog.release();
+    }
+    expectPoolDrained(pool, 5);
+    await pool.end();
+  }, 180_000);
+});
+
+/**
+ * Setup cost is measured in ROUND TRIPS, not statements — that is the quantity
+ * that hurts on a remote database, where each one costs a full RTT before any
+ * catalog work can start.
+ *
+ * Two is the floor for the coordinator, not one: the JIT-off statement's form
+ * depends on the server major version, and the >= 15 form calls
+ * `has_parameter_privilege()`, which does not exist on 14 — so it cannot ride in
+ * the same batch as the probe that reveals the version without risking a
+ * mid-batch error, which would abort the whole transaction. Workers do get to one,
+ * because by then the version is known.
+ */
+describe("extract: session setup cost", () => {
+  test("serial setup is 2 batched round trips", async () => {
+    const pool = new pg.Pool({ connectionString: db.uri, max: 5 });
+    pool.on("error", () => {});
+    const traces = traceSetup(pool);
+    await extract(pool);
+    const clients = traces();
+    expect(clients).toHaveLength(1);
+    // (1) BEGIN + search_path + version probe, batched, then (2) JIT-off
+    expect(clients[0]!.setupCalls).toBe(2);
+    expectPoolDrained(pool, 5);
+    await pool.end();
+  }, 180_000);
+
+  test("serial setup stays 2 round trips with a statement budget", async () => {
+    // the budget adds a SET LOCAL statement, but not a round trip — it batches
+    const pool = new pg.Pool({ connectionString: db.uri, max: 5 });
+    pool.on("error", () => {});
+    const traces = traceSetup(pool);
+    await extract(pool, { statementTimeoutMs: 60_000 });
+    expect(traces()[0]!.setupCalls).toBe(2);
+    expectPoolDrained(pool, 5);
+    await pool.end();
+  }, 180_000);
+
+  test("parallel setup is 2 round trips for the coordinator and 1 per worker", async () => {
+    const pool = new pg.Pool({ connectionString: db.uri, max: 5 });
+    pool.on("error", () => {});
+    const traces = traceSetup(pool);
+    await extract(pool, { concurrency: 4 });
+    const clients = traces();
+    expect(clients).toHaveLength(4);
+    // Coordinator pays the same 2 as the serial path — pg_export_snapshot() rides
+    // in the opening batch, so sharing the snapshot costs no extra round trip.
+    expect(clients[0]!.setupCalls).toBe(2);
+    // Every worker is a SINGLE batch: BEGIN + SET TRANSACTION SNAPSHOT +
+    // search_path + JIT-off. Not one round trip per statement, and not serialized
+    // behind each other.
+    for (const worker of clients.slice(1)) {
+      expect(worker.setupCalls).toBe(1);
+    }
+    // 2 + 3x1 — the whole setup prefix, whatever the stream count
+    expect(clients.reduce((n, c) => n + c.setupCalls, 0)).toBe(5);
+    expectPoolDrained(pool, 5);
+    await pool.end();
+  }, 180_000);
+
+  test("workers extract in exactly the coordinator's session state", async () => {
+    const serialPool = new pg.Pool({ connectionString: db.uri, max: 5 });
+    serialPool.on("error", () => {});
+    const serialTraces = traceSetup(serialPool);
+    await extract(serialPool, { statementTimeoutMs: 60_000 });
+    const serialState = serialTraces()[0]!.state;
+    expect(serialState).toEqual({
+      search_path: "pg_catalog",
+      statement_timeout: "1min",
+      jit: "off",
+      isolation: "repeatable read",
+      read_only: "on",
+    });
+    await serialPool.end();
+
+    const parallelPool = new pg.Pool({ connectionString: db.uri, max: 5 });
+    parallelPool.on("error", () => {});
+    const parallelTraces = traceSetup(parallelPool);
+    await extract(parallelPool, { concurrency: 4, statementTimeoutMs: 60_000 });
+    const clients = parallelTraces();
+    expect(clients).toHaveLength(4);
+    // coordinator AND every worker land in the byte-identical session the serial
+    // path uses — batching the setup changed the round trips, not the state
+    for (const client of clients) {
+      expect(client.state).toEqual(serialState);
+    }
+    await parallelPool.end();
+  }, 180_000);
 });
