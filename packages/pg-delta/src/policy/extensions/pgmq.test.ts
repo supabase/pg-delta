@@ -306,6 +306,10 @@ describe("pgmqHandler.intentKinds.queue", () => {
     );
     // dropping a queue destroys every message still in it
     expect(action?.dataLoss).toBe("destructive");
+    // drop_queue DROPs the q_*/a_* relations, so it takes ACCESS EXCLUSIVE on
+    // them — the spec must override the intent adapter's "none" default or the
+    // safety report presents a destructive drop as lock-free
+    expect(action?.lockClass).toBe("accessExclusive");
   });
 
   test("drop: an unlogged queue drops through the same single-arg drop_queue", () => {
