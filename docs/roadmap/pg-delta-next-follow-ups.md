@@ -859,3 +859,19 @@ Two findings on the CLI-1470 fix. P1 was fixed in the PR; P2 is recorded here.
   supplies) is the intended escape hatch for a policy author who has made
   the judgment deliberately. Revisit only if a real custom-policy consumer
   hits audit friction with a pinned edgeTo selector.
+
+- **Deferred (round 2, P2) — declarative `CREATE EXTENSION wrappers` is not
+  emitted for a target that lacks it.** True, and identical to the other four
+  `SUPABASE_SYSTEM_EXTENSIONS` entries: the platform list makes an extension
+  invisible in BOTH directions, so a user-declared platform extension is
+  never created either. The finding's failure mode ("retained user objects
+  that depend on its members fail during apply") has no instance under this
+  policy: the only objects that depend on wrappers members are FDWs built
+  from its handlers, which Rule 6c deliberately removes from the managed
+  surface (their servers / foreign tables / user mappings cascade out). The
+  fair kernel is that `wrappers` is CONDITIONALLY present (installed when a
+  dashboard integration is enabled) while the other entries are
+  image-provisioned — that conditionality is exactly the known name-list
+  limitation the policy header documents; the committed Supabase baseline
+  (docs/roadmap/backlog.md) is the mechanism that can distinguish
+  "present on this target" from "assumed by name" and is the revisit path.
