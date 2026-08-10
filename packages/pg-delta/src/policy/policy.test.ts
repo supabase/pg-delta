@@ -1272,6 +1272,57 @@ describe("factMatches — edgeTo predicate", () => {
       false,
     );
   });
+
+  test("matches by name of the target fact (glob)", () => {
+    // The CLI-1470 shape: an FDW whose depends edge collapses onto the
+    // `wrappers` extension (its handler/validator are extension members).
+    const extId: StableId = { kind: "extension", name: "wrappers" };
+    const fdwId: StableId = { kind: "fdw", name: "clerk_oauth" };
+    const extFact: Fact = { id: extId, payload: {} };
+    const fdwFact: Fact = { id: fdwId, payload: {} };
+    const edge: DependencyEdge = { from: fdwId, to: extId, kind: "depends" };
+    const fb = buildFactBase([extFact, fdwFact], [edge]);
+    expect(
+      factMatches(
+        { edgeTo: { edgeKind: "depends", kind: "extension", name: "wrappers" } },
+        fdwFact,
+        fb,
+      ),
+    ).toBe(true);
+    expect(
+      factMatches(
+        { edgeTo: { kind: "extension", name: ["wrap*", "other"] } },
+        fdwFact,
+        fb,
+      ),
+    ).toBe(true);
+    expect(
+      factMatches(
+        { edgeTo: { kind: "extension", name: "postgres_fdw" } },
+        fdwFact,
+        fb,
+      ),
+    ).toBe(false);
+  });
+
+  test("edgeTo name does not match a target whose id has no name field", () => {
+    const umId: StableId = {
+      kind: "userMapping",
+      server: "srv",
+      role: "PUBLIC",
+    };
+    const fdwId: StableId = { kind: "fdw", name: "w" };
+    const fdwFact: Fact = { id: fdwId, payload: {} };
+    const srvFact: Fact = {
+      id: { kind: "server", name: "srv" },
+      parent: fdwId,
+      payload: {},
+    };
+    const umFact: Fact = { id: umId, parent: { kind: "server", name: "srv" }, payload: {} };
+    const edge: DependencyEdge = { from: fdwId, to: umId, kind: "depends" };
+    const fb = buildFactBase([fdwFact, srvFact, umFact], [edge]);
+    expect(factMatches({ edgeTo: { name: "*" } }, fdwFact, fb)).toBe(false);
+  });
 });
 
 describe("factMatches — partitionOf predicate", () => {

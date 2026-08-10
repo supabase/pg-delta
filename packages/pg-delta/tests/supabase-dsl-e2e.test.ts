@@ -164,8 +164,9 @@ describe.skipIf(!runSupabaseBareTests)("supabase policy e2e", () => {
       // owner rule excludes it; its server / foreign-table / user-mapping are
       // parented to it, so the managed view cascades the exclusion to them. v2
       // achieves the old Wasm-name suppression structurally — no name match.
-      // (Residual, accepted: a Wasm FDW owned by a NON-system role like
-      // `postgres` would not be owner-excluded; old Old-12 delta.)
+      // (A Wasm FDW owned by a NON-system role like `postgres` — the actual
+      // Cloud provisioning end state — is covered by the wrappers-extension
+      // provenance rule instead; see the CLI-1470 test below.)
       await branch.pool.query(`
         CREATE SCHEMA IF NOT EXISTS extensions;
         CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
@@ -199,6 +200,68 @@ describe.skipIf(!runSupabaseBareTests)("supabase policy e2e", () => {
       ).toEqual([]);
       expect(
         sql.filter((s) => /CREATE USER MAPPING[^;]*"wasm_server"/.test(s)),
+      ).toEqual([]);
+    } finally {
+      await Promise.all([main.drop(), branch.drop()]);
+    }
+  }, 180_000);
+
+  test("suppresses a wrappers-extension FDW owned by a NON-system role (CLI-1470)", async () => {
+    const cluster = await supabaseCluster();
+    const main = await cluster.createDb("supa_dsl_wrapfdw_main");
+    const branch = await cluster.createDb("supa_dsl_wrapfdw_branch");
+    try {
+      // The real Cloud provisioning end state (verified empirically on a live
+      // project, 2026-08-10): the dashboard Wrappers UI runs CREATE FOREIGN
+      // DATA WRAPPER as the privileged role via supautils, which switches to
+      // the real superuser to execute it and then reassigns ownership back —
+      // so `fdwowner = postgres`, NOT `supabase_admin`, and the owner rule
+      // never catches it. Reproduce the reassignment with the same
+      // temporary-superuser flip supautils uses (PG requires the new FDW
+      // owner to be a superuser at ALTER time).
+      const base = `
+        CREATE SCHEMA IF NOT EXISTS extensions;
+        CREATE EXTENSION IF NOT EXISTS wrappers WITH SCHEMA extensions;
+      `;
+      await main.pool.query(base);
+      await branch.pool.query(base);
+      await enableOwnerRole(branch.pool);
+      await branch.pool.query(`
+        CREATE FOREIGN DATA WRAPPER clerk
+          HANDLER extensions.wasm_fdw_handler
+          VALIDATOR extensions.wasm_fdw_validator;
+        ALTER ROLE dsl_owner SUPERUSER;
+        ALTER FOREIGN DATA WRAPPER clerk OWNER TO dsl_owner;
+        ALTER ROLE dsl_owner NOSUPERUSER;
+        GRANT USAGE ON FOREIGN DATA WRAPPER clerk TO dsl_owner;
+      `);
+      await branch.pool.query(`
+        SET ROLE dsl_owner;
+        CREATE SERVER clerk_server FOREIGN DATA WRAPPER clerk
+          OPTIONS (fdw_package_url 'https://example.com/clerk_fdw.wasm',
+                   fdw_package_name 'example:clerk-fdw',
+                   fdw_package_version '0.1.0',
+                   fdw_package_checksum 'deadbeef',
+                   api_key 'secret');
+        CREATE SCHEMA clerk_fdw_test;
+        CREATE FOREIGN TABLE clerk_fdw_test.remote_row (id integer)
+          SERVER clerk_server OPTIONS (object 'users');
+        CREATE USER MAPPING FOR dsl_owner SERVER clerk_server
+          OPTIONS (api_key 'secret');
+        RESET ROLE;
+      `);
+      const sql = await supabasePlanSql(main, branch);
+      expect(sql.filter((s) => /FOREIGN DATA WRAPPER "clerk"/.test(s))).toEqual(
+        [],
+      );
+      expect(sql.filter((s) => /CREATE SERVER "clerk_server"/.test(s))).toEqual(
+        [],
+      );
+      expect(
+        sql.filter((s) => /CREATE FOREIGN TABLE "clerk_fdw_test"/.test(s)),
+      ).toEqual([]);
+      expect(
+        sql.filter((s) => /CREATE USER MAPPING[^;]*"clerk_server"/.test(s)),
       ).toEqual([]);
     } finally {
       await Promise.all([main.drop(), branch.drop()]);
