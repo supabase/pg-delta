@@ -166,8 +166,11 @@ async function detect(ctx: HandlerContext): Promise<string | null> {
   return (rows[0]?.["schema"] as string | undefined) ?? null;
 }
 
-/** A schema-qualified relation reference carried on a payload. */
+/** A schema-qualified relation reference carried on a payload. The index
+ *  signature is what makes it assignable to `PayloadValue`'s object arm (so the
+ *  content hash canonicalises it like any other nested payload object). */
 interface RelRef {
+  [key: string]: string;
   schema: string;
   name: string;
 }
@@ -627,7 +630,9 @@ export const pgPartmanHandler: ExtensionHandler = {
           specs.push({
             sql:
               `update ${s}.part_config set ` +
-              settings.map(([col, value]) => `${qid(col)} = ${value}`).join(", ") +
+              settings
+                .map(([col, value]) => `${qid(col)} = ${value}`)
+                .join(", ") +
               ` where ${qid("parent_table")} = ${lit(key)}`,
           });
         }

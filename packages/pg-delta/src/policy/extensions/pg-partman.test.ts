@@ -71,7 +71,10 @@ interface ConfigRow {
 /** A `part_config` row with partman 5.3.1's own defaults, plus the auto-created
  *  template table partman names `template_<parent_schema>_<parent_name>`. */
 const config = (
-  overrides: Partial<ConfigRow> & { parent_schema: string; parent_name: string },
+  overrides: Partial<ConfigRow> & {
+    parent_schema: string;
+    parent_name: string;
+  },
 ): ConfigRow => ({
   control: "created_at",
   partition_interval: "1 day",
@@ -264,7 +267,11 @@ describe("pgPartmanHandler.capture", () => {
     const result = await pgPartmanHandler.capture(ctx, current);
 
     expect(result.edges.filter((e) => e.kind === "depends")).toEqual([
-      { from: parentIntentId("public.events"), to: PG_PARTMAN, kind: "depends" },
+      {
+        from: parentIntentId("public.events"),
+        to: PG_PARTMAN,
+        kind: "depends",
+      },
       { from: parentIntentId("app.logs"), to: PG_PARTMAN, kind: "depends" },
     ]);
   });
@@ -294,9 +301,10 @@ describe("pgPartmanHandler.capture", () => {
 
     const result = await pgPartmanHandler.capture(ctx, current);
 
-    expect(
-      (result.facts[0]?.payload as { templateTable: unknown }).templateTable,
-    ).toBeNull();
+    const payload = result.facts[0]?.payload as
+      | { templateTable: unknown }
+      | undefined;
+    expect(payload?.templateTable).toBeNull();
     expect(result.edges.filter((e) => e.kind === "managedBy")).toEqual([
       {
         from: tableId("partman", "template_public_events"),
@@ -328,9 +336,13 @@ describe("pgPartmanHandler.capture", () => {
 
     const result = await pgPartmanHandler.capture(ctx, current);
 
-    expect(
-      (result.facts[0]?.payload as { templateTable: unknown }).templateTable,
-    ).toEqual({ schema: "public", name: "my_template" });
+    const payload = result.facts[0]?.payload as
+      | { templateTable: unknown }
+      | undefined;
+    expect(payload?.templateTable).toEqual({
+      schema: "public",
+      name: "my_template",
+    });
     // NOT managed: the user declared it, so it must keep diffing normally
     expect(result.edges.filter((e) => e.kind === "managedBy")).toEqual([]);
   });
@@ -438,7 +450,9 @@ describe("pgPartmanHandler.intentKinds.parent", () => {
       undefined as never,
     );
     expect(actions).toHaveLength(1);
-    expect(actions?.[0]?.sql).toMatchInlineSnapshot(`"select "partman".create_parent(p_parent_table := 'public.events', p_control := 'created_at', p_interval := '1 day', p_type := 'range', p_epoch := 'none', p_premake := 4, p_default_table := true, p_automatic_maintenance := 'on', p_constraint_cols := NULL, p_jobmon := true, p_date_trunc_interval := NULL, p_control_not_null := false, p_time_encoder := NULL, p_time_decoder := NULL)"`);
+    expect(actions?.[0]?.sql).toMatchInlineSnapshot(
+      `"select "partman".create_parent(p_parent_table := 'public.events', p_control := 'created_at', p_interval := '1 day', p_type := 'range', p_epoch := 'none', p_premake := 4, p_default_table := true, p_automatic_maintenance := 'on', p_constraint_cols := NULL, p_jobmon := true, p_date_trunc_interval := NULL, p_control_not_null := false, p_time_encoder := NULL, p_time_decoder := NULL)"`,
+    );
   });
 
   test("create: the call CONSUMES the parent table so it orders after CREATE TABLE", () => {
@@ -458,7 +472,9 @@ describe("pgPartmanHandler.intentKinds.parent", () => {
       }),
       undefined as never,
     );
-    expect(actions?.[0]?.sql).toMatchInlineSnapshot(`"select "partman".create_parent(p_parent_table := 'public.events', p_control := 'created_at', p_interval := '1 day', p_type := 'range', p_epoch := 'none', p_premake := 4, p_default_table := true, p_automatic_maintenance := 'on', p_constraint_cols := NULL, p_jobmon := true, p_date_trunc_interval := NULL, p_control_not_null := false, p_time_encoder := NULL, p_time_decoder := NULL, p_template_table := 'public.my_template')"`);
+    expect(actions?.[0]?.sql).toMatchInlineSnapshot(
+      `"select "partman".create_parent(p_parent_table := 'public.events', p_control := 'created_at', p_interval := '1 day', p_type := 'range', p_epoch := 'none', p_premake := 4, p_default_table := true, p_automatic_maintenance := 'on', p_constraint_cols := NULL, p_jobmon := true, p_date_trunc_interval := NULL, p_control_not_null := false, p_time_encoder := NULL, p_time_decoder := NULL, p_template_table := 'public.my_template')"`,
+    );
     expect(actions?.[0]?.consumes).toEqual([
       { kind: "table", schema: "public", name: "events" },
       { kind: "table", schema: "public", name: "my_template" },
@@ -476,7 +492,9 @@ describe("pgPartmanHandler.intentKinds.parent", () => {
       undefined as never,
     );
     expect(actions).toHaveLength(2);
-    expect(actions?.[1]?.sql).toMatchInlineSnapshot(`"update "partman".part_config set "retention" = '3 months', "retention_schema" = NULL, "retention_keep_index" = true, "retention_keep_table" = false, "retention_keep_publication" = false, "optimize_constraint" = 10, "infinite_time_partitions" = true, "inherit_privileges" = false, "constraint_valid" = true, "ignore_default_data" = true, "maintenance_order" = NULL where "parent_table" = 'public.events'"`);
+    expect(actions?.[1]?.sql).toMatchInlineSnapshot(
+      `"update "partman".part_config set "retention" = '3 months', "retention_schema" = NULL, "retention_keep_index" = true, "retention_keep_table" = false, "retention_keep_publication" = false, "optimize_constraint" = 10, "infinite_time_partitions" = true, "inherit_privileges" = false, "constraint_valid" = true, "ignore_default_data" = true, "maintenance_order" = NULL where "parent_table" = 'public.events'"`,
+    );
   });
 
   test("create: every non-default argument is rendered, and the partman schema is quoted", () => {
@@ -498,12 +516,16 @@ describe("pgPartmanHandler.intentKinds.parent", () => {
       }),
       undefined as never,
     );
-    expect(actions?.[0]?.sql).toMatchInlineSnapshot(`"select "my partman".create_parent(p_parent_table := 'app.logs', p_control := 'ts', p_interval := '1 week', p_type := 'list', p_epoch := 'seconds', p_premake := 10, p_default_table := false, p_automatic_maintenance := 'off', p_constraint_cols := ARRAY['a', 'b']::text[], p_jobmon := false, p_date_trunc_interval := '1 day', p_control_not_null := false, p_time_encoder := 'public.enc', p_time_decoder := 'public.dec')"`);
+    expect(actions?.[0]?.sql).toMatchInlineSnapshot(
+      `"select "my partman".create_parent(p_parent_table := 'app.logs', p_control := 'ts', p_interval := '1 week', p_type := 'list', p_epoch := 'seconds', p_premake := 10, p_default_table := false, p_automatic_maintenance := 'off', p_constraint_cols := ARRAY['a', 'b']::text[], p_jobmon := false, p_date_trunc_interval := '1 day', p_control_not_null := false, p_time_encoder := 'public.enc', p_time_decoder := 'public.dec')"`,
+    );
   });
 
   test("drop: deregisters the parent and is NOT flagged destructive (no table is dropped)", () => {
     const action = parentRule?.drop(parentFact("public.events"));
-    expect(action?.sql).toMatchInlineSnapshot(`"delete from "partman".part_config where "parent_table" = 'public.events'"`);
+    expect(action?.sql).toMatchInlineSnapshot(
+      `"delete from "partman".part_config where "parent_table" = 'public.events'"`,
+    );
     expect(action?.dataLoss ?? "none").toBe("none");
   });
 });

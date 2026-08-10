@@ -358,12 +358,13 @@ describe.skipIf(!runSupabaseBareTests)(
 
         // ...and the parent really is REGISTERED, on every intent column
         const both = await Promise.all(
-          [src, desired].map(async (db) =>
-            (
-              await db.pool.query(
-                `SELECT ${INTENT_COLUMNS} FROM partman.part_config ORDER BY parent_table`,
-              )
-            ).rows,
+          [src, desired].map(
+            async (db) =>
+              (
+                await db.pool.query(
+                  `SELECT ${INTENT_COLUMNS} FROM partman.part_config ORDER BY parent_table`,
+                )
+              ).rows,
           ),
         );
         expect(both[0]).toHaveLength(1);
@@ -624,12 +625,13 @@ describe.skipIf(!runSupabaseBareTests)(
         // and the shadow really carries a CONFIGURED parent — identical on every
         // intent column — with its own premade children
         const both = await Promise.all(
-          [shadow, src].map(async (db) =>
-            (
-              await db.pool.query(
-                `SELECT ${INTENT_COLUMNS} FROM partman.part_config ORDER BY parent_table`,
-              )
-            ).rows,
+          [shadow, src].map(
+            async (db) =>
+              (
+                await db.pool.query(
+                  `SELECT ${INTENT_COLUMNS} FROM partman.part_config ORDER BY parent_table`,
+                )
+              ).rows,
           ),
         );
         expect(both[0]).toHaveLength(1);

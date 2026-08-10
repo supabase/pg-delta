@@ -1228,3 +1228,53 @@ Round 4 (final round — loop capped per the automated-review policy):
   the kept-delta / managed views, mirroring the `USER_MAPPING_UNREADABLE`
   gate's zero-over-block approach lower in the same function.
 
+
+## CLI-2044 triage — pg_partman `create_parent` intent capture and replay
+
+- **Deferred — the DROP path needs a second sync round to converge.**
+  Deregistering a parent is `DELETE FROM part_config` (`dataLoss: "none"`).
+  There is no single-statement inverse of `create_parent`: `undo_partition()`
+  requires a separate `p_target_table` to move rows into and is batched by
+  `p_loop_count` (verified on pg_partman 5.3.1), so it cannot be rendered as a
+  replay. The consequence is deliberate: once the `part_config` row is gone the
+  premade children and the template table lose their `managedBy` tag and become
+  ORDINARY user tables, which the plan — computed before that projection change
+  — did not account for, so a one-shot `apply` leaves them behind and its proof
+  reports drift. A second sync round then drops them explicitly under the normal
+  data-loss gate. The alternative (an opaque `DO` block that mass-`DROP TABLE`s
+  every descendant) was rejected: it would destroy partition data the user never
+  saw planned. A converging one-shot drop needs the planner to re-project after
+  an intent removal, which is planner machinery this slice deliberately left
+  alone. Covered by an explicit assertion in
+  `tests/extension-intent-partman.test.ts` ("drop: an unregistered desired state
+  DEREGISTERS the parent without destroying a single partition"), which asserts
+  the true two-round behaviour rather than a false convergence.
+
+- **Deferred — sub-partitioned sets are scoped out, not replayed.** A
+  `create_sub_parent` set writes a `part_config_sub` row on the top parent AND a
+  partman-authored `part_config` row per sub-parent. Neither is a faithful
+  `create_parent` replay, so both emit `INTENT_UNSUPPORTED` and no fact (their
+  partitions stay `managedBy` at every level, so nothing is ever dropped).
+  Replaying them needs a second intent kind driven by `part_config_sub` plus
+  ordering between the two levels. Same fail-loud gap as pgmq's partitioned
+  queues: a sub-partitioned set declared in the DESIRED state is silently left
+  unmanaged rather than failing the plan — see the CLI-2054 triage above, whose
+  `plan()`-level `intent-unsupported` gate would cover this case too.
+
+- **Deferred — customizations to partman's AUTO-created template table are not
+  captured.** `<partman_schema>.template_<parent_schema>_<parent_name>` is tagged
+  `managedBy` and recreated by `create_parent`, so an index or default a user
+  added to it is lost on a rebuild. Not fixed here because leaving it as an
+  exported fact creates a worse failure: `create_parent` creates it
+  `IF NOT EXISTS`, so under the default by-object export layout the later
+  `CREATE TABLE` fails permanently with "already exists" and no retry round can
+  recover. Users who need a customized template should supply their own via
+  `p_template_table` — that path keeps full fidelity and is `consumes`-ordered.
+
+- **Note for CLI-2054 (pgmq partitioned queues).** The CLI-2054 triage above
+  anticipated that this handler would make pgmq's partitioned queues replayable
+  by sourcing their intervals from `part_config`. That revisit is deliberately
+  NOT done here: a pgmq partitioned queue's parent is registered in
+  `part_config` like any other, so the intervals ARE now captured, but wiring
+  pgmq's `create_partitioned` to consume another handler's facts is a
+  cross-handler dependency this slice did not take on.
