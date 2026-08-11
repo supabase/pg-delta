@@ -18,7 +18,7 @@
  * know the migration runner).
  */
 import { statSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { CUSTOM_DIR_NAME, isCustomPath } from "./custom-dir.ts";
 import { parseCustomMigrationDirectives } from "./custom-migration-directive.ts";
 import type { SqlFile } from "./load-sql-files.ts";
@@ -69,6 +69,22 @@ function isRegularFile(absolutePath: string): boolean {
   }
 }
 
+/** A Windows drive-letter absolute path (`C:\...` / `C:/...`), so a lint run on
+ *  a non-Windows machine still flags one — `path.isAbsolute` alone only
+ *  recognizes the host platform's own convention. */
+const WINDOWS_DRIVE_ABSOLUTE = /^[A-Za-z]:[\\/]/;
+
+/**
+ * Whether a directive VALUE is absolute rather than relative to the custom
+ * file's directory (§3). `resolve(base, value)` silently discards `base` for
+ * an absolute `value`, so an existing absolute path would otherwise pass the
+ * dangling-ref check even though it is machine-specific bookkeeping that
+ * breaks on any other checkout — this must be rejected before resolving.
+ */
+function isAbsoluteDirectivePath(value: string): boolean {
+  return isAbsolute(value) || WINDOWS_DRIVE_ABSOLUTE.test(value);
+}
+
 /**
  * Check the `-- pgdelta-migration:` bookkeeping of every `_custom/**` file in
  * `files` (paths relative to `root`, as `collectSqlFiles` produces them). Files
@@ -112,6 +128,16 @@ export function lintCustomMigrationRefs(
     }
     const base = dirname(resolve(root, file.name));
     for (const relative of paths) {
+      if (isAbsoluteDirectivePath(relative)) {
+        findings.push({
+          code: "custom_dangling_migration_ref",
+          file: file.name,
+          message:
+            `migration reference "${relative}": absolute path not allowed; ` +
+            `use a path relative to the custom file`,
+        });
+        continue;
+      }
       if (isFile(resolve(base, relative))) continue;
       findings.push({
         code: "custom_dangling_migration_ref",

@@ -82,7 +82,10 @@ create cast (text as public.ltree) with function public.text2ltree(text) as impl
 - **Placement**: recognized only in the head-of-file comment block (blank lines
   and `--` comments before the first statement).
 - **Path resolution**: relative to the directory containing the custom file —
-  self-contained, no configuration of a migrations directory.
+  self-contained, no configuration of a migrations directory. An absolute path
+  is rejected by lint (`custom_dangling_migration_ref`) even if it happens to
+  exist, since it is machine-specific bookkeeping that breaks on any other
+  checkout.
 - **Repeatable**: one directive line per migration; a custom file accumulates
   them over its life.
 - **Opt-out**: `-- pgdelta-migration: none` for files with no migration twin
