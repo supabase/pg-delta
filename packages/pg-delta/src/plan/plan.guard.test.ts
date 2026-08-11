@@ -36,13 +36,19 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   "identity-normalize.ts": 17,
   // 28 → 30: mergeCoTargetGrants (multi-grantee GRANT merge) discriminates acl
   // actions via the isAclId type guard — 2 deliberate literals (type + guard).
-  "internal.ts": 30,
+  // 30 → 29: the ADP gate's `desired.facts()` rescan became a prebuilt objtype
+  // index (buildAdpIndex), dropping the redundant `Extract<StableId, { kind:
+  // "defaultPrivilege" }>` cast — narrowing on the `!==` check suffices.
+  "internal.ts": 29,
   "locks.ts": 18,
   "phases/action-emitter.ts": 10,
   "phases/action-graph.ts": 1,
   "phases/change-set.ts": 4,
   "phases/replacement-expansion.ts": 0,
-  "plan.ts": 7,
+  // 7 → 8: the platform-provisioned assumed-schema-member scan discriminates
+  // owner edges to role facts in the RAW extracts (`e.to.kind === "role"`) —
+  // 1 deliberate literal, same shape as the dangling-owner auto-add loop.
+  "plan.ts": 8,
   // preamble.ts classifies actions into "routine-family or not" for the
   // cosmetic check_function_bodies compaction; the routine kinds themselves
   // come from core ROUTINE_KINDS, leaving only the two extension literals.
