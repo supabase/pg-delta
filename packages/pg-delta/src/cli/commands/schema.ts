@@ -265,21 +265,34 @@ export function writeExportFiles(
         `export: refusing to write outside ${outRoot}: ${file.name}`,
       );
     }
-    // Read-before-write so a byte-identical file is left untouched (stable
-    // mtime) and the caller can report created vs updated vs unchanged.
-    let existing: string | undefined;
+    // Classify against the file already on disk: absent → created; same
+    // bytes → unchanged (skip the write, keeping the mtime stable for build
+    // tools); anything else → updated. A size mismatch alone proves the
+    // content differs, so the old content is only buffered for a plausible
+    // match. Only ENOENT means "created" — any other stat/read error is
+    // surfaced rather than silently reclassified as absence (PR #405 review).
+    let status: "created" | "updated" | "unchanged";
     try {
-      existing = readFileSync(full, "utf8");
-    } catch {
-      // ENOENT (or unreadable): treat as absent and (re)write below.
+      status =
+        statSync(full).size === Buffer.byteLength(file.sql, "utf8") &&
+        readFileSync(full, "utf8") === file.sql
+          ? "unchanged"
+          : "updated";
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw new Error(
+          `export: cannot read existing file ${full} to classify it: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+      status = "created";
     }
-    if (existing === file.sql) {
+    if (status === "unchanged") {
       unchanged.push(full);
       continue;
     }
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, file.sql, "utf8");
-    (existing === undefined ? created : updated).push(full);
+    (status === "created" ? created : updated).push(full);
   }
   const ownedFiles = files.map((file) => file.name.split(sep).join("/")).sort();
   writeExportManifest(outRoot, { ...manifest, files: ownedFiles });
