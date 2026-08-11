@@ -152,6 +152,17 @@ export function lintCustomMigrationRefs(
  *   a `COMMENT ON TABLE` parked here goes unflagged (its duplicate surfaces
  *   loudly at the next `schema apply`, which cannot converge). Revisit if
  *   pg-topo ever classifies these per target kind.
+ * - `GRANT` and `REVOKE` are excluded for the SAME target-blind reason, even
+ *   though privileges ARE modeled (as ACL facts on the target object). pg-topo
+ *   gives `GRANT USAGE ON LANGUAGE my_language TO app` (an ACL on an unmodeled
+ *   `CREATE_LANGUAGE` object, exactly what this folder legitimately holds) the
+ *   same `GRANT` class as `GRANT SELECT ON TABLE public.t TO app`. Flagging the
+ *   class would fire on the folder's own documented use for the same false
+ *   positive vs. false negative trade-off as `ALTER_OWNER`/`COMMENT` above.
+ *   `ALTER_DEFAULT_PRIVILEGES` stays IN the set: it has no unmodeled-target
+ *   reading — default privileges are keyed to a (grantor, schema) pair, which
+ *   is always a modeled object, so an ADP statement parked here is always a
+ *   genuine duplicate, never a legitimate exclusion.
  */
 const MODELED_STATEMENT_CLASSES: ReadonlySet<string> = new Set([
   "ALTER_DEFAULT_PRIVILEGES",
@@ -181,8 +192,6 @@ const MODELED_STATEMENT_CLASSES: ReadonlySet<string> = new Set([
   "CREATE_TRIGGER",
   "CREATE_TYPE",
   "CREATE_VIEW",
-  "GRANT",
-  "REVOKE",
 ]);
 
 /**

@@ -94,20 +94,31 @@ function collectSqlPaths(dir: string, prefix: string): string[] {
  * hand a frontend an incomplete delivery set.
  *
  * Non-`.sql` files are skipped, so the scaffolded `README.md` never appears.
+ *
+ * The sort happens ONCE, over the complete accumulated full paths, rather than
+ * per directory level inside {@link collectSqlPaths}: `readdirSync().sort()`
+ * at one level orders bare entry names, where a sibling directory `a` sorts
+ * BEFORE a file `a.sql` (`"a" < "a.sql"`) — a per-level DFS would then emit
+ * `_custom/a/z.sql` before `_custom/a.sql`. Sorting the full paths instead
+ * gives true lexicographic path order (`.` 0x2E sorts before `/` 0x2F, so
+ * `_custom/a.sql` < `_custom/a/z.sql`), matching this function's doc comment
+ * and the shadow loader's effective order (which sorts full names).
  */
 export function listCustomFiles(root: string): CustomFile[] {
   const customRoot = join(root, CUSTOM_DIR_NAME);
-  return collectSqlPaths(customRoot, `${CUSTOM_DIR_NAME}/`).map((path) => {
-    // `path` is POSIX-relative to `root`; re-split it for the fs read so the
-    // helper works on Windows too.
-    const sql = readFileSync(join(root, ...path.split("/")), "utf8");
-    const { paths, hasNone } = parseCustomMigrationDirectives(sql);
-    return {
-      path,
-      sql,
-      migrations: paths,
-      hasNone,
-      delivered: hasNone || paths.length > 0,
-    };
-  });
+  return collectSqlPaths(customRoot, `${CUSTOM_DIR_NAME}/`)
+    .sort()
+    .map((path) => {
+      // `path` is POSIX-relative to `root`; re-split it for the fs read so the
+      // helper works on Windows too.
+      const sql = readFileSync(join(root, ...path.split("/")), "utf8");
+      const { paths, hasNone } = parseCustomMigrationDirectives(sql);
+      return {
+        path,
+        sql,
+        migrations: paths,
+        hasNone,
+        delivered: hasNone || paths.length > 0,
+      };
+    });
 }

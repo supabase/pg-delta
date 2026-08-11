@@ -16,6 +16,7 @@ import type { ExtractOptions, ExtractResult } from "../extract/extract.ts";
 import {
   detectUnmodeledDrift,
   probeUnmodeledIdentities,
+  type UnmodeledIdentities,
 } from "../extract/unmodeled.ts";
 import {
   type IntegrationProfile,
@@ -46,6 +47,41 @@ import {
   type OrderedSqlFile,
   type ShadowLoadCycle,
 } from "./sql-order.ts";
+
+/**
+ * {@link probeUnmodeledIdentities}, pinned to the SAME canonical search_path
+ * extraction uses (`extract.ts`: `SET LOCAL search_path TO 'pg_catalog'`).
+ *
+ * The probes' catalog references (`src/extract/unmodeled.ts`, `PROBES[].from`)
+ * are UNQUALIFIED — e.g. `FROM pg_cast c`. Run pool-level, that resolves via
+ * whatever default `search_path` the connecting role/database has. A target
+ * with `search_path = app, pg_catalog` and a user relation named `app.pg_cast`
+ * makes `pg_cast` resolve to the user table FIRST (Postgres searches an
+ * EXPLICITLY listed `pg_catalog` in the stated position, not implicitly
+ * first) — so the probe reads the wrong relation, either erroring on missing
+ * columns or silently reporting nonsense identities. Extraction already pins
+ * its path for exactly this reason; the drift probe must match it, via a
+ * short, dedicated transaction so the pool's OTHER borrowers keep their own
+ * default path (`SET LOCAL` is discarded on COMMIT/ROLLBACK).
+ */
+export async function probeUnmodeledIdentitiesPinned(
+  pool: Pool,
+  major: number,
+): Promise<UnmodeledIdentities> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL search_path TO pg_catalog");
+    const result = await probeUnmodeledIdentities(client, major);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 export class SchemaFrontendError extends Error {
   constructor(message: string) {
@@ -616,8 +652,14 @@ export async function planSchemaFiles(
   // plan over. Two probe queries per plan, deliberately uncached: the answer is
   // about live state and a stale "no drift" would be worse than no check.
   const driftDiagnostics = detectUnmodeledDrift(
-    await probeUnmodeledIdentities(shadowPool, majorOf(loadResult.pgVersion)),
-    await probeUnmodeledIdentities(targetPool, majorOf(targetResult.pgVersion)),
+    await probeUnmodeledIdentitiesPinned(
+      shadowPool,
+      majorOf(loadResult.pgVersion),
+    ),
+    await probeUnmodeledIdentitiesPinned(
+      targetPool,
+      majorOf(targetResult.pgVersion),
+    ),
   );
 
   const planOptions: PlanOptions = {

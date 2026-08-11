@@ -111,11 +111,17 @@ bookkeeping hygiene, and export/apply should not fail on hygiene.
 Statement classes that are TARGET-BLIND are deliberately excluded from the rule
 even when the kind is modeled: pg-topo gives `COMMENT ON TEXT SEARCH
 CONFIGURATION` (legitimate metadata for an unmodeled object) and `COMMENT ON
-TABLE` the same `COMMENT` class, and likewise for `ALTER … OWNER TO`. Inside
-`_custom/` the target is more likely to be unmodeled, so flagging the class
-would fire on the folder's own documented use. The trade-off is a false negative
-(a `COMMENT ON TABLE` parked here is not flagged), chosen over a false positive
-that would train operators to ignore the rule.
+TABLE` the same `COMMENT` class, and likewise for `ALTER … OWNER TO`, and for
+`GRANT`/`REVOKE` (`GRANT USAGE ON LANGUAGE my_language TO app` — an ACL on the
+unmodeled `CREATE_LANGUAGE` object this folder legitimately holds — classifies
+identically to `GRANT SELECT ON TABLE public.t TO app`). Inside `_custom/` the
+target is more likely to be unmodeled, so flagging the class would fire on the
+folder's own documented use. The trade-off is a false negative (a `COMMENT ON
+TABLE` or `GRANT` parked here is not flagged), chosen over a false positive
+that would train operators to ignore the rule. `ALTER_DEFAULT_PRIVILEGES` stays
+IN the modeled set despite being privilege-shaped: default privileges are
+keyed to a (grantor, schema) pair, which is always a modeled object, so it has
+no unmodeled-target reading and is always a genuine duplicate here.
 
 What the check deliberately does **not** verify:
 
@@ -203,22 +209,27 @@ migration, with the `-- pgdelta-migration:` directive as the delivery record.
 - Configurable folder name. Convention over configuration; one reserved name
   keeps the manifest, pruner, and docs simple.
 
-**Phase 2 (deferred, decide separately):**
+**Phase 2 (shipped in PR #403):**
 
-- `unmodeled_drift` diagnostic: run the existing `detectUnmodeledKinds` probe
-  on **both** shadow and target during plan/apply and warn when the sets
-  differ ("shadow has cast X, target does not — plan statements depending on
-  it will fail"). Catalog-sourced, no SQL parsing. This is the pre-flight
-  guard for the delivery model: it fires exactly when a generated migration
-  would fail on a target that has not yet received custom content.
-- A small library helper (custom files + parsed directives, the parser
-  already exists) so frontends can implement fold-into-migration delivery:
-  the Supabase CLI appends undelivered custom files to the generated
-  catch-up migration and stamps the directive back. Run-once semantics come
-  from the migration ledger that already exists; pg-delta executes nothing.
-- Profile-aware lint: under a frontend that automates delivery,
-  `custom_missing_migration_ref` downgrades or disables (the frontend, not
-  the user, maintains the directive).
+- `unmodeled_drift` diagnostic: runs the identity probe (`probeUnmodeledIdentities`,
+  `src/extract/unmodeled.ts`) on **both** shadow and target during plan/apply
+  and warns when the sets differ ("shadow has cast X, target does not — plan
+  statements depending on it will fail"). Catalog-sourced, no SQL parsing.
+  This is the pre-flight guard for the delivery model: it fires exactly when
+  a generated migration would fail on a target that has not yet received
+  custom content.
+- `listCustomFiles` (`src/frontends/custom-files.ts`): a library helper (custom
+  files + parsed directives) so frontends can implement fold-into-migration
+  delivery — the Supabase CLI appends undelivered custom files to the
+  generated catch-up migration and stamps the directive back. Run-once
+  semantics come from the migration ledger that already exists; pg-delta
+  executes nothing.
+- `--custom-migration-refs` lint knob: under a frontend that automates
+  delivery, `custom_missing_migration_ref` can be turned off (the frontend,
+  not the user, maintains the directive).
+
+**Deferred, out of scope:**
+
 - A per-target ledger table for pg-delta-native run-once execution remains
   explicitly out of scope unless real demand appears — that is a migration
   runner, and users who need one have one.
