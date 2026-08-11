@@ -856,6 +856,24 @@ One finding is **deferred, won't-fix in #403**:
   (`max_rounds_exceeded`), which is exactly the hazard the lint rule
   pre-announces rather than the hazard it prevents.
 
+  Third instance of the same classifier-coverage gap (round-3 review
+  finding): pg-topo has no class for `DropStmt` either, so a modeled DROP
+  (`DROP TABLE …`, `DROP VIEW …`, etc.) parked in `_custom/` also classifies
+  `UNKNOWN` and is hidden by the same `UNKNOWN_STATEMENT_CLASS` suppression
+  — `custom_modeled_kind` cannot flag it because it never sees a
+  drop-target class to compare against `MODELED_STATEMENT_CLASSES`. The
+  hazard shape differs slightly from the create case: a create-then-drop of
+  the same object in the shadow (the `_custom/` file creates it, the
+  managed tree no longer does) makes the plan schedule dropping the LIVE
+  object, not just fail to converge — though this is additionally gated by
+  `--allow-data-loss` at apply time, so not silent either. Same correct fix:
+  add drop-target statement classes to pg-topo's classifier
+  (`packages/pg-topo/src/classify/`) and list them alongside the
+  create-target classes in `MODELED_STATEMENT_CLASSES`
+  (`packages/pg-delta/src/frontends/custom-lint.ts`). Bundling this with the
+  foreign-table / `SECURITY LABEL` fix above is the efficient path, since
+  all three land in the same two files.
+
 - **The scratch-loader cluster-DDL preflight does not catch
   `GRANT … ON PARAMETER` (pre-existing).** Discovered while verifying the
   round-1 P1: the preflight's GRANT pattern

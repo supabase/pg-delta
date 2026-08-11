@@ -274,6 +274,8 @@ export function writeExportFiles(
   unmanaged: string[];
   /** whether this export wrote the `_custom/README.md` scaffold */
   scaffoldedCustomReadme: boolean;
+  /** whether the scaffold was skipped because `_custom` is a symlink */
+  customReadmeSkippedSymlink: boolean;
 } {
   // Normalize ONCE: the manifest's owned paths resolve to absolute paths, so
   // every path compared against them (the keep set, the pruner's scan) must
@@ -331,10 +333,18 @@ export function writeExportFiles(
   }
   // Advertise the escape hatch before anyone needs it. Not a `.sql` file, so the
   // loader and the pruner both ignore it, and it is never an owned file.
-  const scaffoldedCustomReadme = scaffoldCustomReadme(outRoot);
+  const {
+    written: scaffoldedCustomReadme,
+    skippedSymlink: customReadmeSkippedSymlink,
+  } = scaffoldCustomReadme(outRoot);
   const ownedFiles = files.map((file) => file.name.split(sep).join("/")).sort();
   writeExportManifest(outRoot, { ...manifest, files: ownedFiles });
-  return { removed, unmanaged, scaffoldedCustomReadme };
+  return {
+    removed,
+    unmanaged,
+    scaffoldedCustomReadme,
+    customReadmeSkippedSymlink,
+  };
 }
 
 export async function cmdSchemaExport(args: string[]): Promise<void> {
@@ -504,25 +514,26 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     });
 
     const outRoot = resolve(outDir);
-    const { removed, scaffoldedCustomReadme } = writeExportFiles(
-      outRoot,
-      result.files,
-      {
-        redactSecrets: result.manifest.redactSecrets,
-        scope: result.manifest.scope,
-        ...(result.manifest.profile !== undefined
-          ? { profile: result.manifest.profile }
-          : {}),
-        ...(result.manifest.baselineDigest !== undefined
-          ? { baselineDigest: result.manifest.baselineDigest }
-          : {}),
-        ...(result.manifest.scope === "database" &&
-        "defaultOwner" in result.manifest
-          ? { defaultOwner: result.manifest.defaultOwner }
-          : {}),
-      },
-      flags["prune-unmanaged"] === true,
-    );
+    const { removed, scaffoldedCustomReadme, customReadmeSkippedSymlink } =
+      writeExportFiles(
+        outRoot,
+        result.files,
+        {
+          redactSecrets: result.manifest.redactSecrets,
+          scope: result.manifest.scope,
+          ...(result.manifest.profile !== undefined
+            ? { profile: result.manifest.profile }
+            : {}),
+          ...(result.manifest.baselineDigest !== undefined
+            ? { baselineDigest: result.manifest.baselineDigest }
+            : {}),
+          ...(result.manifest.scope === "database" &&
+          "defaultOwner" in result.manifest
+            ? { defaultOwner: result.manifest.defaultOwner }
+            : {}),
+        },
+        flags["prune-unmanaged"] === true,
+      );
     if (removed.length > 0) {
       process.stderr.write(
         `Removed ${removed.length} stale .sql file(s) from ${outDir}\n`,
@@ -532,6 +543,11 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       process.stderr.write(
         `Scaffolded ${CUSTOM_DIR_NAME}/${CUSTOM_README_NAME} — put SQL pg-delta does not model ` +
           `(and idempotent DML) there; it is preserved across exports and loaded into the shadow.\n`,
+      );
+    }
+    if (customReadmeSkippedSymlink) {
+      process.stderr.write(
+        `custom: ${CUSTOM_DIR_NAME} is a symlink; skipping README scaffold\n`,
       );
     }
     process.stderr.write(

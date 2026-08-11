@@ -32,7 +32,7 @@
  * Only the ROOT-level `_custom` is reserved: one auditable location, no
  * configuration (docs/architecture/custom-folder.md §7).
  */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** The reserved directory name, at the root of an export tree. */
@@ -91,17 +91,46 @@ the next export and breaks \`schema apply\`. \`pgdelta schema lint\` warns when 
 sees one.
 `;
 
+/** Result of {@link scaffoldCustomReadme}. */
+export interface ScaffoldCustomReadmeResult {
+  /** Whether `README.md` was written this call. */
+  written: boolean;
+  /**
+   * Whether `<outRoot>/_custom` is itself a symlink, so scaffolding was
+   * skipped entirely rather than following the link outside `outRoot`.
+   */
+  skippedSymlink: boolean;
+}
+
 /**
- * Create `<outRoot>/_custom/README.md` when it does not exist yet, returning
- * whether it was written. The folder itself is created too, so a fresh export
- * advertises the escape hatch before anyone needs it. An existing README is
- * NEVER overwritten — operators annotate it.
+ * Create `<outRoot>/_custom/README.md` when it does not exist yet. The
+ * folder itself is created too, so a fresh export advertises the escape
+ * hatch before anyone needs it. An existing README is NEVER overwritten —
+ * operators annotate it.
+ *
+ * If `<outRoot>/_custom` is itself a symlink (an operator pointed it at a
+ * directory outside the export root), scaffolding is skipped entirely: this
+ * function must never `mkdirSync`/`writeFileSync` through the link, which
+ * would write outside `outRoot` and bypass the exporter's containment
+ * guarantee (the managed-file writes in `schema.ts` have a path-escape
+ * guard this call must honor too).
  */
-export function scaffoldCustomReadme(outRoot: string): boolean {
+export function scaffoldCustomReadme(
+  outRoot: string,
+): ScaffoldCustomReadmeResult {
   const dir = join(outRoot, CUSTOM_DIR_NAME);
+  let dirStat;
+  try {
+    dirStat = lstatSync(dir);
+  } catch {
+    dirStat = undefined;
+  }
+  if (dirStat?.isSymbolicLink()) {
+    return { written: false, skippedSymlink: true };
+  }
   const readme = join(dir, CUSTOM_README_NAME);
   mkdirSync(dir, { recursive: true });
-  if (existsSync(readme)) return false;
+  if (existsSync(readme)) return { written: false, skippedSymlink: false };
   writeFileSync(readme, CUSTOM_README_TEMPLATE, "utf8");
-  return true;
+  return { written: true, skippedSymlink: false };
 }
