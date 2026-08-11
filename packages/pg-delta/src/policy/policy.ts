@@ -315,14 +315,38 @@ export interface Policy {
 // Glob helpers (no regex library; implement ourselves)
 // ---------------------------------------------------------------------------
 
+/**
+ * Compiled-glob cache. The scope scan (`resolveView` → `factScopeExclusion`)
+ * evaluates every policy rule's matchers against every fact, so a 20k-fact
+ * catalog drives hundreds of thousands of `globMatch` calls per plan — but only
+ * over the handful of DISTINCT patterns the policy's rules spell out. Compiling
+ * the RegExp once per pattern instead of once per call is the whole win; the
+ * translation is a pure function of the pattern string, so the cache cannot
+ * change a result.
+ *
+ * Capped so a pathological caller (a policy synthesized from untrusted input,
+ * one rule per object) cannot grow it without bound: past the cap we simply
+ * stop memoizing and compile per call — the pre-cache behavior.
+ */
+const GLOB_REGEX_CACHE_MAX = 4096;
+const globRegexCache = new Map<string, RegExp>();
+
 /** Escape all regex meta-characters except `*`, then replace `*` with `.*`. */
 function globToRegex(pattern: string): RegExp {
+  const cached = globRegexCache.get(pattern);
+  if (cached !== undefined) return cached;
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
   const regexSource = escaped.replace(/\*/g, ".*");
-  return new RegExp(`^${regexSource}$`);
+  const compiled = new RegExp(`^${regexSource}$`);
+  if (globRegexCache.size < GLOB_REGEX_CACHE_MAX) {
+    globRegexCache.set(pattern, compiled);
+  }
+  return compiled;
 }
 
 function globMatch(pattern: string, value: string): boolean {
+  // `test` on a cached RegExp is only stateful for /g//y regexes; globToRegex
+  // never sets either flag, so lastIndex never advances and reuse is safe.
   return globToRegex(pattern).test(value);
 }
 
