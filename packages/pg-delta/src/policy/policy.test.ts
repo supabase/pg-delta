@@ -1439,3 +1439,85 @@ describe("factMatches — partitionOf predicate", () => {
     expect(filtered).toEqual([addChild]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// describe: glob matching is memoized per pattern (perf) without changing
+// semantics. `globToRegex` caches its compiled RegExp; these pin the
+// translation against an uncached oracle and pin repeat-call stability (a
+// cached RegExp carrying /g or /y would advance `lastIndex` between calls).
+// ---------------------------------------------------------------------------
+
+describe("factMatches — glob translation is cache-invariant", () => {
+  /** The pre-cache implementation, kept here as an oracle. */
+  function oracle(pattern: string, value: string): boolean {
+    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`^${escaped.replace(/\*/g, ".*")}$`).test(value);
+  }
+
+  const values = [
+    "public",
+    "auth",
+    "pg_temp_1",
+    "a.b",
+    "we[ird]",
+    "pa(ren)s",
+    "do$llar",
+    "plus+sign",
+    "que?mark",
+    "back\\slash",
+    "pipe|d",
+    "cur{ly}",
+    "car^et",
+    "star*inname",
+  ];
+  const patterns = [
+    "*",
+    "public",
+    "pub*",
+    "*lic",
+    "*ub*",
+    "a.b",
+    "a*b",
+    "we[ird]",
+    "pa(ren)s",
+    "do$llar",
+    "plus+sign",
+    "que?mark",
+    "back\\slash",
+    "pipe|d",
+    "cur{ly}",
+    "car^et",
+    "",
+    "star*inname",
+    "pg_temp_*",
+  ];
+
+  const schemaId = (name: string): StableId => ({ kind: "schema", name });
+  const fb = makeFactBase(
+    values.map((name) => ({ id: schemaId(name), payload: {} })),
+  );
+
+  test("matches the uncached oracle for every pattern x value pair", () => {
+    let checked = 0;
+    for (const pattern of patterns) {
+      for (const name of values) {
+        const fact = fb.get(schemaId(name))!;
+        expect(factMatches({ name: pattern }, fact, fb)).toBe(
+          oracle(pattern, name),
+        );
+        checked++;
+      }
+    }
+    expect(checked).toBe(patterns.length * values.length);
+  });
+
+  test("repeated evaluation of the same pattern is stable", () => {
+    const fact = fb.get(schemaId("public"))!;
+    for (const pattern of ["*", "pub*", "*lic", "nomatch*"]) {
+      const first = factMatches({ name: pattern }, fact, fb);
+      for (let i = 0; i < 5; i++) {
+        expect(factMatches({ name: pattern }, fact, fb)).toBe(first);
+      }
+    }
+  });
+});
