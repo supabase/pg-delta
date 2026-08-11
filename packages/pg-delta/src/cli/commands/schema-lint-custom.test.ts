@@ -92,6 +92,35 @@ describe("schema lint: _custom/ rules", () => {
     expect(stderr).toMatch(/0 error\(s\)|No issues found/);
   });
 
+  test("--custom-migration-refs off silences the missing-ref rule only", async () => {
+    write("schemas/app/schema.sql", "create schema app;\n");
+    write("_custom/no-ref.sql", "create cast (text as int) without function;\n");
+    write(
+      "_custom/dangling.sql",
+      "-- pgdelta-migration: ../migrations/missing.sql\nselect 1;\n",
+    );
+
+    await cmdSchemaLint(["--dir", root, "--custom-migration-refs", "off"]);
+
+    // a frontend that maintains the directive itself owns the missing case …
+    expect(count("custom_missing_migration_ref")).toBe(0);
+    // … but a recorded-but-wrong reference is always a bug
+    expect(count("custom_dangling_migration_ref")).toBe(1);
+  });
+
+  test("--custom-migration-refs warn is the default behavior", async () => {
+    write("_custom/no-ref.sql", "create cast (text as int) without function;\n");
+    await cmdSchemaLint(["--dir", root, "--custom-migration-refs", "warn"]);
+    expect(count("custom_missing_migration_ref")).toBe(1);
+  });
+
+  test("--custom-migration-refs rejects an unknown value", async () => {
+    write("_custom/no-ref.sql", "create cast (text as int) without function;\n");
+    await expect(
+      cmdSchemaLint(["--dir", root, "--custom-migration-refs", "nope"]),
+    ).rejects.toThrow(/--custom-migration-refs must be warn or off/);
+  });
+
   test("suppresses UNKNOWN_STATEMENT_CLASS inside _custom/ but keeps it outside", async () => {
     write("schemas/app/schema.sql", "create schema app;\n");
     write(

@@ -45,6 +45,22 @@ const SOURCE_SQL = `
     USING gin (to_tsvector('public.my_cfg'::regconfig, body));
 `;
 
+/** Run `fn` with STDERR captured, returning everything it wrote. */
+async function captureStderr(fn: () => Promise<void>): Promise<string> {
+  const real = process.stderr.write.bind(process.stderr);
+  let out = "";
+  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+    out += typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    await fn();
+  } finally {
+    process.stderr.write = real;
+  }
+  return out;
+}
+
 /** Every file body under `dir`, recursively (directory entries skipped). */
 function readAll(dir: string): { name: string; body: string }[] {
   return (readdirSync(dir, { recursive: true }) as string[]).flatMap((name) => {
@@ -131,32 +147,45 @@ describe("reserved _custom/ folder", () => {
       // 6. the shadow now elaborates the index; the unmodeled prerequisite
       // produces no facts, so it never enters the plan
       const planPath = join(work, "plan.json");
-      await cmdSchemaApply([
-        "--dir",
-        outDir,
-        "--target",
-        target.uri,
-        "--renames",
-        "off",
-        "--dry-run",
-        "--out-plan",
-        planPath,
-      ]);
+      const driftStderr = await captureStderr(() =>
+        cmdSchemaApply([
+          "--dir",
+          outDir,
+          "--target",
+          target.uri,
+          "--renames",
+          "off",
+          "--dry-run",
+          "--out-plan",
+          planPath,
+        ]),
+      );
       const plan = readFileSync(planPath, "utf8");
       expect(plan).toContain("docs_body_idx");
       expect(plan).not.toMatch(/text search/i);
 
+      // 6b. …which is exactly why planning must WARN: the shadow has the config,
+      // the target does not, and no planned statement can ever create it. This is
+      // the Phase 2 pre-flight guard for the delivery model.
+      expect(driftStderr).toContain("[unmodeled_drift]");
+      expect(driftStderr).toContain("my_cfg");
+      expect(driftStderr).toContain("text search configuration");
+
       // 7. the operator delivers the unmodeled DDL to the target themselves
-      // (`_custom/` feeds the shadow only) — then the apply converges.
+      // (`_custom/` feeds the shadow only) — then the apply converges and the
+      // drift warning goes away.
       await target.pool.query(TS_CONFIG_DDL);
-      await cmdSchemaApply([
-        "--dir",
-        outDir,
-        "--target",
-        target.uri,
-        "--renames",
-        "off",
-      ]);
+      const appliedStderr = await captureStderr(() =>
+        cmdSchemaApply([
+          "--dir",
+          outDir,
+          "--target",
+          target.uri,
+          "--renames",
+          "off",
+        ]),
+      );
+      expect(appliedStderr).not.toContain("[unmodeled_drift]");
       const { rows } = await target.pool.query<{ indexname: string }>(
         `SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'docs'`,
       );

@@ -102,6 +102,41 @@ describe("lintCustomMigrationRefs", () => {
     ]);
   });
 
+  test("missingRef: off suppresses ONLY the missing-ref rule", () => {
+    const root = rootWith({});
+    const files = [
+      file(
+        join("_custom", "no-ref.sql"),
+        "create cast (text as int) without function;\n",
+      ),
+      file(
+        join("_custom", "dangling.sql"),
+        "-- pgdelta-migration: ../migrations/nope.sql\n\nselect 1;\n",
+      ),
+      file(
+        join("_custom", "conflicting.sql"),
+        "-- pgdelta-migration: none\n-- pgdelta-migration: ../migrations/nope.sql\n\nselect 1;\n",
+      ),
+    ];
+    // default: all three fire
+    expect(lintCustomMigrationRefs(root, files).map((f) => f.code).sort()).toEqual(
+      [
+        "custom_conflicting_migration_ref",
+        "custom_dangling_migration_ref",
+        "custom_missing_migration_ref",
+      ],
+    );
+    // off: a recorded-but-WRONG ref is always a bug, so only the missing rule goes
+    expect(
+      lintCustomMigrationRefs(root, files, { missingRef: "off" })
+        .map((f) => f.code)
+        .sort(),
+    ).toEqual([
+      "custom_conflicting_migration_ref",
+      "custom_dangling_migration_ref",
+    ]);
+  });
+
   test("an injectable existence probe keeps the rule testable without fs writes", () => {
     const findings = lintCustomMigrationRefs(
       "/nowhere",
