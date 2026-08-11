@@ -156,6 +156,47 @@ describe("lintCustomMigrationRefs", () => {
     ]);
   });
 
+  test("rejects an absolute path directive even when the file exists on disk", () => {
+    // §3 requires paths RELATIVE to the directory containing the custom file.
+    // An absolute path happens to survive `resolve(base, value)` unchanged (Node
+    // discards `base` for an absolute `value`), so an existing-but-absolute
+    // reference must not silently pass as satisfied — it's machine-specific
+    // bookkeeping that breaks on any other checkout.
+    const root = rootWith({ "migrations/1.sql": "-- m\n" });
+    const absoluteMigration = join(root, "migrations", "1.sql");
+    const findings = lintCustomMigrationRefs(root, [
+      file(
+        join("_custom", "casts.sql"),
+        `-- pgdelta-migration: ${absoluteMigration}\n\nselect 1;\n`,
+      ),
+    ]);
+    expect(findings.map((f) => f.code)).toEqual([
+      "custom_dangling_migration_ref",
+    ]);
+    expect(findings[0]?.message).toContain(absoluteMigration);
+  });
+
+  test("rejects a Windows-style absolute path directive on any platform", () => {
+    // On POSIX, backslashes are not separators, so `resolve(base, value)`
+    // treats "C:\migrations\x.sql" as a single literal filename inside
+    // `_custom/` — create exactly that file so today's (buggy) resolve finds
+    // it, proving the drive-letter form must be caught by an explicit check
+    // rather than by "does the resolved path exist".
+    const root = rootWith({
+      [join("_custom", "C:\\migrations\\x.sql")]: "-- decoy\n",
+    });
+    const findings = lintCustomMigrationRefs(root, [
+      file(
+        join("_custom", "casts.sql"),
+        "-- pgdelta-migration: C:\\migrations\\x.sql\n\nselect 1;\n",
+      ),
+    ]);
+    expect(findings.map((f) => f.code)).toEqual([
+      "custom_dangling_migration_ref",
+    ]);
+    expect(findings[0]?.message).toContain("C:\\migrations\\x.sql");
+  });
+
   test("an injectable file probe keeps the rule testable without fs writes", () => {
     const findings = lintCustomMigrationRefs(
       "/nowhere",
