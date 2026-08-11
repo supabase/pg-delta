@@ -91,4 +91,23 @@ describe("schema lint: _custom/ rules", () => {
     expect(count("custom_modeled_kind")).toBe(0);
     expect(stderr).toMatch(/0 error\(s\)|No issues found/);
   });
+
+  test("suppresses UNKNOWN_STATEMENT_CLASS inside _custom/ but keeps it outside", async () => {
+    write("schemas/app/schema.sql", "create schema app;\n");
+    write(
+      "_custom/casts.sql",
+      "-- pgdelta-migration: none\ncreate cast (text as integer) with inout;\n",
+    );
+    write(
+      "schemas/app/stray-cast.sql",
+      "create cast (text as integer) with inout;\n",
+    );
+
+    await cmdSchemaLint(["--dir", root]);
+
+    // the _custom/ occurrence is suppressed; the managed-tree occurrence still warns
+    expect(count("UNKNOWN_STATEMENT_CLASS")).toBe(1);
+    expect(stderr).toContain(join("schemas", "app", "stray-cast.sql"));
+    expect(stderr).not.toContain(join("_custom", "casts.sql"));
+  });
 });
