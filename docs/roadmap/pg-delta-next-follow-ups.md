@@ -856,3 +856,21 @@ One finding is **deferred, won't-fix in #403**:
   (`max_rounds_exceeded`), which is exactly the hazard the lint rule
   pre-announces rather than the hazard it prevents.
 
+- **The scratch-loader cluster-DDL preflight does not catch
+  `GRANT … ON PARAMETER` (pre-existing).** Discovered while verifying the
+  round-1 P1: the preflight's GRANT pattern
+  (`src/frontends/load-sql-files.ts:415`,
+  `/^\s*grant\b(?![\s\S]*\bon\b)/i`) deliberately exempts privilege grants,
+  so `GRANT SET ON PARAMETER … TO …` loads into a co-located
+  (`databaseScratch`) shadow and writes to `pg_parameter_acl` — a SHARED
+  cluster catalog — while the scratch guard snapshots/restores only
+  `pg_roles`/`pg_auth_members`. A plan/dry-run can therefore leave a
+  parameter ACL behind on the live cluster. #403 removed the advice that
+  steered users toward this (the `unmodeled_kind` remediation is now
+  per-kind and never points cluster-shared kinds at `_custom/`), but the
+  loader gap predates the PR and applies to any `.sql` in the tree.
+  Follow-up: extend the preflight to refuse parameter-ACL grants (and audit
+  for other shared-catalog writers, e.g. `ALTER ROLE … SET` is already
+  covered?) in `databaseScratch` mode, or widen the snapshot/restore to
+  `pg_parameter_acl`.
+

@@ -1,8 +1,9 @@
 # The `_custom/` folder: a preserved escape hatch for unmodeled SQL
 
 - **Status**: Feature design — extends `target-architecture.md`; does **not**
-  amend its invariants. Phase 1 (preservation + lint) is being implemented;
-  Phase 2 (unmodeled-drift diagnostic, optional target execution) is deferred.
+  amend its invariants. Phase 1 (preservation + lint) and Phase 2
+  (`unmodeled_drift`, `listCustomFiles`, lint knob) shipped in PR #403;
+  target-side execution is a permanent non-goal (§7).
 - **Date**: 2026-08-11
 - **Baseline**: `main` @ the promoted `@supabase/pg-delta` package.
 
