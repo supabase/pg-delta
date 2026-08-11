@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  closeSnapshotWorkers,
   MAX_EXTRACT_CONCURRENCY,
   resolveStreamCount,
   runSlottedJobs,
@@ -212,5 +213,56 @@ describe("runSlottedJobs", () => {
     ];
     const slots = await runSlottedJobs(jobs, 4);
     expect(slots).toEqual([undefined, "family-a", "family-b", "family-c"]);
+  });
+});
+
+describe("closeSnapshotWorkers", () => {
+  type FakePoolClient = import("pg").PoolClient;
+
+  /** A worker whose ROLLBACK behaves as directed and whose release() records
+   *  how it was called — the pool-side contract under test. */
+  function fakeWorker(rollback: "ok" | "dead"): {
+    worker: { client: FakePoolClient; q: () => Promise<never> };
+    releasedWith: unknown[][];
+  } {
+    const releasedWith: unknown[][] = [];
+    const client = {
+      query: () =>
+        rollback === "ok"
+          ? Promise.resolve({ rows: [] })
+          : Promise.reject(new Error("Connection terminated unexpectedly")),
+      release: (...args: unknown[]) => {
+        releasedWith.push(args);
+      },
+    } as unknown as FakePoolClient;
+    return {
+      worker: { client, q: () => Promise.reject(new Error("unused")) },
+      releasedWith,
+    };
+  }
+
+  test("a clean worker is re-pooled (release with no error)", async () => {
+    const { worker, releasedWith } = fakeWorker("ok");
+    await closeSnapshotWorkers([worker]);
+    expect(releasedWith).toHaveLength(1);
+    expect(releasedWith[0]!.filter((a) => Boolean(a))).toHaveLength(0);
+  });
+
+  test("a worker whose ROLLBACK fails is destroyed, not re-pooled", async () => {
+    // A dead TCP connection makes ROLLBACK reject; plain release() would hand
+    // the corpse back to the pool and poison the next checkout. release(error)
+    // tells node-pg to destroy it instead.
+    const { worker, releasedWith } = fakeWorker("dead");
+    await closeSnapshotWorkers([worker]);
+    expect(releasedWith).toHaveLength(1);
+    expect(releasedWith[0]![0]).toBeInstanceOf(Error);
+  });
+
+  test("one dead worker does not stop clean siblings from releasing", async () => {
+    const dead = fakeWorker("dead");
+    const clean = fakeWorker("ok");
+    await closeSnapshotWorkers([dead.worker, clean.worker]);
+    expect(dead.releasedWith).toHaveLength(1);
+    expect(clean.releasedWith).toHaveLength(1);
   });
 });
