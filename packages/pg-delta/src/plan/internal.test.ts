@@ -285,6 +285,172 @@ describe("elideDefaultAclCreates", () => {
       "CREATE TABLE app.t ...",
     ]);
   });
+
+  // The ADP gate is served by a prebuilt objtype index (buildAdpIndex) instead of
+  // rescanning `desired.facts()` per acl-create. These pin every dimension the
+  // old inline predicate discriminated on: objtype, schema (null = cluster-wide
+  // vs schema-scoped), and the defaclrole/capability filter.
+  describe("ADP gate dimensions", () => {
+    type Adp = {
+      role: string;
+      schema: string | null;
+      objtype: string;
+    };
+
+    /** co-created `app.mood` type + its default PUBLIC USAGE grant (elidable on
+     *  its own), plus the ADP under test. */
+    function publicUsageOnType(
+      adps: Adp[],
+      capability?: ApplierCapability,
+    ): boolean {
+      const mood = typeId("mood");
+      const facts: Fact[] = [
+        { id: mood, payload: {} },
+        roleFact("test"),
+        aclFact(mood, "PUBLIC", ["USAGE"]),
+        ...adps.map((a) => ({
+          id: {
+            kind: "defaultPrivilege" as const,
+            role: a.role,
+            schema: a.schema,
+            objtype: a.objtype,
+            grantee: "PUBLIC",
+          },
+          payload: { privileges: [] },
+        })),
+      ];
+      const edges: DependencyEdge[] = [
+        { from: mood, to: roleId("test"), kind: "owner" },
+      ];
+      const actions: Action[] = [
+        mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+        ...aclActions(mood, "PUBLIC"),
+      ];
+      const kept = elideDefaultAclCreates(
+        actions,
+        buildFactBase(facts, edges),
+        capability,
+      );
+      return kept.map((a) => a.sql).includes("GRANT ... TO PUBLIC");
+    }
+
+    test("no ADP at all → elided", () => {
+      expect(publicUsageOnType([])).toBe(false);
+    });
+
+    test("cluster-wide ADP on the same objtype → kept", () => {
+      expect(
+        publicUsageOnType([{ role: "test", schema: null, objtype: "T" }]),
+      ).toBe(true);
+    });
+
+    test("ADP scoped to the target's own schema → kept", () => {
+      expect(
+        publicUsageOnType([{ role: "test", schema: "app", objtype: "T" }]),
+      ).toBe(true);
+    });
+
+    test("ADP scoped to a DIFFERENT schema → elided", () => {
+      expect(
+        publicUsageOnType([{ role: "test", schema: "other", objtype: "T" }]),
+      ).toBe(false);
+    });
+
+    test("ADP on a different objtype → elided", () => {
+      expect(
+        publicUsageOnType([{ role: "test", schema: null, objtype: "r" }]),
+      ).toBe(false);
+    });
+
+    test("mixed ADPs: only the non-matching ones present → elided", () => {
+      expect(
+        publicUsageOnType([
+          { role: "test", schema: "other", objtype: "T" },
+          { role: "test", schema: null, objtype: "r" },
+          { role: "test", schema: "app", objtype: "S" },
+        ]),
+      ).toBe(false);
+    });
+
+    test("mixed ADPs: one matching among many → kept", () => {
+      expect(
+        publicUsageOnType([
+          { role: "test", schema: "other", objtype: "T" },
+          { role: "test", schema: null, objtype: "r" },
+          { role: "test", schema: "app", objtype: "T" },
+        ]),
+      ).toBe(true);
+    });
+
+    test("without a capability, ANY role's ADP counts → kept", () => {
+      expect(
+        publicUsageOnType([
+          { role: "someone_else", schema: null, objtype: "T" },
+        ]),
+      ).toBe(true);
+    });
+
+    test("with a capability, another role's ADP is ignored → elided", () => {
+      expect(
+        publicUsageOnType(
+          [{ role: "someone_else", schema: null, objtype: "T" }],
+          cap("test"),
+        ),
+      ).toBe(false);
+    });
+
+    test("with a capability, the applier's own ADP counts → kept", () => {
+      expect(
+        publicUsageOnType(
+          [{ role: "test", schema: null, objtype: "T" }],
+          cap("test"),
+        ),
+      ).toBe(true);
+    });
+
+    // A SCHEMA target has no schema of its own (targetSchema === null), so a
+    // schema-scoped ADP can never apply to it — only a cluster-wide one can.
+    function ownerAclOnSchema(adp: Adp): boolean {
+      const s = schemaId("s");
+      const ownerDefault = ["CREATE", "USAGE"];
+      const facts: Fact[] = [
+        { id: s, payload: {} },
+        roleFact("test"),
+        aclFact(s, "test", ownerDefault, [], ownerDefault),
+        {
+          id: {
+            kind: "defaultPrivilege" as const,
+            role: adp.role,
+            schema: adp.schema,
+            objtype: adp.objtype,
+            grantee: "test",
+          },
+          payload: { privileges: [] },
+        },
+      ];
+      const actions: Action[] = [
+        mkAction({ sql: `CREATE SCHEMA "s"`, produces: [s] }),
+        ...aclActions(s, "test"),
+      ];
+      const kept = elideDefaultAclCreates(
+        actions,
+        buildFactBase(facts, [{ from: s, to: roleId("test"), kind: "owner" }]),
+      );
+      return kept.map((a) => a.sql).includes("GRANT ... TO test");
+    }
+
+    test("cluster-wide ADP ON SCHEMAS gates a co-created schema → kept", () => {
+      expect(
+        ownerAclOnSchema({ role: "test", schema: null, objtype: "n" }),
+      ).toBe(true);
+    });
+
+    test("schema-scoped ADP cannot apply to a schema target → elided", () => {
+      expect(
+        ownerAclOnSchema({ role: "test", schema: "s", objtype: "n" }),
+      ).toBe(false);
+    });
+  });
 });
 
 describe("foldCoCreateOwnership", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { encodeId, parseId, type StableId } from "./stable-id.ts";
+import { buildFactBase } from "./fact.ts";
+import { encodeId, encodeIdMemo, parseId, type StableId } from "./stable-id.ts";
 
 /** Round-trip helper: encode → parse must reproduce the value exactly. */
 function roundtrip(id: StableId): void {
@@ -277,5 +278,124 @@ describe("parseId round-trips", () => {
     const c = encodeId({ kind: "column", schema: "a", table: "b", name: "c" });
     const d = encodeId({ kind: "table", schema: "a", name: "b.c" });
     expect(c).not.toBe(d);
+  });
+
+  // Encoding must not depend on object IDENTITY: a structurally equal but
+  // distinct object encodes identically. Covers every kind via `cases` above.
+  test("encoding is identity-independent", () => {
+    for (const id of cases) {
+      const first = encodeId(id);
+      expect(encodeId(id)).toBe(first);
+      // a fresh deep copy shares no object identity with `id`
+      const copy = JSON.parse(JSON.stringify(id)) as StableId;
+      expect(encodeId(copy)).toBe(first);
+      expect(parseId(encodeId(copy))).toEqual(id);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The PUBLIC `encodeId` is a pure function: it is exported API, `StableId` is a
+// structurally mutable union, and a consumer that mutates an id and re-encodes
+// must see the NEW encoding. Only the INTERNAL `encodeIdMemo` caches by object
+// identity, under the engine's never-mutate-an-id invariant.
+// ---------------------------------------------------------------------------
+
+describe("encodeId is pure (no identity cache on the public API)", () => {
+  test("reflects a mutated id on re-encode", () => {
+    const id: StableId = { kind: "schema", name: "before" };
+    expect(encodeId(id)).toBe("schema:before");
+    (id as { name: string }).name = "after";
+    expect(encodeId(id)).toBe("schema:after");
+  });
+
+  test("reflects mutation through every segment shape", () => {
+    const table: StableId = { kind: "table", schema: "s1", name: "t1" };
+    expect(encodeId(table)).toBe("table:s1.t1");
+    (table as { schema: string }).schema = "s2";
+    expect(encodeId(table)).toBe("table:s2.t1");
+
+    // a nested target id must not be cached either
+    const acl: StableId = {
+      kind: "acl",
+      target: { kind: "table", schema: "s", name: "t" },
+      grantee: "g",
+    };
+    expect(encodeId(acl)).toBe("acl:(table:s.t).g");
+    (acl as { target: { name: string } }).target.name = "t2";
+    expect(encodeId(acl)).toBe("acl:(table:s.t2).g");
+
+    // routine args are encoded per element
+    const fn: StableId = {
+      kind: "function",
+      schema: "s",
+      name: "f",
+      args: ["text"],
+    };
+    expect(encodeId(fn)).toBe("function:s.f(text)");
+    (fn as { args: string[] }).args[0] = "integer";
+    expect(encodeId(fn)).toBe("function:s.f(integer)");
+  });
+
+  test("a mutation is visible even after the id was indexed in a FactBase", () => {
+    // the FactBase lookup layer uses the MEMOIZED variant, so this pins that the
+    // two caches stay separate — indexing must not poison the public function.
+    const id: StableId = { kind: "schema", name: "indexed" };
+    const fb = buildFactBase([{ id, payload: {} }], []);
+    expect(fb.get(id)).toBeDefined();
+    (id as { name: string }).name = "renamed";
+    expect(encodeId(id)).toBe("schema:renamed");
+  });
+});
+
+describe("encodeIdMemo (internal)", () => {
+  test("agrees with encodeId across every segment shape", () => {
+    const ids: StableId[] = [
+      { kind: "schema", name: "public" },
+      { kind: "table", schema: "s", name: "t" },
+      { kind: "column", schema: "s", table: "t", name: "c" },
+      { kind: "function", schema: "s", name: "f", args: ["text", "int[]"] },
+      { kind: "membership", role: "r", member: "m" },
+      { kind: "typeAttribute", schema: "s", type: "addr", name: "city" },
+      { kind: "publicationRel", publication: "p", schema: "s", table: "t" },
+      { kind: "publicationSchema", publication: "p", schema: "s" },
+      { kind: "userMapping", server: "srv", role: "r" },
+      { kind: "comment", target: { kind: "schema", name: "s" } },
+      {
+        kind: "acl",
+        target: { kind: "table", schema: "s", name: "t" },
+        grantee: "g",
+        column: "c",
+      },
+      {
+        kind: "securityLabel",
+        target: { kind: "table", schema: "s", name: "t" },
+        provider: "dummy",
+      },
+      {
+        kind: "defaultPrivilege",
+        role: "o",
+        schema: null,
+        objtype: "r",
+        grantee: "g",
+      },
+      { kind: "extensionIntent", ext: "pg_cron", intentKind: "job", key: "k" },
+      // hostile parts that force quoting
+      { kind: "table", schema: "a.b", name: 'c"d' },
+    ];
+    for (const id of ids) {
+      // fresh structural copy so the memo cannot be primed by encodeId's call
+      const copy = JSON.parse(JSON.stringify(id)) as StableId;
+      expect(encodeIdMemo(copy)).toBe(encodeId(id));
+    }
+  });
+
+  test("caches by object identity and is stable across calls", () => {
+    const id: StableId = { kind: "schema", name: "memo" };
+    const first = encodeIdMemo(id);
+    expect(first).toBe("schema:memo");
+    for (let i = 0; i < 5; i++) expect(encodeIdMemo(id)).toBe(first);
+    // structurally equal but distinct object misses the memo and re-encodes
+    expect(encodeIdMemo({ kind: "schema", name: "memo" })).toBe(first);
   });
 });

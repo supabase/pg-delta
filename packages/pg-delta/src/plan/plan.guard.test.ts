@@ -36,7 +36,10 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   "identity-normalize.ts": 17,
   // 28 → 30: mergeCoTargetGrants (multi-grantee GRANT merge) discriminates acl
   // actions via the isAclId type guard — 2 deliberate literals (type + guard).
-  "internal.ts": 30,
+  // 30 → 29: the ADP gate's `desired.facts()` rescan became a prebuilt objtype
+  // index (buildAdpIndex), dropping the redundant `Extract<StableId, { kind:
+  // "defaultPrivilege" }>` cast — narrowing on the `!==` check suffices.
+  "internal.ts": 29,
   "locks.ts": 18,
   "phases/action-emitter.ts": 10,
   "phases/action-graph.ts": 1,
