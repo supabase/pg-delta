@@ -185,6 +185,30 @@ const SETUP_MARKERS = [
 const isSetupCall = (sql: string): boolean =>
   SETUP_MARKERS.some((marker) => sql.includes(marker));
 
+/**
+ * Total `client.query()` calls across every client the pool hands out. One call
+ * is one network ROUND TRIP, however many statements it batches — which is the
+ * quantity that decides extraction wall time on a remote database, where each
+ * one costs a full RTT before the next can start.
+ */
+function countRoundTrips(pool: pg.Pool): () => number {
+  let calls = 0;
+  const realConnect = pool.connect.bind(pool);
+  // oxlint-disable-next-line no-explicit-any -- test double
+  (pool as any).connect = async () => {
+    const client = await realConnect();
+    const realQuery = client.query.bind(client);
+    // oxlint-disable-next-line no-explicit-any -- passthrough test double
+    (client as any).query = (...args: any[]) => {
+      if (typeof args[0] === "string") calls++;
+      // oxlint-disable-next-line no-explicit-any -- passthrough test double
+      return (realQuery as any)(...args);
+    };
+    return client;
+  };
+  return () => calls;
+}
+
 /** The GUCs and transaction characteristics that define the canonical extraction
  *  session. Read in ONE round trip, off the connection actually extracting. */
 const SESSION_STATE_SQL = `SELECT current_setting('search_path') AS search_path,
@@ -254,13 +278,17 @@ afterAll(async () => {
 });
 
 describe("extract: bounded-parallel extraction", () => {
-  test("concurrency 2 and 4 reproduce the serial extraction exactly", async () => {
+  test("concurrency 2, 4 and 5 reproduce the serial extraction exactly", async () => {
     const serial = observe(await extract(db.pool));
     // sanity: the fixture really does exercise the whole extractor
     expect(serial.facts.length).toBeGreaterThan(100);
     expect(serial.edges.length).toBeGreaterThan(100);
 
-    for (const concurrency of [2, 4]) {
+    // 5 saturates the pool (coordinator + 4 workers), so the tail BATCH jobs —
+    // each of which fills several family slots at once — land on different
+    // streams than the heavy single-family jobs. That is the shape a
+    // completion-order merge bug would show up in.
+    for (const concurrency of [2, 4, 5]) {
       const parallel = observe(await extract(db.pool, { concurrency }));
       expect(parallel.rootHash).toBe(serial.rootHash);
       expect(parallel.pgVersion).toBe(serial.pgVersion);
@@ -515,6 +543,32 @@ describe("extract: session setup cost", () => {
     }
     // 2 + 3x1 — the whole setup prefix, whatever the stream count
     expect(clients.reduce((n, c) => n + c.setupCalls, 0)).toBe(5);
+    expectPoolDrained(pool, 5);
+    await pool.end();
+  }, 180_000);
+
+  /**
+   * The whole catalog scan, counted in round trips rather than statements.
+   *
+   * The cheap "tail" families (roles, schemas, sequences, views, domains, types,
+   * collations, event triggers, rules, publications, inheritance) cost almost
+   * nothing server-side — their price is pure RTT — so they are grouped into a
+   * few multi-statement round trips instead of one each, while the measured
+   * server/transfer-heavy families keep their own round trip (see
+   * CATALOG_BATCH_GROUPS in src/extract/extract.ts). The ceiling is deliberately
+   * a budget, not an exact count: it must fail loudly if a future change
+   * reintroduces a per-family round trip, without churning every time a family
+   * legitimately gains or loses one statement.
+   */
+  test("a serial extraction fits the batched catalog round-trip budget", async () => {
+    const pool = new pg.Pool({ connectionString: db.uri, max: 5 });
+    pool.on("error", () => {});
+    const roundTrips = countRoundTrips(pool);
+    await extract(pool);
+    // measured 23 on postgres:17-alpine: 1 opening batch + 1 JIT-off + 7 heavy
+    // families + 5 foreign + 2 subscriptions + 1 security-label probe + 3 tail
+    // batches + 1 pg_depend resolver + 1 unmodeled-kind scan + COMMIT.
+    expect(roundTrips()).toBeLessThanOrEqual(24);
     expectPoolDrained(pool, 5);
     await pool.end();
   }, 180_000);
