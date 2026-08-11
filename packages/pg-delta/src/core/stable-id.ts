@@ -206,34 +206,14 @@ function seg(part: string): string {
 }
 
 /**
- * StableId object -> its encoding. `encodeId` is one of the hottest functions in
- * the engine: `FactBase.get` / `has` / `hashOf` / `childrenOf` / `outgoingEdges`
- * all key their indexes by the encoding, so every lookup re-walks the id and
- * re-runs `seg` over each part, and a plan performs millions of lookups over a
- * few tens of thousands of DISTINCT id objects.
+ * Encode a StableId into its canonical string form.
  *
- * INVARIANT: a StableId object is never mutated after construction. Ids are
- * built once (extract / load / snapshot decode / rule construction) and
- * thereafter only read; every transform that changes one returns a NEW id (e.g.
- * `plan/identity-normalize.ts`). This is the same invariant `payloadHashes` in
- * `core/hash.ts` already relies on for payloads. Weak keys, so entries die with
- * the facts that own them.
- *
- * Memoizing the outer call subsumes the nested one: `comment` / `acl` /
- * `securityLabel` encode their `target` id through `encodeId`, so a repeated
- * target hits this map too.
+ * PURE, and deliberately NOT memoized: this is exported API (`@supabase/pg-delta`
+ * and the `/core` subpath), and `StableId` is a structurally mutable union, so a
+ * consumer that mutates an id and re-encodes must observe the NEW encoding. The
+ * engine's own hot paths use `encodeIdMemo` below instead.
  */
-const idEncodings = new WeakMap<object, string>();
-
 export function encodeId(id: StableId): string {
-  const memo = idEncodings.get(id);
-  if (memo !== undefined) return memo;
-  const encoded = encodeIdUncached(id);
-  idEncodings.set(id, encoded);
-  return encoded;
-}
-
-function encodeIdUncached(id: StableId): string {
   const k = id.kind;
   switch (k) {
     case "membership":
@@ -275,6 +255,43 @@ function encodeIdUncached(id: StableId): string {
       }
       throw new Error(`encodeId: unknown kind ${String(k)}`);
   }
+}
+
+/**
+ * INTERNAL memoized `encodeId`, keyed by id OBJECT identity.
+ *
+ * Not exported from the package entry points (`src/index.ts`, `src/core/index.ts`)
+ * on purpose: caching by identity is only sound under an invariant the engine
+ * upholds but a consumer cannot be held to. `encodeId` above stays pure for them.
+ *
+ * Why it matters: `FactBase.get` / `has` / `hashOf` / `childrenOf` /
+ * `outgoingEdges` / `incomingEdges` / `isReferenceOnly` all key their indexes by
+ * the encoding, and `buildFactBase` re-encodes every fact and edge endpoint on
+ * every rebuild (managed-view reconstruction, scope/target projection, identity
+ * normalization). A plan performs millions of such lookups over a few tens of
+ * thousands of DISTINCT id objects, so re-walking the id and re-running `seg` per
+ * part dominated the lookup layer.
+ *
+ * INVARIANT: a StableId object reaching these paths is never mutated after
+ * construction. Ids are built once (extract / load / snapshot decode / rule
+ * construction) and thereafter only read; every transform that changes one
+ * returns a NEW id (e.g. `plan/identity-normalize.ts`). This is the same
+ * invariant `payloadHashes` in `core/hash.ts` already relies on for payloads.
+ * Weak keys, so entries die with the facts that own them.
+ *
+ * Wrapper kinds (`comment` / `acl` / `securityLabel`) encode their nested
+ * `target` through the PURE `encodeId`, so only the outer id is cached. That is
+ * enough: the whole encoded string is memoized, so a repeat lookup of the same
+ * wrapper object never re-walks the target either.
+ */
+const idEncodings = new WeakMap<object, string>();
+
+export function encodeIdMemo(id: StableId): string {
+  const memo = idEncodings.get(id);
+  if (memo !== undefined) return memo;
+  const encoded = encodeId(id);
+  idEncodings.set(id, encoded);
+  return encoded;
 }
 
 class Cursor {

@@ -14,7 +14,7 @@ import {
   type ContentHash,
   type Payload,
 } from "./hash.ts";
-import { encodeId, type StableId } from "./stable-id.ts";
+import { encodeIdMemo, type StableId } from "./stable-id.ts";
 
 export interface Fact {
   id: StableId;
@@ -56,7 +56,7 @@ export const retainOwnerRoleDangling = (edge: DependencyEdge): boolean =>
 interface Entry {
   fact: Fact;
   encoded: string;
-  /** `encodeId(fact.parent)`, encoded once at index time: the parent chain is
+  /** `encodeIdMemo(fact.parent)`, encoded once at index time: the parent chain is
    *  walked by the acyclicity check and every hierarchy lookup. */
   parentKey: string | undefined;
   hash: ContentHash;
@@ -104,7 +104,7 @@ export class FactBase {
     this.source = source;
     this.referenceOnly = referenceOnly;
     for (const fact of facts) {
-      const encoded = encodeId(fact.id);
+      const encoded = encodeIdMemo(fact.id);
       if (this.#byId.has(encoded)) {
         throw new Error(`FactBase: duplicate fact id ${encoded}`);
       }
@@ -112,7 +112,7 @@ export class FactBase {
         fact,
         encoded,
         parentKey:
-          fact.parent === undefined ? undefined : encodeId(fact.parent),
+          fact.parent === undefined ? undefined : encodeIdMemo(fact.parent),
         hash: contentHash(fact.payload),
       });
     }
@@ -166,8 +166,8 @@ export class FactBase {
       for (const key of path) reachesRoot.add(key);
     }
     for (const edge of edges) {
-      const fromKey = encodeId(edge.from);
-      const toKey = encodeId(edge.to);
+      const fromKey = encodeIdMemo(edge.from);
+      const toKey = encodeIdMemo(edge.to);
       const fromPresent = this.#byId.has(fromKey);
       const toPresent = this.#byId.has(toKey);
       if (!fromPresent || !toPresent) {
@@ -225,39 +225,39 @@ export class FactBase {
   }
 
   get(id: StableId): Fact | undefined {
-    return this.#byId.get(encodeId(id))?.fact;
+    return this.#byId.get(encodeIdMemo(id))?.fact;
   }
 
   has(id: StableId): boolean {
-    return this.#byId.has(encodeId(id));
+    return this.#byId.has(encodeIdMemo(id));
   }
 
   /** Whether `id` is present for REFERENCE ONLY (see `referenceOnly`). Satisfies
    *  the `FactView` member so a rule can distinguish "on the target" from
    *  "produced by this plan". */
   isReferenceOnly(id: StableId): boolean {
-    return this.referenceOnly.has(encodeId(id));
+    return this.referenceOnly.has(encodeIdMemo(id));
   }
 
   hashOf(id: StableId): ContentHash {
-    const entry = this.#byId.get(encodeId(id));
-    if (!entry) throw new Error(`FactBase: unknown fact ${encodeId(id)}`);
+    const entry = this.#byId.get(encodeIdMemo(id));
+    if (!entry) throw new Error(`FactBase: unknown fact ${encodeIdMemo(id)}`);
     return entry.hash;
   }
 
   childrenOf(id: StableId): Fact[] {
-    return (this.#children.get(encodeId(id)) ?? []).map((e) => e.fact);
+    return (this.#children.get(encodeIdMemo(id)) ?? []).map((e) => e.fact);
   }
 
   outgoingEdges(id: StableId): readonly DependencyEdge[] {
-    return this.#outgoing.get(encodeId(id)) ?? [];
+    return this.#outgoing.get(encodeIdMemo(id)) ?? [];
   }
 
   /** Edges pointing AT `id` (reverse index): the facts that depend on it. Used
    *  by the planner's forced-rebuild reachability walk (O(reachable) instead of
    *  rescanning every edge each round). */
   incomingEdges(id: StableId): readonly DependencyEdge[] {
-    return this.#incoming.get(encodeId(id)) ?? [];
+    return this.#incoming.get(encodeIdMemo(id)) ?? [];
   }
 
   /** Reverse edges by already-encoded id (avoids re-encoding in hot walks). */
@@ -279,7 +279,7 @@ export class FactBase {
    * subtree propagate (a renamed child changes the parent's rollup).
    */
   rollupOf(id: StableId): ContentHash {
-    return this.#rollup(encodeId(id));
+    return this.#rollup(encodeIdMemo(id));
   }
 
   #rollup(key: string): ContentHash {
@@ -306,7 +306,7 @@ export class FactBase {
    * for container rename matching (§4.1).
    */
   structuralRollupOf(id: StableId): ContentHash {
-    return this.#structuralRollup(encodeId(id));
+    return this.#structuralRollup(encodeIdMemo(id));
   }
 
   #structuralRollup(key: string): ContentHash {
@@ -329,7 +329,7 @@ export class FactBase {
   get rootHash(): ContentHash {
     if (this.#rootHash === undefined) {
       const parts = this.roots().map(
-        (f) => `${encodeId(f.id)}=${this.rollupOf(f.id)}`,
+        (f) => `${encodeIdMemo(f.id)}=${this.rollupOf(f.id)}`,
       );
       this.#rootHash = hashString(`ROOT|${parts.join(",")}`);
     }
