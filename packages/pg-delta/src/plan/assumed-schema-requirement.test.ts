@@ -263,6 +263,52 @@ describe("plan() — platform-provisioned members of assumed schemas", () => {
     expect(p.actions.some((a) => /CREATE TRIGGER/i.test(a.sql))).toBe(true);
   });
 
+  test("a desired-only descendant of a platform root present in BOTH states is still exempt", () => {
+    // The descendant walk must not share its visited set across the two raw
+    // fact bases: when the platform root (`supabase_functions.hooks`) exists on
+    // both sides, the source pass records the root first — the desired pass
+    // must still traverse the root's DESIRED-ONLY children (a new platform
+    // column shipped by a newer image), or a dependent on that column throws
+    // (Codex P2 round 3 on PR #407).
+    const hooks: StableId = {
+      kind: "table",
+      schema: "supabase_functions",
+      name: "hooks",
+    };
+    const newCol: StableId = {
+      kind: "column",
+      schema: "supabase_functions",
+      table: "hooks",
+      name: "added_in_new_image",
+    };
+    const owner: StableId = { kind: "role", name: "supabase_functions_admin" };
+    const platformFacts = (withNewCol: boolean) => [
+      f(publicSchema),
+      f(table, publicSchema, { persistence: "p" }),
+      f(owner),
+      f(functionsSchema),
+      f(hooks, functionsSchema, { persistence: "p" }),
+      ...(withNewCol
+        ? [f(newCol, hooks, { type: "bigint", notNull: false })]
+        : []),
+    ];
+    const source = buildFactBase(platformFacts(false), [
+      { from: hooks, to: owner, kind: "owner" },
+    ]);
+    const desired = buildFactBase(
+      [
+        ...platformFacts(true),
+        f(trigger, table, { def: triggerDef, enabled: "O" }),
+      ],
+      [
+        { from: hooks, to: owner, kind: "owner" },
+        { from: trigger, to: newCol, kind: "depends" },
+      ],
+    );
+    const p = plan(source, desired, { policy: supabasePolicy });
+    expect(p.actions.some((a) => /CREATE TRIGGER/i.test(a.sql))).toBe(true);
+  });
+
   test("supplemental options.assumedRoles (target roles under database scope) do not widen the exemption", () => {
     // The database-scoped schema-apply frontend passes EVERY role found on the
     // target through options.assumedRoles (schema-plan.ts) so grants/ownership

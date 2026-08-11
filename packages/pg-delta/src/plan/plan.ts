@@ -540,6 +540,12 @@ export function plan(
   const assumedPresentIds = new Set<string>();
   if (policyAssumedRoleNames.size > 0) {
     for (const fb of [rawSource, rawDesired]) {
+      // The traversal guard is PER FACT BASE, not the shared result set: a
+      // platform root present on BOTH sides is recorded by the source pass
+      // first, but the desired pass must still walk it — its DESIRED-ONLY
+      // descendants (a platform column added by a newer image) would otherwise
+      // never be traversed (Codex P2 round 3, PR #407).
+      const visited = new Set<string>();
       for (const e of fb.edges) {
         if (e.kind !== "owner" || e.to.kind !== "role") continue;
         const schema = (e.from as { schema?: string }).schema;
@@ -551,7 +557,8 @@ export function plan(
         while (stack.length > 0) {
           const id = stack.pop() as StableId;
           const key = encodeId(id);
-          if (assumedPresentIds.has(key)) continue;
+          if (visited.has(key)) continue;
+          visited.add(key);
           assumedPresentIds.add(key);
           for (const child of fb.childrenOf(id)) {
             if (isSatelliteId(child.id)) continue;
