@@ -105,4 +105,66 @@ describe("pruneStaleSqlFiles", () => {
       pruneStaleSqlFiles(resolve(root, "missing"), new Set(), undefined, false),
     ).toEqual({ removed: [], unmanaged: [] });
   });
+
+  test("never scans the reserved _custom/ subtree: not unmanaged, not deleted", () => {
+    // docs/architecture/custom-folder.md §2: `_custom/` is the user's durable
+    // home for SQL pg-delta does not model. Reporting it as unmanaged would make
+    // every re-export refuse; deleting it would destroy hand-authored SQL.
+    const custom = write("_custom/text-search.sql", "-- custom\n");
+    const nested = write("_custom/nested/seed.sql", "-- seed\n");
+    const stale = write("schemas/app/dropped.sql");
+    const { removed, unmanaged } = pruneStaleSqlFiles(
+      root,
+      new Set(),
+      new Set([stale]),
+      false,
+    );
+    expect(removed).toEqual([stale]);
+    expect(unmanaged).toEqual([]);
+    expect(existsSync(custom)).toBe(true);
+    expect(existsSync(nested)).toBe(true);
+  });
+
+  test("--prune-unmanaged still never deletes inside _custom/", () => {
+    const custom = write("_custom/text-search.sql", "-- custom\n");
+    const handwritten = write("schemas/app/handwritten.sql");
+    const { removed, unmanaged } = pruneStaleSqlFiles(
+      root,
+      new Set(),
+      undefined,
+      true,
+    );
+    expect(removed).toEqual([handwritten]);
+    expect(unmanaged).toEqual([]);
+    expect(existsSync(custom)).toBe(true);
+  });
+
+  test("a previously-owned entry under _custom/ is defensively never deleted", () => {
+    // The exporter can never own a `_custom/` path (writeExportFiles guards it),
+    // so a manifest claiming one is corrupt/hand-edited input — it must not turn
+    // the pruner into a deleter inside the reserved subtree.
+    const custom = write("_custom/text-search.sql", "-- custom\n");
+    const { removed, unmanaged } = pruneStaleSqlFiles(
+      root,
+      new Set(),
+      new Set([custom]),
+      false,
+    );
+    expect(removed).toEqual([]);
+    expect(unmanaged).toEqual([]);
+    expect(existsSync(custom)).toBe(true);
+  });
+
+  test("a NESTED _custom/ directory is ordinary managed space", () => {
+    // only the ROOT-level `_custom` is reserved (one auditable location).
+    const nestedCustom = write("schemas/app/_custom/x.sql");
+    const { removed, unmanaged } = pruneStaleSqlFiles(
+      root,
+      new Set(),
+      undefined,
+      false,
+    );
+    expect(removed).toEqual([]);
+    expect(unmanaged).toEqual([nestedCustom]);
+  });
 });
