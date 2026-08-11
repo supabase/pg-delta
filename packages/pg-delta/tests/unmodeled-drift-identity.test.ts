@@ -14,10 +14,12 @@
  * evaluates), so this runs against a live PostgreSQL. Docker required.
  */
 import { describe, expect, test } from "bun:test";
+import pg from "pg";
 import {
   detectUnmodeledDrift,
   probeUnmodeledIdentities,
 } from "../src/extract/unmodeled.ts";
+import { probeUnmodeledIdentitiesPinned } from "../src/frontends/schema-plan.ts";
 import { createTestDb } from "./containers.ts";
 
 const PG_MAJOR = Number(
@@ -85,6 +87,48 @@ describe("unmodeled drift is diffed on qualified identities", () => {
       expect(operatorMissing[0]).toContain("text");
     } finally {
       await Promise.all([shadow.drop(), target.drop()]);
+    }
+  }, 180_000);
+});
+
+describe("the drift probe runs under the SAME canonical search_path extraction uses", () => {
+  test("a user relation shadowing an unqualified catalog table (app.pg_cast) breaks the unpinned probe; the pinned call-site wrapper is unaffected", async () => {
+    const target = await createTestDb("drift_pin_target");
+    let freshPool: pg.Pool | undefined;
+    try {
+      // A legitimate unmodeled object, so a passing result has teeth: it must
+      // still be reported correctly under the polluted search_path, not just
+      // "did not throw".
+      await target.pool.query(
+        `CREATE TEXT SEARCH CONFIGURATION public.custom_cfg (COPY = pg_catalog.english);
+         CREATE SCHEMA app;
+         CREATE TABLE app.pg_cast(id int);`,
+      );
+      // `search_path = app, pg_catalog` EXPLICITLY lists pg_catalog, so it is
+      // searched in the stated order (app first) rather than implicitly
+      // first — new connections pick this up, existing pooled ones do not, so
+      // a fresh pool is required.
+      await target.cluster.adminPool.query(
+        `ALTER DATABASE "${target.name}" SET search_path TO app, pg_catalog`,
+      );
+      freshPool = new pg.Pool({ connectionString: target.uri, max: 1 });
+      freshPool.on("error", () => {});
+
+      // RED: the unpinned probe resolves `pg_cast` against `app.pg_cast`
+      // (wrong columns) instead of the catalog table, and errors.
+      expect(probeUnmodeledIdentities(freshPool, PG_MAJOR)).rejects.toThrow();
+
+      // GREEN: the call-site wrapper pins `search_path TO pg_catalog` for the
+      // probe's transaction, so it resolves the real catalog and reports the
+      // genuine unmodeled object correctly despite the shadowing table.
+      const pinned = await probeUnmodeledIdentitiesPinned(freshPool, PG_MAJOR);
+      expect(pinned.get("text search configuration")).toEqual([
+        "public.custom_cfg",
+      ]);
+      expect(pinned.has("cast")).toBe(false);
+    } finally {
+      await freshPool?.end().catch(() => {});
+      await target.drop();
     }
   }, 180_000);
 });

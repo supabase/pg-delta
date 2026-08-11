@@ -178,14 +178,14 @@ describe("lintCustomModeledKinds", () => {
     );
 
   test("warns on DDL pg-delta models (the duplicate-on-re-export hazard)", async () => {
-    // `comment on table` is deliberately NOT among them: pg-topo's COMMENT class
-    // is target-blind, so flagging it would fire on comments about the unmodeled
-    // objects this folder exists to hold (see MODELED_STATEMENT_CLASSES).
+    // `comment on table` and `grant`/`revoke` are deliberately NOT among them:
+    // pg-topo's COMMENT and GRANT classes are target-blind, so flagging them
+    // would fire on comments/ACLs about the unmodeled objects this folder
+    // exists to hold (see MODELED_STATEMENT_CLASSES).
     const findings = await analyzeCustom(
       "create table public.t (id int);\ncreate view public.v as select id from public.t;\ngrant select on public.t to public;\ncomment on table public.t is 'x';\n",
     );
     expect(findings.map((f) => f.code)).toEqual([
-      "custom_modeled_kind",
       "custom_modeled_kind",
       "custom_modeled_kind",
     ]);
@@ -214,6 +214,19 @@ describe("lintCustomModeledKinds", () => {
       await analyzeCustom(
         "-- pgdelta-migration: none\n" +
           "comment on text search configuration public.cfg is 'custom parser';\n",
+      ),
+    ).toEqual([]);
+  });
+
+  test("stays silent on GRANT/REVOKE — the class cannot see its target's kind", async () => {
+    // Same target-blindness as ALTER_OWNER/COMMENT: pg-topo gives `GRANT USAGE
+    // ON LANGUAGE plfoo TO app` (an ACL on the unmodeled CREATE_LANGUAGE
+    // object this folder legitimately holds) the same GRANT class as
+    // `GRANT SELECT ON TABLE public.t TO app`. Warning on the class would fire
+    // on the folder's own documented use, so it is excluded like COMMENT.
+    expect(
+      await analyzeCustom(
+        "-- pgdelta-migration: none\ngrant usage on language plfoo to app;\n",
       ),
     ).toEqual([]);
   });

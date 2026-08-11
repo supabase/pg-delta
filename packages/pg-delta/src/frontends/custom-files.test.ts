@@ -43,6 +43,22 @@ describe("listCustomFiles", () => {
     ]);
   });
 
+  test("sorts by the FULL path, not per-directory-level (`.` 0x2E < `/` 0x2F)", () => {
+    // A sibling directory named `a` sorts BEFORE the file `a.sql` in a
+    // per-level `readdirSync().sort()` (`"a" < "a.sql"` as bare strings), so a
+    // naive per-level DFS would emit `_custom/a/z.sql` before `_custom/a.sql`.
+    // The doc comment promises lexicographic FULL-PATH order, where `.`
+    // (0x2E) sorts before `/` (0x2F) — so `_custom/a.sql` must come first.
+    const root = rootWith({
+      "_custom/a.sql": "select 1;\n",
+      "_custom/a/z.sql": "select 2;\n",
+    });
+    expect(listCustomFiles(root).map((f) => f.path)).toEqual([
+      "_custom/a.sql",
+      "_custom/a/z.sql",
+    ]);
+  });
+
   test("returns an empty list when the reserved folder does not exist", () => {
     expect(
       listCustomFiles(rootWith({ "schemas/x.sql": "select 1;\n" })),
