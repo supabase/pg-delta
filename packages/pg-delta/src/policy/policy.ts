@@ -1216,6 +1216,19 @@ export function resolveView(
   // only facts that actually survived pruning. This is the SINGLE projection
   // point for the managed view; `referenceOnly` is per-side deterministic (no
   // cross-side dependency → fingerprint/proof stay consistent).
+  // Nothing to prune AND nothing to mark → the projection is the identity, as it
+  // was when `excludeFactsAndDescendants` short-circuited an empty root set and
+  // the reference-only rebuild was skipped. Keep that free path free: without it
+  // `computeExclusion` would walk every fact and filter every edge to prove it
+  // has nothing to do.
+  if (
+    hardRoots.size === 0 &&
+    memberRefOnly.size === 0 &&
+    policyRefOnly.size === 0
+  ) {
+    return base;
+  }
+
   const exclusion = computeExclusion(base, hardRoots);
   const surviving = exclusion.survives;
   const referenceOnly = new Set<string>();
