@@ -781,25 +781,59 @@ function samePrivilegeSet(a: readonly string[], b: readonly string[]): boolean {
  * we filter to the applier's role, else (corpus/raw) consider any role's ADP
  * (conservative — at worst we keep a redundant REVOKE/GRANT).
  */
-function adpCustomizesObjtype(
+/**
+ * The `defaultPrivilege` facts of a desired state, folded by `objtype` so
+ * `adpCustomizesObjtype` is an O(1) lookup instead of a full fact scan.
+ * `allSchemas` records an ADP whose `schema` is null (cluster-wide for that
+ * role — matches ANY target schema); `schemas` the schema-scoped ones.
+ */
+type AdpIndex = ReadonlyMap<
+  string,
+  { allSchemas: boolean; schemas: ReadonlySet<string> }
+>;
+
+/** One pass over `desired`, applying the same role filter the predicate did:
+ *  ADP is keyed by the CREATING role, so with a known `capability` only that
+ *  role's ADP counts; without one (corpus/raw) any role's does. */
+function buildAdpIndex(
   desired: FactBase,
-  target: StableId,
   capability: ApplierCapability | undefined,
+): AdpIndex {
+  const index = new Map<
+    string,
+    { allSchemas: boolean; schemas: Set<string> }
+  >();
+  for (const fact of desired.facts()) {
+    if (fact.id.kind !== "defaultPrivilege") continue;
+    const d = fact.id;
+    if (capability !== undefined && d.role !== capability.role) continue;
+    let entry = index.get(d.objtype);
+    if (entry === undefined) {
+      entry = { allSchemas: false, schemas: new Set<string>() };
+      index.set(d.objtype, entry);
+    }
+    if (d.schema === null) entry.allSchemas = true;
+    else entry.schemas.add(d.schema);
+  }
+  return index;
+}
+
+function adpCustomizesObjtype(
+  adp: AdpIndex,
+  target: StableId,
 ): boolean {
   const objtype = ruleFlag(target.kind, "defaclObjtype");
   if (objtype === undefined) return false; // kind has no default-ACL mechanism
+  const entry = adp.get(objtype);
+  if (entry === undefined) return false;
+  if (entry.allSchemas) return true;
   const targetSchema =
     target.kind === "schema"
       ? null
       : ((target as { schema?: string }).schema ?? null);
-  return desired.facts().some((fact) => {
-    if (fact.id.kind !== "defaultPrivilege") return false;
-    const d = fact.id as Extract<StableId, { kind: "defaultPrivilege" }>;
-    if (d.objtype !== objtype) return false;
-    if (d.schema !== null && d.schema !== targetSchema) return false;
-    if (capability !== undefined && d.role !== capability.role) return false;
-    return true;
-  });
+  // a schema-scoped ADP never matches a schema-less target (the old predicate's
+  // `d.schema !== targetSchema` with targetSchema === null).
+  return targetSchema !== null && entry.schemas.has(targetSchema);
 }
 
 /**
@@ -835,6 +869,12 @@ export function elideDefaultAclCreates(
   desired: FactBase,
   capability?: ApplierCapability,
 ): Action[] {
+  // ADP lookup table, built ONCE. The predicate below used to re-scan
+  // `desired.facts()` (a freshly materialized array) per acl-create action,
+  // which is O(aclCreates x facts) — the dominant cost of a from-empty plan on a
+  // large catalog.
+  const adp = buildAdpIndex(desired, capability);
+
   // ids of the objects actually created in this plan (acl satellites excluded).
   const createdObjects = new Set<string>();
   for (const action of actions) {
@@ -870,7 +910,7 @@ export function elideDefaultAclCreates(
     // customizing this objtype breaks that assumption (the effective default
     // differs, and ADP-vs-CREATE order is not guaranteed in a from-empty plan),
     // so the explicit REVOKE/GRANT is load-bearing — keep it (review P2).
-    if (adpCustomizesObjtype(desired, aclId.target, capability)) continue;
+    if (adpCustomizesObjtype(adp, aclId.target)) continue;
 
     if (aclId.grantee === "PUBLIC") {
       const def = PUBLIC_DEFAULT_PRIVILEGE[aclId.target.kind];
