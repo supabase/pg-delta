@@ -9,7 +9,13 @@
  * overwrites an operator's edits. No DB.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,7 +48,10 @@ describe("isCustomPath", () => {
 describe("scaffoldCustomReadme", () => {
   test("creates _custom/README.md with the documented contract", () => {
     const root = mkdtempSync(join(tmpdir(), "pgd-customdir-"));
-    expect(scaffoldCustomReadme(root)).toBe(true);
+    expect(scaffoldCustomReadme(root)).toEqual({
+      written: true,
+      skippedSymlink: false,
+    });
     const readme = join(root, "_custom", "README.md");
     expect(existsSync(readme)).toBe(true);
     const body = readFileSync(readme, "utf8");
@@ -57,9 +66,24 @@ describe("scaffoldCustomReadme", () => {
     const root = mkdtempSync(join(tmpdir(), "pgd-customdir-keep-"));
     mkdirSync(join(root, "_custom"), { recursive: true });
     writeFileSync(join(root, "_custom", "README.md"), "# mine\n", "utf8");
-    expect(scaffoldCustomReadme(root)).toBe(false);
+    expect(scaffoldCustomReadme(root)).toEqual({
+      written: false,
+      skippedSymlink: false,
+    });
     expect(readFileSync(join(root, "_custom", "README.md"), "utf8")).toBe(
       "# mine\n",
     );
+  });
+
+  test("skips scaffolding entirely when _custom is a symlink, so a README is never written through it", () => {
+    const root = mkdtempSync(join(tmpdir(), "pgd-customdir-symlink-"));
+    const external = mkdtempSync(join(tmpdir(), "pgd-customdir-external-"));
+    symlinkSync(external, join(root, "_custom"));
+
+    const result = scaffoldCustomReadme(root);
+
+    // The write must never follow the link out of outRoot.
+    expect(existsSync(join(external, "README.md"))).toBe(false);
+    expect(result).toEqual({ written: false, skippedSymlink: true });
   });
 });
