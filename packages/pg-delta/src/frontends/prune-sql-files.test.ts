@@ -7,11 +7,21 @@
  * the keep set are never touched.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pruneStaleSqlFiles } from "./prune-sql-files.ts";
+
+/** `chmod 000` does not stop root, so the unreadable-directory tests are
+ *  meaningless there (they would silently pass by reading the directory fine). */
+const CAN_MAKE_UNREADABLE = (process.getuid?.() ?? 0) !== 0;
 
 let root: string;
 
@@ -154,6 +164,53 @@ describe("pruneStaleSqlFiles", () => {
     expect(unmanaged).toEqual([]);
     expect(existsSync(custom)).toBe(true);
   });
+
+  test.skipIf(!CAN_MAKE_UNREADABLE)(
+    "an unreadable directory INSIDE _custom/ cannot disable the whole scan",
+    () => {
+      // The reserved subtree must be skipped DURING traversal, not filtered out
+      // after a full walk: a walk that descends into `_custom/` and fails there
+      // takes the managed tree's pruning down with it — stale owned files
+      // survive, and the rewritten manifest drops their ownership, so they are
+      // unmanaged (and un-prunable) forever after.
+      const custom = write("_custom/nested/seed.sql", "-- seed\n");
+      const stale = write("schemas/app/dropped.sql");
+      const unreadable = resolve(root, "_custom", "nested");
+      chmodSync(unreadable, 0o000);
+      try {
+        const { removed, unmanaged } = pruneStaleSqlFiles(
+          root,
+          new Set(),
+          new Set([stale]),
+          false,
+        );
+        expect(removed).toEqual([stale]);
+        expect(unmanaged).toEqual([]);
+      } finally {
+        chmodSync(unreadable, 0o755);
+      }
+      expect(existsSync(custom)).toBe(true);
+    },
+  );
+
+  test.skipIf(!CAN_MAKE_UNREADABLE)(
+    "propagates a non-ENOENT scan failure instead of reporting an empty tree",
+    () => {
+      // Swallowing every error makes an unreadable managed directory look like
+      // "nothing to prune", so the export writes a manifest that disowns
+      // everything it could not see. Only ENOENT (no directory yet) is benign.
+      write("schemas/app/dropped.sql");
+      const unreadable = resolve(root, "schemas", "app");
+      chmodSync(unreadable, 0o000);
+      try {
+        expect(() =>
+          pruneStaleSqlFiles(root, new Set(), undefined, false),
+        ).toThrow(/EACCES/);
+      } finally {
+        chmodSync(unreadable, 0o755);
+      }
+    },
+  );
 
   test("a NESTED _custom/ directory is ordinary managed space", () => {
     // only the ROOT-level `_custom` is reserved (one auditable location).

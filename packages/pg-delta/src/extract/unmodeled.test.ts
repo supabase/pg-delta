@@ -13,8 +13,10 @@
  * Pure unit tests: the probe runs against a fake queryable, so no database.
  */
 import { describe, expect, test } from "bun:test";
+import type { PoolClient } from "pg";
 import {
   detectUnmodeledDrift,
+  detectUnmodeledKinds,
   probeUnmodeledIdentities,
   type UnmodeledIdentities,
 } from "./unmodeled.ts";
@@ -24,9 +26,15 @@ interface IdentityRow {
   names: string[] | null;
 }
 
+interface ProbeRow {
+  kind: string;
+  count: number;
+  samples: string[] | null;
+}
+
 /** A `query`-only stand-in for a `Pool`/`PoolClient` that replays canned rows
  *  and records the SQL it was handed. */
-function fakeQueryable(rows: IdentityRow[]): {
+function fakeQueryable(rows: readonly (IdentityRow | ProbeRow)[]): {
   query: <R>(sql: string) => Promise<{ rows: R[] }>;
   sql: string[];
 } {
@@ -38,6 +46,16 @@ function fakeQueryable(rows: IdentityRow[]): {
       return { rows: rows as unknown as R[] };
     },
   };
+}
+
+/** The same stand-in typed for {@link detectUnmodeledKinds}, which takes a
+ *  checked-out `PoolClient` (it runs inside the extraction snapshot). */
+function fakeClient(rows: readonly ProbeRow[]): {
+  client: PoolClient;
+  sql: string[];
+} {
+  const q = fakeQueryable(rows);
+  return { client: q as unknown as PoolClient, sql: q.sql };
 }
 
 const identities = (entries: Record<string, string[]>): UnmodeledIdentities =>
@@ -77,6 +95,69 @@ describe("probeUnmodeledIdentities", () => {
     const q15 = fakeQueryable([]);
     await probeUnmodeledIdentities(q15, 15);
     expect(q15.sql[0]).toContain("pg_parameter_acl");
+  });
+
+  test("identities are FULLY QUALIFIED, so a bare name cannot mask drift", async () => {
+    // The set-diff is only as good as the identity: two same-named objects in
+    // different schemas (or two operators differing only in operand types) must
+    // not compare equal, or `unmodeled_drift` misses exactly what it exists to
+    // catch. Every namespaced catalog must contribute its schema, and the
+    // catalogs whose name is not unique on its own must contribute the rest of
+    // their identity (operand types, access method).
+    const q = fakeQueryable([]);
+    await probeUnmodeledIdentities(q, 17);
+    const sql = q.sql[0] ?? "";
+    for (const nspColumn of [
+      "oprnamespace",
+      "opcnamespace",
+      "opfnamespace",
+      "cfgnamespace",
+      "dictnamespace",
+      "prsnamespace",
+      "tmplnamespace",
+      "stxnamespace",
+    ]) {
+      expect(sql).toContain(nspColumn);
+    }
+    expect(sql).toContain("oprleft");
+    expect(sql).toContain("oprright");
+    expect(sql).toContain("amname");
+  });
+});
+
+describe("detectUnmodeledKinds", () => {
+  test("keeps the count+samples projection unqualified (a SEPARATE query)", async () => {
+    // Guard, not a regression: the per-extraction diagnostic probe must not
+    // start paying for the drift probe's qualification work.
+    const { client, sql } = fakeClient([]);
+    await detectUnmodeledKinds(client, 17);
+    expect(sql[0]).toContain("tc.cfgname");
+    expect(sql[0]).not.toContain("cfgnamespace");
+    expect(sql[0]).toContain("[1:5]");
+  });
+
+  test("points database-local kinds at _custom/", async () => {
+    const { client } = fakeClient([
+      { kind: "cast", count: 1, samples: ["pg_catalog.text AS public.ltree"] },
+    ]);
+    const [d] = await detectUnmodeledKinds(client, 17);
+    expect(d?.message).toContain("_custom/");
+    expect(d?.message).toMatch(/migration channel/);
+  });
+
+  test("never points a CLUSTER-shared kind at _custom/", async () => {
+    // `pg_parameter_acl` is shared by every database in the cluster, so
+    // `GRANT SET ON PARAMETER` in a declarative file would mutate state the
+    // shadow does not own (a co-located `databaseScratch` shadow shares the
+    // live cluster). Telling the operator to park it in `_custom/` is advice
+    // that damages their cluster.
+    const { client } = fakeClient([
+      { kind: "parameter ACL", count: 1, samples: ["work_mem"] },
+    ]);
+    const [d] = await detectUnmodeledKinds(client, 17);
+    expect(d?.message).not.toContain("_custom/");
+    expect(d?.message).toMatch(/migration channel/);
+    expect(d?.message).toMatch(/cluster/i);
   });
 });
 

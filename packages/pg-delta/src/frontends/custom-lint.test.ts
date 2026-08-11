@@ -77,6 +77,23 @@ describe("lintCustomMigrationRefs", () => {
     expect(findings[0]?.message).toContain("../migrations/nope.sql");
   });
 
+  test("a directive resolving to a DIRECTORY is dangling, not satisfied", () => {
+    // A migration reference names a migration FILE. Mere existence is not
+    // enough: `../migrations` (the directory) records nothing about which
+    // migration delivered this file, so it must read as a broken reference.
+    const root = rootWith({ "migrations/20260811_add_cast.sql": "-- m\n" });
+    const findings = lintCustomMigrationRefs(root, [
+      file(
+        join("_custom", "casts.sql"),
+        "-- pgdelta-migration: ../migrations\n\nselect 1;\n",
+      ),
+    ]);
+    expect(findings.map((f) => f.code)).toEqual([
+      "custom_dangling_migration_ref",
+    ]);
+    expect(findings[0]?.message).toContain("../migrations");
+  });
+
   test("`none` exempts a file from both the missing and dangling rules", () => {
     const root = rootWith({});
     expect(
@@ -181,6 +198,20 @@ describe("lintCustomModeledKinds", () => {
       await analyzeCustom(
         "create text search configuration public.cfg (copy = pg_catalog.english);\n" +
           "create cast (text as public.ltree) with function public.text2ltree(text);\n",
+      ),
+    ).toEqual([]);
+  });
+
+  test("stays silent on COMMENT — the class cannot see its target's kind", async () => {
+    // `COMMENT ON TEXT SEARCH CONFIGURATION` is legitimate metadata for an
+    // UNMODELED object, and pg-topo classifies every COMMENT the same way
+    // (target-blind). Warning on the class would fire on the folder's own
+    // documented use — a false positive that trains operators to ignore the
+    // rule — so the class is excluded and `COMMENT ON TABLE` goes unflagged too.
+    expect(
+      await analyzeCustom(
+        "-- pgdelta-migration: none\n" +
+          "comment on text search configuration public.cfg is 'custom parser';\n",
       ),
     ).toEqual([]);
   });

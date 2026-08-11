@@ -8,10 +8,14 @@
  * is executed — a frontend decides what to do with the undelivered ones.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { listCustomFiles } from "./custom-files.ts";
+
+/** `chmod 000` does not stop root, so the unreadable-directory test is
+ *  meaningless there. */
+const CAN_MAKE_UNREADABLE = (process.getuid?.() ?? 0) !== 0;
 
 function rootWith(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), "pgd-customfiles-"));
@@ -75,6 +79,27 @@ describe("listCustomFiles", () => {
     expect(f?.hasNone).toBe(true);
     expect(f?.delivered).toBe(true);
   });
+
+  test.skipIf(!CAN_MAKE_UNREADABLE)(
+    "raises an unreadable subtree instead of silently omitting its files",
+    () => {
+      // This helper is the DELIVERY seam: a frontend folds every undelivered
+      // file into a generated migration. An unreadable directory that comes
+      // back as "no custom files here" makes that migration silently
+      // incomplete, which is the one failure mode the seam must not have.
+      const root = rootWith({
+        "_custom/a.sql": "select 1;\n",
+        "_custom/nested/b.sql": "select 2;\n",
+      });
+      const unreadable = join(root, "_custom", "nested");
+      chmodSync(unreadable, 0o000);
+      try {
+        expect(() => listCustomFiles(root)).toThrow(/EACCES/);
+      } finally {
+        chmodSync(unreadable, 0o755);
+      }
+    },
+  );
 
   test("a file with no directive is UNDELIVERED — the fold-in candidate", () => {
     const root = rootWith({
