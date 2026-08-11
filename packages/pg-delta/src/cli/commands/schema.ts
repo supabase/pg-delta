@@ -19,12 +19,28 @@
  *     the formatter (frontends/sql-format), e.g. '{"keywordCase":"upper","maxWidth":180}'.
  *     Off by default (raw renderer output). Cosmetic — load(export) ≡ db still holds.
  *
+ *   The export OWNS its directory (`.pgdelta-export.json` records the files it
+ *   wrote): a re-export prunes what the previous one owned and REFUSES when it
+ *   finds a `.sql` it does not own (--prune-unmanaged deletes those instead).
+ *   The one exception is the reserved root-level `_custom/` directory
+ *   (frontends/custom-dir.ts): never written into (a collision is a hard error),
+ *   never pruned — not even with --prune-unmanaged — never reported unmanaged,
+ *   never recorded in the manifest. Its `README.md` is scaffolded once. That is
+ *   where SQL the engine detects but does not model (`unmodeled_kind`: casts,
+ *   operators, text-search objects, …) and idempotent DML live, so re-exports
+ *   preserve them and the shadow can elaborate modeled dependents.
+ *
  * schema apply --dir <dir> [--shadow <pg-url>] --target <pg-url>
  *              [--renames auto|prompt|off] [--force]
  *              [--accept-rename <from>=<to>] (repeatable) [--no-reorder]
  *              [--dry-run] [--verbose] [--out-plan <plan.json>]
  *   Read .sql files recursively (lexicographic), load into shadow, extract
  *   target, plan, apply.  Maps to old `declarative-apply` / `sync`.
+ *
+ *   The recursive read includes `_custom/**\/*.sql`, which is how that folder
+ *   feeds the SHADOW. Nothing in it is ever executed against the target: it is
+ *   loaded, extracted, and whatever it created that the engine does not model
+ *   produces no facts and therefore cannot enter a plan.
  *
  *   By default the SQL files are passed through the statement-reordering assist
  *   (target-architecture §4.4.1): each file is split into one-statement units
@@ -75,6 +91,16 @@
  *     Write the plan artifact (the same format `plan --out` produces) to this
  *     path right after planning, before apply (or the --dry-run script). Useful
  *     for inspecting/archiving the exact plan a `schema apply` run executed.
+ *
+ * schema lint --dir <dir>
+ *   Static analysis only — no database. Reports the pg-topo findings (cycles,
+ *   unknown statement classes, duplicate producers, …) plus the `_custom/`
+ *   bookkeeping rules (frontends/custom-lint.ts), all as non-blocking warnings:
+ *   custom_missing_migration_ref / custom_dangling_migration_ref /
+ *   custom_conflicting_migration_ref (the `-- pgdelta-migration:` head-of-file
+ *   directive) and custom_modeled_kind (modeled DDL parked in `_custom/`, which
+ *   the next export would duplicate). Hygiene lives in lint alone: export and
+ *   apply never fail on it, and --strict-coverage cannot reach these codes.
  */
 import type { Pool } from "pg";
 import {
@@ -92,6 +118,17 @@ import type {
 import type { SqlFormatOptions } from "../../frontends/sql-format/index.ts";
 import { pruneStaleSqlFiles } from "../../frontends/prune-sql-files.ts";
 import {
+  CUSTOM_DIR_NAME,
+  CUSTOM_README_NAME,
+  isCustomPath,
+  scaffoldCustomReadme,
+} from "../../frontends/custom-dir.ts";
+import {
+  lintCustomMigrationRefs,
+  lintCustomModeledKinds,
+  type CustomLintFinding,
+} from "../../frontends/custom-lint.ts";
+import {
   readExportManifest,
   writeExportManifest,
 } from "../../frontends/export-manifest.ts";
@@ -108,6 +145,7 @@ import {
 import {
   appendShadowCycleHint,
   formatLintReport,
+  formatStatementLocation,
   rewriteReorderedShadowError,
 } from "../reorder-display.ts";
 import { serializePlan } from "../../plan/artifact.ts";
@@ -200,6 +238,12 @@ export function collectSqlFiles(dir: string): SqlFile[] {
  * `--prune-unmanaged` (threaded here as `pruneUnmanaged`) to delete them. The
  * new manifest records the owned files as SORTED relative POSIX paths so the
  * next re-export knows what it may prune.
+ *
+ * The reserved root-level `_custom/` folder (frontends/custom-dir.ts) is outside
+ * all of that: the pruner never scans it, so it is never `unmanaged` (no
+ * refusal) and never deleted; the exporter refuses to WRITE into it; and it never
+ * appears in the manifest's owned `files`. Its `README.md` is scaffolded once so
+ * the contract is discoverable in the tree itself.
  */
 export function writeExportFiles(
   outRoot: string,
@@ -212,7 +256,12 @@ export function writeExportFiles(
     defaultOwner?: string | null;
   },
   pruneUnmanaged: boolean,
-): { removed: string[]; unmanaged: string[] } {
+): {
+  removed: string[];
+  unmanaged: string[];
+  /** whether this export wrote the `_custom/README.md` scaffold */
+  scaffoldedCustomReadme: boolean;
+} {
   // Normalize ONCE: the manifest's owned paths resolve to absolute paths, so
   // every path compared against them (the keep set, the pruner's scan) must
   // be absolute too — with a relative --out-dir the pruner otherwise misreads
@@ -243,6 +292,17 @@ export function writeExportFiles(
         `\nPass --prune-unmanaged to delete them and take ownership of the directory.`,
     );
   }
+  // Refuse BEFORE writing anything, like the unmanaged check: no layout emits a
+  // `_custom/…` path, so this is unreachable — but the reservation must be
+  // ENFORCED where files are written, not assumed, since writing there would
+  // silently overwrite hand-authored SQL the pruner is protecting.
+  const reserved = files.filter((file) => isCustomPath(file.name));
+  if (reserved.length > 0) {
+    throw new Error(
+      `export: refusing to write into the reserved ${CUSTOM_DIR_NAME}/ directory:\n` +
+        reserved.map((file) => `  ${file.name}`).join("\n"),
+    );
+  }
   mkdirSync(outRoot, { recursive: true });
   for (const file of files) {
     const full = join(outRoot, file.name);
@@ -256,9 +316,12 @@ export function writeExportFiles(
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, file.sql, "utf8");
   }
+  // Advertise the escape hatch before anyone needs it. Not a `.sql` file, so the
+  // loader and the pruner both ignore it, and it is never an owned file.
+  const scaffoldedCustomReadme = scaffoldCustomReadme(outRoot);
   const ownedFiles = files.map((file) => file.name.split(sep).join("/")).sort();
   writeExportManifest(outRoot, { ...manifest, files: ownedFiles });
-  return { removed, unmanaged };
+  return { removed, unmanaged, scaffoldedCustomReadme };
 }
 
 export async function cmdSchemaExport(args: string[]): Promise<void> {
@@ -428,7 +491,7 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     });
 
     const outRoot = resolve(outDir);
-    const { removed } = writeExportFiles(
+    const { removed, scaffoldedCustomReadme } = writeExportFiles(
       outRoot,
       result.files,
       {
@@ -450,6 +513,12 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     if (removed.length > 0) {
       process.stderr.write(
         `Removed ${removed.length} stale .sql file(s) from ${outDir}\n`,
+      );
+    }
+    if (scaffoldedCustomReadme) {
+      process.stderr.write(
+        `Scaffolded ${CUSTOM_DIR_NAME}/${CUSTOM_README_NAME} — put SQL pg-delta does not model ` +
+          `(and idempotent DML) there; it is preserved across exports and loaded into the shadow.\n`,
       );
     }
     process.stderr.write(
@@ -1072,26 +1141,67 @@ export async function cmdSchemaLint(args: string[]): Promise<void> {
     return;
   }
 
+  const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
+  const emit = (
+    lines: readonly string[],
+    errorCount: number,
+    warningCount: number,
+  ): void => {
+    process.stderr.write(`Linted ${files.length} file(s) in ${dir}.\n`);
+    for (const line of lines) {
+      process.stderr.write(`  ${line}\n`);
+    }
+    if (lines.length === 0) {
+      process.stderr.write("No issues found.\n");
+    } else {
+      process.stderr.write(
+        `\n${errorCount} error(s), ${warningCount} warning(s).\n`,
+      );
+    }
+  };
+  const render = (finding: CustomLintFinding): string => {
+    const location =
+      finding.location !== undefined
+        ? formatStatementLocation(
+            finding.location,
+            originalSqlByName.get(finding.location.filePath),
+          )
+        : finding.file;
+    return `WARNING [${finding.code}] ${location}: ${finding.message}`;
+  };
+
+  // The `_custom/` bookkeeping rules (docs/architecture/custom-folder.md §4) are
+  // lint-only warnings and never blocking. The directive rules are pure fs work,
+  // so they run BEFORE the pg-topo analysis — an absent optional peer must not
+  // swallow findings that never needed it.
+  const customFindings = lintCustomMigrationRefs(dir, files);
+
   // Pure static analysis — no shadow/target database. Surfaces pg-topo
   // diagnostics (cycles, unknown statements, duplicate producers, …) for
   // proactive authoring; deliberately kept OUT of the apply path so apply stays
   // Postgres-truth. Throws ReorderUnavailableError (with an install hint) when
   // @supabase/pg-topo is absent.
-  const { cycles, diagnostics } = await analyzeForShadow(files);
-  const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
-  const report = formatLintReport({ cycles, diagnostics }, originalSqlByName);
+  let analyzed;
+  try {
+    analyzed = await analyzeForShadow(files);
+  } catch (error) {
+    // Report what we already know, then let the install hint propagate.
+    if (customFindings.length > 0) {
+      emit(customFindings.map(render), 0, customFindings.length);
+    }
+    throw error;
+  }
+  customFindings.push(...lintCustomModeledKinds(analyzed.files));
+  const report = formatLintReport(
+    { cycles: analyzed.cycles, diagnostics: analyzed.diagnostics },
+    originalSqlByName,
+  );
 
-  process.stderr.write(`Linted ${files.length} file(s) in ${dir}.\n`);
-  for (const line of report.lines) {
-    process.stderr.write(`  ${line}\n`);
-  }
-  if (report.lines.length === 0) {
-    process.stderr.write("No issues found.\n");
-  } else {
-    process.stderr.write(
-      `\n${report.errorCount} error(s), ${report.warningCount} warning(s).\n`,
-    );
-  }
+  emit(
+    [...report.lines, ...customFindings.map(render)],
+    report.errorCount,
+    report.warningCount + customFindings.length,
+  );
   if (report.blocking) {
     throw new CliExit(1);
   }

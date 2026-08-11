@@ -45,10 +45,14 @@ export interface StatementProvenance {
 
 /** A single-statement `SqlFile` carrying provenance. Assignable to `SqlFile`,
  *  so the array can be fed straight into `loadSqlFiles` — the loader reads only
- *  `name`/`sql` and is blind to the extra field (and to whether input was
+ *  `name`/`sql` and is blind to the extra fields (and to whether input was
  *  sorted at all). */
 export interface OrderedSqlFile extends SqlFile {
   provenance: StatementProvenance;
+  /** pg-topo's class for this statement (e.g. `CREATE_TABLE`, `UNKNOWN`), when
+   *  the analyzer produced one. Advisory metadata for lint only — the loader and
+   *  the planner never read it, and consumers must tolerate its absence. */
+  statementClass?: string;
 }
 
 export interface OrderForShadowOptions {
@@ -245,6 +249,11 @@ export async function analyzeForShadow(
       name: `${ordinal}__${provenance.filePath}`,
       sql: node.sql,
       provenance,
+      // carried for `schema lint`'s `_custom/` modeled-kind rule; omitted when
+      // pg-topo produced no class (exactOptionalPropertyTypes)
+      ...(node.statementClass === undefined
+        ? {}
+        : { statementClass: node.statementClass }),
     };
   });
 

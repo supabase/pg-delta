@@ -113,7 +113,39 @@ Object kinds the engine doesn't model — casts, operators, text-search
 configuration, statistics objects, languages, transforms — are **detected and
 reported** as `unmodeled_kind` diagnostics, never silently dropped.
 See [COVERAGE.md](./COVERAGE.md) for the authoritative map and the deliberate
-exclusions.
+exclusions, and `_custom/` below for where that SQL lives.
+
+## `_custom/` — the escape hatch inside an export
+
+`schema export` owns its output directory: it prunes what a previous export
+owned and refuses when it finds a `.sql` it does not own. The one exception is
+`_custom/`, a reserved directory at the root of the tree:
+
+```text
+schema/
+  _custom/           ← yours; never written to, never pruned, never refused on
+    README.md        ← scaffolded on export, documents this contract
+    text-search.sql
+  schemas/…          ← regenerated on every export
+  .pgdelta-export.json
+```
+
+Put there the SQL pg-delta detects but doesn't model (the `unmodeled_kind`
+kinds) plus idempotent DML — and keep modeled DDL out (`schema lint` warns).
+
+- **Loaded into the shadow, not the target.** `schema apply` loads
+  `_custom/**/*.sql` into the shadow, so modeled objects that depend on
+  unmodeled ones (an index over a custom text search configuration, say)
+  elaborate correctly. It is never executed against the target: unmodeled
+  objects produce no facts, so they cannot enter a plan. Deliver the same change
+  through your normal migration channel.
+- **Record the twin migration** as a head-of-file comment —
+  `-- pgdelta-migration: ../../supabase/migrations/20260811_add_cast.sql`, or
+  `-- pgdelta-migration: none` for a file that deliberately has no twin.
+  `schema lint` reports missing, dangling and conflicting references, and
+  modeled DDL parked in the folder, as warnings.
+
+Full contract: [custom-folder.md](https://github.com/supabase/pg-toolbelt/blob/main/docs/architecture/custom-folder.md).
 
 ## Integration profiles
 

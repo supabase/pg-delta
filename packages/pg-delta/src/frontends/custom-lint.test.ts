@@ -39,7 +39,10 @@ describe("lintCustomMigrationRefs", () => {
   test("warns once per _custom file with no directive, ignoring the managed tree", () => {
     const root = rootWith({});
     const findings = lintCustomMigrationRefs(root, [
-      file(join("_custom", "casts.sql"), "create cast (text as int) without function;\n"),
+      file(
+        join("_custom", "casts.sql"),
+        "create cast (text as int) without function;\n",
+      ),
       file(join("schemas", "app", "t.sql"), "create table app.t (id int);\n"),
     ]);
     expect(findings).toHaveLength(1);

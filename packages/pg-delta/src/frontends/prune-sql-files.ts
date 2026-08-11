@@ -19,9 +19,15 @@
  *
  * Only `.sql` files are considered; non-SQL files the operator placed in the
  * directory are never touched.
+ *
+ * The reserved root-level `_custom/` subtree (custom-dir.ts) is skipped
+ * entirely: nothing inside is stale, unmanaged, or deletable — not even with
+ * `pruneUnmanaged` — because that folder is the user's durable home for SQL the
+ * engine does not model.
  */
 import { readdirSync, rmSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import { isCustomPath } from "./custom-dir.ts";
 
 /**
  * Scan every `*.sql` file under `outRoot` whose absolute path is not in `keep`.
@@ -31,7 +37,8 @@ import { resolve } from "node:path";
  * `removed`, and `unmanaged` comes back empty). `previouslyOwned` is `undefined`
  * when the previous manifest is absent or recorded no `files` list — then every
  * out-of-set `.sql` is unmanaged. A missing `outRoot` (first export) scans
- * nothing.
+ * nothing. Anything under the reserved root-level `_custom/` is skipped before
+ * either classification, so it is neither removed nor reported.
  */
 export function pruneStaleSqlFiles(
   outRoot: string,
@@ -48,6 +55,12 @@ export function pruneStaleSqlFiles(
   const removed: string[] = [];
   const unmanaged: string[] = [];
   for (const entry of entries) {
+    // The reserved subtree is skipped BEFORE the owned/unmanaged split, so a
+    // manifest that (impossibly — writeExportFiles guards the write) claims a
+    // `_custom/` path still cannot turn the pruner into a deleter in there.
+    // `readdirSync(recursive)` has already listed the entries, so skipping them
+    // here is what "never walk into `_custom/`" means in practice.
+    if (isCustomPath(entry)) continue;
     if (!entry.endsWith(".sql")) continue;
     const full = resolve(outRoot, entry);
     if (keep.has(full)) continue;

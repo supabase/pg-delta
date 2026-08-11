@@ -43,7 +43,10 @@ describe("schema lint: _custom/ rules", () => {
   test("reports missing / dangling / conflicting refs and modeled DDL as warnings", async () => {
     write("schemas/app/schema.sql", "create schema app;\n");
     write("schemas/app/t.sql", "create table app.t (id int);\n");
-    write("_custom/no-ref.sql", "create cast (text as int) without function;\n");
+    write(
+      "_custom/no-ref.sql",
+      "create cast (text as int) without function;\n",
+    );
     write(
       "_custom/dangling.sql",
       "-- pgdelta-migration: ../migrations/missing.sql\ncreate operator public.### (leftarg = text, rightarg = text, procedure = texteq);\n",

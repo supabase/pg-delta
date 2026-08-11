@@ -44,8 +44,9 @@ describe("parseCustomMigrationDirectives", () => {
     );
     expect(parsed.hasNone).toBe(true);
     expect(parsed.paths).toEqual([]);
-    expect(parseCustomMigrationDirectives("-- pgdelta-migration: NONE\n").hasNone)
-      .toBe(true);
+    expect(
+      parseCustomMigrationDirectives("-- pgdelta-migration: NONE\n").hasNone,
+    ).toBe(true);
   });
 
   test("reports `none` mixed with paths so the caller can warn", () => {
@@ -74,8 +75,9 @@ describe("parseCustomMigrationDirectives", () => {
   });
 
   test("a file with no head comments at all yields nothing", () => {
-    expect(
-      parseCustomMigrationDirectives("create schema x;\n"),
-    ).toEqual({ paths: [], hasNone: false });
+    expect(parseCustomMigrationDirectives("create schema x;\n")).toEqual({
+      paths: [],
+      hasNone: false,
+    });
   });
 });

@@ -238,16 +238,19 @@ describe("writeExportFiles", () => {
     writeFileSync(customFile, customBody, "utf8");
     const { removed, unmanaged } = writeExportFiles(
       target,
-      [{ name: join("schemas", "app", "t.sql"), sql: "CREATE TABLE app.t ();\n" }],
+      [
+        {
+          name: join("schemas", "app", "t.sql"),
+          sql: "CREATE TABLE app.t ();\n",
+        },
+      ],
       { redactSecrets: false },
       false,
     );
     expect(unmanaged).toEqual([]);
     expect(removed).toEqual([]);
     expect(readFileSync(customFile, "utf8")).toBe(customBody);
-    expect(readExportManifest(target)?.files).toEqual([
-      "schemas/app/t.sql",
-    ]);
+    expect(readExportManifest(target)?.files).toEqual(["schemas/app/t.sql"]);
   });
 
   test("--prune-unmanaged does not delete inside _custom/", () => {
@@ -257,7 +260,12 @@ describe("writeExportFiles", () => {
     writeFileSync(customFile, "-- pgdelta-migration: none\n", "utf8");
     const { removed, unmanaged } = writeExportFiles(
       target,
-      [{ name: join("schemas", "app", "t.sql"), sql: "CREATE TABLE app.t ();\n" }],
+      [
+        {
+          name: join("schemas", "app", "t.sql"),
+          sql: "CREATE TABLE app.t ();\n",
+        },
+      ],
       { redactSecrets: false },
       true,
     );
@@ -285,7 +293,12 @@ describe("writeExportFiles", () => {
     const target = join(root, "customdir-readme");
     const first = writeExportFiles(
       target,
-      [{ name: join("schemas", "app", "t.sql"), sql: "CREATE TABLE app.t ();\n" }],
+      [
+        {
+          name: join("schemas", "app", "t.sql"),
+          sql: "CREATE TABLE app.t ();\n",
+        },
+      ],
       { redactSecrets: false },
       false,
     );
@@ -299,7 +312,12 @@ describe("writeExportFiles", () => {
     writeFileSync(readme, "# my notes\n", "utf8");
     const second = writeExportFiles(
       target,
-      [{ name: join("schemas", "app", "t.sql"), sql: "CREATE TABLE app.t ();\n" }],
+      [
+        {
+          name: join("schemas", "app", "t.sql"),
+          sql: "CREATE TABLE app.t ();\n",
+        },
+      ],
       { redactSecrets: false },
       false,
     );

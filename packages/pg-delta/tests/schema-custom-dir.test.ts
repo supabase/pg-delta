@@ -32,6 +32,7 @@ import { join } from "node:path";
 import { cmdSchemaApply, cmdSchemaExport } from "../src/cli/commands/schema.ts";
 import { extract } from "../src/extract/extract.ts";
 import { readExportManifest } from "../src/frontends/export-manifest.ts";
+import { ShadowLoadError } from "../src/frontends/load-sql-files.ts";
 import { sharedCluster } from "./containers.ts";
 
 const TS_CONFIG_DDL =
@@ -80,9 +81,9 @@ describe("reserved _custom/ folder", () => {
       await cmdSchemaExport(["--source", source.uri, "--out-dir", outDir]);
       const exported = readAll(outDir);
       expect(exported.some((f) => f.body.includes("docs_body_idx"))).toBe(true);
-      expect(
-        exported.some((f) => /create text search/i.test(f.body)),
-      ).toBe(false);
+      expect(exported.some((f) => /create text search/i.test(f.body))).toBe(
+        false,
+      );
       // the folder is scaffolded on export, documenting its own contract
       const readmePath = join(outDir, "_custom", "README.md");
       expect(existsSync(readmePath)).toBe(true);
@@ -104,9 +105,13 @@ describe("reserved _custom/ folder", () => {
       } catch (e) {
         shadowError = e;
       }
-      expect((shadowError as Error | undefined)?.message ?? "").toMatch(
-        /my_cfg/,
-      );
+      expect(shadowError).toBeInstanceOf(ShadowLoadError);
+      // the PostgreSQL text lives in the per-statement details, not the summary
+      expect(
+        (shadowError as ShadowLoadError).details
+          .map((d) => d.message)
+          .join("\n"),
+      ).toMatch(/my_cfg/);
 
       // 4. park the prerequisite in the reserved folder, with its migration twin
       // declared as deliberately absent

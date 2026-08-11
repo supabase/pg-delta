@@ -111,6 +111,15 @@ any exist. Built-in (OID < `FirstNormalObjectId`) and extension-owned objects
 are excluded — only genuine user state is reported. So the exclusions below are
 *enforced and visible*, not a silent gap (review finding 1).
 
+**Where the SQL for these kinds lives.** A kind listed here as detect-only has a
+home inside a declarative export: the reserved `_custom/` directory, which
+`schema export` never writes into, never prunes, and never refuses on. Its files
+are loaded into the shadow (so modeled objects depending on an unmodeled
+prerequisite still elaborate) and never executed against the target — the
+operator delivers them through their own migration channel, optionally recorded
+per file with a `-- pgdelta-migration:` comment that `schema lint` checks. See
+[`custom-folder.md`](https://github.com/supabase/pg-toolbelt/blob/main/docs/architecture/custom-folder.md).
+
 - **Languages** (`pg_language`) — the `language` StableId kind is reserved in
   the codec but not extracted; user-defined languages are rare and the
   built-ins (`sql`, `plpgsql`, `c`, `internal`) are not user state. Add a

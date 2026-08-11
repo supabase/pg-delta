@@ -19,6 +19,13 @@
  * post-v1 — add an extractor + rule + corpus scenario when a real schema needs
  * one). v1 must never SILENTLY miss them. Strict-coverage mode (the CLI /
  * frontend seam) escalates these warnings to a hard stop.
+ *
+ * The diagnostic also names the escape hatch, so the tool closes its own loop:
+ * the reserved `_custom/` folder (frontends/custom-dir.ts) is where this DDL
+ * lives so re-exports preserve it and the shadow can elaborate modeled
+ * dependents (an index over a custom text search configuration, say). Delivery
+ * to a target stays the operator's migration channel — an unmodeled object
+ * produces no facts, so it can never enter a plan.
  */
 import type { PoolClient } from "pg";
 import type { Diagnostic } from "../core/diagnostic.ts";
@@ -233,7 +240,9 @@ export async function detectUnmodeledKinds(
       message:
         `${row.count} unmodeled "${row.kind}" object${row.count === 1 ? "" : "s"} ` +
         `not managed by this engine (e.g. ${samples.join(", ")}${more}) — ` +
-        `v1 detects but does not model this kind`,
+        `v1 detects but does not model this kind; keep its DDL in _custom/ so ` +
+        `re-exports preserve it and the shadow can elaborate dependents, and ` +
+        `deliver it to targets via your migration channel`,
       context: { kind: row.kind, count: row.count, samples },
     });
   }
