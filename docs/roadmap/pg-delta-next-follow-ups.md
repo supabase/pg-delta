@@ -831,3 +831,58 @@ oversized key past its advertised total-length budget. One further finding is
   exactly this divergence, so the failure is pre-announced. Revisit if a real
   profile hits it.
 
+
+## PR #407 review triage (Codex) — platform-provisioned assumed-schema members
+
+Context: PR #407 exempts platform-provisioned members of assumed schemas
+(system-role-owned, e.g. `supabase_functions.http_request()`) from the
+action-graph missing-requirement guard, so a DB-webhook trigger plans against
+a target that has never had webhooks provisioned (Sentry SUPABASE-API-8CX).
+Two round-2 findings were fixed in the PR (run-level `defaultOwner` override
+excluded from provenance; descendant closure). One is **deferred by design**:
+
+- **Deferred — the plan neither creates the platform object nor proves against
+  a target that lacks it ("materialize the dependency before bypassing the
+  guard", Codex P1).** Deliberate: the policy's managed view EXCLUDES platform
+  objects — a user plan must never `CREATE SCHEMA supabase_functions` /
+  `CREATE FUNCTION … http_request` (it may lack the privileges and would claim
+  platform state as user state). "Assumed present" is the same contract as
+  `assumedRoles`/`assumedSchemas`: a plan with `GRANT … TO anon` or
+  `CREATE EXTENSION … SCHEMA extensions` equally fails on a target where the
+  platform never provisioned those; the platform (mgmt-api / Supabase image
+  migrations) owns provisioning, outside the plan. Consequence, accepted: an
+  `apply()`/`provePlan()` run against a bare clone that lacks the webhooks
+  infra fails at the CREATE TRIGGER — the same failure mode the other assumed
+  kinds already have. Revisit only alongside the committed Supabase baseline
+  (docs/roadmap/backlog.md), which is the mechanism that could seed platform
+  objects into proof clones for all assumed kinds at once.
+
+Round-4 findings (loop capped here per the automated-review policy — both are
+contract re-litigation of the provenance heuristic under hypothetical setups,
+not defects reachable on the shipped policy):
+
+- **Deferred — explicit platform-owner designation instead of
+  `assumedRoles \ {policy.defaultOwner}` (Codex P1, round 4).** The heuristic
+  treats a policy-assumed role other than the policy's own declared default
+  owner as a platform object owner within assumed schemas. For the shipped
+  Supabase policy this is exact (`assumedRoles` = SUPABASE_SYSTEM_ROLES +
+  `postgres`, `defaultOwner: postgres`). A CUSTOM policy that added a user
+  role to `assumedRoles` would widen the exemption to that role's objects in
+  assumed schemas. No shipped or known custom policy does this; the clean fix
+  is a new `Policy` field (e.g. `platformObjectOwners`) — an API addition
+  disproportionate to this bug fix. Revisit when a custom-policy consumer
+  actually declares assumed user roles.
+
+- **Refuted for the shipped policy — descendant closure covering "user-added"
+  children of platform tables (Codex P1, round 4).** The claimed
+  counterexample (a user-added `auth.users.custom_flag` column) is not
+  creatable on Supabase: `ADD COLUMN` / `CREATE INDEX` / `ADD CONSTRAINT` /
+  `CREATE POLICY` all require table OWNERSHIP, which the user's `postgres`
+  lacks on system-role-owned tables. The one user-creatable child — a trigger,
+  via the grantable TRIGGER privilege — is deliberately MANAGED (policy
+  include rule 3), so the plan PRODUCES it and the requirement guard never
+  consults the exemption for it. Desired-only FILTERED descendants of a
+  platform root can therefore only be platform-made (image upgrade), which is
+  exactly what the exemption must cover. Revisit together with the explicit
+  platform-owner designation above if any platform grants users DDL on
+  platform-owned relations.
