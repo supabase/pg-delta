@@ -70,6 +70,17 @@ export function buildActionGraph(
   // `CREATE EXTENSION … SCHEMA <schema>` whose schema object is filtered out of
   // the view is a valid dependency target, not a stranded reference.
   assumedSchemaNames: ReadonlySet<string> = new Set(),
+  // encoded ids of PLATFORM-PROVISIONED members of assumed schemas — objects
+  // owned (in the raw extract, before the owner edge to the policy-excluded
+  // role is pruned) by an assumed role other than the resolved default owner,
+  // e.g. Supabase's `supabase_functions.http_request()` (the DB-webhook trigger
+  // function, owned by `supabase_functions_admin`). The platform guarantee that
+  // makes their schema assumed extends to them, so a kept dependent (a user
+  // webhook trigger) is valid even when the target lacks the object — unlike a
+  // USER-created object in an assumed schema, which stays a plan-time failure
+  // (see `isAmbient`). Computed by plan() (plan.ts); affects ONLY whether the
+  // missing-requirement guard fires, never ordering/edges.
+  assumedPresentIds: ReadonlySet<string> = new Set(),
   // OUT-param (optional): collects the indices of EVALUATOR actions — actions
   // that make PostgreSQL RUN a user expression while the statement applies.
   //
@@ -210,12 +221,19 @@ export function buildActionGraph(
     }
     const schema = (id as { schema?: string }).schema;
     if (schema === undefined || !assumedSchemaNames.has(schema)) return false;
-    // An object in an assumed schema is ambient only when it is genuinely
+    // A PLATFORM-PROVISIONED member of an assumed schema (system-role-owned,
+    // e.g. `supabase_functions.http_request()`) is present at apply time by the
+    // same guarantee that makes its schema assumed — even when the desired view
+    // keeps it reference-only and the target lacks it (the platform provisions
+    // webhooks infra outside the plan). See the parameter doc above.
+    if (assumedPresentIds.has(encodeId(id))) return true;
+    // Any OTHER object in an assumed schema is ambient only when it is genuinely
     // external to the managed view (e.g. an extension member, hard-pruned from
     // both sides). If the DESIRED view KEEPS it (reference-only) yet it is absent
     // from the target (`!source.has`, checked by the caller), the desired side is
-    // referencing something the target lacks — fail at plan time instead of
-    // exempting it and letting apply fail against a missing relation (review P2).
+    // referencing something the target lacks — a user-created object nothing will
+    // provision — so fail at plan time instead of exempting it and letting apply
+    // fail against a missing relation (review P2).
     return !desired.has(id);
   };
 

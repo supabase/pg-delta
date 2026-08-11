@@ -13,8 +13,13 @@
  *    true → satisfied (the in-schema exemption never even runs);
  *  - external to the managed view (e.g. an extension member, hard-pruned from
  *    both sides) → not in `desired` → ambient, satisfied;
- *  - kept in `desired` (reference-only) but absent from `source` → the desired
- *    side wants something the target lacks → NOT exempt → throws.
+ *  - PLATFORM-PROVISIONED (owned by an assumed system role — `assumedPresentIds`,
+ *    computed by plan() from the raw owner edges) → ambient, satisfied even when
+ *    kept in `desired` and absent from `source` (e.g. Supabase's
+ *    `supabase_functions.http_request()`, Sentry SUPABASE-API-8CX);
+ *  - otherwise kept in `desired` (reference-only) but absent from `source` → the
+ *    desired side wants something the target lacks and nothing will provision →
+ *    NOT exempt → throws.
  */
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
@@ -179,7 +184,13 @@ describe("plan() — platform-provisioned members of assumed schemas", () => {
     });
     expect(p.actions.some((a) => /CREATE TRIGGER/i.test(a.sql))).toBe(true);
     // the reference-only platform function is never created by the plan
-    expect(p.actions.some((a) => /http_request/i.test(a.sql) && /CREATE (OR REPLACE )?FUNCTION/i.test(a.sql))).toBe(false);
+    expect(
+      p.actions.some(
+        (a) =>
+          /http_request/i.test(a.sql) &&
+          /CREATE (OR REPLACE )?FUNCTION/i.test(a.sql),
+      ),
+    ).toBe(false);
   });
 
   test("the fail-fast is preserved when the assumed-schema dependency is owned by the default owner", () => {

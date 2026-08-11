@@ -47,6 +47,12 @@ export interface FinalizeInput {
    *  `extensions`) — exempt from the missing-requirement guard like the assumed
    *  roles. Empty under the raw/no-policy path. */
   assumedSchemaNames: ReadonlySet<string>;
+  /** encoded ids of platform-provisioned members of assumed schemas (system-
+   *  role-owned, e.g. `supabase_functions.http_request()`) — exempt from the
+   *  missing-requirement guard even when kept reference-only on the desired
+   *  side and absent from the target. Computed by plan() from the RAW fact
+   *  bases; empty under the raw/no-policy path. */
+  assumedPresentIds: ReadonlySet<string>;
   /** applier capability (move 6) — needed by the co-create compaction passes:
    *  the owner-ALTER no-op elision and the REVOKE-before-GRANT superset guard key
    *  off `capability.role`. Undefined under the unrestricted (superuser/CI/raw)
@@ -86,6 +92,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     acceptsFolds,
     assumedRoleNames,
     assumedSchemaNames,
+    assumedPresentIds,
     capability,
     compact,
     foldConstraints,
@@ -108,6 +115,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     renameActionIndices,
     assumedRoleNames,
     assumedSchemaNames,
+    assumedPresentIds,
     evaluatorActions,
   );
 

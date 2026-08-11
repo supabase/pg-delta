@@ -474,6 +474,12 @@ export function plan(
     ...(options?.policy ? flattenPolicy(options.policy).assumedRoles : []),
     ...(options?.assumedRoles ?? []),
   ]);
+  // Snapshot of the DECLARED assumed roles (policy + explicit options), taken
+  // before the dangling-owner auto-add below widens `assumedRoleNames`: the
+  // platform-provisioned discriminator further down must key off the policy's
+  // own role list, not off every role that merely owns something under
+  // database scope.
+  const declaredAssumedRoleNames = new Set(assumedRoleNames);
 
   // Database-scope projection RETAINS `owner` edges to scope-projected roles as
   // dangling assumed references (view.ts), so a kept `ALTER … OWNER TO <role>`
@@ -497,6 +503,39 @@ export function plan(
     ...(options?.policy ? flattenPolicy(options.policy).assumedSchemas : []),
     ...(options?.assumedSchemas ?? []),
   ]);
+
+  // PLATFORM-PROVISIONED members of assumed schemas (e.g. Supabase's
+  // `supabase_functions.http_request()`, the DB-webhook trigger function): an
+  // object inside an assumed schema whose owner — read from the RAW extracts,
+  // where the owner edge to the policy-excluded role still exists (resolveView
+  // prunes it together with the role fact) — is a DECLARED assumed role other
+  // than the resolved default owner. The default owner is the role the
+  // platform hands the user, so objects it owns (and objects owned by user
+  // roles) are USER-created: for those the requirement guard keeps the
+  // PR #307 review-P2 fail-fast when the target lacks them. A system-role-owned
+  // member is covered by the same platform guarantee that makes its schema
+  // assumed, so a kept dependent (a user webhook trigger) must plan even when
+  // the target has not had the infra provisioned yet (Sentry SUPABASE-API-8CX).
+  // Threaded into the action-graph requirement guard only — never
+  // ordering/edges. Empty under the raw/no-policy path and for callers that
+  // pass an already-resolved view (its owner edges to excluded roles are gone).
+  const resolvedDefaultOwner =
+    options?.defaultOwner ??
+    (options?.policy ? flattenPolicy(options.policy).defaultOwner : undefined);
+  const assumedPresentIds = new Set<string>();
+  if (declaredAssumedRoleNames.size > 0) {
+    for (const fb of [rawSource, rawDesired]) {
+      for (const e of fb.edges) {
+        if (e.kind !== "owner" || e.to.kind !== "role") continue;
+        const schema = (e.from as { schema?: string }).schema;
+        if (schema === undefined || !assumedSchemaNames.has(schema)) continue;
+        const owner = (e.to as { name: string }).name;
+        if (!declaredAssumedRoleNames.has(owner)) continue;
+        if (owner === resolvedDefaultOwner) continue;
+        assumedPresentIds.add(encodeId(e.from));
+      }
+    }
+  }
 
   // ── phase 2: replacement expansion + drop-root suppression ────────────
   // Classify set-deltas (alter vs replace), expand the forced dependent
@@ -555,6 +594,7 @@ export function plan(
     acceptsFolds,
     assumedRoleNames,
     assumedSchemaNames,
+    assumedPresentIds,
     capability: options?.capability,
     compact: options?.compact !== false,
     foldConstraints: options?.foldConstraints,
