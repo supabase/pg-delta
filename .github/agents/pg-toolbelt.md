@@ -451,11 +451,14 @@ Whenever you are told you made a mistake — whether in commands, coding style, 
 
 ### Automated-review loops (Codex and similar bots)
 
-Bot reviewers re-review every push and will keep finding locally-valid issues
-forever — including issues that exist only in your previous round's fix. Left
-unchecked this compounds into scope creep (real incident: PR #368 grew from a
-~200-line fix to ~1,700 lines over 12 review rounds before being trimmed back).
-Rules of engagement:
+Automated reviews are **signals, not truth**. Findings can be valid, mistaken,
+overly cautious, out of scope, or outright hallucinated — validate each one
+against the actual code, the intended behavior, its risk, and the PR's scope
+before acting. Bot reviewers re-review every push and will keep finding
+locally-valid issues forever — including issues that exist only in your
+previous round's fix. Left unchecked this compounds into scope creep (real
+incident: PR #368 grew from a ~200-line fix to ~1,700 lines over 12 review
+rounds before being trimmed back). Rules of engagement:
 
 - **Cap the loop.** After ~2–3 rounds of bot findings on the same PR, stop
   auto-fixing. Re-read the remaining findings as a set and ask: are these still
@@ -466,13 +469,21 @@ Rules of engagement:
   unusual setup. Pre-existing behavior the PR merely touched, and hardening
   against threat models the surrounding code doesn't defend against, get
   recorded instead of fixed.
+- **Push back when appropriate.** Do not expand the PR for speculative,
+  highly unusual, pre-existing, or disproportionate concerns. If a finding is
+  too far-fetched for the current scope, explain why on the thread and defer
+  it — a well-argued deferral is a first-class outcome, not an evasion.
 - **Record instead of re-fixing.** Deliberately-deferred findings go in
   `docs/roadmap/pg-delta-next-follow-ups.md` (see the per-PR triage sections
   there, e.g. "PR #368 review triage"). Reply to the bot thread with a link to
   that section — never silently ignore a finding, and never fix it just to
   make the thread go away.
-- **Escalate.** When you stop the loop, say so on the PR and hand it to a
-  human reviewer with a summary of what was fixed vs deferred.
+- **Escalate.** When the loop stops being productive, say so on the PR and
+  hand it to a human reviewer with a summary of what was fixed vs deferred.
+
+Principle: review feedback should **inform** engineering judgment, not replace
+it. Fix real problems, document reasonable follow-ups, and push back when the
+requested change is not justified by the current scope.
 
 ### Common Issues
 
