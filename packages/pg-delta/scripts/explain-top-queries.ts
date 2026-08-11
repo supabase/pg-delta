@@ -340,14 +340,25 @@ function rootBuffers(
   return (plan[key] as number | undefined) ?? 0;
 }
 
+/** Postgres reports `Actual Total Time` PER LOOP, not summed across
+ *  executions — a 1ms node with 1000 loops (e.g. the inner side of a nested
+ *  loop join) did ~1000ms of real work despite looking cheap. Multiply by
+ *  `Actual Loops` to rank/report the node's actual total contribution. */
+function nodeTotalMs(node: PlanNode): number {
+  const time = node["Actual Total Time"] ?? 0;
+  const loops = node["Actual Loops"] ?? 1;
+  return time * loops;
+}
+
 function describeNode(node: PlanNode): string {
   const type = node["Node Type"] ?? "?";
   const relation = node["Relation Name"] ?? node["Alias"];
-  const time = (node["Actual Total Time"] ?? 0).toFixed(1);
+  const time = node["Actual Total Time"] ?? 0;
   const loops = node["Actual Loops"] ?? 1;
+  const detail = `total≈${nodeTotalMs(node).toFixed(1)}ms = ${time.toFixed(1)}ms x ${loops} loops`;
   return relation !== undefined
-    ? `${type} on ${relation} (${time}ms, loops=${loops})`
-    : `${type} (${time}ms, loops=${loops})`;
+    ? `${type} on ${relation} (${detail})`
+    : `${type} (${detail})`;
 }
 
 // ── the run ─────────────────────────────────────────────────────────────────
@@ -372,230 +383,238 @@ async function main(options: ExplainOptions): Promise<void> {
   });
   pool.on("error", () => {});
 
-  const captured: CapturedQuery[] = [];
-  const detach = attachQueryProbe(pool, captured);
-
-  console.log(
-    `capturing production extraction (source: env ${options.envVar})...`,
-  );
-
+  // The entire pool lifetime lives inside this try/finally so ANY rejection
+  // below — resolveProfile, the capture extraction (e.g. a statement
+  // timeout), or the EXPLAIN pass itself — still ends the pool instead of
+  // leaking live sockets back to the `catch` in the CLI entry below.
   try {
-    const resolved = await resolveProfile(pool, supabaseProfile, {
-      redactSecrets: true,
-    });
-    await resolved.extract(pool, {
-      redactSecrets: true,
-      statementTimeoutMs: options.statementTimeoutMs,
-    });
-  } finally {
-    detach();
-  }
+    const captured: CapturedQuery[] = [];
+    const detach = attachQueryProbe(pool, captured);
 
-  console.log(`captured ${captured.length} queries; ranking...`);
-
-  // Rank: drop transaction-control/settings statements, keep the rest, sort
-  // by client ms desc, take the top N.
-  const candidates = captured.filter(
-    (q) => q.ok && !NON_QUERY_PREFIXES.test(q.sql.trim()),
-  );
-  const ranked: RankedQuery[] = candidates
-    .map((q) => ({ sql: q.sql, captureMs: q.ms, rows: q.rows }))
-    .sort((a, b) => b.captureMs - a.captureMs)
-    .slice(0, options.top);
-
-  if (ranked.length === 0) {
-    console.log("no candidate queries found to EXPLAIN");
-    await pool.end();
-    return;
-  }
-
-  console.log(
-    `EXPLAINing top ${ranked.length} quer${ranked.length === 1 ? "y" : "ies"}...`,
-  );
-
-  const client = await pool.connect();
-  let trackIoTiming = "unknown";
-  // A fatal pass-level failure (e.g. session setup after client acquisition)
-  // is caught below so best-effort rollback/cleanup + the partial report still
-  // run, but it must not let the process exit 0 — rethrown at the end of
-  // `main` once cleanup is done. Individual per-query failures are already
-  // savepoint-isolated (see the try/catch inside the loop) and never set this.
-  let fatalError: unknown;
-  const rows: Array<{
-    label: string;
-    captureMs: number;
-    executionMs: number | null;
-    planningMs: number | null;
-    sharedHit: number | null;
-    sharedRead: number | null;
-    actualRows: number | null;
-    topNodes: string[];
-    error: { code: string | undefined; name: string } | null;
-  }> = [];
-
-  try {
-    // Reproduce extraction's exact session semantics (src/extract/extract.ts
-    // lines ~104-186): REPEATABLE READ READ ONLY, pinned search_path, JIT
-    // disabled, optional statement_timeout. Never COMMIT — always ROLLBACK.
-    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-    await client.query("SET LOCAL search_path TO 'pg_catalog'");
-    await client.query(
-      `SET LOCAL statement_timeout = ${Math.max(0, Math.floor(options.statementTimeoutMs))}`,
+    console.log(
+      `capturing production extraction (source: env ${options.envVar})...`,
     );
 
-    const versionRow = (
-      await client.query(
-        `SELECT current_setting('server_version_num')::int AS num`,
-      )
-    ).rows[0];
-    const pgMajor = Math.floor(Number(versionRow?.["num"] ?? 0) / 10000);
-    await client.query(
-      pgMajor >= 15
-        ? "SELECT set_config('jit', 'off', true) WHERE has_parameter_privilege(current_user, 'jit', 'SET')"
-        : "SET LOCAL jit = off",
-    );
-
-    const trackIoRow = (await client.query("SHOW track_io_timing")).rows[0];
-    trackIoTiming = String(trackIoRow?.["track_io_timing"] ?? "unknown");
-
-    for (let i = 0; i < ranked.length; i++) {
-      const query = ranked[i]!;
-      const label = queryLabel(query.sql);
-      const slug = slugOf(query.sql);
-      const filename = `${i + 1}-${slug}.json`;
-
-      // A failed EXPLAIN (e.g. statement_timeout firing on a heavy query)
-      // aborts the shared transaction — every later query would then fail with
-      // 25P02 (in_failed_sql_transaction) instead of its own error. A SAVEPOINT
-      // around each EXPLAIN scopes the damage to just that one query.
-      try {
-        await client.query("SAVEPOINT q");
-        const explainResult = await client.query(
-          `EXPLAIN (ANALYZE, BUFFERS, SETTINGS, FORMAT JSON) ${query.sql}`,
-        );
-        await client.query("RELEASE SAVEPOINT q");
-        const plan = (explainResult.rows[0] as { "QUERY PLAN": ExplainPlan[] })[
-          "QUERY PLAN"
-        ][0]!;
-        const allNodes = flattenNodes(plan.Plan);
-        const topNodes = [...allNodes]
-          .sort(
-            (a, b) =>
-              (b["Actual Total Time"] ?? 0) - (a["Actual Total Time"] ?? 0),
-          )
-          .slice(0, 3)
-          .map(describeNode);
-
-        writeFileSync(
-          `${artifactsDir}${filename}`,
-          JSON.stringify(
-            { sql: query.sql, captureMs: query.captureMs, plan },
-            null,
-            2,
-          ),
-          "utf8",
-        );
-
-        rows.push({
-          label,
-          captureMs: query.captureMs,
-          executionMs: plan["Execution Time"] ?? null,
-          planningMs: plan["Planning Time"] ?? null,
-          sharedHit: rootBuffers(plan.Plan, "Shared Hit Blocks"),
-          sharedRead: rootBuffers(plan.Plan, "Shared Read Blocks"),
-          actualRows: plan.Plan["Actual Rows"] ?? null,
-          topNodes,
-          error: null,
-        });
-      } catch (error) {
-        // Roll back to the savepoint so the shared transaction stays usable for
-        // the remaining ranked queries — a bare catch here would leave it
-        // aborted and every subsequent EXPLAIN would fail with 25P02.
-        await client.query("ROLLBACK TO SAVEPOINT q").catch(() => {});
-        rows.push({
-          label,
-          captureMs: query.captureMs,
-          executionMs: null,
-          planningMs: null,
-          sharedHit: null,
-          sharedRead: null,
-          actualRows: null,
-          topNodes: [],
-          error: { code: errorCode(error), name: errorName(error) },
-        });
-        writeFileSync(
-          `${artifactsDir}${filename}`,
-          JSON.stringify(
-            {
-              sql: query.sql,
-              captureMs: query.captureMs,
-              error: { code: errorCode(error), name: errorName(error) },
-            },
-            null,
-            2,
-          ),
-          "utf8",
-        );
-      }
+    try {
+      const resolved = await resolveProfile(pool, supabaseProfile, {
+        redactSecrets: true,
+      });
+      await resolved.extract(pool, {
+        redactSecrets: true,
+        statementTimeoutMs: options.statementTimeoutMs,
+      });
+    } finally {
+      detach();
     }
 
-    await client.query("ROLLBACK");
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    console.error(
-      `fatal error during EXPLAIN pass: code=${errorCode(error)} name=${errorName(error)}`,
+    console.log(`captured ${captured.length} queries; ranking...`);
+
+    // Rank: drop transaction-control/settings statements, keep the rest, sort
+    // by client ms desc, take the top N.
+    const candidates = captured.filter(
+      (q) => q.ok && !NON_QUERY_PREFIXES.test(q.sql.trim()),
     );
-    fatalError = error;
-  } finally {
-    client.release();
-  }
+    const ranked: RankedQuery[] = candidates
+      .map((q) => ({ sql: q.sql, captureMs: q.ms, rows: q.rows }))
+      .sort((a, b) => b.captureMs - a.captureMs)
+      .slice(0, options.top);
 
-  await pool.end();
+    if (ranked.length === 0) {
+      console.log("no candidate queries found to EXPLAIN");
+      return;
+    }
 
-  // ── console report ─────────────────────────────────────────────────────
-  console.log(`\ntrack_io_timing = ${trackIoTiming}\n`);
-  console.log(
-    `${"#".padStart(3)}  ${"captureMs".padStart(10)}  ${"execMs".padStart(9)}  ` +
-      `${"planMs".padStart(8)}  ${"sharedHit".padStart(10)}  ${"sharedRead".padStart(11)}  ` +
-      `${"rows".padStart(7)}  label`,
-  );
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i]!;
-    if (r.error !== null) {
+    console.log(
+      `EXPLAINing top ${ranked.length} quer${ranked.length === 1 ? "y" : "ies"}...`,
+    );
+
+    const client = await pool.connect();
+    let trackIoTiming = "unknown";
+    // A fatal pass-level failure (e.g. session setup after client acquisition)
+    // is caught below so best-effort rollback/cleanup + the partial report still
+    // run, but it must not let the process exit 0 — rethrown at the end of
+    // `main` once cleanup is done. Individual per-query failures are already
+    // savepoint-isolated (see the try/catch inside the loop) and never set this.
+    let fatalError: unknown;
+    const rows: Array<{
+      label: string;
+      captureMs: number;
+      executionMs: number | null;
+      planningMs: number | null;
+      sharedHit: number | null;
+      sharedRead: number | null;
+      actualRows: number | null;
+      topNodes: string[];
+      error: { code: string | undefined; name: string } | null;
+    }> = [];
+
+    try {
+      // Reproduce extraction's exact session semantics (src/extract/extract.ts
+      // lines ~104-186): REPEATABLE READ READ ONLY, pinned search_path, JIT
+      // disabled, optional statement_timeout. Never COMMIT — always ROLLBACK.
+      await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+      await client.query("SET LOCAL search_path TO 'pg_catalog'");
+      await client.query(
+        `SET LOCAL statement_timeout = ${Math.max(0, Math.floor(options.statementTimeoutMs))}`,
+      );
+
+      const versionRow = (
+        await client.query(
+          `SELECT current_setting('server_version_num')::int AS num`,
+        )
+      ).rows[0];
+      const pgMajor = Math.floor(Number(versionRow?.["num"] ?? 0) / 10000);
+      await client.query(
+        pgMajor >= 15
+          ? "SELECT set_config('jit', 'off', true) WHERE has_parameter_privilege(current_user, 'jit', 'SET')"
+          : "SET LOCAL jit = off",
+      );
+
+      const trackIoRow = (await client.query("SHOW track_io_timing")).rows[0];
+      trackIoTiming = String(trackIoRow?.["track_io_timing"] ?? "unknown");
+
+      for (let i = 0; i < ranked.length; i++) {
+        const query = ranked[i]!;
+        const label = queryLabel(query.sql);
+        const slug = slugOf(query.sql);
+        const filename = `${i + 1}-${slug}.json`;
+
+        // A failed EXPLAIN (e.g. statement_timeout firing on a heavy query)
+        // aborts the shared transaction — every later query would then fail with
+        // 25P02 (in_failed_sql_transaction) instead of its own error. A SAVEPOINT
+        // around each EXPLAIN scopes the damage to just that one query.
+        try {
+          await client.query("SAVEPOINT q");
+          const explainResult = await client.query(
+            `EXPLAIN (ANALYZE, BUFFERS, SETTINGS, FORMAT JSON) ${query.sql}`,
+          );
+          await client.query("RELEASE SAVEPOINT q");
+          const plan = (
+            explainResult.rows[0] as { "QUERY PLAN": ExplainPlan[] }
+          )["QUERY PLAN"][0]!;
+          const allNodes = flattenNodes(plan.Plan);
+          const topNodes = [...allNodes]
+            .sort((a, b) => nodeTotalMs(b) - nodeTotalMs(a))
+            .slice(0, 3)
+            .map(describeNode);
+
+          writeFileSync(
+            `${artifactsDir}${filename}`,
+            JSON.stringify(
+              { sql: query.sql, captureMs: query.captureMs, plan },
+              null,
+              2,
+            ),
+            "utf8",
+          );
+
+          rows.push({
+            label,
+            captureMs: query.captureMs,
+            executionMs: plan["Execution Time"] ?? null,
+            planningMs: plan["Planning Time"] ?? null,
+            sharedHit: rootBuffers(plan.Plan, "Shared Hit Blocks"),
+            sharedRead: rootBuffers(plan.Plan, "Shared Read Blocks"),
+            actualRows: plan.Plan["Actual Rows"] ?? null,
+            topNodes,
+            error: null,
+          });
+        } catch (error) {
+          // Roll back to the savepoint so the shared transaction stays usable for
+          // the remaining ranked queries — a bare catch here would leave it
+          // aborted and every subsequent EXPLAIN would fail with 25P02.
+          await client.query("ROLLBACK TO SAVEPOINT q").catch(() => {});
+          rows.push({
+            label,
+            captureMs: query.captureMs,
+            executionMs: null,
+            planningMs: null,
+            sharedHit: null,
+            sharedRead: null,
+            actualRows: null,
+            topNodes: [],
+            error: { code: errorCode(error), name: errorName(error) },
+          });
+          writeFileSync(
+            `${artifactsDir}${filename}`,
+            JSON.stringify(
+              {
+                sql: query.sql,
+                captureMs: query.captureMs,
+                error: { code: errorCode(error), name: errorName(error) },
+              },
+              null,
+              2,
+            ),
+            "utf8",
+          );
+        }
+      }
+
+      await client.query("ROLLBACK");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(
+        `fatal error during EXPLAIN pass: code=${errorCode(error)} name=${errorName(error)}`,
+      );
+      fatalError = error;
+    } finally {
+      client.release();
+    }
+
+    // ── console report ─────────────────────────────────────────────────────
+    console.log(`\ntrack_io_timing = ${trackIoTiming}\n`);
+    console.log(
+      `${"#".padStart(3)}  ${"captureMs".padStart(10)}  ${"execMs".padStart(9)}  ` +
+        `${"planMs".padStart(8)}  ${"sharedHit".padStart(10)}  ${"sharedRead".padStart(11)}  ` +
+        `${"rows".padStart(7)}  label`,
+    );
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]!;
+      if (r.error !== null) {
+        console.log(
+          `${String(i + 1).padStart(3)}  ${r.captureMs.toFixed(1).padStart(10)}  ` +
+            `ERROR code=${r.error.code ?? "?"} name=${r.error.name}  ${r.label}`,
+        );
+        continue;
+      }
       console.log(
         `${String(i + 1).padStart(3)}  ${r.captureMs.toFixed(1).padStart(10)}  ` +
-          `ERROR code=${r.error.code ?? "?"} name=${r.error.name}  ${r.label}`,
+          `${(r.executionMs ?? 0).toFixed(1).padStart(9)}  ${(r.planningMs ?? 0).toFixed(1).padStart(8)}  ` +
+          `${String(r.sharedHit ?? 0).padStart(10)}  ${String(r.sharedRead ?? 0).padStart(11)}  ` +
+          `${String(r.actualRows ?? 0).padStart(7)}  ${r.label}`,
       );
-      continue;
     }
-    console.log(
-      `${String(i + 1).padStart(3)}  ${r.captureMs.toFixed(1).padStart(10)}  ` +
-        `${(r.executionMs ?? 0).toFixed(1).padStart(9)}  ${(r.planningMs ?? 0).toFixed(1).padStart(8)}  ` +
-        `${String(r.sharedHit ?? 0).padStart(10)}  ${String(r.sharedRead ?? 0).padStart(11)}  ` +
-        `${String(r.actualRows ?? 0).padStart(7)}  ${r.label}`,
-    );
-  }
 
-  console.log("\ntop 3 plan nodes by actual total time, per query:");
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i]!;
-    console.log(`\n[${i + 1}] ${r.label}`);
-    if (r.error !== null) {
-      console.log(
-        `  (errored: code=${r.error.code ?? "?"} name=${r.error.name})`,
-      );
-      continue;
+    console.log("\ntop 3 plan nodes by actual total time x loops, per query:");
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]!;
+      console.log(`\n[${i + 1}] ${r.label}`);
+      if (r.error !== null) {
+        console.log(
+          `  (errored: code=${r.error.code ?? "?"} name=${r.error.name})`,
+        );
+        continue;
+      }
+      for (const node of r.topNodes) console.log(`  ${node}`);
     }
-    for (const node of r.topNodes) console.log(`  ${node}`);
-  }
 
-  console.log(`\nartifacts: ${artifactsDir}`);
+    console.log(`\nartifacts: ${artifactsDir}`);
 
-  // Cleanup (rollback, client release, pool.end) is done and the partial
-  // report is printed — now surface the fatal failure so automation can't
-  // mistake an incomplete run for success.
-  if (fatalError !== undefined) {
-    throw fatalError;
+    // Cleanup (rollback, client release) is done and the partial report is
+    // printed — now surface the fatal failure so automation can't mistake an
+    // incomplete run for success. `pool.end()` still runs after this throw,
+    // in the outer `finally` below.
+    if (fatalError !== undefined) {
+      throw fatalError;
+    }
+  } finally {
+    // Best-effort: whatever happened above (success, an early `return` on no
+    // candidates, a rethrown fatalError, or an exception `resolveProfile` /
+    // `extract` never let us catch) must never leave a live pool holding
+    // sockets open. Swallow `end()`'s own error too — the original failure (if
+    // any) is what should propagate, not a secondary shutdown error.
+    await pool.end().catch(() => {});
   }
 }
 

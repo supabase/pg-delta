@@ -254,9 +254,12 @@ export interface SideStats {
   queryMsSum: number;
   extractMs: number;
   /** `extractMs - queryMsSum` — the part of extraction NOT spent waiting on a
-   *  query (row decoding, FactBase construction, handlers). `null` whenever
-   *  `extractConcurrency > 1`: concurrent query durations overlap, so their sum
-   *  no longer bounds `extractMs` and the subtraction goes negative/meaningless. */
+   *  query (row decoding, FactBase construction, handlers). `null` whenever the
+   *  REQUESTED `extractConcurrency > 1` (NOT `streamsObserved` — this is keyed
+   *  on what was asked for, since that's what determines whether queries were
+   *  ever ISSUED concurrently on the client side): concurrent query durations
+   *  overlap, so their sum no longer bounds `extractMs` and the subtraction
+   *  goes negative/meaningless. */
   clientResidual: number | null;
   diagnostics: number;
 }
@@ -274,6 +277,14 @@ export interface RunRecord {
   /** Catalog-query streams per extraction (1 = the serial path). Records which
    *  extraction strategy the phase timings below actually measured. */
   extractConcurrency: number;
+  /** Peak number of probe-wrapped clients simultaneously checked OUT of each
+   *  side's pool during THIS iteration's extraction interval (reset right
+   *  before, read right after `Promise.all([extract source, extract
+   *  target])`). This is the ACTUAL fan-out achieved, as opposed to the
+   *  REQUESTED `extractConcurrency` above — `extract()` silently falls back to
+   *  serial in some conditions (standby / pooler / spare-capacity), so a cell
+   *  can be mislabeled "parallel" if only the requested value is trusted. */
+  streamsObserved: Record<Side, number>;
   runLabel: string | null;
   pgMajor: number | null;
   rttMs: Record<Side, { minMs: number; medianMs: number }>;
@@ -431,6 +442,20 @@ function callbackArgOf(
     : undefined;
 }
 
+/** What `attachQueryProbe` hands back: `detach` restores the pool/clients,
+ *  `resetStreams`/`peakStreams` track the peak number of probe-wrapped clients
+ *  simultaneously checked OUT of this pool (connected, not yet released) since
+ *  the last reset — the ACTUAL concurrent fan-out `extract()` achieved, as
+ *  opposed to the `--extract-concurrency` value it was asked for. */
+interface QueryProbe {
+  detach: () => void;
+  /** Rebase the peak to the CURRENTLY checked-out count, so an earlier phase's
+   *  single connect/release (e.g. the first-connect probe) doesn't pollute the
+   *  peak measured over a later interval (e.g. extraction). */
+  resetStreams: () => void;
+  peakStreams: () => number;
+}
+
 /**
  * Wrap `pool.connect` so every checked-out client's `query` is timed, then hand
  * back a detach function that restores BOTH `pool.connect` and every client it
@@ -444,15 +469,40 @@ function attachQueryProbe(
   pool: pg.Pool,
   side: Side,
   sink: QuerySink,
-): () => void {
+): QueryProbe {
   const originalConnect = pool.connect.bind(pool);
   const wrappedClients: Array<{
     client: pg.PoolClient;
     descriptor: PropertyDescriptor | undefined;
   }> = [];
 
+  // `active` counts clients currently checked out (connected, not yet
+  // released) on THIS pool; `peak` is the high-water mark since the last
+  // `resetStreams()`.
+  let active = 0;
+  let peak = 0;
+
   const wrapClient = (client: pg.PoolClient | undefined): void => {
     if (client === undefined) return;
+    active++;
+    peak = Math.max(peak, active);
+
+    // pg-pool's own `_acquireClient` reassigns `client.release` on EVERY
+    // checkout (a fresh `_releaseOnce` closure, so release-once is enforced
+    // per checkout) — see pg-pool/index.js. A counting wrapper installed on
+    // an earlier checkout of this SAME client object is therefore silently
+    // discarded by the time a reused (idle-then-recycled) client is checked
+    // out again, so `active` would never decrement for it. Reinstall the
+    // counter on EVERY checkout, not just the first, to stay paired with
+    // whatever `release` currently points at.
+    const originalRelease = client.release.bind(client) as (
+      ...args: unknown[]
+    ) => unknown;
+    (client as { release: unknown }).release = (...args: unknown[]) => {
+      active--;
+      return originalRelease(...args);
+    };
+
     const slot = client as unknown as Record<symbol, unknown>;
     if (slot[WRAPPED] === true) return;
     slot[WRAPPED] = true;
@@ -460,7 +510,9 @@ function attachQueryProbe(
       ...args: unknown[]
     ) => unknown;
     // Remember whether `query` was an OWN property before we shadowed the
-    // prototype method, so detach restores the exact original shape.
+    // prototype method, so detach restores the exact original shape. `query`
+    // (unlike `release`) is never reassigned by pg-pool between checkouts, so
+    // wrapping it once for this client's lifetime is correct and sufficient.
     wrappedClients.push({
       client,
       descriptor: Object.getOwnPropertyDescriptor(client, "query"),
@@ -557,9 +609,14 @@ function attachQueryProbe(
     );
   };
 
-  // A pool keeps its clients idle between iterations, so a patched `query` left
-  // behind would keep recording into a stale sink — un-wrap every client too.
-  return () => {
+  // A pool keeps its clients idle between iterations, so a patched `query`
+  // left behind would keep recording into a stale sink — un-wrap every
+  // client too. `release` is NOT restored here: pg-pool reassigns it fresh on
+  // every real checkout regardless of what we leave behind (see `wrapClient`
+  // above), so there is nothing stable to restore, and restoring a stale
+  // snapshot risks clobbering pg-pool's own live release function if a client
+  // were ever still checked out at detach time.
+  const detach = (): void => {
     (pool as { connect: unknown }).connect = originalConnect;
     for (const { client, descriptor } of wrappedClients) {
       if (descriptor !== undefined) {
@@ -569,6 +626,14 @@ function attachQueryProbe(
       }
       delete (client as unknown as Record<symbol, unknown>)[WRAPPED];
     }
+  };
+
+  return {
+    detach,
+    resetStreams: () => {
+      peak = active;
+    },
+    peakStreams: () => peak,
   };
 }
 
@@ -774,10 +839,10 @@ export async function runBenchmark(
         }));
       }
 
-      const detach = [
-        attachQueryProbe(pools.source, "source", sink),
-        attachQueryProbe(pools.target, "target", sink),
-      ];
+      const probes = {
+        source: attachQueryProbe(pools.source, "source", sink),
+        target: attachQueryProbe(pools.target, "target", sink),
+      };
 
       let record: RunRecord;
       try {
@@ -808,6 +873,11 @@ export async function runBenchmark(
           // before this point (profile resolution, against the source pool)
           // stay in the JSONL but are excluded from side attribution/summaries.
           sink.markExtractPhase();
+          // Rebase the streams-observed peak to right before extraction starts,
+          // so the single connect/release pair from sourceFirstConnect /
+          // targetFirstConnect / profileResolve above never inflates it.
+          probes.source.resetStreams();
+          probes.target.resetStreams();
 
           const extractOptions = {
             redactSecrets: true,
@@ -841,6 +911,12 @@ export async function runBenchmark(
           phases.extractInterval = performance.now() - intervalStart;
           phases.extractSource = extractSourceMs;
           phases.extractTarget = extractTargetMs;
+          // Read the peak AFTER both extractions have settled — it's the high
+          // water mark over the whole overlapping interval, not a snapshot.
+          const streamsObserved: Record<Side, number> = {
+            source: probes.source.peakStreams(),
+            target: probes.target.peakStreams(),
+          };
 
           // Where cmdPlan calls printDiagnostics + exitIfBlocking. Here advisory
           // diagnostics are only COUNTED (into each side's `diagnostics` field):
@@ -888,6 +964,7 @@ export async function runBenchmark(
             poolMode: options.reusePools ? "reused" : "fresh",
             reverse: options.reverse,
             extractConcurrency: options.extractConcurrency,
+            streamsObserved,
             runLabel,
             pgMajor: pgMajorOf(sourceResult.pgVersion),
             rttMs,
@@ -915,7 +992,8 @@ export async function runBenchmark(
             rssBytes: process.memoryUsage().rss,
           };
         } finally {
-          for (const restore of detach) restore();
+          probes.source.detach();
+          probes.target.detach();
         }
 
         if (!options.reusePools) {
@@ -1008,6 +1086,23 @@ export function printSummary(
     "  (extractSource/extractTarget OVERLAP inside extractInterval — never sum them)",
   );
 
+  // extract() silently falls back to serial in some conditions (standby /
+  // pooler / spare-capacity) even when more streams were requested — a cell
+  // that trusts only `extractConcurrency` can be mislabeled "parallel". Flag
+  // every measured iteration where the ACTUAL peak fan-out fell short.
+  const understreamed = measured.filter(
+    (run) =>
+      run.streamsObserved.source < run.extractConcurrency ||
+      run.streamsObserved.target < run.extractConcurrency,
+  );
+  if (understreamed.length > 0) {
+    console.log(
+      `\n!!! streamsObserved FELL SHORT of extractConcurrency=${understreamed[0]!.extractConcurrency} ` +
+        `on ${understreamed.length}/${measured.length} measured iteration(s) — extract() likely fell ` +
+        `back to serial (standby / pooler / spare-capacity). Cells below may be mislabeled "parallel". !!!`,
+    );
+  }
+
   console.log("\nwall / cpu / rss");
   for (const [label, values] of [
     ["wallMs", measured.map((r) => r.wallMs)],
@@ -1035,10 +1130,16 @@ export function printSummary(
     const wall = summarize(measured.map((r) => r[side].extractMs)).p50;
     const sql = summarize(measured.map((r) => r[side].queryMsSum)).p50;
     const stats = measured[measured.length - 1]![side];
+    // p50(extractMs) - p50(queryMsSum) is NOT p50(residual): subtracting two
+    // INDEPENDENT percentiles discards the per-iteration pairing. Summarize
+    // the already-correct per-run `clientResidual` values directly instead.
+    const residualValues = measured
+      .map((r) => r[side].clientResidual)
+      .filter((value): value is number => value !== null);
     const residual =
-      stats.clientResidual === null
+      residualValues.length === 0
         ? "n/a (parallel)".padStart(7)
-        : (wall - sql).toFixed(0).padStart(7);
+        : summarize(residualValues).p50.toFixed(0).padStart(7);
     console.log(
       `${side.padEnd(8)} extract=${wall.toFixed(0).padStart(7)}  ` +
         `sqlSum=${sql.toFixed(0).padStart(7)}  ` +
