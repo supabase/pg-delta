@@ -205,7 +205,35 @@ function seg(part: string): string {
   return part;
 }
 
+/**
+ * StableId object -> its encoding. `encodeId` is one of the hottest functions in
+ * the engine: `FactBase.get` / `has` / `hashOf` / `childrenOf` / `outgoingEdges`
+ * all key their indexes by the encoding, so every lookup re-walks the id and
+ * re-runs `seg` over each part, and a plan performs millions of lookups over a
+ * few tens of thousands of DISTINCT id objects.
+ *
+ * INVARIANT: a StableId object is never mutated after construction. Ids are
+ * built once (extract / load / snapshot decode / rule construction) and
+ * thereafter only read; every transform that changes one returns a NEW id (e.g.
+ * `plan/identity-normalize.ts`). This is the same invariant `payloadHashes` in
+ * `core/hash.ts` already relies on for payloads. Weak keys, so entries die with
+ * the facts that own them.
+ *
+ * Memoizing the outer call subsumes the nested one: `comment` / `acl` /
+ * `securityLabel` encode their `target` id through `encodeId`, so a repeated
+ * target hits this map too.
+ */
+const idEncodings = new WeakMap<object, string>();
+
 export function encodeId(id: StableId): string {
+  const memo = idEncodings.get(id);
+  if (memo !== undefined) return memo;
+  const encoded = encodeIdUncached(id);
+  idEncodings.set(id, encoded);
+  return encoded;
+}
+
+function encodeIdUncached(id: StableId): string {
   const k = id.kind;
   switch (k) {
     case "membership":

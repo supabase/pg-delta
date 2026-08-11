@@ -278,4 +278,20 @@ describe("parseId round-trips", () => {
     const d = encodeId({ kind: "table", schema: "a", name: "b.c" });
     expect(c).not.toBe(d);
   });
+
+  // `encodeId` memoizes per id OBJECT (WeakMap). Two things must hold for that
+  // to be invisible: re-encoding the same object is stable, and a structurally
+  // equal but distinct object — which misses the memo — still encodes
+  // identically. Covers every kind via the round-trip `cases` above.
+  test("memoized encoding is stable and identity-independent", () => {
+    for (const id of cases) {
+      const first = encodeId(id);
+      expect(encodeId(id)).toBe(first);
+      // a fresh deep copy shares no object identity with `id`
+      const copy = JSON.parse(JSON.stringify(id)) as StableId;
+      expect(encodeId(copy)).toBe(first);
+      // and the memo must not leak across a MUTATED copy's sibling
+      expect(parseId(encodeId(copy))).toEqual(id);
+    }
+  });
 });
