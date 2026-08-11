@@ -892,6 +892,29 @@ One finding is **deferred, won't-fix in #403**:
   covered?) in `databaseScratch` mode, or widen the snapshot/restore to
   `pg_parameter_acl`.
 
+Round-4 findings (loop capped here per the automated-review policy — both are
+re-litigations of already-resolved threads one corner deeper, under
+user-constructed pathological setups):
+
+- **Deferred — drift identity serialization is not injective for dotted
+  quoted identifiers (Codex P2, round 4).** `probeUnmodeledIdentities`
+  renders type/name components with plain `%s`-style joins, so `"a.b".c`
+  and `a."b.c"` flatten identically and a pathological same-rendering pair
+  across shadow/target can mask an `unmodeled_drift` warning. Accepted:
+  the diagnostic is best-effort observability — a masked warning still
+  fails loudly when the generated migration runs — and the setup requires
+  dots inside quoted identifiers colliding across two databases. Fix if
+  ever needed: quote each component (`quote_ident`/`%I`) in the identity
+  projections (`src/extract/unmodeled.ts`).
+- **Deferred — dangling `_custom/README.md` symlink bypasses the scaffold
+  containment (Codex P2, round 4).** Round 3 fixed the symlinked `_custom`
+  root; a dangling symlink at the leaf README path still lets
+  `writeFileSync` create the file outside `outRoot` (`existsSync` is false
+  for dangling links). One-line fix when next touched: create with the
+  exclusive `wx` flag (O_CREAT|O_EXCL does not follow symlinks) in
+  `scaffoldCustomReadme` (`src/frontends/custom-dir.ts`) and treat EEXIST
+  as skip.
+
 ## PR #407 review triage (Codex) — platform-provisioned assumed-schema members
 
 Context: PR #407 exempts platform-provisioned members of assumed schemas
