@@ -1,13 +1,8 @@
 /** Cluster-level role state: roles, role memberships, and default privileges. */
-import type { ExtractContext } from "./scope.ts";
+import type { CatalogFamily } from "./scope.ts";
 
-export async function extractRolesAndGrants(
-  ctx: ExtractContext,
-): Promise<void> {
-  const { q, facts } = ctx;
-
-  // ── roles (cluster-level) ────────────────────────────────────────────
-  for (const row of await q(`
+// ── roles (cluster-level) ────────────────────────────────────────────
+const ROLES_SQL = `
     SELECT r.rolname AS name, r.rolsuper, r.rolinherit, r.rolcreaterole,
            r.rolcreatedb, r.rolcanlogin, r.rolreplication, r.rolbypassrls,
            COALESCE((SELECT array_agg(cfg ORDER BY cfg)
@@ -16,24 +11,10 @@ export async function extractRolesAndGrants(
                     '{}')::text[] AS config
     FROM pg_roles r
     WHERE r.rolname NOT LIKE 'pg\\_%'
-    ORDER BY r.rolname`)) {
-    facts.push({
-      id: { kind: "role", name: String(row["name"]) },
-      payload: {
-        superuser: Boolean(row["rolsuper"]),
-        inherit: Boolean(row["rolinherit"]),
-        createRole: Boolean(row["rolcreaterole"]),
-        createDb: Boolean(row["rolcreatedb"]),
-        login: Boolean(row["rolcanlogin"]),
-        replication: Boolean(row["rolreplication"]),
-        bypassRls: Boolean(row["rolbypassrls"]),
-        config: (row["config"] as string[]).map(String),
-      },
-    });
-  }
+    ORDER BY r.rolname`;
 
-  // ── role memberships (cluster-level; multi-grantor rows deduped) ─────
-  for (const row of await q(`
+// ── role memberships (cluster-level; multi-grantor rows deduped) ─────
+const MEMBERSHIPS_SQL = `
     SELECT r1.rolname AS role, r2.rolname AS member,
            bool_or(m.admin_option) AS admin
     FROM pg_auth_members m
@@ -41,69 +22,60 @@ export async function extractRolesAndGrants(
     JOIN pg_roles r2 ON r2.oid = m.member
     WHERE r1.rolname NOT LIKE 'pg\\_%' AND r2.rolname NOT LIKE 'pg\\_%'
     GROUP BY 1, 2
-    ORDER BY 1, 2`)) {
-    facts.push({
-      id: {
-        kind: "membership",
-        role: String(row["role"]),
-        member: String(row["member"]),
-      },
-      payload: { admin: Boolean(row["admin"]) },
-    });
-  }
+    ORDER BY 1, 2`;
 
-  // ── default privileges ───────────────────────────────────────────────
-  // `pg_default_acl` stores the RESULTING default ACL, so a revoked built-in
-  // default (e.g. `ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM
-  // PUBLIC`) shows up only as the ABSENCE of that grantee's row — there is no
-  // explicit "no privileges" entry. Mirror `aclJson` (scope.ts): when the
-  // object kind grants PUBLIC (functions EXECUTE, types USAGE) or the owner a
-  // built-in default, and the stored acl has dropped it, synthesize an empty
-  // grantee row carrying `revoked_default` (the built-in privileges that were
-  // removed) so the diff can plan the REVOKE — and, in reverse, restore the
-  // default with a GRANT. The "has a PUBLIC/owner default" test is derived from
-  // acldefault() itself, so it stays correct across kinds and PG versions.
-  // `defaclobjtype` uses 'S' for sequences where acldefault() wants 's'.
-  // Model each fact as a DEVIATION from the built-in default, not the raw stored
-  // ACL. `pg_default_acl` materializes the whole effective default, so a grantee
-  // that sits at its built-in default (e.g. the owner keeping its create-time
-  // grant) appears in the row even though it is not a customization — extracting
-  // it would make a customized row assert grants a fresh database already has,
-  // and DROPPING that fact would wrongly REVOKE the built-in default. So:
-  //   • a grantee whose stored privileges EQUAL its built-in default → no fact;
-  //   • a grantee that DIFFERS (custom grant, partial change, grant option) →
-  //     a fact carrying its actual privileges;
-  //   • a grantee that HAS a built-in default but is ABSENT from the stored acl
-  //     (the default was revoked, e.g. `REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`)
-  //     → an empty marker carrying `revoked_default` so the diff can plan the
-  //     REVOKE and, in reverse, restore the default with a GRANT —
-  //     with a conditional carve-out for the grantor's OWN self-entry, whose
-  //     absence is a behavioral no-op in some shapes but a real revoke in others.
-  //     The key distinction is PER-SCHEMA vs GLOBAL:
-  //       • PER-SCHEMA (defaclnamespace <> 0): at object-creation time Postgres
-  //         ALWAYS re-adds the owner's acldefault entry to the new object's ACL
-  //         regardless of whether the stored row carried a self-entry (a table
-  //         created by the owner gets `{owner=arwdDxtm/owner,…}` either way). A
-  //         row built from grants to OTHER roles never materializes the owner
-  //         self-entry (`{r2=r/r}`), so a "revoked" owner self-entry here is a
-  //         no-op — never emit a marker for it, or owner-present and owner-absent
-  //         rows would extract DIFFERENTLY and break round-trip.
-  //       • GLOBAL (defaclnamespace = 0): a grant to another role DOES
-  //         materialize the owner self-entry (`{owner=arwdDxtm/owner,r2=r/owner}`),
-  //         and Postgres uses the stored acl VERBATIM at creation. So if the
-  //         owner is revoked while OTHER grantees remain (`{r2=r/owner}`), a table
-  //         made by the owner really lacks the owner's own privileges — a genuine
-  //         customization → EMIT the marker. The one exception is a BARE global
-  //         self-revoke with nothing else granted: the stored row is EMPTY, the
-  //         created table's relacl degenerates to NULL and the owner keeps its
-  //         privileges → no-op → no marker. (Verified on postgres:17.)
-  //     (A grantor self-entry that DIFFERS from acldefault — a partial
-  //     self-reduction — is still present in the row and handled by the first
-  //     branch above, so it is not lost.)
-  // The built-in default is derived from acldefault() (kind/version-robust);
-  // `defaclobjtype` uses 'S' for sequences where acldefault() wants 's'.
-  const defaclCode = `CASE d.defaclobjtype WHEN 'S' THEN 's' ELSE d.defaclobjtype END`;
-  for (const row of await q(`
+// ── default privileges ───────────────────────────────────────────────
+// `pg_default_acl` stores the RESULTING default ACL, so a revoked built-in
+// default (e.g. `ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM
+// PUBLIC`) shows up only as the ABSENCE of that grantee's row — there is no
+// explicit "no privileges" entry. Mirror `aclJson` (scope.ts): when the
+// object kind grants PUBLIC (functions EXECUTE, types USAGE) or the owner a
+// built-in default, and the stored acl has dropped it, synthesize an empty
+// grantee row carrying `revoked_default` (the built-in privileges that were
+// removed) so the diff can plan the REVOKE — and, in reverse, restore the
+// default with a GRANT. The "has a PUBLIC/owner default" test is derived from
+// acldefault() itself, so it stays correct across kinds and PG versions.
+// `defaclobjtype` uses 'S' for sequences where acldefault() wants 's'.
+// Model each fact as a DEVIATION from the built-in default, not the raw stored
+// ACL. `pg_default_acl` materializes the whole effective default, so a grantee
+// that sits at its built-in default (e.g. the owner keeping its create-time
+// grant) appears in the row even though it is not a customization — extracting
+// it would make a customized row assert grants a fresh database already has,
+// and DROPPING that fact would wrongly REVOKE the built-in default. So:
+//   • a grantee whose stored privileges EQUAL its built-in default → no fact;
+//   • a grantee that DIFFERS (custom grant, partial change, grant option) →
+//     a fact carrying its actual privileges;
+//   • a grantee that HAS a built-in default but is ABSENT from the stored acl
+//     (the default was revoked, e.g. `REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`)
+//     → an empty marker carrying `revoked_default` so the diff can plan the
+//     REVOKE and, in reverse, restore the default with a GRANT —
+//     with a conditional carve-out for the grantor's OWN self-entry, whose
+//     absence is a behavioral no-op in some shapes but a real revoke in others.
+//     The key distinction is PER-SCHEMA vs GLOBAL:
+//       • PER-SCHEMA (defaclnamespace <> 0): at object-creation time Postgres
+//         ALWAYS re-adds the owner's acldefault entry to the new object's ACL
+//         regardless of whether the stored row carried a self-entry (a table
+//         created by the owner gets `{owner=arwdDxtm/owner,…}` either way). A
+//         row built from grants to OTHER roles never materializes the owner
+//         self-entry (`{r2=r/r}`), so a "revoked" owner self-entry here is a
+//         no-op — never emit a marker for it, or owner-present and owner-absent
+//         rows would extract DIFFERENTLY and break round-trip.
+//       • GLOBAL (defaclnamespace = 0): a grant to another role DOES
+//         materialize the owner self-entry (`{owner=arwdDxtm/owner,r2=r/owner}`),
+//         and Postgres uses the stored acl VERBATIM at creation. So if the
+//         owner is revoked while OTHER grantees remain (`{r2=r/owner}`), a table
+//         made by the owner really lacks the owner's own privileges — a genuine
+//         customization → EMIT the marker. The one exception is a BARE global
+//         self-revoke with nothing else granted: the stored row is EMPTY, the
+//         created table's relacl degenerates to NULL and the owner keeps its
+//         privileges → no-op → no marker. (Verified on postgres:17.)
+//     (A grantor self-entry that DIFFERS from acldefault — a partial
+//     self-reduction — is still present in the row and handled by the first
+//     branch above, so it is not lost.)
+// The built-in default is derived from acldefault() (kind/version-robust);
+// `defaclobjtype` uses 'S' for sequences where acldefault() wants 's'.
+const defaclCode = `CASE d.defaclobjtype WHEN 'S' THEN 's' ELSE d.defaclobjtype END`;
+const DEFAULT_PRIVILEGES_SQL = `
     SELECT dr.rolname AS role, n.nspname AS schema, d.defaclobjtype AS objtype,
            acl.grantee_name AS grantee, acl.privileges, acl.grantable,
            acl.revoked_default
@@ -161,25 +133,62 @@ export async function extractRolesAndGrants(
           OR (d.defaclnamespace = 0 AND EXISTS (SELECT 1 FROM stored s2))
         )
     ) acl
-    ORDER BY 1, 2, 3, 4`)) {
-    const revokedDefault = (row["revoked_default"] as string[] | null) ?? null;
-    facts.push({
-      id: {
-        kind: "defaultPrivilege",
-        role: String(row["role"]),
-        schema: row["schema"] == null ? null : (row["schema"] as string),
-        objtype: String(row["objtype"]),
-        grantee: String(row["grantee"]),
-      },
-      payload: {
-        privileges: (row["privileges"] as string[]).map(String),
-        grantable: ((row["grantable"] as string[] | null) ?? []).map(String),
-        // non-semantic metadata (excluded from hash/diff): the built-in default
-        // privileges this empty marker revoked, so the drop can restore them.
-        ...(revokedDefault != null
-          ? { _revokedDefault: revokedDefault.map(String) }
-          : {}),
-      },
-    });
-  }
-}
+    ORDER BY 1, 2, 3, 4`;
+
+export const rolesAndGrantsFamily: CatalogFamily = {
+  name: "roles",
+  statements: () => [ROLES_SQL, MEMBERSHIPS_SQL, DEFAULT_PRIVILEGES_SQL],
+  apply: (ctx, rowSets) => {
+    const { facts } = ctx;
+
+    for (const row of rowSets[0]!) {
+      facts.push({
+        id: { kind: "role", name: String(row["name"]) },
+        payload: {
+          superuser: Boolean(row["rolsuper"]),
+          inherit: Boolean(row["rolinherit"]),
+          createRole: Boolean(row["rolcreaterole"]),
+          createDb: Boolean(row["rolcreatedb"]),
+          login: Boolean(row["rolcanlogin"]),
+          replication: Boolean(row["rolreplication"]),
+          bypassRls: Boolean(row["rolbypassrls"]),
+          config: (row["config"] as string[]).map(String),
+        },
+      });
+    }
+
+    for (const row of rowSets[1]!) {
+      facts.push({
+        id: {
+          kind: "membership",
+          role: String(row["role"]),
+          member: String(row["member"]),
+        },
+        payload: { admin: Boolean(row["admin"]) },
+      });
+    }
+
+    for (const row of rowSets[2]!) {
+      const revokedDefault =
+        (row["revoked_default"] as string[] | null) ?? null;
+      facts.push({
+        id: {
+          kind: "defaultPrivilege",
+          role: String(row["role"]),
+          schema: row["schema"] == null ? null : (row["schema"] as string),
+          objtype: String(row["objtype"]),
+          grantee: String(row["grantee"]),
+        },
+        payload: {
+          privileges: (row["privileges"] as string[]).map(String),
+          grantable: ((row["grantable"] as string[] | null) ?? []).map(String),
+          // non-semantic metadata (excluded from hash/diff): the built-in default
+          // privileges this empty marker revoked, so the drop can restore them.
+          ...(revokedDefault != null
+            ? { _revokedDefault: revokedDefault.map(String) }
+            : {}),
+        },
+      });
+    }
+  },
+};

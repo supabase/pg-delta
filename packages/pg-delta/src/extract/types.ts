@@ -3,7 +3,7 @@
 import type { StableId } from "../core/stable-id.ts";
 import {
   aclJsonMemberAware,
-  type ExtractContext,
+  type CatalogFamily,
   memberExtensionExpr,
   notExtensionMember,
   parseAcl,
@@ -11,10 +11,8 @@ import {
   USER_SCHEMA_FILTER,
 } from "./scope.ts";
 
-export async function extractDomains(ctx: ExtractContext): Promise<void> {
-  const { q, pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
-  // ── domains (+ their CHECK constraints as facts) ─────────────────────
-  for (const row of await q(`
+// ── domains (+ their CHECK constraints as facts) ─────────────────────
+const DOMAINS_SQL = `
     SELECT n.nspname AS schema, t.typname AS name, r.rolname AS owner,
            format_type(t.typbasetype, t.typtypmod) AS base_type,
            t.typnotnull AS not_null, t.typdefault AS default_expr,
@@ -31,34 +29,9 @@ export async function extractDomains(ctx: ExtractContext): Promise<void> {
     JOIN pg_roles r ON r.oid = t.typowner
     JOIN pg_type bt ON bt.oid = t.typbasetype
     WHERE t.typtype = 'd' AND ${USER_SCHEMA_FILTER}
-    ORDER BY n.nspname, t.typname`)) {
-    const id: StableId = {
-      kind: "domain",
-      schema: String(row["schema"]),
-      name: String(row["name"]),
-    };
-    pushWithMeta(
-      {
-        id,
-        parent: schemaId(row["schema"]),
-        payload: {
-          baseType: String(row["base_type"]),
-          notNull: Boolean(row["not_null"]),
-          default:
-            row["default_expr"] == null
-              ? null
-              : (row["default_expr"] as string),
-          collation:
-            row["collation"] == null ? null : (row["collation"] as string),
-        },
-      },
-      row,
-      parseAcl(row["acl"]),
-    );
-    pushMemberEdge(id, row);
-    pushOwnerEdge(id, row["owner"]);
-  }
-  for (const row of await q(`
+    ORDER BY n.nspname, t.typname`;
+
+const DOMAIN_CONSTRAINTS_SQL = `
     SELECT n.nspname AS schema, t.typname AS domain, con.conname AS name,
            pg_get_constraintdef(con.oid) AS def,
            con.contype AS type, con.convalidated AS validated,
@@ -68,42 +41,68 @@ export async function extractDomains(ctx: ExtractContext): Promise<void> {
     JOIN pg_namespace n ON n.oid = t.typnamespace
     WHERE con.contypid <> 0 AND ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_type", "t.oid")}
-    ORDER BY n.nspname, t.typname, con.conname`)) {
-    pushWithMeta(
-      {
-        id: {
-          kind: "constraint",
-          schema: String(row["schema"]),
-          table: String(row["domain"]),
-          name: String(row["name"]),
-        },
-        parent: {
-          kind: "domain",
-          schema: String(row["schema"]),
-          name: String(row["domain"]),
-        },
-        payload: {
-          def: String(row["def"]),
-          type: String(row["type"]),
-          validated: Boolean(row["validated"]),
-        },
-      },
-      row,
-    );
-  }
-}
+    ORDER BY n.nspname, t.typname, con.conname`;
 
-export async function extractTypes(ctx: ExtractContext): Promise<void> {
-  const {
-    q,
-    facts,
-    pushWithMeta,
-    pushMemberEdge,
-    pushOwnerEdge,
-    pgMajor: major,
-  } = ctx;
-  // ── types: enums, standalone composites, ranges ──────────────────────
-  for (const row of await q(`
+export const domainsFamily: CatalogFamily = {
+  name: "domains",
+  statements: () => [DOMAINS_SQL, DOMAIN_CONSTRAINTS_SQL],
+  apply: (ctx, rowSets) => {
+    const { pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
+    for (const row of rowSets[0]!) {
+      const id: StableId = {
+        kind: "domain",
+        schema: String(row["schema"]),
+        name: String(row["name"]),
+      };
+      pushWithMeta(
+        {
+          id,
+          parent: schemaId(row["schema"]),
+          payload: {
+            baseType: String(row["base_type"]),
+            notNull: Boolean(row["not_null"]),
+            default:
+              row["default_expr"] == null
+                ? null
+                : (row["default_expr"] as string),
+            collation:
+              row["collation"] == null ? null : (row["collation"] as string),
+          },
+        },
+        row,
+        parseAcl(row["acl"]),
+      );
+      pushMemberEdge(id, row);
+      pushOwnerEdge(id, row["owner"]);
+    }
+    for (const row of rowSets[1]!) {
+      pushWithMeta(
+        {
+          id: {
+            kind: "constraint",
+            schema: String(row["schema"]),
+            table: String(row["domain"]),
+            name: String(row["name"]),
+          },
+          parent: {
+            kind: "domain",
+            schema: String(row["schema"]),
+            name: String(row["domain"]),
+          },
+          payload: {
+            def: String(row["def"]),
+            type: String(row["type"]),
+            validated: Boolean(row["validated"]),
+          },
+        },
+        row,
+      );
+    }
+  },
+};
+
+// ── types: enums, standalone composites, ranges ──────────────────────
+const ENUM_TYPES_SQL = `
     SELECT n.nspname AS schema, t.typname AS name, r.rolname AS owner,
            ARRAY(SELECT e.enumlabel::text FROM pg_enum e
                  WHERE e.enumtypid = t.oid ORDER BY e.enumsortorder) AS values,
@@ -114,28 +113,9 @@ export async function extractTypes(ctx: ExtractContext): Promise<void> {
     JOIN pg_namespace n ON n.oid = t.typnamespace
     JOIN pg_roles r ON r.oid = t.typowner
     WHERE t.typtype = 'e' AND ${USER_SCHEMA_FILTER}
-    ORDER BY n.nspname, t.typname`)) {
-    const id: StableId = {
-      kind: "type",
-      schema: String(row["schema"]),
-      name: String(row["name"]),
-    };
-    pushWithMeta(
-      {
-        id,
-        parent: schemaId(row["schema"]),
-        payload: {
-          variant: "enum",
-          values: (row["values"] as string[]).map(String),
-        },
-      },
-      row,
-      parseAcl(row["acl"]),
-    );
-    pushMemberEdge(id, row);
-    pushOwnerEdge(id, row["owner"]);
-  }
-  for (const row of await q(`
+    ORDER BY n.nspname, t.typname`;
+
+const COMPOSITE_TYPES_SQL = `
     SELECT n.nspname AS schema, t.typname AS name, r.rolname AS owner,
            (SELECT json_agg(json_build_object(
               'name', a.attname,
@@ -157,69 +137,18 @@ export async function extractTypes(ctx: ExtractContext): Promise<void> {
     JOIN pg_namespace n ON n.oid = t.typnamespace
     JOIN pg_roles r ON r.oid = t.typowner
     WHERE t.typtype = 'c' AND ${USER_SCHEMA_FILTER}
-    ORDER BY n.nspname, t.typname`)) {
-    const typeId: StableId = {
-      kind: "type",
-      schema: String(row["schema"]),
-      name: String(row["name"]),
-    };
-    pushWithMeta(
-      {
-        id: typeId,
-        parent: schemaId(row["schema"]),
-        payload: { variant: "composite" },
-      },
-      row,
-      parseAcl(row["acl"]),
-    );
-    pushMemberEdge(typeId, row);
-    pushOwnerEdge(typeId, row["owner"]);
-    // each attribute is its own fact (granularity is one, §3.1) — enables
-    // attribute-grain diffs and ALTER TYPE … RENAME ATTRIBUTE rename
-    // detection. Positional IDENTITY is not desired state (attributes are
-    // name-keyed, like columns), but render ORDER is — carried below as
-    // `_position` (see the payload comment).
-    const attrs =
-      (row["attrs"] as
-        | {
-            name: string;
-            position: number;
-            type: string;
-            collation: string | null;
-          }[]
-        | null) ?? [];
-    for (const a of attrs) {
-      facts.push({
-        id: {
-          kind: "typeAttribute",
-          schema: String(row["schema"]),
-          type: String(row["name"]),
-          name: a.name,
-        },
-        parent: typeId,
-        // `_position` is the declared attribute position (pg_attribute.attnum).
-        // Row layout — hence render order — is desired state, but positional
-        // identity is not (attributes are name-keyed sub-facts, like columns),
-        // so the `_`-prefix excludes it from the hash and diff (core/hash.ts,
-        // core/diff.ts) while the composite CREATE TYPE rule still renders
-        // attributes in this order (plan/rules/types.ts).
-        payload: {
-          type: a.type,
-          collation: a.collation ?? null,
-          _position: a.position,
-        },
-      });
-    }
-  }
-  // rngmultitypid (the auto-created multirange type) is PG14+; on PG13 the
-  // column does not exist, so the multirange name degrades to NULL.
+    ORDER BY n.nspname, t.typname`;
+
+/** Range types. `rngmultitypid` (the auto-created multirange type) is PG14+; on
+ *  PG13 the column does not exist, so the multirange name degrades to NULL. */
+function rangeTypesSql(major: number): string {
   const multirangeExpr =
     major >= 14
       ? `(SELECT quote_ident(mn.nspname) || '.' || quote_ident(mt.typname)
             FROM pg_type mt JOIN pg_namespace mn ON mn.oid = mt.typnamespace
             WHERE mt.oid = rng.rngmultitypid)`
       : `NULL::text`;
-  for (const row of await q(`
+  return `
     SELECT n.nspname AS schema, t.typname AS name, r.rolname AS owner,
            format_type(rng.rngsubtype, NULL) AS subtype,
            -- pin SUBTYPE_OPCLASS only when it is not the subtype's default
@@ -243,47 +172,133 @@ export async function extractTypes(ctx: ExtractContext): Promise<void> {
     JOIN pg_opclass opc ON opc.oid = rng.rngsubopc
     JOIN pg_namespace opcn ON opcn.oid = opc.opcnamespace
     WHERE t.typtype = 'r' AND ${USER_SCHEMA_FILTER}
-    ORDER BY n.nspname, t.typname`)) {
-    const id: StableId = {
-      kind: "type",
-      schema: String(row["schema"]),
-      name: String(row["name"]),
-    };
-    pushWithMeta(
-      {
-        id,
-        parent: schemaId(row["schema"]),
-        payload: {
-          variant: "range",
-          subtype: String(row["subtype"]),
-          subtypeOpclass:
-            row["subtype_opclass"] == null
-              ? null
-              : (row["subtype_opclass"] as string),
-          collation:
-            row["collation"] == null ? null : (row["collation"] as string),
-          subtypeDiff:
-            row["subtype_diff"] == null
-              ? null
-              : (row["subtype_diff"] as string),
-          multirangeTypeName:
-            row["multirange_type_name"] == null
-              ? null
-              : (row["multirange_type_name"] as string),
-        },
-      },
-      row,
-      parseAcl(row["acl"]),
-    );
-    pushMemberEdge(id, row);
-    pushOwnerEdge(id, row["owner"]);
-  }
+    ORDER BY n.nspname, t.typname`;
 }
 
-export async function extractCollations(ctx: ExtractContext): Promise<void> {
-  const { q, pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
-  // ── collations (collversion deliberately excluded from equality) ─────
-  for (const row of await q(`
+export const typesFamily: CatalogFamily = {
+  name: "types",
+  statements: (version) => [
+    ENUM_TYPES_SQL,
+    COMPOSITE_TYPES_SQL,
+    rangeTypesSql(version.pgMajor),
+  ],
+  apply: (ctx, rowSets) => {
+    const { facts, pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
+    for (const row of rowSets[0]!) {
+      const id: StableId = {
+        kind: "type",
+        schema: String(row["schema"]),
+        name: String(row["name"]),
+      };
+      pushWithMeta(
+        {
+          id,
+          parent: schemaId(row["schema"]),
+          payload: {
+            variant: "enum",
+            values: (row["values"] as string[]).map(String),
+          },
+        },
+        row,
+        parseAcl(row["acl"]),
+      );
+      pushMemberEdge(id, row);
+      pushOwnerEdge(id, row["owner"]);
+    }
+    for (const row of rowSets[1]!) {
+      const typeId: StableId = {
+        kind: "type",
+        schema: String(row["schema"]),
+        name: String(row["name"]),
+      };
+      pushWithMeta(
+        {
+          id: typeId,
+          parent: schemaId(row["schema"]),
+          payload: { variant: "composite" },
+        },
+        row,
+        parseAcl(row["acl"]),
+      );
+      pushMemberEdge(typeId, row);
+      pushOwnerEdge(typeId, row["owner"]);
+      // each attribute is its own fact (granularity is one, §3.1) — enables
+      // attribute-grain diffs and ALTER TYPE … RENAME ATTRIBUTE rename
+      // detection. Positional IDENTITY is not desired state (attributes are
+      // name-keyed, like columns), but render ORDER is — carried below as
+      // `_position` (see the payload comment).
+      const attrs =
+        (row["attrs"] as
+          | {
+              name: string;
+              position: number;
+              type: string;
+              collation: string | null;
+            }[]
+          | null) ?? [];
+      for (const a of attrs) {
+        facts.push({
+          id: {
+            kind: "typeAttribute",
+            schema: String(row["schema"]),
+            type: String(row["name"]),
+            name: a.name,
+          },
+          parent: typeId,
+          // `_position` is the declared attribute position (pg_attribute.attnum).
+          // Row layout — hence render order — is desired state, but positional
+          // identity is not (attributes are name-keyed sub-facts, like columns),
+          // so the `_`-prefix excludes it from the hash and diff (core/hash.ts,
+          // core/diff.ts) while the composite CREATE TYPE rule still renders
+          // attributes in this order (plan/rules/types.ts).
+          payload: {
+            type: a.type,
+            collation: a.collation ?? null,
+            _position: a.position,
+          },
+        });
+      }
+    }
+    for (const row of rowSets[2]!) {
+      const id: StableId = {
+        kind: "type",
+        schema: String(row["schema"]),
+        name: String(row["name"]),
+      };
+      pushWithMeta(
+        {
+          id,
+          parent: schemaId(row["schema"]),
+          payload: {
+            variant: "range",
+            subtype: String(row["subtype"]),
+            subtypeOpclass:
+              row["subtype_opclass"] == null
+                ? null
+                : (row["subtype_opclass"] as string),
+            collation:
+              row["collation"] == null ? null : (row["collation"] as string),
+            subtypeDiff:
+              row["subtype_diff"] == null
+                ? null
+                : (row["subtype_diff"] as string),
+            multirangeTypeName:
+              row["multirange_type_name"] == null
+                ? null
+                : (row["multirange_type_name"] as string),
+          },
+        },
+        row,
+        parseAcl(row["acl"]),
+      );
+      pushMemberEdge(id, row);
+      pushOwnerEdge(id, row["owner"]);
+    }
+  },
+};
+
+// ── collations (collversion deliberately excluded from equality) ─────
+const COLLATIONS_SQL = `
     SELECT n.nspname AS schema, c.collname AS name, r.rolname AS owner,
            c.collprovider AS provider, c.collisdeterministic AS deterministic,
            to_jsonb(c) AS raw,
@@ -293,32 +308,40 @@ export async function extractCollations(ctx: ExtractContext): Promise<void> {
     JOIN pg_namespace n ON n.oid = c.collnamespace
     JOIN pg_roles r ON r.oid = c.collowner
     WHERE ${USER_SCHEMA_FILTER}
-    ORDER BY n.nspname, c.collname`)) {
-    const raw = row["raw"] as Record<string, unknown>;
-    const locale =
-      (raw["colllocale"] as string | null) ??
-      (raw["colliculocale"] as string | null) ??
-      null;
-    const id: StableId = {
-      kind: "collation",
-      schema: String(row["schema"]),
-      name: String(row["name"]),
-    };
-    pushWithMeta(
-      {
-        id,
-        parent: schemaId(row["schema"]),
-        payload: {
-          provider: String(row["provider"]),
-          deterministic: Boolean(row["deterministic"]),
-          locale,
-          lcCollate: (raw["collcollate"] as string | null) ?? null,
-          lcCtype: (raw["collctype"] as string | null) ?? null,
+    ORDER BY n.nspname, c.collname`;
+
+export const collationsFamily: CatalogFamily = {
+  name: "collations",
+  statements: () => [COLLATIONS_SQL],
+  apply: (ctx, rowSets) => {
+    const { pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
+    for (const row of rowSets[0]!) {
+      const raw = row["raw"] as Record<string, unknown>;
+      const locale =
+        (raw["colllocale"] as string | null) ??
+        (raw["colliculocale"] as string | null) ??
+        null;
+      const id: StableId = {
+        kind: "collation",
+        schema: String(row["schema"]),
+        name: String(row["name"]),
+      };
+      pushWithMeta(
+        {
+          id,
+          parent: schemaId(row["schema"]),
+          payload: {
+            provider: String(row["provider"]),
+            deterministic: Boolean(row["deterministic"]),
+            locale,
+            lcCollate: (raw["collcollate"] as string | null) ?? null,
+            lcCtype: (raw["collctype"] as string | null) ?? null,
+          },
         },
-      },
-      row,
-    );
-    pushMemberEdge(id, row);
-    pushOwnerEdge(id, row["owner"]);
-  }
-}
+        row,
+      );
+      pushMemberEdge(id, row);
+      pushOwnerEdge(id, row["owner"]);
+    }
+  },
+};

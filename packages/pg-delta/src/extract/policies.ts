@@ -1,14 +1,12 @@
 /** Row-level security policies. */
 import {
-  type ExtractContext,
+  type CatalogFamily,
   notExtensionMember,
   USER_SCHEMA_FILTER,
 } from "./scope.ts";
 
-export async function extractPolicies(ctx: ExtractContext): Promise<void> {
-  const { q, pushWithMeta } = ctx;
-  // ── row-level security policies ──────────────────────────────────────
-  for (const row of await q(`
+// ── row-level security policies ──────────────────────────────────────
+const POLICIES_SQL = `
     SELECT n.nspname AS schema, c.relname AS table, pol.polname AS name,
            pol.polcmd AS cmd, pol.polpermissive AS permissive,
            pg_get_expr(pol.polqual, pol.polrelid) AS using_expr,
@@ -22,31 +20,39 @@ export async function extractPolicies(ctx: ExtractContext): Promise<void> {
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_class", "c.oid")}
-    ORDER BY n.nspname, c.relname, pol.polname`)) {
-    pushWithMeta(
-      {
-        id: {
-          kind: "policy",
-          schema: String(row["schema"]),
-          table: String(row["table"]),
-          name: String(row["name"]),
+    ORDER BY n.nspname, c.relname, pol.polname`;
+
+export const policiesFamily: CatalogFamily = {
+  name: "policies",
+  statements: () => [POLICIES_SQL],
+  apply: (ctx, rowSets) => {
+    const { pushWithMeta } = ctx;
+    for (const row of rowSets[0]!) {
+      pushWithMeta(
+        {
+          id: {
+            kind: "policy",
+            schema: String(row["schema"]),
+            table: String(row["table"]),
+            name: String(row["name"]),
+          },
+          parent: {
+            kind: "table",
+            schema: String(row["schema"]),
+            name: String(row["table"]),
+          },
+          payload: {
+            cmd: String(row["cmd"]),
+            permissive: Boolean(row["permissive"]),
+            usingExpr:
+              row["using_expr"] == null ? null : (row["using_expr"] as string),
+            checkExpr:
+              row["check_expr"] == null ? null : (row["check_expr"] as string),
+            roles: (row["roles"] as string[]).map(String),
+          },
         },
-        parent: {
-          kind: "table",
-          schema: String(row["schema"]),
-          name: String(row["table"]),
-        },
-        payload: {
-          cmd: String(row["cmd"]),
-          permissive: Boolean(row["permissive"]),
-          usingExpr:
-            row["using_expr"] == null ? null : (row["using_expr"] as string),
-          checkExpr:
-            row["check_expr"] == null ? null : (row["check_expr"] as string),
-          roles: (row["roles"] as string[]).map(String),
-        },
-      },
-      row,
-    );
-  }
-}
+        row,
+      );
+    }
+  },
+};

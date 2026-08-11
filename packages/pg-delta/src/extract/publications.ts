@@ -1,10 +1,14 @@
 /** Publications (+ their table / schema member facts) and subscriptions. */
 import type { StableId } from "../core/stable-id.ts";
-import { type ExtractContext, notExtensionMember } from "./scope.ts";
+import {
+  type CatalogFamily,
+  type ExtractContext,
+  notExtensionMember,
+} from "./scope.ts";
 import { SUBSCRIPTION_CONNINFO_PLACEHOLDER } from "./sensitive-options.ts";
 
-export async function extractPublications(ctx: ExtractContext): Promise<void> {
-  const { q, facts, pushWithMeta, pushOwnerEdge, pgMajor: major } = ctx;
+// ── publications ─────────────────────────────────────────────────────
+function publicationsSql(major: number): string {
   // Publication column lists (pg_publication_rel.prattrs), row filters
   // (pr.prqual), and schema membership (pg_publication_namespace) are all
   // PostgreSQL 15+. On PG14 those catalog columns / relations do not exist, so
@@ -24,8 +28,7 @@ export async function extractPublications(ctx: ExtractContext): Promise<void> {
             JOIN pg_namespace pn2 ON pn2.oid = pns.pnnspid
             WHERE pns.pnpubid = p.oid)`
       : `NULL::text[]`;
-  // ── publications ─────────────────────────────────────────────────────
-  for (const row of await q(`
+  return `
     SELECT p.pubname AS name, r.rolname AS owner,
            p.puballtables AS all_tables, p.pubviaroot AS via_root,
            p.pubinsert, p.pubupdate, p.pubdelete, p.pubtruncate,
@@ -43,63 +46,72 @@ export async function extractPublications(ctx: ExtractContext): Promise<void> {
     FROM pg_publication p
     JOIN pg_roles r ON r.oid = p.pubowner
     WHERE ${notExtensionMember("pg_publication", "p.oid")}
-    ORDER BY p.pubname`)) {
-    const publish: string[] = [];
-    if (row["pubinsert"]) publish.push("insert");
-    if (row["pubupdate"]) publish.push("update");
-    if (row["pubdelete"]) publish.push("delete");
-    if (row["pubtruncate"]) publish.push("truncate");
-    const pubName = String(row["name"]);
-    const pubId: StableId = { kind: "publication", name: pubName };
-    pushWithMeta(
-      {
-        id: pubId,
-        payload: {
-          allTables: Boolean(row["all_tables"]),
-          viaRoot: Boolean(row["via_root"]),
-          publish,
-        },
-      },
-      row,
-    );
-    pushOwnerEdge(pubId, row["owner"]);
-    // each published table / schema is its own fact (granularity is one):
-    // members are managed with ALTER PUBLICATION ADD/DROP, and a column-list
-    // or WHERE change diffs at table grain instead of churning the whole
-    // publication payload.
-    const tables =
-      (row["tables"] as
-        | {
-            schema: string;
-            name: string;
-            columns: string[] | null;
-            where: string | null;
-          }[]
-        | null) ?? [];
-    for (const t of tables) {
-      facts.push({
-        id: {
-          kind: "publicationRel",
-          publication: pubName,
-          schema: t.schema,
-          table: t.name,
-        },
-        parent: pubId,
-        payload: {
-          columns: t.columns == null ? null : t.columns.map(String),
-          where: t.where ?? null,
-        },
-      });
-    }
-    for (const s of ((row["schemas"] as string[] | null) ?? []).map(String)) {
-      facts.push({
-        id: { kind: "publicationSchema", publication: pubName, schema: s },
-        parent: pubId,
-        payload: {},
-      });
-    }
-  }
+    ORDER BY p.pubname`;
 }
+
+export const publicationsFamily: CatalogFamily = {
+  name: "publications",
+  statements: (version) => [publicationsSql(version.pgMajor)],
+  apply: (ctx, rowSets) => {
+    const { facts, pushWithMeta, pushOwnerEdge } = ctx;
+    for (const row of rowSets[0]!) {
+      const publish: string[] = [];
+      if (row["pubinsert"]) publish.push("insert");
+      if (row["pubupdate"]) publish.push("update");
+      if (row["pubdelete"]) publish.push("delete");
+      if (row["pubtruncate"]) publish.push("truncate");
+      const pubName = String(row["name"]);
+      const pubId: StableId = { kind: "publication", name: pubName };
+      pushWithMeta(
+        {
+          id: pubId,
+          payload: {
+            allTables: Boolean(row["all_tables"]),
+            viaRoot: Boolean(row["via_root"]),
+            publish,
+          },
+        },
+        row,
+      );
+      pushOwnerEdge(pubId, row["owner"]);
+      // each published table / schema is its own fact (granularity is one):
+      // members are managed with ALTER PUBLICATION ADD/DROP, and a column-list
+      // or WHERE change diffs at table grain instead of churning the whole
+      // publication payload.
+      const tables =
+        (row["tables"] as
+          | {
+              schema: string;
+              name: string;
+              columns: string[] | null;
+              where: string | null;
+            }[]
+          | null) ?? [];
+      for (const t of tables) {
+        facts.push({
+          id: {
+            kind: "publicationRel",
+            publication: pubName,
+            schema: t.schema,
+            table: t.name,
+          },
+          parent: pubId,
+          payload: {
+            columns: t.columns == null ? null : t.columns.map(String),
+            where: t.where ?? null,
+          },
+        });
+      }
+      for (const s of ((row["schemas"] as string[] | null) ?? []).map(String)) {
+        facts.push({
+          id: { kind: "publicationSchema", publication: pubName, schema: s },
+          parent: pubId,
+          payload: {},
+        });
+      }
+    }
+  },
+};
 
 export async function extractSubscriptions(ctx: ExtractContext): Promise<void> {
   const { q, pushWithMeta, pushOwnerEdge, pgMajor: major } = ctx;
