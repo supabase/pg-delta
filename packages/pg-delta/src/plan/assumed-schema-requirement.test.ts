@@ -19,8 +19,9 @@
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
+import { supabasePolicy } from "../policy/supabase.ts";
 import { buildActionGraph } from "./internal.ts";
-import type { Action } from "./plan.ts";
+import { type Action, plan } from "./plan.ts";
 
 const authUsers: StableId = { kind: "table", schema: "auth", name: "users" };
 
@@ -94,5 +95,109 @@ describe("missing-requirement guard: objects within assumed schemas", () => {
     const source = buildFactBase([], []);
     const desired = buildFactBase([], []);
     expect(() => run(source, desired, new Set(["auth"]))).not.toThrow();
+  });
+});
+
+// The Sentry SUPABASE-API-8CX regression: a DB-webhook trigger (`CREATE TRIGGER
+// … EXECUTE FUNCTION supabase_functions.http_request(...)`) depends on a
+// PLATFORM-provisioned member of an assumed schema. The desired side keeps the
+// function reference-only, and a target that has never had webhooks enabled
+// lacks it — but the platform provisions it, so the requirement guard must not
+// refuse the plan. The discriminator from the `auth.extra` fail-fast above is
+// OWNERSHIP: `http_request()` is owned by `supabase_functions_admin` (an
+// assumed system role), while a user-created object in an assumed schema is
+// owned by the default owner (`postgres`) or a user role.
+describe("plan() — platform-provisioned members of assumed schemas", () => {
+  const publicSchema: StableId = { kind: "schema", name: "public" };
+  const table: StableId = {
+    kind: "table",
+    schema: "public",
+    name: "deliverable",
+  };
+  const trigger: StableId = {
+    kind: "trigger",
+    schema: "public",
+    table: "deliverable",
+    name: "crud_sync",
+  };
+  const functionsSchema: StableId = {
+    kind: "schema",
+    name: "supabase_functions",
+  };
+  const httpRequest: StableId = {
+    kind: "function",
+    schema: "supabase_functions",
+    name: "http_request",
+    args: [],
+  };
+
+  const f = (
+    id: StableId,
+    parent?: StableId,
+    payload: Fact["payload"] = {},
+  ): Fact => (parent ? { id, parent, payload } : { id, payload });
+
+  const triggerDef =
+    "CREATE TRIGGER crud_sync AFTER INSERT ON public.deliverable FOR EACH ROW EXECUTE FUNCTION supabase_functions.http_request('https://example.com', 'POST')";
+
+  /** source: the table exists, webhooks were never provisioned. */
+  function sourceBase(): ReturnType<typeof buildFactBase> {
+    return buildFactBase(
+      [f(publicSchema), f(table, publicSchema, { persistence: "p" })],
+      [],
+    );
+  }
+
+  /** desired: the same table plus the webhook trigger, with the platform's
+   *  `supabase_functions` schema + `http_request()` present (reference-only
+   *  once the policy filters them) and the function owned by `ownerRole`. */
+  function desiredBase(ownerRole: string): ReturnType<typeof buildFactBase> {
+    const owner: StableId = { kind: "role", name: ownerRole };
+    return buildFactBase(
+      [
+        f(publicSchema),
+        f(table, publicSchema, { persistence: "p" }),
+        f(trigger, table, { def: triggerDef, enabled: "O" }),
+        f(owner),
+        f(functionsSchema),
+        f(httpRequest, functionsSchema, { kind: "f" }),
+      ],
+      [
+        { from: trigger, to: httpRequest, kind: "depends" },
+        { from: httpRequest, to: owner, kind: "owner" },
+      ],
+    );
+  }
+
+  test("a webhook trigger depending on a system-role-owned assumed-schema function plans (target lacks webhooks)", () => {
+    // RED before the fix: missing requirement — "depends on
+    // function:supabase_functions.http_request() … (a filter may be hiding its
+    // creation)". The platform guarantee that makes `supabase_functions`
+    // assumed extends to its system-owned members.
+    const p = plan(sourceBase(), desiredBase("supabase_functions_admin"), {
+      policy: supabasePolicy,
+    });
+    expect(p.actions.some((a) => /CREATE TRIGGER/i.test(a.sql))).toBe(true);
+    // the reference-only platform function is never created by the plan
+    expect(p.actions.some((a) => /http_request/i.test(a.sql) && /CREATE (OR REPLACE )?FUNCTION/i.test(a.sql))).toBe(false);
+  });
+
+  test("the fail-fast is preserved when the assumed-schema dependency is owned by the default owner", () => {
+    // A default-owner-owned (i.e. user-created) object in an assumed schema
+    // absent from the target still fails at plan time (PR #307 review P2) —
+    // nothing will provision it at apply time.
+    expect(() =>
+      plan(sourceBase(), desiredBase("postgres"), {
+        policy: supabasePolicy,
+      }),
+    ).toThrow(/missing requirement/);
+  });
+
+  test("the fail-fast is preserved when the assumed-schema dependency is owned by a user role", () => {
+    expect(() =>
+      plan(sourceBase(), desiredBase("app_admin"), {
+        policy: supabasePolicy,
+      }),
+    ).toThrow(/missing requirement/);
   });
 });
