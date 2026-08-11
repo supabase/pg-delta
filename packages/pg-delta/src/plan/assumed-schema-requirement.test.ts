@@ -212,6 +212,57 @@ describe("plan() — platform-provisioned members of assumed schemas", () => {
     ).toThrow(/missing requirement/);
   });
 
+  test("a custom options.defaultOwner does not turn default-owner-owned objects into platform ones", () => {
+    // A database-scope run may override the default owner (`--default-owner`).
+    // The PROVENANCE judgment must stay the policy's own: `postgres` is the
+    // supabase policy's declared default owner, so a postgres-owned object in
+    // an assumed schema is user-created no matter what the run-level default
+    // owner is — nothing will provision it (Codex P1 #2 on PR #407).
+    expect(() =>
+      plan(sourceBase(), desiredBase("postgres"), {
+        policy: supabasePolicy,
+        scope: "database",
+        defaultOwner: "custom_owner",
+      }),
+    ).toThrow(/missing requirement/);
+  });
+
+  test("the exemption covers descendants of a platform-provisioned object", () => {
+    // Extraction resolves relation subobjects to COLUMN ids, so a dependent's
+    // depends edge can point at a column of a system-role-owned table. The
+    // platform guarantee covers the whole subtree, not just the owner-bearing
+    // root (Codex P2 on PR #407).
+    const hooks: StableId = {
+      kind: "table",
+      schema: "supabase_functions",
+      name: "hooks",
+    };
+    const hooksCol: StableId = {
+      kind: "column",
+      schema: "supabase_functions",
+      table: "hooks",
+      name: "request_id",
+    };
+    const owner: StableId = { kind: "role", name: "supabase_functions_admin" };
+    const desired = buildFactBase(
+      [
+        f(publicSchema),
+        f(table, publicSchema, { persistence: "p" }),
+        f(trigger, table, { def: triggerDef, enabled: "O" }),
+        f(owner),
+        f(functionsSchema),
+        f(hooks, functionsSchema, { persistence: "p" }),
+        f(hooksCol, hooks, { type: "bigint", notNull: false }),
+      ],
+      [
+        { from: trigger, to: hooksCol, kind: "depends" },
+        { from: hooks, to: owner, kind: "owner" },
+      ],
+    );
+    const p = plan(sourceBase(), desired, { policy: supabasePolicy });
+    expect(p.actions.some((a) => /CREATE TRIGGER/i.test(a.sql))).toBe(true);
+  });
+
   test("supplemental options.assumedRoles (target roles under database scope) do not widen the exemption", () => {
     // The database-scoped schema-apply frontend passes EVERY role found on the
     // target through options.assumedRoles (schema-plan.ts) so grants/ownership
