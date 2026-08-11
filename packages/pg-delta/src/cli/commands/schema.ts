@@ -185,7 +185,10 @@ export function collectSqlFiles(dir: string): SqlFile[] {
 
 /**
  * Write the exported SQL files and the `.pgdelta-export.json` manifest under
- * `outRoot`, returning the stale files pruned. Exported for tests.
+ * `outRoot`, returning the stale files pruned plus a per-file classification
+ * of the written set (`created` / `updated` / `unchanged`, as absolute paths
+ * like `removed`). A byte-identical file is NOT rewritten, so mtimes stay
+ * stable for build tools watching the directory. Exported for tests.
  *
  * Creates `outRoot` up front: a database with no managed objects legitimately
  * yields zero files, and the per-file loop (which only mkdirs each file's parent)
@@ -212,7 +215,13 @@ export function writeExportFiles(
     defaultOwner?: string | null;
   },
   pruneUnmanaged: boolean,
-): { removed: string[]; unmanaged: string[] } {
+): {
+  removed: string[];
+  unmanaged: string[];
+  created: string[];
+  updated: string[];
+  unchanged: string[];
+} {
   // Normalize ONCE: the manifest's owned paths resolve to absolute paths, so
   // every path compared against them (the keep set, the pruner's scan) must
   // be absolute too — with a relative --out-dir the pruner otherwise misreads
@@ -244,6 +253,9 @@ export function writeExportFiles(
     );
   }
   mkdirSync(outRoot, { recursive: true });
+  const created: string[] = [];
+  const updated: string[] = [];
+  const unchanged: string[] = [];
   for (const file of files) {
     const full = join(outRoot, file.name);
     // defense-in-depth (review P2): even with per-segment encoding in
@@ -253,12 +265,25 @@ export function writeExportFiles(
         `export: refusing to write outside ${outRoot}: ${file.name}`,
       );
     }
+    // Read-before-write so a byte-identical file is left untouched (stable
+    // mtime) and the caller can report created vs updated vs unchanged.
+    let existing: string | undefined;
+    try {
+      existing = readFileSync(full, "utf8");
+    } catch {
+      // ENOENT (or unreadable): treat as absent and (re)write below.
+    }
+    if (existing === file.sql) {
+      unchanged.push(full);
+      continue;
+    }
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, file.sql, "utf8");
+    (existing === undefined ? created : updated).push(full);
   }
   const ownedFiles = files.map((file) => file.name.split(sep).join("/")).sort();
   writeExportManifest(outRoot, { ...manifest, files: ownedFiles });
-  return { removed, unmanaged };
+  return { removed, unmanaged, created, updated, unchanged };
 }
 
 export async function cmdSchemaExport(args: string[]): Promise<void> {
@@ -428,7 +453,7 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     });
 
     const outRoot = resolve(outDir);
-    const { removed } = writeExportFiles(
+    const { removed, created, updated, unchanged } = writeExportFiles(
       outRoot,
       result.files,
       {
@@ -453,7 +478,8 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       );
     }
     process.stderr.write(
-      `Exported ${result.files.length} file(s) to ${outDir} (layout: ${layout})\n`,
+      `Exported ${result.files.length} file(s) to ${outDir} (layout: ${layout}): ` +
+        `${created.length} created, ${updated.length} updated, ${unchanged.length} unchanged\n`,
     );
   } finally {
     await src.end();

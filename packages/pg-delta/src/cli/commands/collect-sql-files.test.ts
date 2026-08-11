@@ -186,7 +186,12 @@ describe("writeExportFiles", () => {
     const target = join(root, "classify");
     const a = { name: join("schemas", "app", "a.sql"), sql: "-- a v1\n" };
     const b = { name: join("schemas", "app", "b.sql"), sql: "-- b v1\n" };
-    const first = writeExportFiles(target, [a, b], { redactSecrets: false }, false);
+    const first = writeExportFiles(
+      target,
+      [a, b],
+      { redactSecrets: false },
+      false,
+    );
     expect(first.created).toEqual([
       join(target, "schemas", "app", "a.sql"),
       join(target, "schemas", "app", "b.sql"),
