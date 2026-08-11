@@ -261,11 +261,16 @@ export async function closeSnapshotWorkers(
     workers.map(async (worker) => {
       try {
         await worker.client.query("ROLLBACK");
-      } catch {
-        // a poisoned / broken connection is released regardless — node-pg
-        // discards a client whose transaction it cannot clean up
-      } finally {
         worker.client.release();
+      } catch (error) {
+        // A ROLLBACK that fails means the connection itself is gone (the
+        // transaction is read-only; there is nothing rollback-able to refuse).
+        // release(error) tells node-pg to DESTROY the client — a plain
+        // release() would re-pool the corpse and poison the pool's next
+        // checkout with one guaranteed-failing query.
+        worker.client.release(
+          error instanceof Error ? error : new Error(message(error)),
+        );
       }
     }),
   );
