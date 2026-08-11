@@ -14,7 +14,7 @@ import {
   type ContentHash,
   type Payload,
 } from "./hash.ts";
-import { encodeIdMemo, type StableId } from "./stable-id.ts";
+import { encodeIdMemo, encodeIdRegister, type StableId } from "./stable-id.ts";
 
 export interface Fact {
   id: StableId;
@@ -56,8 +56,8 @@ export const retainOwnerRoleDangling = (edge: DependencyEdge): boolean =>
 interface Entry {
   fact: Fact;
   encoded: string;
-  /** `encodeIdMemo(fact.parent)`, encoded once at index time: the parent chain is
-   *  walked by the acyclicity check and every hierarchy lookup. */
+  /** `encodeIdRegister(fact.parent)`, encoded once at index time: the parent chain
+   *  is walked by the acyclicity check and every hierarchy lookup. */
   parentKey: string | undefined;
   hash: ContentHash;
 }
@@ -103,8 +103,13 @@ export class FactBase {
   ) {
     this.source = source;
     this.referenceOnly = referenceOnly;
+    // This indexing pass is the SOLE writer of the id-encoding memo: these ids
+    // (fact ids, their parents, edge endpoints) are engine-owned and never mutated
+    // after construction, so caching them is sound. A public lookup's query object
+    // must never be cached, which is why every accessor below reads the memo via
+    // `encodeIdMemo` and only this loop writes via `encodeIdRegister`.
     for (const fact of facts) {
-      const encoded = encodeIdMemo(fact.id);
+      const encoded = encodeIdRegister(fact.id);
       if (this.#byId.has(encoded)) {
         throw new Error(`FactBase: duplicate fact id ${encoded}`);
       }
@@ -112,7 +117,7 @@ export class FactBase {
         fact,
         encoded,
         parentKey:
-          fact.parent === undefined ? undefined : encodeIdMemo(fact.parent),
+          fact.parent === undefined ? undefined : encodeIdRegister(fact.parent),
         hash: contentHash(fact.payload),
       });
     }
@@ -166,8 +171,8 @@ export class FactBase {
       for (const key of path) reachesRoot.add(key);
     }
     for (const edge of edges) {
-      const fromKey = encodeIdMemo(edge.from);
-      const toKey = encodeIdMemo(edge.to);
+      const fromKey = encodeIdRegister(edge.from);
+      const toKey = encodeIdRegister(edge.to);
       const fromPresent = this.#byId.has(fromKey);
       const toPresent = this.#byId.has(toKey);
       if (!fromPresent || !toPresent) {

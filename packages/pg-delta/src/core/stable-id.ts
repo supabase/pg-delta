@@ -258,35 +258,54 @@ export function encodeId(id: StableId): string {
 }
 
 /**
- * INTERNAL memoized `encodeId`, keyed by id OBJECT identity.
+ * INTERNAL encoding memo, keyed by id OBJECT identity.
  *
- * Not exported from the package entry points (`src/index.ts`, `src/core/index.ts`)
- * on purpose: caching by identity is only sound under an invariant the engine
- * upholds but a consumer cannot be held to. `encodeId` above stays pure for them.
+ * OWNERSHIP RULE — the memo is **registration-only**. Entries are written by
+ * exactly one caller, `buildFactBase` (src/core/fact.ts), for the fact ids, parent
+ * ids and edge endpoint ids it is already encoding as it builds its indexes.
+ * Those objects are ENGINE-OWNED and never mutated after construction. Nothing
+ * else ever writes: `encodeIdMemo` below only READS.
  *
- * Why it matters: `FactBase.get` / `has` / `hashOf` / `childrenOf` /
- * `outgoingEdges` / `incomingEdges` / `isReferenceOnly` all key their indexes by
- * the encoding, and `buildFactBase` re-encodes every fact and edge endpoint on
- * every rebuild (managed-view reconstruction, scope/target projection, identity
- * normalization). A plan performs millions of such lookups over a few tens of
- * thousands of DISTINCT id objects, so re-walking the id and re-running `seg` per
- * part dominated the lookup layer.
+ * That asymmetry is what makes the cache safe across a public boundary.
+ * `FactBase.get` / `has` / `hashOf` / `childrenOf` / `outgoingEdges` /
+ * `incomingEdges` / `isReferenceOnly` are public and take a caller's StableId. If
+ * a lookup also POPULATED the memo, a caller that reused and mutated one query
+ * object would get a stale answer on the next lookup. Because lookups only read,
+ * a caller-provided object is simply never in the map and is re-encoded from its
+ * current field values every time.
  *
- * INVARIANT: a StableId object reaching these paths is never mutated after
- * construction. Ids are built once (extract / load / snapshot decode / rule
- * construction) and thereafter only read; every transform that changes one
- * returns a NEW id (e.g. `plan/identity-normalize.ts`). This is the same
- * invariant `payloadHashes` in `core/hash.ts` already relies on for payloads.
- * Weak keys, so entries die with the facts that own them.
+ * Why bother: a plan performs millions of lookups, and `buildFactBase`
+ * re-encodes every fact and edge endpoint on every rebuild (managed-view
+ * reconstruction, scope/target projection, identity normalization). The map stays
+ * module-global — not per-FactBase — so `b.get(factFromA.id)` (diff's hot
+ * pattern) still hits for ids registered when A was built.
  *
- * Wrapper kinds (`comment` / `acl` / `securityLabel`) encode their nested
- * `target` through the PURE `encodeId`, so only the outer id is cached. That is
- * enough: the whole encoded string is memoized, so a repeat lookup of the same
- * wrapper object never re-walks the target either.
+ * Neither `encodeIdMemo` nor `encodeIdRegister` is re-exported from the package
+ * entry points (`src/index.ts`, `src/core/index.ts`), and no `exports` subpath
+ * maps to this module, so consumers only ever see the pure `encodeId`.
+ *
+ * Same invariant `payloadHashes` in `core/hash.ts` relies on for payloads. Weak
+ * keys, so entries die with the ids that own them.
  */
 const idEncodings = new WeakMap<object, string>();
 
+/**
+ * READ-ONLY memo lookup, for every path that may see a CALLER's id — i.e. all the
+ * public `FactBase` accessors. Reads the memo; on a miss it pure-encodes and does
+ * NOT write, so a caller object never enters the cache and can never go stale.
+ */
 export function encodeIdMemo(id: StableId): string {
+  return idEncodings.get(id) ?? encodeId(id);
+}
+
+/**
+ * Get-or-register. The ONLY writer of the memo: `buildFactBase`'s indexing pass,
+ * over ids it owns (fact ids, their parents, edge endpoints). Reads first so a
+ * REBUILD of the same fact objects — managed-view reconstruction, scope/target
+ * projection, identity normalization all rebuild constantly — skips the walk
+ * instead of re-encoding every fact and edge endpoint from scratch.
+ */
+export function encodeIdRegister(id: StableId): string {
   const memo = idEncodings.get(id);
   if (memo !== undefined) return memo;
   const encoded = encodeId(id);
