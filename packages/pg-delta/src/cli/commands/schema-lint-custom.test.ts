@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { UsageError } from "../flags.ts";
 import { cmdSchemaLint } from "./schema.ts";
 
 let root: string;
@@ -94,7 +95,10 @@ describe("schema lint: _custom/ rules", () => {
 
   test("--custom-migration-refs off silences the missing-ref rule only", async () => {
     write("schemas/app/schema.sql", "create schema app;\n");
-    write("_custom/no-ref.sql", "create cast (text as int) without function;\n");
+    write(
+      "_custom/no-ref.sql",
+      "create cast (text as int) without function;\n",
+    );
     write(
       "_custom/dangling.sql",
       "-- pgdelta-migration: ../migrations/missing.sql\nselect 1;\n",
@@ -109,16 +113,29 @@ describe("schema lint: _custom/ rules", () => {
   });
 
   test("--custom-migration-refs warn is the default behavior", async () => {
-    write("_custom/no-ref.sql", "create cast (text as int) without function;\n");
+    write(
+      "_custom/no-ref.sql",
+      "create cast (text as int) without function;\n",
+    );
     await cmdSchemaLint(["--dir", root, "--custom-migration-refs", "warn"]);
     expect(count("custom_missing_migration_ref")).toBe(1);
   });
 
   test("--custom-migration-refs rejects an unknown value", async () => {
-    write("_custom/no-ref.sql", "create cast (text as int) without function;\n");
-    await expect(
-      cmdSchemaLint(["--dir", root, "--custom-migration-refs", "nope"]),
-    ).rejects.toThrow(/--custom-migration-refs must be warn or off/);
+    write(
+      "_custom/no-ref.sql",
+      "create cast (text as int) without function;\n",
+    );
+    let error: unknown;
+    try {
+      await cmdSchemaLint(["--dir", root, "--custom-migration-refs", "nope"]);
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(UsageError);
+    expect((error as UsageError).message).toMatch(
+      /--custom-migration-refs must be warn or off/,
+    );
   });
 
   test("suppresses UNKNOWN_STATEMENT_CLASS inside _custom/ but keeps it outside", async () => {

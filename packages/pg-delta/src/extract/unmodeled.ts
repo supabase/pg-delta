@@ -26,6 +26,13 @@
  * dependents (an index over a custom text search configuration, say). Delivery
  * to a target stays the operator's migration channel — an unmodeled object
  * produces no facts, so it can never enter a plan.
+ *
+ * Which makes "did they actually deliver it?" a question worth asking BEFORE the
+ * plan is handed over, and the catalog can answer it: `probeUnmodeledIdentities`
+ * runs the same scan for full identity lists, and `detectUnmodeledDrift` reports
+ * one `unmodeled_drift` warning per kind the shadow has and the target lacks
+ * (docs/architecture/custom-folder.md §7). That fires exactly when a generated
+ * statement is about to depend on something no statement in the plan can create.
  */
 import type { PoolClient } from "pg";
 import type { Diagnostic } from "../core/diagnostic.ts";
@@ -187,7 +194,13 @@ const PROBES: readonly UnmodeledProbe[] = [
   },
 ];
 
-function probeSql(p: UnmodeledProbe): string {
+/**
+ * One probe's SQL. Everything that decides WHICH rows count — the built-in OID
+ * boundary and both provenance anti-joins — lives here, so the two callers can
+ * never drift apart on what "an unmodeled user object" means; they differ only
+ * in `projection`, the aggregate over the matching names.
+ */
+function probeSql(p: UnmodeledProbe, projection: string): string {
   const filters = [
     p.where,
     `${p.oid} >= ${FIRST_NORMAL_OID}`,
@@ -195,8 +208,7 @@ function probeSql(p: UnmodeledProbe): string {
     `NOT ${isInternalDependent(p.classid, p.oid)}`,
   ].filter(Boolean);
   return `SELECT '${p.kind}'::text AS kind,
-            count(*)::int AS count,
-            (array_agg(nm ORDER BY nm))[1:5] AS samples
+            ${projection}
      FROM (
        SELECT ${p.name} AS nm
        FROM ${p.from}
@@ -204,11 +216,49 @@ function probeSql(p: UnmodeledProbe): string {
      ) s`;
 }
 
+/** The union of every probe active on `major`, under one projection. */
+function probeUnionSql(major: number, projection: string): string {
+  return PROBES.filter(
+    (p) => p.minVersion === undefined || major >= p.minVersion,
+  )
+    .map((p) => probeSql(p, projection))
+    .join("\nUNION ALL\n");
+}
+
+/** Diagnostic projection: a count plus at most five names for the message. */
+const COUNT_AND_SAMPLES = `count(*)::int AS count,
+            (array_agg(nm ORDER BY nm))[1:5] AS samples`;
+
+/** Comparison projection: every name, because a set-diff cannot work on a
+ *  sample. Deliberately a SEPARATE query from {@link COUNT_AND_SAMPLES} rather
+ *  than a superset of it: the count+samples probe runs on EVERY extraction, and
+ *  transferring an unbounded name list per kind there would make a schema with
+ *  thousands of operators pay for data no diagnostic ever prints. */
+const ALL_NAMES = `array_agg(nm ORDER BY nm) AS names`;
+
 interface ProbeRow {
   kind: string;
   count: number;
   samples: string[] | null;
 }
+
+interface IdentityRow {
+  kind: string;
+  names: (string | null)[] | null;
+}
+
+/**
+ * The minimal read interface the identity probe needs — satisfied by both a
+ * `Pool` and a `PoolClient`, so a caller holding either (the plan frontend holds
+ * pools) can probe without checking out a dedicated connection.
+ */
+export interface UnmodeledQueryable {
+  query<R>(sql: string): Promise<{ rows: R[] }>;
+}
+
+/** Unmodeled user-object identities per kind, as the probe found them: kinds
+ *  with no such object are ABSENT rather than mapped to an empty list. */
+export type UnmodeledIdentities = ReadonlyMap<string, readonly string[]>;
 
 /**
  * Scan for present-but-unmodeled USER objects, returning one `unmodeled_kind`
@@ -224,11 +274,9 @@ export async function detectUnmodeledKinds(
   client: PoolClient,
   major: number,
 ): Promise<Diagnostic[]> {
-  const activeProbes = PROBES.filter(
-    (p) => p.minVersion === undefined || major >= p.minVersion,
+  const { rows } = await client.query<ProbeRow>(
+    probeUnionSql(major, COUNT_AND_SAMPLES),
   );
-  const sql = activeProbes.map(probeSql).join("\nUNION ALL\n");
-  const { rows } = await client.query<ProbeRow>(sql);
   const diagnostics: Diagnostic[] = [];
   for (const row of rows) {
     if (row.count <= 0) continue;
@@ -244,6 +292,83 @@ export async function detectUnmodeledKinds(
         `re-exports preserve it and the shadow can elaborate dependents, and ` +
         `deliver it to targets via your migration channel`,
       context: { kind: row.kind, count: row.count, samples },
+    });
+  }
+  return diagnostics;
+}
+
+/**
+ * The same scan as {@link detectUnmodeledKinds}, but returning every identity
+ * instead of a count and five samples — enough to COMPARE two databases.
+ *
+ * `major` is the server's major version, threaded by the caller exactly as the
+ * diagnostic probe threads it (a probe whose catalog does not exist yet fails at
+ * parse time, so version gating happens before the SQL is built).
+ *
+ * A NULL name is dropped rather than carried as a phantom identity: a name
+ * expression can legitimately evaluate to NULL (the transform probe joins
+ * `pg_language` in a subselect), and an unnameable object cannot be matched
+ * against the other side anyway.
+ */
+export async function probeUnmodeledIdentities(
+  q: UnmodeledQueryable,
+  major: number,
+): Promise<UnmodeledIdentities> {
+  const { rows } = await q.query<IdentityRow>(probeUnionSql(major, ALL_NAMES));
+  const byKind = new Map<string, string[]>();
+  for (const row of rows) {
+    const names = (row.names ?? []).filter((n): n is string => n !== null);
+    if (names.length === 0) continue;
+    byKind.set(row.kind, names);
+  }
+  return byKind;
+}
+
+/** How many missing identities the drift message spells out before eliding. */
+const DRIFT_NAME_LIMIT = 10;
+
+/**
+ * The `unmodeled_drift` pre-flight guard for the delivery model
+ * (docs/architecture/custom-folder.md §7).
+ *
+ * Raw SQL — `_custom/` included — executes only in the disposable shadow; the
+ * target only ever receives GENERATED statements. Unmodeled kinds produce no
+ * facts, so a plan can never create one. An object the shadow has and the target
+ * lacks is therefore not a diff the engine will close: it is a prerequisite the
+ * operator still owes their target, and any generated statement depending on it
+ * (an index over a custom text search configuration, say) will FAIL there.
+ *
+ * Direction matters. Only shadow-present / target-missing is reported: a target
+ * with EXTRA unmodeled objects is not drift for this purpose — nothing the plan
+ * emits can depend on an object the desired state never mentioned, and those
+ * extras already surface as the target's own `unmodeled_kind` warnings.
+ *
+ * Pure and catalog-sourced: it compares two probe results and parses no SQL.
+ */
+export function detectUnmodeledDrift(
+  shadow: UnmodeledIdentities,
+  target: UnmodeledIdentities,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const kinds = [...shadow.keys()].sort((a, b) => a.localeCompare(b));
+  for (const kind of kinds) {
+    const present = new Set(target.get(kind) ?? []);
+    const missing = (shadow.get(kind) ?? []).filter((n) => !present.has(n));
+    if (missing.length === 0) continue;
+    const listed = missing.slice(0, DRIFT_NAME_LIMIT);
+    const more =
+      missing.length > listed.length ? `, … (${missing.length} total)` : "";
+    diagnostics.push({
+      code: "unmodeled_drift",
+      severity: "warning",
+      message:
+        `${missing.length} unmodeled "${kind}" object${missing.length === 1 ? "" : "s"} ` +
+        `exist in the desired state (shadow) but NOT on the target ` +
+        `(${listed.join(", ")}${more}) — this engine models no facts for this kind, ` +
+        `so no planned statement can create them, and any planned statement that ` +
+        `depends on one will fail on the target. Deliver them through the same ` +
+        `migration channel that delivers your _custom/ SQL, then re-plan`,
+      context: { kind, count: missing.length, missing },
     });
   }
   return diagnostics;

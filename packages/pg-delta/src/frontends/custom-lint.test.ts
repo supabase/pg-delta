@@ -119,13 +119,15 @@ describe("lintCustomMigrationRefs", () => {
       ),
     ];
     // default: all three fire
-    expect(lintCustomMigrationRefs(root, files).map((f) => f.code).sort()).toEqual(
-      [
-        "custom_conflicting_migration_ref",
-        "custom_dangling_migration_ref",
-        "custom_missing_migration_ref",
-      ],
-    );
+    expect(
+      lintCustomMigrationRefs(root, files)
+        .map((f) => f.code)
+        .sort(),
+    ).toEqual([
+      "custom_conflicting_migration_ref",
+      "custom_dangling_migration_ref",
+      "custom_missing_migration_ref",
+    ]);
     // off: a recorded-but-WRONG ref is always a bug, so only the missing rule goes
     expect(
       lintCustomMigrationRefs(root, files, { missingRef: "off" })

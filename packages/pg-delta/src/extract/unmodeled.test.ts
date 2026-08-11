@@ -40,9 +40,8 @@ function fakeQueryable(rows: IdentityRow[]): {
   };
 }
 
-const identities = (
-  entries: Record<string, string[]>,
-): UnmodeledIdentities => new Map(Object.entries(entries));
+const identities = (entries: Record<string, string[]>): UnmodeledIdentities =>
+  new Map(Object.entries(entries));
 
 describe("probeUnmodeledIdentities", () => {
   test("returns the FULL identity list per kind, dropping empty kinds", async () => {

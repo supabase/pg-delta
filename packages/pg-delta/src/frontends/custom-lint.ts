@@ -40,6 +40,18 @@ export interface LintCustomMigrationRefsOptions {
   /** Existence probe for a resolved migration path. Injectable for tests;
    *  defaults to `existsSync`. */
   exists?: (absolutePath: string) => boolean;
+  /**
+   * `custom_missing_migration_ref` only. `"off"` is for frontends that maintain
+   * the directive THEMSELVES (fold-into-migration delivery — see
+   * custom-files.ts): under those, an absent directive means "not folded in
+   * yet", which is the frontend's business and not a finding to nag the user
+   * about. Default `"warn"`.
+   *
+   * Deliberately scoped to the missing rule: the dangling and conflicting rules
+   * are never suppressible, because a recorded-but-WRONG reference is a bug no
+   * matter who wrote it.
+   */
+  missingRef?: "warn" | "off";
 }
 
 /**
@@ -72,6 +84,7 @@ export function lintCustomMigrationRefs(
     }
     if (hasNone) continue; // deliberate opt-out: nothing to resolve
     if (paths.length === 0) {
+      if (options.missingRef === "off") continue;
       findings.push({
         code: "custom_missing_migration_ref",
         file: file.name,

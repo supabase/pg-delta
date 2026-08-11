@@ -145,6 +145,27 @@ kinds) plus idempotent DML — and keep modeled DDL out (`schema lint` warns).
   `schema lint` reports missing, dangling and conflicting references, and
   modeled DDL parked in the folder, as warnings.
 
+Because the folder feeds only the shadow, planning **pre-flights the gap it
+creates**: an `unmodeled_drift` warning (printed under the `[drift]` label) names
+every unmodeled object the shadow has and the target lacks — `3 unmodeled "cast"
+objects exist in the desired state (shadow) but NOT on the target (…)`. No
+planned statement can create one (unmodeled kinds produce no facts), so a
+statement that depends on one fails on the target; deliver it through your
+migration channel first. It is catalog-sourced (no SQL parsing), non-blocking by
+default, and blocking under `--strict-coverage`.
+
+Frontends that own the migration channel can automate delivery instead of asking
+the user to. `listCustomFiles(root)` returns every `_custom/**/*.sql` with its
+body and parsed directives, plus a `delivered` flag (a recorded migration, or an
+explicit `none`); a frontend appends the undelivered ones to the catch-up
+migration it already generates and stamps the directive back, taking run-once
+semantics from its own migration ledger. pg-delta still executes nothing.
+
+Under such a frontend the user never maintains the directive by hand, so
+`schema lint --custom-migration-refs off` silences `custom_missing_migration_ref`
+alone — the dangling and conflicting rules always fire, because a recorded-but-
+wrong reference is a bug whoever wrote it.
+
 Full contract: [custom-folder.md](https://github.com/supabase/pg-toolbelt/blob/main/docs/architecture/custom-folder.md).
 
 ## Integration profiles

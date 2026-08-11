@@ -50,7 +50,9 @@ describe("hasBlockingDiagnostics", () => {
     // the shadow has an unmodeled object the target lacks: no planned statement
     // can create it, so a plan depending on it fails on the target
     expect(hasBlockingDiagnostics([drift])).toBe(false);
-    expect(hasBlockingDiagnostics([drift], { strictCoverage: true })).toBe(true);
+    expect(hasBlockingDiagnostics([drift], { strictCoverage: true })).toBe(
+      true,
+    );
   });
 
   test("info/warning diagnostics do not block in the default mode", () => {

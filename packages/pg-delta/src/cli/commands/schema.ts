@@ -42,6 +42,12 @@
  *   loaded, extracted, and whatever it created that the engine does not model
  *   produces no facts and therefore cannot enter a plan.
  *
+ *   Which is why planning also PRE-FLIGHTS that gap: an `unmodeled_drift`
+ *   warning (labelled `[drift]`) names every unmodeled object the shadow has and
+ *   the target lacks, because no planned statement can create one and a planned
+ *   statement depending on one will fail on the target. Deliver it through your
+ *   migration channel first. `--strict-coverage` makes it blocking.
+ *
  *   By default the SQL files are passed through the statement-reordering assist
  *   (target-architecture §4.4.1): each file is split into one-statement units
  *   and topologically pre-sorted before loading, so authoring order within a
@@ -92,7 +98,7 @@
  *     path right after planning, before apply (or the --dry-run script). Useful
  *     for inspecting/archiving the exact plan a `schema apply` run executed.
  *
- * schema lint --dir <dir>
+ * schema lint --dir <dir> [--custom-migration-refs warn|off]
  *   Static analysis only — no database. Reports the pg-topo findings (cycles,
  *   unknown statement classes, duplicate producers, …) plus the `_custom/`
  *   bookkeeping rules (frontends/custom-lint.ts), all as non-blocking warnings:
@@ -101,6 +107,13 @@
  *   directive) and custom_modeled_kind (modeled DDL parked in `_custom/`, which
  *   the next export would duplicate). Hygiene lives in lint alone: export and
  *   apply never fail on it, and --strict-coverage cannot reach these codes.
+ *
+ *   --custom-migration-refs warn|off   (default warn)
+ *     `off` silences custom_missing_migration_ref only — for frontends that
+ *     maintain the directive themselves by folding undelivered custom files into
+ *     a generated migration (frontends/custom-files.ts `listCustomFiles`). The
+ *     dangling and conflicting rules always fire: a recorded-but-WRONG reference
+ *     is a bug whoever wrote it.
  */
 import type { Pool } from "pg";
 import {
@@ -945,10 +958,21 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
 
     printDiagnostics(planned.loadDiagnostics, { label: "shadow" });
     printDiagnostics(planned.targetDiagnostics, { label: "target" });
-    exitIfBlocking([...planned.loadDiagnostics, ...planned.targetDiagnostics], {
-      strictCoverage: flags["strict-coverage"],
-      action: "apply",
-    });
+    // `unmodeled_drift` is neither side's extraction output but a comparison of
+    // the two, so it gets its own label — and it gates like the other coverage
+    // gaps under --strict-coverage.
+    printDiagnostics(planned.driftDiagnostics, { label: "drift" });
+    exitIfBlocking(
+      [
+        ...planned.loadDiagnostics,
+        ...planned.targetDiagnostics,
+        ...planned.driftDiagnostics,
+      ],
+      {
+        strictCoverage: flags["strict-coverage"],
+        action: "apply",
+      },
+    );
 
     const thePlan = planned.plan;
     process.stderr.write(`Planning: ${thePlan.actions.length} action(s)\n`);
@@ -1123,11 +1147,13 @@ export async function cmdSchemaLint(args: string[]): Promise<void> {
   try {
     parsed = parseFlags(args, {
       dir: { type: "value", required: true },
+      "custom-migration-refs": { type: "value" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       throw new UsageError(
-        `${err.message}\nUsage: pgdelta schema lint --dir <dir>`,
+        `${err.message}\nUsage: pgdelta schema lint --dir <dir> ` +
+          `[--custom-migration-refs warn|off]`,
       );
     }
     throw err;
@@ -1135,6 +1161,12 @@ export async function cmdSchemaLint(args: string[]): Promise<void> {
 
   const { flags } = parsed;
   const dir = flags["dir"];
+  const missingRefMode = flags["custom-migration-refs"] ?? "warn";
+  if (missingRefMode !== "warn" && missingRefMode !== "off") {
+    throw new UsageError(
+      `--custom-migration-refs must be warn or off (got: ${missingRefMode})`,
+    );
+  }
   const files = collectSqlFiles(dir);
   if (files.length === 0) {
     process.stderr.write(`No .sql files found in ${dir}.\n`);
@@ -1174,7 +1206,9 @@ export async function cmdSchemaLint(args: string[]): Promise<void> {
   // lint-only warnings and never blocking. The directive rules are pure fs work,
   // so they run BEFORE the pg-topo analysis — an absent optional peer must not
   // swallow findings that never needed it.
-  const customFindings = lintCustomMigrationRefs(dir, files);
+  const customFindings = lintCustomMigrationRefs(dir, files, {
+    missingRef: missingRefMode,
+  });
 
   // Pure static analysis — no shadow/target database. Surfaces pg-topo
   // diagnostics (cycles, unknown statements, duplicate producers, …) for

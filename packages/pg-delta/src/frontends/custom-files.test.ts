@@ -40,13 +40,14 @@ describe("listCustomFiles", () => {
   });
 
   test("returns an empty list when the reserved folder does not exist", () => {
-    expect(listCustomFiles(rootWith({ "schemas/x.sql": "select 1;\n" }))).toEqual(
-      [],
-    );
+    expect(
+      listCustomFiles(rootWith({ "schemas/x.sql": "select 1;\n" })),
+    ).toEqual([]);
   });
 
   test("carries the file body verbatim", () => {
-    const body = "-- pgdelta-migration: none\ncreate cast (text as int) with inout;\n";
+    const body =
+      "-- pgdelta-migration: none\ncreate cast (text as int) with inout;\n";
     const root = rootWith({ "_custom/casts.sql": body });
     expect(listCustomFiles(root)[0]?.sql).toBe(body);
   });
@@ -57,7 +58,10 @@ describe("listCustomFiles", () => {
         "-- pgdelta-migration: ../migrations/1.sql\n-- pgdelta-migration: ../migrations/2.sql\n\nselect 1;\n",
     });
     const [f] = listCustomFiles(root);
-    expect(f?.migrations).toEqual(["../migrations/1.sql", "../migrations/2.sql"]);
+    expect(f?.migrations).toEqual([
+      "../migrations/1.sql",
+      "../migrations/2.sql",
+    ]);
     expect(f?.hasNone).toBe(false);
     expect(f?.delivered).toBe(true);
   });
