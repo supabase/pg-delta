@@ -217,7 +217,7 @@ describe("writeExportFiles", () => {
     );
   });
 
-  test("does not rewrite a byte-identical file (mtime stays stable for build tools)", () => {
+  test("does not rewrite a byte-identical file or manifest (mtimes stay stable for build tools)", () => {
     const target = join(root, "mtime");
     const file = {
       name: join("schemas", "app", "t.sql"),
@@ -227,8 +227,10 @@ describe("writeExportFiles", () => {
     // Pin a clearly-in-the-past mtime so a rewrite is unambiguous even on
     // filesystems with coarse timestamp resolution.
     const full = join(target, "schemas", "app", "t.sql");
+    const manifest = join(target, ".pgdelta-export.json");
     const past = new Date("2020-01-01T00:00:00Z");
     utimesSync(full, past, past);
+    utimesSync(manifest, past, past);
     const { unchanged } = writeExportFiles(
       target,
       [file],
@@ -237,6 +239,9 @@ describe("writeExportFiles", () => {
     );
     expect(unchanged).toEqual([full]);
     expect(statSync(full).mtime).toEqual(past);
+    // A watcher on the whole directory must not fire on an identical
+    // re-export: the byte-identical manifest is skipped like the .sql files.
+    expect(statSync(manifest).mtime).toEqual(past);
   });
 
   test("--prune-unmanaged deletes the unmanaged file and proceeds", () => {
