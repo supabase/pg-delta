@@ -19,7 +19,7 @@ function referenceSort(
   edges: Edge[],
   keyOf: (n: number) => string,
 ): number[] {
-  const indegree = new Array<number>(nodeCount).fill(0);
+  const indegree = Array.from({ length: nodeCount }, () => 0);
   const adjacency: number[][] = Array.from({ length: nodeCount }, () => []);
   const seen = new Set<string>();
   for (const [u, v] of edges) {

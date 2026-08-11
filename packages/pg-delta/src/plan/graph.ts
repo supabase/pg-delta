@@ -88,7 +88,7 @@ export function topoSort(
   // action list, rule resolver, subject-key override and evaluator set), so
   // memoizing per index is transparent: the heap sees exactly the same keys, and
   // therefore produces exactly the same order.
-  const tieKeys = new Array<string | undefined>(nodeCount);
+  const tieKeys = Array.from<string | undefined>({ length: nodeCount });
   const memoizedTieKeyOf = (node: number): string => {
     const cached = tieKeys[node];
     if (cached !== undefined) return cached;

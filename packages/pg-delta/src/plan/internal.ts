@@ -818,10 +818,7 @@ function buildAdpIndex(
   return index;
 }
 
-function adpCustomizesObjtype(
-  adp: AdpIndex,
-  target: StableId,
-): boolean {
+function adpCustomizesObjtype(adp: AdpIndex, target: StableId): boolean {
   const objtype = ruleFlag(target.kind, "defaclObjtype");
   if (objtype === undefined) return false; // kind has no default-ACL mechanism
   const entry = adp.get(objtype);

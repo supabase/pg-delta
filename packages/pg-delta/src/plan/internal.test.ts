@@ -384,7 +384,9 @@ describe("elideDefaultAclCreates", () => {
 
     test("without a capability, ANY role's ADP counts → kept", () => {
       expect(
-        publicUsageOnType([{ role: "someone_else", schema: null, objtype: "T" }]),
+        publicUsageOnType([
+          { role: "someone_else", schema: null, objtype: "T" },
+        ]),
       ).toBe(true);
     });
 
@@ -444,9 +446,9 @@ describe("elideDefaultAclCreates", () => {
     });
 
     test("schema-scoped ADP cannot apply to a schema target → elided", () => {
-      expect(ownerAclOnSchema({ role: "test", schema: "s", objtype: "n" })).toBe(
-        false,
-      );
+      expect(
+        ownerAclOnSchema({ role: "test", schema: "s", objtype: "n" }),
+      ).toBe(false);
     });
   });
 });
