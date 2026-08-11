@@ -474,12 +474,6 @@ export function plan(
     ...(options?.policy ? flattenPolicy(options.policy).assumedRoles : []),
     ...(options?.assumedRoles ?? []),
   ]);
-  // Snapshot of the DECLARED assumed roles (policy + explicit options), taken
-  // before the dangling-owner auto-add below widens `assumedRoleNames`: the
-  // platform-provisioned discriminator further down must key off the policy's
-  // own role list, not off every role that merely owns something under
-  // database scope.
-  const declaredAssumedRoleNames = new Set(assumedRoleNames);
 
   // Database-scope projection RETAINS `owner` edges to scope-projected roles as
   // dangling assumed references (view.ts), so a kept `ALTER … OWNER TO <role>`
@@ -519,18 +513,30 @@ export function plan(
   // Threaded into the action-graph requirement guard only — never
   // ordering/edges. Empty under the raw/no-policy path and for callers that
   // pass an already-resolved view (its owner edges to excluded roles are gone).
+  //
+  // The owner must be a role the POLICY declares assumed — NOT one merely
+  // supplemented via `options.assumedRoles`, and NOT one auto-assumed from a
+  // dangling owner edge: the database-scoped apply frontend passes EVERY role
+  // found on the target through `options.assumedRoles` (schema-plan.ts), so
+  // keying off the combined set would mark a user-role-owned object in an
+  // assumed schema as platform-provisioned and silence the fail-fast (Codex P1
+  // on PR #407). Only the policy's own list carries the platform-provenance
+  // judgment.
+  const policyAssumedRoleNames = new Set(
+    options?.policy ? flattenPolicy(options.policy).assumedRoles : [],
+  );
   const resolvedDefaultOwner =
     options?.defaultOwner ??
     (options?.policy ? flattenPolicy(options.policy).defaultOwner : undefined);
   const assumedPresentIds = new Set<string>();
-  if (declaredAssumedRoleNames.size > 0) {
+  if (policyAssumedRoleNames.size > 0) {
     for (const fb of [rawSource, rawDesired]) {
       for (const e of fb.edges) {
         if (e.kind !== "owner" || e.to.kind !== "role") continue;
         const schema = (e.from as { schema?: string }).schema;
         if (schema === undefined || !assumedSchemaNames.has(schema)) continue;
         const owner = (e.to as { name: string }).name;
-        if (!declaredAssumedRoleNames.has(owner)) continue;
+        if (!policyAssumedRoleNames.has(owner)) continue;
         if (owner === resolvedDefaultOwner) continue;
         assumedPresentIds.add(encodeId(e.from));
       }

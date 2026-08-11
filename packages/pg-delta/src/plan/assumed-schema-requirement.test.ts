@@ -211,4 +211,19 @@ describe("plan() — platform-provisioned members of assumed schemas", () => {
       }),
     ).toThrow(/missing requirement/);
   });
+
+  test("supplemental options.assumedRoles (target roles under database scope) do not widen the exemption", () => {
+    // The database-scoped schema-apply frontend passes EVERY role found on the
+    // target through options.assumedRoles (schema-plan.ts) so grants/ownership
+    // against filtered role objects resolve. That supplemental set must not
+    // feed the platform-provisioned discriminator: an assumed-schema object
+    // owned by a pre-existing USER role is still user-created, and nothing
+    // will provision it on the target (Codex P1 on PR #407).
+    expect(() =>
+      plan(sourceBase(), desiredBase("app_admin"), {
+        policy: supabasePolicy,
+        assumedRoles: ["app_admin"],
+      }),
+    ).toThrow(/missing requirement/);
+  });
 });
