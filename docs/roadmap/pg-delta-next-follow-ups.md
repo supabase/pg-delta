@@ -831,3 +831,28 @@ oversized key past its advertised total-length budget. One further finding is
   exactly this divergence, so the failure is pre-announced. Revisit if a real
   profile hits it.
 
+
+## PR #407 review triage (Codex) — platform-provisioned assumed-schema members
+
+Context: PR #407 exempts platform-provisioned members of assumed schemas
+(system-role-owned, e.g. `supabase_functions.http_request()`) from the
+action-graph missing-requirement guard, so a DB-webhook trigger plans against
+a target that has never had webhooks provisioned (Sentry SUPABASE-API-8CX).
+Two round-2 findings were fixed in the PR (run-level `defaultOwner` override
+excluded from provenance; descendant closure). One is **deferred by design**:
+
+- **Deferred — the plan neither creates the platform object nor proves against
+  a target that lacks it ("materialize the dependency before bypassing the
+  guard", Codex P1).** Deliberate: the policy's managed view EXCLUDES platform
+  objects — a user plan must never `CREATE SCHEMA supabase_functions` /
+  `CREATE FUNCTION … http_request` (it may lack the privileges and would claim
+  platform state as user state). "Assumed present" is the same contract as
+  `assumedRoles`/`assumedSchemas`: a plan with `GRANT … TO anon` or
+  `CREATE EXTENSION … SCHEMA extensions` equally fails on a target where the
+  platform never provisioned those; the platform (mgmt-api / Supabase image
+  migrations) owns provisioning, outside the plan. Consequence, accepted: an
+  `apply()`/`provePlan()` run against a bare clone that lacks the webhooks
+  infra fails at the CREATE TRIGGER — the same failure mode the other assumed
+  kinds already have. Revisit only alongside the committed Supabase baseline
+  (docs/roadmap/backlog.md), which is the mechanism that could seed platform
+  objects into proof clones for all assumed kinds at once.

@@ -5,7 +5,7 @@
 import { INTENT_UNKEYED, USER_MAPPING_UNREADABLE } from "../core/diagnostic.ts";
 import { subjectOf, type Delta } from "../core/diff.ts";
 import type { FactBase } from "../core/fact.ts";
-import { encodeId, type StableId } from "../core/stable-id.ts";
+import { encodeId, isSatelliteId, type StableId } from "../core/stable-id.ts";
 import { flattenPolicy, type Policy } from "../policy/policy.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
 import {
@@ -514,20 +514,29 @@ export function plan(
   // ordering/edges. Empty under the raw/no-policy path and for callers that
   // pass an already-resolved view (its owner edges to excluded roles are gone).
   //
-  // The owner must be a role the POLICY declares assumed — NOT one merely
-  // supplemented via `options.assumedRoles`, and NOT one auto-assumed from a
-  // dangling owner edge: the database-scoped apply frontend passes EVERY role
-  // found on the target through `options.assumedRoles` (schema-plan.ts), so
-  // keying off the combined set would mark a user-role-owned object in an
-  // assumed schema as platform-provisioned and silence the fail-fast (Codex P1
-  // on PR #407). Only the policy's own list carries the platform-provenance
-  // judgment.
-  const policyAssumedRoleNames = new Set(
-    options?.policy ? flattenPolicy(options.policy).assumedRoles : [],
-  );
-  const resolvedDefaultOwner =
-    options?.defaultOwner ??
-    (options?.policy ? flattenPolicy(options.policy).defaultOwner : undefined);
+  // The provenance judgment is derived from the POLICY alone — its declared
+  // `assumedRoles` minus its own declared `defaultOwner`:
+  //  - NOT `options.assumedRoles`: the database-scoped apply frontend passes
+  //    EVERY role found on the target through it (schema-plan.ts), so the
+  //    combined set would mark a user-role-owned object in an assumed schema
+  //    as platform-provisioned and silence the fail-fast (Codex P1 #1,
+  //    PR #407);
+  //  - NOT the run-level `options.defaultOwner` override: the policy declares
+  //    `postgres` assumed only so ownership/grant references resolve — objects
+  //    it owns are the USER's, and a custom `--default-owner` must not
+  //    reclassify them as platform-provisioned (Codex P1 #2, PR #407).
+  // The exemption then covers the owner-bearing root AND its non-satellite
+  // descendants: extraction resolves relation subobjects to COLUMN ids
+  // (extract/dependencies.ts), so a dependent's `depends` edge can point at a
+  // column of a platform table — the platform guarantee covers the subtree
+  // (Codex P2, PR #407). Satellites are excluded like extensionMemberClosure
+  // does: a user GRANT/COMMENT on a platform object is user state, never a
+  // depends target.
+  const flatPolicy = options?.policy
+    ? flattenPolicy(options.policy)
+    : undefined;
+  const policyAssumedRoleNames = new Set(flatPolicy?.assumedRoles ?? []);
+  const policyDefaultOwner = flatPolicy?.defaultOwner;
   const assumedPresentIds = new Set<string>();
   if (policyAssumedRoleNames.size > 0) {
     for (const fb of [rawSource, rawDesired]) {
@@ -537,8 +546,18 @@ export function plan(
         if (schema === undefined || !assumedSchemaNames.has(schema)) continue;
         const owner = (e.to as { name: string }).name;
         if (!policyAssumedRoleNames.has(owner)) continue;
-        if (owner === resolvedDefaultOwner) continue;
-        assumedPresentIds.add(encodeId(e.from));
+        if (owner === policyDefaultOwner) continue;
+        const stack: StableId[] = [e.from];
+        while (stack.length > 0) {
+          const id = stack.pop() as StableId;
+          const key = encodeId(id);
+          if (assumedPresentIds.has(key)) continue;
+          assumedPresentIds.add(key);
+          for (const child of fb.childrenOf(id)) {
+            if (isSatelliteId(child.id)) continue;
+            stack.push(child.id);
+          }
+        }
       }
     }
   }
