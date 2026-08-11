@@ -82,7 +82,22 @@ export function topoSort(
     indegree[v] = (indegree[v] as number) + 1;
   }
 
-  const heap = new MinHeap(tieKeyOf);
+  // `keyOf` is consulted inside EVERY heap sift comparison, so the heap asks for
+  // O(n log n) keys over only `nodeCount` distinct nodes. The caller's key is a
+  // pure function of the node index (see `actionTieKey` — it reads the fixed
+  // action list, rule resolver, subject-key override and evaluator set), so
+  // memoizing per index is transparent: the heap sees exactly the same keys, and
+  // therefore produces exactly the same order.
+  const tieKeys = new Array<string | undefined>(nodeCount);
+  const memoizedTieKeyOf = (node: number): string => {
+    const cached = tieKeys[node];
+    if (cached !== undefined) return cached;
+    const key = tieKeyOf(node);
+    tieKeys[node] = key;
+    return key;
+  };
+
+  const heap = new MinHeap(memoizedTieKeyOf);
   for (let i = 0; i < nodeCount; i++) if (indegree[i] === 0) heap.push(i);
 
   const order: number[] = [];
