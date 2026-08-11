@@ -50,7 +50,7 @@
  * are derived from OUR OWN catalog SQL (catalog relation name + a short prefix),
  * exactly like scripts/perf-timing.ts.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -280,11 +280,22 @@ export interface RunRecord {
   /** Peak number of probe-wrapped clients simultaneously checked OUT of each
    *  side's pool during THIS iteration's extraction interval (reset right
    *  before, read right after `Promise.all([extract source, extract
-   *  target])`). This is the ACTUAL fan-out achieved, as opposed to the
-   *  REQUESTED `extractConcurrency` above — `extract()` silently falls back to
-   *  serial in some conditions (standby / pooler / spare-capacity), so a cell
-   *  can be mislabeled "parallel" if only the requested value is trusted. */
+   *  target])`). This is the ACTUAL fan-out achieved BY CHECKOUT, as opposed
+   *  to the REQUESTED `extractConcurrency` above — `extract()` silently falls
+   *  back to serial in some conditions (standby / pooler / spare-capacity), so
+   *  a cell can be mislabeled "parallel" if only the requested value is
+   *  trusted. CAVEAT: a client counts here the moment it's checked out, even
+   *  if it never issues a query — e.g. a reserved snapshot-export/worker
+   *  client whose setup then fails, leaving extraction to fall back to serial
+   *  on the OTHER clients, still inflates this peak. See `streamsExecuted` for
+   *  the metric that actually distinguishes that case. */
   streamsObserved: Record<Side, number>;
+  /** Distinct clients that EXECUTED at least one extraction-phase query during
+   *  the same reset window as `streamsObserved`. Unlike that checkout-based
+   *  peak, this can't be inflated by a reserved-but-unused worker client — it
+   *  only counts a stream once real work actually ran on it, which is what
+   *  makes it the reliable signal for "extraction actually fanned out". */
+  streamsExecuted: Record<Side, number>;
   runLabel: string | null;
   pgMajor: number | null;
   rttMs: Record<Side, { minMs: number; medianMs: number }>;
@@ -323,6 +334,10 @@ export interface QueryRecord {
   phase: QueryPhase;
   /** Catalog relation + a truncated prefix of OUR OWN SQL. Never user DDL. */
   label: string;
+  /** First 12 hex chars of sha256(full SQL text) — see `sqlHash`. Grouping key
+   *  for the top-queries summary; `label` alone can collide across distinct
+   *  queries. */
+  sqlHash: string;
   ms: number;
   rows: number;
   ok: boolean;
@@ -363,6 +378,33 @@ export function queryLabel(sql: string): string {
   return `${from?.[1] ?? "?"} | ${flat.slice(0, LABEL_SQL_MAX)}`;
 }
 
+/** First 12 hex chars of sha256(sql) — a stable identity for grouping queries
+ *  whose DISPLAYED `queryLabel` (catalog relation + a 60-char prefix) can
+ *  collide across genuinely DIFFERENT SQL — e.g. the three lookups in
+ *  src/extract/types.ts, or routines vs aggregates in src/extract/routines.ts
+ *  both starting `SELECT ... FROM pg_proc`. Grouping the top-queries median by
+ *  label alone silently merges those into one bogus number. */
+function sqlHash(sql: string): string {
+  return createHash("sha256").update(sql).digest("hex").slice(0, 12);
+}
+
+/** node-pg resolves a multi-statement batch (src/extract/scope.ts's
+ *  `makeBatchRunner`) with an ARRAY of per-statement results instead of one —
+ *  `result.rows` is then undefined. Normalize both shapes to a single
+ *  combined rows array so a batched query's sink record isn't silently
+ *  undercounted (rows: 0, and no bytes even with `--bytes`) — same fix as
+ *  scripts/explain-top-queries.ts's probe. */
+function combinedRows(
+  result: { rows: unknown[] } | { rows: unknown[] }[],
+): unknown[] {
+  if (Array.isArray(result)) {
+    const combined: unknown[] = [];
+    for (const one of result) combined.push(...one.rows);
+    return combined;
+  }
+  return result.rows;
+}
+
 /** SQLSTATE of a driver error, or undefined. Deliberately drops `.message`. */
 function errorCode(error: unknown): string | undefined {
   if (error !== null && typeof error === "object") {
@@ -395,6 +437,7 @@ class QuerySink {
   record(
     side: Side,
     label: string,
+    hash: string,
     ms: number,
     rows: unknown[] | undefined,
     ok: boolean,
@@ -409,6 +452,7 @@ class QuerySink {
       seq: this.#seq[side]++,
       phase: this.#phase,
       label,
+      sqlHash: hash,
       ms,
       rows: rows?.length ?? 0,
       ok,
@@ -449,11 +493,18 @@ function callbackArgOf(
  *  opposed to the `--extract-concurrency` value it was asked for. */
 interface QueryProbe {
   detach: () => void;
-  /** Rebase the peak to the CURRENTLY checked-out count, so an earlier phase's
-   *  single connect/release (e.g. the first-connect probe) doesn't pollute the
-   *  peak measured over a later interval (e.g. extraction). */
+  /** Rebase the peak to the CURRENTLY checked-out count and clear the
+   *  executed-clients set, so an earlier phase's single connect/release (e.g.
+   *  the first-connect probe) doesn't pollute either metric measured over a
+   *  later interval (e.g. extraction). */
   resetStreams: () => void;
   peakStreams: () => number;
+  /** Count of DISTINCT clients that have actually EXECUTED at least one query
+   *  since the last `resetStreams()` — as opposed to `peakStreams()`, which
+   *  counts a client the moment it's checked out, even if it's a reserved
+   *  worker client that never issues a query (e.g. snapshot export/worker
+   *  setup failed and extraction fell back to serial). */
+  executedStreams: () => number;
 }
 
 /**
@@ -478,9 +529,11 @@ function attachQueryProbe(
 
   // `active` counts clients currently checked out (connected, not yet
   // released) on THIS pool; `peak` is the high-water mark since the last
-  // `resetStreams()`.
+  // `resetStreams()`. `executedClients` is the distinct set of clients that
+  // actually ISSUED a query since the last reset — see `QueryProbe`.
   let active = 0;
   let peak = 0;
+  const executedClients = new Set<pg.PoolClient>();
 
   const wrapClient = (client: pg.PoolClient | undefined): void => {
     if (client === undefined) return;
@@ -519,7 +572,10 @@ function attachQueryProbe(
     });
     (client as { query: unknown }).query = (...args: unknown[]) => {
       const start = performance.now();
-      const label = queryLabel(sqlTextOf(args[0]));
+      executedClients.add(client);
+      const text = sqlTextOf(args[0]);
+      const label = queryLabel(text);
+      const hash = sqlHash(text);
       const callback = callbackArgOf(args);
       if (callback !== undefined) {
         // Callback overload (pg-pool's internal `Pool.query()` shape) — wrap
@@ -533,6 +589,7 @@ function attachQueryProbe(
             sink.record(
               side,
               label,
+              hash,
               performance.now() - start,
               undefined,
               false,
@@ -542,6 +599,7 @@ function attachQueryProbe(
             sink.record(
               side,
               label,
+              hash,
               performance.now() - start,
               result?.rows,
               true,
@@ -559,13 +617,16 @@ function attachQueryProbe(
       ) {
         return returned;
       }
-      return (returned as Promise<{ rows: unknown[] }>).then(
+      return (
+        returned as Promise<{ rows: unknown[] } | { rows: unknown[] }[]>
+      ).then(
         (result) => {
           sink.record(
             side,
             label,
+            hash,
             performance.now() - start,
-            result.rows,
+            combinedRows(result),
             true,
           );
           return result;
@@ -576,6 +637,7 @@ function attachQueryProbe(
           sink.record(
             side,
             label,
+            hash,
             performance.now() - start,
             undefined,
             false,
@@ -632,8 +694,10 @@ function attachQueryProbe(
     detach,
     resetStreams: () => {
       peak = active;
+      executedClients.clear();
     },
     peakStreams: () => peak,
+    executedStreams: () => executedClients.size,
   };
 }
 
@@ -917,6 +981,10 @@ export async function runBenchmark(
             source: probes.source.peakStreams(),
             target: probes.target.peakStreams(),
           };
+          const streamsExecuted: Record<Side, number> = {
+            source: probes.source.executedStreams(),
+            target: probes.target.executedStreams(),
+          };
 
           // Where cmdPlan calls printDiagnostics + exitIfBlocking. Here advisory
           // diagnostics are only COUNTED (into each side's `diagnostics` field):
@@ -965,6 +1033,7 @@ export async function runBenchmark(
             reverse: options.reverse,
             extractConcurrency: options.extractConcurrency,
             streamsObserved,
+            streamsExecuted,
             runLabel,
             pgMajor: pgMajorOf(sourceResult.pgVersion),
             rttMs,
@@ -1089,17 +1158,23 @@ export function printSummary(
   // extract() silently falls back to serial in some conditions (standby /
   // pooler / spare-capacity) even when more streams were requested — a cell
   // that trusts only `extractConcurrency` can be mislabeled "parallel". Flag
-  // every measured iteration where the ACTUAL peak fan-out fell short.
+  // every measured iteration where the ACTUAL executed fan-out fell short.
+  // `streamsExecuted` (not the checkout-based `streamsObserved`) is used here
+  // on purpose: a reserved-but-unused worker client (e.g. snapshot export
+  // failed, extraction fell back to serial) still counts toward
+  // `streamsObserved`'s peak, masking exactly the case this check exists to
+  // catch.
   const understreamed = measured.filter(
     (run) =>
-      run.streamsObserved.source < run.extractConcurrency ||
-      run.streamsObserved.target < run.extractConcurrency,
+      run.streamsExecuted.source < run.extractConcurrency ||
+      run.streamsExecuted.target < run.extractConcurrency,
   );
   if (understreamed.length > 0) {
     console.log(
-      `\n!!! streamsObserved FELL SHORT of extractConcurrency=${understreamed[0]!.extractConcurrency} ` +
+      `\n!!! streamsExecuted FELL SHORT of extractConcurrency=${understreamed[0]!.extractConcurrency} ` +
         `on ${understreamed.length}/${measured.length} measured iteration(s) — extract() likely fell ` +
-        `back to serial (standby / pooler / spare-capacity). Cells below may be mislabeled "parallel". !!!`,
+        `back to serial (standby / pooler / spare-capacity), or a reserved worker client never ` +
+        `executed a query. Cells below may be mislabeled "parallel". !!!`,
     );
   }
 
@@ -1150,7 +1225,12 @@ export function printSummary(
   }
 
   for (const side of ["source", "target"] as const) {
-    const byLabel = new Map<string, number[]>();
+    // Group by the FULL-SQL hash, not the displayed `label` — `label` is a
+    // catalog relation name + a 60-char prefix, and distinct queries
+    // routinely collide on that (the three lookups in src/extract/types.ts;
+    // routines vs aggregates in src/extract/routines.ts). Grouping by label
+    // would silently merge those into one bogus median.
+    const byHash = new Map<string, { label: string; values: number[] }>();
     for (const query of queries) {
       if (query.side !== side) continue;
       // Warmup and measured iterations both number from 0 — `warmup` (not
@@ -1159,13 +1239,23 @@ export function printSummary(
       // Profile-resolution queries are excluded from the per-side attribution
       // above; keep the top-queries ranking consistent with that.
       if (query.phase !== "extract") continue;
-      const bucket = byLabel.get(query.label);
-      if (bucket === undefined) byLabel.set(query.label, [query.ms]);
-      else bucket.push(query.ms);
+      const bucket = byHash.get(query.sqlHash);
+      if (bucket === undefined) {
+        byHash.set(query.sqlHash, { label: query.label, values: [query.ms] });
+      } else {
+        bucket.values.push(query.ms);
+      }
     }
-    const ranked = [...byLabel.entries()]
-      .map(([label, values]) => ({
-        label,
+    // Two DIFFERENT sqlHash groups can still share the same DISPLAYED label —
+    // disambiguate only those with the hash, so an unambiguous label stays
+    // unadorned.
+    const labelCounts = new Map<string, number>();
+    for (const { label } of byHash.values()) {
+      labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+    }
+    const ranked = [...byHash.entries()]
+      .map(([hash, { label, values }]) => ({
+        label: (labelCounts.get(label) ?? 0) > 1 ? `${label} [${hash}]` : label,
         median: summarize(values).p50,
         count: values.length,
       }))
@@ -1188,6 +1278,40 @@ export function printSummary(
 
 // ── CLI entry ───────────────────────────────────────────────────────────────
 
+/** Best-effort scrub of every connection-string component — AND the raw
+ *  connection strings themselves — from a driver error's message before it is
+ *  ever printed. A non-usage failure (connection refused, auth failure, an
+ *  invalid URL) can otherwise quote the host/port/user/password/database
+ *  straight from the env-provided connection string. Same needle-derivation
+ *  pattern as scripts/benchmark-remote.smoke.ts's local `redact` helper,
+ *  duplicated here because this is the CLI's OWN failure path, not a test. */
+function redactConnectionDetails(text: string): string {
+  const needles: string[] = [];
+  for (const name of [ENV_SOURCE_URL, ENV_TARGET_URL]) {
+    const raw = process.env[name];
+    if (raw === undefined || raw === "") continue;
+    needles.push(raw);
+    try {
+      const parsed = new URL(raw);
+      for (const part of [
+        parsed.hostname,
+        parsed.port,
+        parsed.username,
+        parsed.password,
+      ]) {
+        if (part !== "") needles.push(part);
+      }
+    } catch {
+      // Not a parseable URL — the raw needle above still covers it verbatim.
+    }
+  }
+  let scrubbed = text;
+  for (const needle of needles) {
+    scrubbed = scrubbed.split(needle).join("[redacted]");
+  }
+  return scrubbed;
+}
+
 if (import.meta.main) {
   try {
     await runBenchmark(parseBenchmarkArgs(process.argv.slice(2)));
@@ -1199,6 +1323,20 @@ if (import.meta.main) {
       process.stderr.write(`${USAGE}\n`);
       process.exit(1);
     }
-    throw error;
+    // A non-usage failure (connection refused, auth failure, an invalid URL)
+    // must never reach the console raw — never print `.stack` and never the
+    // unscrubbed `.message`. Print name/code plus a scrubbed message only.
+    const name = error instanceof Error ? error.name : typeof error;
+    const code =
+      error !== null && typeof error === "object" && "code" in error
+        ? String((error as { code: unknown }).code)
+        : undefined;
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    process.stderr.write(
+      `benchmark-remote: fatal name=${name}` +
+        `${code !== undefined ? ` code=${code}` : ""}` +
+        ` message=${redactConnectionDetails(rawMessage)}\n`,
+    );
+    process.exit(1);
   }
 }

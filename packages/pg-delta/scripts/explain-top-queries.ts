@@ -51,6 +51,122 @@ const DEFAULT_ENV_VAR = "PGDELTA_BENCH_SOURCE_URL";
 const DEFAULT_TOP = 8;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 120_000;
 const LABEL_SQL_MAX = 50;
+/** The EXACT delimiter src/extract/scope.ts's `makeBatchRunner` joins a
+ *  batch's statements with before sending them as one multi-statement string —
+ *  splitting a captured batch's SQL back into statements on this delimiter is
+ *  the reverse of that join. NOT safe to do with a plain `.split()` though: our
+ *  own catalog SQL's `--` comments routinely end a sentence with `);` right
+ *  before a line break (see src/extract/scope.ts's ACL helpers, e.g. "...one
+ *  row per grantor);\n"), which is a valid `;\n` substring that is NOT a
+ *  statement boundary. `splitBatchStatements` below is comment/string-aware so
+ *  it only splits on a REAL statement-terminating occurrence. */
+const BATCH_JOIN_DELIMITER = ";\n";
+
+/**
+ * Split a captured batch's SQL back into its constituent statements, aware of
+ * the SQL constructs that can hide a `;\n` substring which is NOT actually a
+ * statement boundary: `--` line comments, block comments, `'...'`
+ * string literals (with `''` escaping), and `$tag$...$tag$` dollar-quoted
+ * strings. This is the exact reverse of `statements.join(";\n")`
+ * (src/extract/scope.ts's `makeBatchRunner`) — every one of our OWN catalog
+ * SQL statements is plain SQL text (no embedded `;\n` of its own outside a
+ * comment), so tracking these four states is sufficient; it does not attempt
+ * to be a general SQL parser.
+ */
+function splitBatchStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = "";
+  let inSingleQuote = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let dollarTag: string | null = null;
+  let i = 0;
+
+  while (i < sql.length) {
+    const ch = sql[i]!;
+    const next = sql[i + 1];
+
+    if (inLineComment) {
+      current += ch;
+      if (ch === "\n") inLineComment = false;
+      i++;
+      continue;
+    }
+    if (inBlockComment) {
+      current += ch;
+      if (ch === "*" && next === "/") {
+        current += next;
+        i += 2;
+        inBlockComment = false;
+        continue;
+      }
+      i++;
+      continue;
+    }
+    if (dollarTag !== null) {
+      if (sql.startsWith(dollarTag, i)) {
+        current += dollarTag;
+        i += dollarTag.length;
+        dollarTag = null;
+        continue;
+      }
+      current += ch;
+      i++;
+      continue;
+    }
+    if (inSingleQuote) {
+      current += ch;
+      if (ch === "'") {
+        if (next === "'") {
+          current += next;
+          i += 2;
+          continue;
+        }
+        inSingleQuote = false;
+      }
+      i++;
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      inLineComment = true;
+      current += ch;
+      i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      current += ch;
+      i++;
+      continue;
+    }
+    if (ch === "'") {
+      inSingleQuote = true;
+      current += ch;
+      i++;
+      continue;
+    }
+    if (ch === "$") {
+      const tagMatch = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/.exec(sql.slice(i));
+      if (tagMatch !== null) {
+        dollarTag = tagMatch[0];
+        current += dollarTag;
+        i += dollarTag.length;
+        continue;
+      }
+    }
+    if (ch === ";" && next === "\n") {
+      statements.push(current);
+      current = "";
+      i += BATCH_JOIN_DELIMITER.length;
+      continue;
+    }
+    current += ch;
+    i++;
+  }
+  if (current.trim().length > 0) statements.push(current);
+  return statements.map((s) => s.trim()).filter((s) => s.length > 0);
+}
 
 // Statements that are session/transaction plumbing, not catalog SELECTs —
 // dropped before ranking. Case-insensitive, matched against the trimmed head.
@@ -164,6 +280,15 @@ interface CapturedQuery {
   rows: number;
   ok: boolean;
   code?: string;
+  /** true when node-pg resolved this `client.query` call with an ARRAY of
+   *  per-statement results — the signal that `sql` is actually a
+   *  multi-statement batch (src/extract/scope.ts's `makeBatchRunner`), not one
+   *  statement. */
+  isBatch: boolean;
+  /** Number of per-statement results node-pg returned for THIS call — ground
+   *  truth for how many statements make up `sql`, straight from node-pg
+   *  rather than inferred by splitting. Present only when `isBatch`. */
+  batchStatementCount?: number;
 }
 
 const WRAPPED = Symbol("pgdelta-explain-wrapped");
@@ -235,13 +360,19 @@ function attachQueryProbe(pool: pg.Pool, sink: CapturedQuery[]): () => void {
         returned as Promise<{ rows: unknown[] } | { rows: unknown[] }[]>
       ).then(
         (result) => {
-          // The session-setup batch (src/extract/scope.ts::makeBatchRunner)
-          // sends a multi-statement string over the simple query protocol, and
-          // node-pg resolves those with an ARRAY of per-statement results
-          // instead of one result object — sum rows across them. That batch's
-          // SQL starts with BEGIN/SET, so NON_QUERY_PREFIXES already excludes
-          // it from EXPLAIN ranking below regardless of its row count.
-          const rows = Array.isArray(result)
+          // src/extract/scope.ts::makeBatchRunner sends a multi-statement
+          // string over the simple query protocol, and node-pg resolves those
+          // with an ARRAY of per-statement results instead of one result
+          // object — sum rows across them. The session-setup batch's SQL
+          // starts with BEGIN/SET, so NON_QUERY_PREFIXES already excludes it
+          // from EXPLAIN ranking below regardless of its row count — but the
+          // cheap-tail catalog batches (the ~12 batched extraction families)
+          // do NOT start with those prefixes and CAN rank; `isBatch` /
+          // `batchStatementCount` below is what lets the EXPLAIN pass split
+          // one back into its constituent statements instead of EXPLAINing
+          // (and mis-parsing) the whole joined string.
+          const isBatch = Array.isArray(result);
+          const rows = isBatch
             ? result.reduce((sum, one) => sum + one.rows.length, 0)
             : result.rows.length;
           sink.push({
@@ -249,6 +380,8 @@ function attachQueryProbe(pool: pg.Pool, sink: CapturedQuery[]): () => void {
             ms: performance.now() - start,
             rows,
             ok: true,
+            isBatch,
+            ...(isBatch ? { batchStatementCount: result.length } : {}),
           });
           return result;
         },
@@ -259,6 +392,7 @@ function attachQueryProbe(pool: pg.Pool, sink: CapturedQuery[]): () => void {
             ms: performance.now() - start,
             rows: 0,
             ok: false,
+            isBatch: false,
             ...(code !== undefined ? { code } : {}),
           });
           throw error;
@@ -367,6 +501,8 @@ interface RankedQuery {
   sql: string;
   captureMs: number;
   rows: number;
+  isBatch: boolean;
+  batchStatementCount?: number;
 }
 
 async function main(options: ExplainOptions): Promise<void> {
@@ -415,7 +551,15 @@ async function main(options: ExplainOptions): Promise<void> {
       (q) => q.ok && !NON_QUERY_PREFIXES.test(q.sql.trim()),
     );
     const ranked: RankedQuery[] = candidates
-      .map((q) => ({ sql: q.sql, captureMs: q.ms, rows: q.rows }))
+      .map((q) => ({
+        sql: q.sql,
+        captureMs: q.ms,
+        rows: q.rows,
+        isBatch: q.isBatch,
+        ...(q.batchStatementCount !== undefined
+          ? { batchStatementCount: q.batchStatementCount }
+          : {}),
+      }))
       .sort((a, b) => b.captureMs - a.captureMs)
       .slice(0, options.top);
 
@@ -436,7 +580,7 @@ async function main(options: ExplainOptions): Promise<void> {
     // `main` once cleanup is done. Individual per-query failures are already
     // savepoint-isolated (see the try/catch inside the loop) and never set this.
     let fatalError: unknown;
-    const rows: Array<{
+    interface ReportRow {
       label: string;
       captureMs: number;
       executionMs: number | null;
@@ -446,7 +590,84 @@ async function main(options: ExplainOptions): Promise<void> {
       actualRows: number | null;
       topNodes: string[];
       error: { code: string | undefined; name: string } | null;
-    }> = [];
+    }
+    const rows: ReportRow[] = [];
+
+    // Runs one EXPLAIN under its own SAVEPOINT (so a failure — e.g. a
+    // statement_timeout on a heavy query — only aborts back to this
+    // savepoint, not the whole shared transaction) and writes its artifact.
+    // Shared between the single-statement path and each statement of a
+    // split batch below, so both report identically-shaped rows.
+    const explainOne = async (
+      sql: string,
+      label: string,
+      captureMs: number,
+      filename: string,
+    ): Promise<ReportRow> => {
+      try {
+        await client.query("SAVEPOINT q");
+        const explainResult = await client.query(
+          `EXPLAIN (ANALYZE, BUFFERS, SETTINGS, FORMAT JSON) ${sql}`,
+        );
+        await client.query("RELEASE SAVEPOINT q");
+        const plan = (explainResult.rows[0] as { "QUERY PLAN": ExplainPlan[] })[
+          "QUERY PLAN"
+        ][0]!;
+        const allNodes = flattenNodes(plan.Plan);
+        const topNodes = [...allNodes]
+          .sort((a, b) => nodeTotalMs(b) - nodeTotalMs(a))
+          .slice(0, 3)
+          .map(describeNode);
+
+        writeFileSync(
+          `${artifactsDir}${filename}`,
+          JSON.stringify({ sql, captureMs, plan }, null, 2),
+          "utf8",
+        );
+
+        return {
+          label,
+          captureMs,
+          executionMs: plan["Execution Time"] ?? null,
+          planningMs: plan["Planning Time"] ?? null,
+          sharedHit: rootBuffers(plan.Plan, "Shared Hit Blocks"),
+          sharedRead: rootBuffers(plan.Plan, "Shared Read Blocks"),
+          actualRows: plan.Plan["Actual Rows"] ?? null,
+          topNodes,
+          error: null,
+        };
+      } catch (error) {
+        // Roll back to the savepoint so the shared transaction stays usable
+        // for the remaining ranked queries/statements — a bare catch here
+        // would leave it aborted and every subsequent EXPLAIN would fail with
+        // 25P02.
+        await client.query("ROLLBACK TO SAVEPOINT q").catch(() => {});
+        writeFileSync(
+          `${artifactsDir}${filename}`,
+          JSON.stringify(
+            {
+              sql,
+              captureMs,
+              error: { code: errorCode(error), name: errorName(error) },
+            },
+            null,
+            2,
+          ),
+          "utf8",
+        );
+        return {
+          label,
+          captureMs,
+          executionMs: null,
+          planningMs: null,
+          sharedHit: null,
+          sharedRead: null,
+          actualRows: null,
+          topNodes: [],
+          error: { code: errorCode(error), name: errorName(error) },
+        };
+      }
+    };
 
     try {
       // Reproduce extraction's exact session semantics (src/extract/extract.ts
@@ -477,78 +698,54 @@ async function main(options: ExplainOptions): Promise<void> {
         const query = ranked[i]!;
         const label = queryLabel(query.sql);
         const slug = slugOf(query.sql);
-        const filename = `${i + 1}-${slug}.json`;
 
-        // A failed EXPLAIN (e.g. statement_timeout firing on a heavy query)
-        // aborts the shared transaction — every later query would then fail with
-        // 25P02 (in_failed_sql_transaction) instead of its own error. A SAVEPOINT
-        // around each EXPLAIN scopes the damage to just that one query.
-        try {
-          await client.query("SAVEPOINT q");
-          const explainResult = await client.query(
-            `EXPLAIN (ANALYZE, BUFFERS, SETTINGS, FORMAT JSON) ${query.sql}`,
-          );
-          await client.query("RELEASE SAVEPOINT q");
-          const plan = (
-            explainResult.rows[0] as { "QUERY PLAN": ExplainPlan[] }
-          )["QUERY PLAN"][0]!;
-          const allNodes = flattenNodes(plan.Plan);
-          const topNodes = [...allNodes]
-            .sort((a, b) => nodeTotalMs(b) - nodeTotalMs(a))
-            .slice(0, 3)
-            .map(describeNode);
-
-          writeFileSync(
-            `${artifactsDir}${filename}`,
-            JSON.stringify(
-              { sql: query.sql, captureMs: query.captureMs, plan },
-              null,
-              2,
-            ),
-            "utf8",
-          );
-
-          rows.push({
-            label,
-            captureMs: query.captureMs,
-            executionMs: plan["Execution Time"] ?? null,
-            planningMs: plan["Planning Time"] ?? null,
-            sharedHit: rootBuffers(plan.Plan, "Shared Hit Blocks"),
-            sharedRead: rootBuffers(plan.Plan, "Shared Read Blocks"),
-            actualRows: plan.Plan["Actual Rows"] ?? null,
-            topNodes,
-            error: null,
-          });
-        } catch (error) {
-          // Roll back to the savepoint so the shared transaction stays usable for
-          // the remaining ranked queries — a bare catch here would leave it
-          // aborted and every subsequent EXPLAIN would fail with 25P02.
-          await client.query("ROLLBACK TO SAVEPOINT q").catch(() => {});
-          rows.push({
-            label,
-            captureMs: query.captureMs,
-            executionMs: null,
-            planningMs: null,
-            sharedHit: null,
-            sharedRead: null,
-            actualRows: null,
-            topNodes: [],
-            error: { code: errorCode(error), name: errorName(error) },
-          });
-          writeFileSync(
-            `${artifactsDir}${filename}`,
-            JSON.stringify(
-              {
-                sql: query.sql,
-                captureMs: query.captureMs,
-                error: { code: errorCode(error), name: errorName(error) },
-              },
-              null,
-              2,
-            ),
-            "utf8",
-          );
+        if (query.isBatch) {
+          // EXPLAIN accepts exactly ONE statement. Sending
+          // `EXPLAIN (...) stmt1;\nstmt2;\n...` as one string over the simple
+          // protocol would EXPLAIN only stmt1 and silently EXECUTE the rest
+          // unexplained — and `explainResult.rows[0]` below would break
+          // anyway, since node-pg resolves a multi-statement call with an
+          // ARRAY of results, not one object. Split the ORIGINAL captured SQL
+          // back into its statements (comment/string-aware — see
+          // `splitBatchStatements`) and EXPLAIN each one individually.
+          const statements = splitBatchStatements(query.sql);
+          if (statements.length !== query.batchStatementCount) {
+            // The delimiter split didn't reproduce node-pg's own statement
+            // count for this call — refuse to guess which piece is which
+            // rather than risk EXPLAINing the wrong SQL under a misleading
+            // label.
+            rows.push({
+              label: `${label} [batch: split mismatch]`,
+              captureMs: query.captureMs,
+              executionMs: null,
+              planningMs: null,
+              sharedHit: null,
+              sharedRead: null,
+              actualRows: null,
+              topNodes: [],
+              error: { code: undefined, name: "BatchSplitMismatchError" },
+            });
+            continue;
+          }
+          for (let j = 0; j < statements.length; j++) {
+            const statement = statements[j]!;
+            const filename = `${i + 1}-${slug}-${j + 1}.json`;
+            rows.push(
+              await explainOne(
+                statement,
+                `${label} [${j + 1}/${statements.length}]`,
+                query.captureMs,
+                filename,
+              ),
+            );
+          }
+          continue;
         }
+
+        const filename = `${i + 1}-${slug}.json`;
+        rows.push(
+          await explainOne(query.sql, label, query.captureMs, filename),
+        );
       }
 
       await client.query("ROLLBACK");
