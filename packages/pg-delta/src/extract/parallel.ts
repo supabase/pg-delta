@@ -4,14 +4,16 @@
  * still ONE consistent moment in database time (see extract.ts's capture model).
  *
  * Why: on a remote database the serial extractor's cost is dominated by
- * serialization, not work — ~40 catalog round trips, each paying full RTT, then
- * server execution, then result transfer, one after another. Fanning the
- * families out over a few connections attacks all three at once. The engine is
- * unusually well shaped for this: every family takes only an `ExtractContext`,
- * there are no per-family caches or module-level mutable state, and the ONLY
- * cross-family read in the whole extractor is `extractDependencyEdges` reading
- * `ctx.facts` — which is why that one family is split into a schedulable SQL half
- * and a post-join processing half (see ./dependencies.ts).
+ * serialization, not work — a sequence of catalog round trips, each paying full
+ * RTT, then server execution, then result transfer, one after another. Batching
+ * the cheap families removes most of the RTT (see extract.ts's
+ * CATALOG_BATCH_GROUPS); fanning what remains out over a few connections attacks
+ * execution and transfer too. The engine is unusually well shaped for this: every
+ * family reads only its own catalog rows, there are no per-family caches or
+ * module-level mutable state, and the ONLY cross-family read in the whole
+ * extractor is the pg_depend resolver reading `ctx.facts` — which is why that one
+ * family is split into a schedulable SQL half and a post-join processing half
+ * (see ./dependencies.ts).
  *
  * The contract is EQUIVALENCE, not speed. Two invariants carry it:
  *

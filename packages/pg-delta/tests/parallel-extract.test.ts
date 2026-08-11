@@ -547,32 +547,6 @@ describe("extract: session setup cost", () => {
     await pool.end();
   }, 180_000);
 
-  /**
-   * The whole catalog scan, counted in round trips rather than statements.
-   *
-   * The cheap "tail" families (roles, schemas, sequences, views, domains, types,
-   * collations, event triggers, rules, publications, inheritance) cost almost
-   * nothing server-side — their price is pure RTT — so they are grouped into a
-   * few multi-statement round trips instead of one each, while the measured
-   * server/transfer-heavy families keep their own round trip (see
-   * CATALOG_BATCH_GROUPS in src/extract/extract.ts). The ceiling is deliberately
-   * a budget, not an exact count: it must fail loudly if a future change
-   * reintroduces a per-family round trip, without churning every time a family
-   * legitimately gains or loses one statement.
-   */
-  test("a serial extraction fits the batched catalog round-trip budget", async () => {
-    const pool = new pg.Pool({ connectionString: db.uri, max: 5 });
-    pool.on("error", () => {});
-    const roundTrips = countRoundTrips(pool);
-    await extract(pool);
-    // measured 23 on postgres:17-alpine: 1 opening batch + 1 JIT-off + 7 heavy
-    // families + 5 foreign + 2 subscriptions + 1 security-label probe + 3 tail
-    // batches + 1 pg_depend resolver + 1 unmodeled-kind scan + COMMIT.
-    expect(roundTrips()).toBeLessThanOrEqual(24);
-    expectPoolDrained(pool, 5);
-    await pool.end();
-  }, 180_000);
-
   test("workers extract in exactly the coordinator's session state", async () => {
     const serialPool = new pg.Pool({ connectionString: db.uri, max: 5 });
     serialPool.on("error", () => {});
@@ -600,5 +574,35 @@ describe("extract: session setup cost", () => {
       expect(client.state).toEqual(serialState);
     }
     await parallelPool.end();
+  }, 180_000);
+});
+
+/**
+ * The whole catalog scan, counted in ROUND TRIPS rather than statements.
+ *
+ * The cheap "tail" families (roles, schemas, tables, sequences, views, domains,
+ * types, collations, event triggers, rules, publications, inheritance) cost
+ * almost nothing server-side — their price is pure RTT — so their statements are
+ * packed into a few multi-statement round trips instead of one each, while the
+ * measured server/transfer-heavy families keep their own (see
+ * CATALOG_BATCH_GROUPS in src/extract/extract.ts).
+ *
+ * The assertion is a BUDGET, not an exact count: it must fail loudly if a future
+ * change reintroduces a per-family round trip, without churning every time a
+ * family legitimately gains or loses a statement or a PG version adds a probe.
+ */
+describe("extract: catalog round-trip budget", () => {
+  test("a serial extraction fits the batched round-trip budget", async () => {
+    const pool = new pg.Pool({ connectionString: db.uri, max: 5 });
+    pool.on("error", () => {});
+    const roundTrips = countRoundTrips(pool);
+    await extract(pool);
+    // measured 23 on postgres:17-alpine (38 before the tail was batched):
+    // 1 opening batch + 1 JIT-off + 7 heavy families + 5 foreign + 2
+    // subscriptions + 1 security-label probe + 3 tail batches + 1 pg_depend
+    // resolver + 1 unmodeled-kind scan + COMMIT.
+    expect(roundTrips()).toBeLessThanOrEqual(24);
+    expectPoolDrained(pool, 5);
+    await pool.end();
   }, 180_000);
 });

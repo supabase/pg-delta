@@ -1,14 +1,16 @@
 /** Dependency edges: inheritance / partition edges and the authoritative
  *  pg_depend resolver (target-architecture §3.2, milestone A set-based form). */
 import { encodeId, type StableId } from "../core/stable-id.ts";
-import { type ExtractContext, type Row, SYSTEM_SCHEMAS } from "./scope.ts";
+import {
+  type CatalogFamily,
+  type CollectContext,
+  type ExtractContext,
+  type Row,
+  SYSTEM_SCHEMAS,
+} from "./scope.ts";
 
-export async function extractInheritanceEdges(
-  ctx: ExtractContext,
-): Promise<void> {
-  const { q, edges } = ctx;
-  // ── inheritance / partition edges (child depends on parent) ──────────
-  for (const row of await q(`
+// ── inheritance / partition edges (child depends on parent) ──────────
+const INHERITANCE_SQL = `
     SELECT cn.nspname AS child_schema, cc.relname AS child_name,
            pn.nspname AS parent_schema, pc.relname AS parent_name
     FROM pg_inherits i
@@ -17,30 +19,37 @@ export async function extractInheritanceEdges(
     JOIN pg_class pc ON pc.oid = i.inhparent
     JOIN pg_namespace pn ON pn.oid = pc.relnamespace
     WHERE cc.relkind IN ('r', 'p')
-      AND cn.nspname NOT IN ${SYSTEM_SCHEMAS}`)) {
-    edges.push({
-      from: {
-        kind: "table",
-        schema: String(row["child_schema"]),
-        name: String(row["child_name"]),
-      },
-      to: {
-        kind: "table",
-        schema: String(row["parent_schema"]),
-        name: String(row["parent_name"]),
-      },
-      kind: "depends",
-    });
-  }
-}
+      AND cn.nspname NOT IN ${SYSTEM_SCHEMAS}`;
+
+export const inheritanceEdgesFamily: CatalogFamily = {
+  name: "inheritance",
+  statements: () => [INHERITANCE_SQL],
+  apply: (ctx, rowSets) => {
+    const { edges } = ctx;
+    for (const row of rowSets[0]!) {
+      edges.push({
+        from: {
+          kind: "table",
+          schema: String(row["child_schema"]),
+          name: String(row["child_name"]),
+        },
+        to: {
+          kind: "table",
+          schema: String(row["parent_schema"]),
+          name: String(row["parent_name"]),
+        },
+        kind: "depends",
+      });
+    }
+  },
+};
 
 /**
  * The SQL half of the pg_depend resolver. It touches ONLY `ctx.q` — nothing in
- * this query depends on the facts extracted so far — so the bounded-parallel
- * scheduler (./parallel.ts) can run it concurrently with the other families and
- * post-process its rows after the join. Kept as one function with
- * `applyDependencyRows` below via `extractDependencyEdges`, which is what the
- * serial path still calls.
+ * this query depends on the facts extracted so far — so the scheduler
+ * (./extract.ts) issues it as its own round trip, first in pull order (it is by
+ * far the most expensive query in the extractor), and post-processes its rows
+ * after the per-family merge via `applyDependencyRows`.
  */
 export async function fetchDependencyRows(
   ctx: Pick<ExtractContext, "q">,
@@ -351,12 +360,12 @@ export async function fetchDependencyRows(
 /**
  * The row-processing half of the pg_depend resolver. This is the ONLY place in
  * the whole extractor that READS facts pushed by other families (`ctx.facts`,
- * for `defaultFactIds` below), so the bounded-parallel path must defer it until
- * after the per-family merge — and run it in its serial position (last), so the
- * edges and diagnostics it appends land exactly where they do today.
+ * for `defaultFactIds` below), so it must be deferred until after the per-family
+ * merge — and run in its canonical position (last), so the edges and diagnostics
+ * it appends land exactly where they always did.
  */
 export function applyDependencyRows(
-  ctx: ExtractContext,
+  ctx: CollectContext,
   dependRows: readonly Row[],
 ): void {
   const { edges, diagnostics } = ctx;
@@ -494,11 +503,4 @@ export function applyDependencyRows(
       edges.push({ from: columnFrom, to, kind: "depends" });
     }
   }
-}
-
-/** Fetch + post-process in one go: the serial extraction path's family. */
-export async function extractDependencyEdges(
-  ctx: ExtractContext,
-): Promise<void> {
-  applyDependencyRows(ctx, await fetchDependencyRows(ctx));
 }

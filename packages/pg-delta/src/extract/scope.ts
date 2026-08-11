@@ -412,6 +412,40 @@ export interface ExtractContext {
   pushSeclabel: (target: StableId, provider: string, label: string) => void;
 }
 
+/**
+ * An accumulator context with the query runner REMOVED — what a family's
+ * row-processing half gets.
+ *
+ * A batched family's rows are fetched by the scheduler (one multi-statement
+ * round trip shared with other families), so `apply` has nothing left to ask
+ * the server: a query issued from there would smuggle back exactly the
+ * per-family round trip the split exists to remove, and it would do so
+ * invisibly. Dropping `q` from the type makes that a compile error instead of a
+ * silent performance regression.
+ */
+export type CollectContext = Omit<ExtractContext, "q">;
+
+/**
+ * A catalog family split into its SQL half and its row-processing half, so the
+ * scheduler decides WHERE the statements are sent — its own round trip, or
+ * batched with other families' into one — without the family knowing.
+ *
+ * Contract:
+ *  - `statements` is a pure function of the server version: no round trip, no
+ *    catalog read, no ordering dependency on any other family. The version is
+ *    already known when extraction starts (see openExtractionSession), so a
+ *    version-templated family is still fully batchable.
+ *  - `apply` consumes exactly ONE `Row[]` per statement, in statement order,
+ *    and pushes into `ctx` in the same order the pre-split family did — that
+ *    ordering is the whole equivalence argument (see ./extract.ts).
+ */
+export interface CatalogFamily {
+  /** Short label, used in the batch's timeout label and the grouping table. */
+  readonly name: string;
+  readonly statements: (version: ServerVersionInfo) => readonly string[];
+  readonly apply: (ctx: CollectContext, rowSets: readonly Row[][]) => void;
+}
+
 /** The timeout-aware query runner bound to one connection. Extracted so a
  *  worker connection in the bounded-parallel path (see ./parallel.ts) gets the
  *  IDENTICAL 57014 → ExtractionTimeoutError mapping the coordinator has. */

@@ -8,8 +8,8 @@ feat: opt-in bounded-parallel extraction via `ExtractOptions.concurrency`.
 `pg_export_snapshot()` and fans the catalog families out over that many
 connections from the same pool, all importing that snapshot — so the capture is
 still one consistent moment in database time. It exists for high-latency links,
-where serial extraction is dominated by ~40 sequential round trips rather than by
-work.
+where serial extraction is dominated by its sequential catalog round trips rather
+than by work (see the batched-catalog changeset for the current count).
 
 The output is byte-identical to a serial extraction — same facts, same edge
 order, same diagnostics order, same fact-base fingerprint — because per-family

@@ -162,19 +162,19 @@ describe("runSlottedJobs", () => {
     expect(await runSlottedJobs([], 4)).toEqual([]);
   });
 
-  // extract.ts's `runFamiliesAcrossStreams` puts the pg_depend resolver — by
-  // far the most expensive single query in the extractor — at job index 0,
-  // ahead of the 22 family jobs, specifically so it is PULLED first instead of
-  // becoming a serial tail once every other job has already finished (see
-  // ./extract.ts). These tests pin the scheduler guarantee that reordering
-  // relies on: job 0 always starts in the very first pulled batch, and the
-  // merge stays index-ordered regardless of what any individual job returns.
+  // extract.ts's `runFamilies` puts the pg_depend resolver — by far the most
+  // expensive single query in the extractor — at job index 0, ahead of the
+  // family jobs, specifically so it is PULLED first instead of becoming a
+  // serial tail once every other job has already finished (see ./extract.ts).
+  // These tests pin the scheduler guarantee that reordering relies on: job 0
+  // always starts in the very first pulled batch, and the merge stays
+  // index-ordered regardless of what any individual job returns.
   test("job 0 starts in the first pulled batch, never deferred behind later jobs", async () => {
     const startOrder: number[] = [];
     // Mirrors extract.ts's shape: 1 expensive job (index 0, the dependency
-    // fetch) + 22 cheap ones (the families), at a stream count well below the
-    // job count — exactly where the old append-at-the-end order regressed to
-    // a serial tail.
+    // fetch) + a batch of cheaper family / catalog-batch jobs, at a stream count
+    // well below the job count — exactly where the old append-at-the-end order
+    // regressed to a serial tail.
     const jobs = [
       async (): Promise<number> => {
         startOrder.push(0);

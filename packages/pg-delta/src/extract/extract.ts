@@ -12,7 +12,14 @@
  * into fanning the families out over additional connections that all import the
  * coordinator's `pg_export_snapshot()`, which is the same one moment in database
  * time (see ./parallel.ts); serial remains the default and the fallback, and the
- * two produce byte-identical output.
+ * two produce byte-identical output — serial is literally the 1-stream case of
+ * the same plan (`runFamilies` below).
+ *
+ * Round trips, not statements, are what a remote extraction pays for. The cheap
+ * families are therefore packed into a few multi-statement round trips
+ * (CATALOG_BATCH_GROUPS) while the measured-expensive ones keep their own, which
+ * takes the whole catalog scan from ~38 round trips to ~23 without changing a
+ * single query.
  *
  * Kind coverage is the full v1 set — see packages/pg-delta/COVERAGE.md for
  * the authoritative list (schemas, roles + memberships, extensions, tables and
@@ -43,27 +50,26 @@ import {
 import type { ExtensionHandler, HandlerContext } from "./handler.ts";
 import {
   applyDependencyRows,
-  extractDependencyEdges,
-  extractInheritanceEdges,
   fetchDependencyRows,
+  inheritanceEdgesFamily,
 } from "./dependencies.ts";
-import { extractEventTriggers } from "./event-triggers.ts";
+import { eventTriggersFamily } from "./event-triggers.ts";
 import { extractForeign } from "./foreign.ts";
-import { extractPolicies } from "./policies.ts";
-import { extractPublications, extractSubscriptions } from "./publications.ts";
+import { policiesFamily } from "./policies.ts";
+import { publicationsFamily, extractSubscriptions } from "./publications.ts";
 import {
-  extractColumns,
-  extractIndexes,
-  extractRules,
-  extractSequences,
-  extractTableConstraints,
-  extractTables,
-  extractTriggers,
-  extractViews,
+  columnsFamily,
+  indexesFamily,
+  rulesFamily,
+  sequencesFamily,
+  tableConstraintsFamily,
+  tablesFamily,
+  triggersFamily,
+  viewsFamily,
 } from "./relations.ts";
-import { extractRolesAndGrants } from "./roles.ts";
-import { extractAggregates, extractRoutines } from "./routines.ts";
-import { extractSchemasAndExtensions } from "./schemas.ts";
+import { rolesAndGrantsFamily } from "./roles.ts";
+import { aggregatesFamily, routinesFamily } from "./routines.ts";
+import { schemasAndExtensionsFamily } from "./schemas.ts";
 import {
   closeSnapshotWorkers,
   isUsableSnapshotId,
@@ -75,6 +81,8 @@ import {
   type SnapshotWorker,
 } from "./parallel.ts";
 import {
+  type BatchRunner,
+  type CatalogFamily,
   createCollectorContext,
   type ExtractContext,
   ExtractionTimeoutError,
@@ -86,6 +94,7 @@ import {
   pruneOrphanedSatellites,
   type QueryRunner,
   type Row,
+  type ServerVersionInfo,
 } from "./scope.ts";
 
 const log = createDebug("pgdelta:extract");
@@ -94,7 +103,7 @@ const log = createDebug("pgdelta:extract");
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 import { extractSecurityLabels } from "./security-labels.ts";
-import { extractCollations, extractDomains, extractTypes } from "./types.ts";
+import { collationsFamily, domainsFamily, typesFamily } from "./types.ts";
 import { detectUnmodeledKinds } from "./unmodeled.ts";
 
 // re-exported for the public API surface (src/index.ts and the test suite)
@@ -136,7 +145,8 @@ export interface ExtractOptions {
    * snapshot — so the capture is still one consistent moment in database time and
    * the output (facts, edges, diagnostics, fingerprint) is byte-identical to a
    * serial run. It only buys wall time, and it only buys much on a high-latency
-   * link, where the serial extractor is dominated by ~40 sequential round trips.
+   * link, where the serial extractor is dominated by its remaining ~20
+   * sequential round trips (see CATALOG_BATCH_GROUPS for the batched tail).
    *
    * Clamped to the pool's own `max` (the coordinator holds a client for the whole
    * extraction, so requesting more than the pool can spare would deadlock on
@@ -149,41 +159,178 @@ export interface ExtractOptions {
 }
 
 /**
- * THE extraction order, and the single source of truth for it: the serial path
- * awaits these in sequence, and the bounded-parallel scheduler merges its
- * per-family result slots in exactly this order. Every entry takes only an
- * `ExtractContext` and reads nothing another family produced, which is what makes
- * them freely schedulable.
+ * How a family's catalog SQL is allowed to reach the server.
  *
- * `extractDependencyEdges` is deliberately NOT here: its row post-processing is
- * the one place in the extractor that reads `ctx.facts`, so it is split (SQL half
- * schedulable, processing half deferred to after the merge — see
- * ./dependencies.ts) and both paths run it last.
+ *  - `batched` — cheap: its cost is almost entirely round-trip latency, so its
+ *    statements are concatenated with other batched families' into ONE
+ *    multi-statement round trip (see CATALOG_BATCH_GROUPS).
+ *  - `heavy` — measured server/transfer-heavy: always its own round trip, both
+ *    so the scheduler can spread the expensive work across streams and so a
+ *    `statement_timeout` names the exact query that blew the budget rather than
+ *    a batch label.
+ *  - `opaque` — not splittable: it BRANCHES on the result of an earlier query of
+ *    its own (a permission or existence probe), so its statement list is not
+ *    knowable up front. Runs exactly as it always has, on one stream.
  */
-const FAMILIES: readonly ((ctx: ExtractContext) => Promise<void>)[] = [
-  extractRolesAndGrants,
-  extractSchemasAndExtensions,
-  extractTables,
-  extractColumns,
-  extractTableConstraints,
-  extractIndexes,
-  extractSequences,
-  extractViews,
-  extractRoutines,
-  extractTriggers,
-  extractPolicies,
-  extractDomains,
-  extractTypes,
-  extractCollations,
-  extractEventTriggers,
-  extractRules,
-  extractAggregates,
-  extractForeign,
-  extractPublications,
-  extractSubscriptions,
-  extractSecurityLabels,
-  extractInheritanceEdges,
+type FamilyEntry =
+  | (CatalogFamily & { readonly kind: "batched" | "heavy" })
+  | {
+      readonly kind: "opaque";
+      readonly name: string;
+      readonly run: (ctx: ExtractContext) => Promise<void>;
+    };
+
+const batched = (family: CatalogFamily): FamilyEntry => ({
+  kind: "batched",
+  ...family,
+});
+const heavy = (family: CatalogFamily): FamilyEntry => ({
+  kind: "heavy",
+  ...family,
+});
+const opaque = (
+  name: string,
+  run: (ctx: ExtractContext) => Promise<void>,
+): FamilyEntry => ({ kind: "opaque", name, run });
+
+/**
+ * THE extraction order, and the single source of truth for it: whatever order
+ * the families are FETCHED in, their results are merged into `ctx` in exactly
+ * this order — which is what makes every execution shape (serial, N streams,
+ * batched tail) produce byte-identical facts / edges / diagnostics.
+ *
+ * Every entry reads nothing another family produced, which is what makes them
+ * freely schedulable. The pg_depend resolver is deliberately NOT here: its row
+ * post-processing is the one place in the extractor that reads `ctx.facts`, so
+ * it is split (SQL half schedulable, processing half deferred to after the merge
+ * — see ./dependencies.ts) and always applied last.
+ */
+const FAMILIES: readonly FamilyEntry[] = [
+  batched(rolesAndGrantsFamily),
+  batched(schemasAndExtensionsFamily),
+  batched(tablesFamily),
+  heavy(columnsFamily),
+  heavy(tableConstraintsFamily),
+  heavy(indexesFamily),
+  batched(sequencesFamily),
+  batched(viewsFamily),
+  heavy(routinesFamily),
+  heavy(triggersFamily),
+  heavy(policiesFamily),
+  batched(domainsFamily),
+  batched(typesFamily),
+  batched(collationsFamily),
+  batched(eventTriggersFamily),
+  batched(rulesFamily),
+  heavy(aggregatesFamily),
+  opaque("foreign", extractForeign),
+  batched(publicationsFamily),
+  opaque("subscriptions", extractSubscriptions),
+  opaque("securityLabels", extractSecurityLabels),
+  batched(inheritanceEdgesFamily),
 ];
+
+/**
+ * How the cheap "tail" families are packed into multi-statement round trips.
+ *
+ * WHY this is safe, and why the grouping is free to be anything: the groups only
+ * decide WHERE statements are sent. Each grouped family still gets its OWN
+ * collector context, and the collectors are merged in FAMILIES order — so
+ * grouping cannot reach the output, exactly as a stream assignment cannot (see
+ * ./parallel.ts's slotted-merge argument). Fetch order within one
+ * REPEATABLE READ snapshot is output-irrelevant by construction: every family
+ * reads the same frozen catalog, and no family reads another's facts.
+ *
+ * `statement_timeout` is per-STATEMENT inside a multi-statement simple-query
+ * batch (verified on PG 17), so batching does not weaken the budget; the only
+ * thing it coarsens is the ExtractionTimeoutError LABEL, which is why the
+ * expensive families are `heavy` (their own round trip, their own label).
+ *
+ * Three groups, balanced by statement count (6 / 7 / 5), because balance is what
+ * the parallel path wants: one giant group would be a serial tail on a single
+ * stream, and one group per family would just be the per-family round trips this
+ * exists to remove. Names must be exactly the batched families' `name`s —
+ * `resolveBatchGroups` fails loudly at load if they ever drift.
+ */
+const CATALOG_BATCH_GROUPS: readonly (readonly string[])[] = [
+  ["roles", "schemas", "tables"],
+  ["sequences", "views", "domains", "types"],
+  ["collations", "eventTriggers", "rules", "publications", "inheritance"],
+];
+
+/** One grouped family: its canonical FAMILIES index and its split form. */
+interface BatchMember {
+  readonly index: number;
+  readonly family: CatalogFamily;
+}
+
+/**
+ * Resolve CATALOG_BATCH_GROUPS against FAMILIES once, at load.
+ *
+ * Every failure mode here is a developer error that would otherwise be SILENT
+ * and catastrophic — a batched family left out of every group contributes no
+ * facts at all, which reads downstream as "the user dropped those objects". So
+ * this refuses to build rather than extract a partial catalog.
+ */
+function resolveBatchGroups(): readonly (readonly BatchMember[])[] {
+  const byName = new Map<string, number>();
+  for (const [index, entry] of FAMILIES.entries()) {
+    if (byName.has(entry.name)) {
+      throw new Error(`duplicate extractor family name "${entry.name}"`);
+    }
+    byName.set(entry.name, index);
+  }
+  const grouped = new Set<string>();
+  const groups = CATALOG_BATCH_GROUPS.map((names) =>
+    names.map((name): BatchMember => {
+      const index = byName.get(name);
+      if (index === undefined) {
+        throw new Error(`catalog batch group names unknown family "${name}"`);
+      }
+      const entry = FAMILIES[index]!;
+      if (entry.kind !== "batched") {
+        throw new Error(
+          `family "${name}" is ${entry.kind}, not batched — it cannot be grouped`,
+        );
+      }
+      if (grouped.has(name)) {
+        throw new Error(`family "${name}" is in more than one catalog batch`);
+      }
+      grouped.add(name);
+      return { index, family: entry };
+    }),
+  );
+  const missing = FAMILIES.filter(
+    (entry) => entry.kind === "batched" && !grouped.has(entry.name),
+  ).map((entry) => entry.name);
+  if (missing.length > 0) {
+    throw new Error(
+      `batched families missing from every catalog batch: ${missing.join(", ")}`,
+    );
+  }
+  return groups;
+}
+
+const BATCH_GROUPS = resolveBatchGroups();
+
+/** Exposed for the unit test that pins the FAMILIES/CATALOG_BATCH_GROUPS
+ *  invariants (names, coverage, no duplicates) — see ./extract.test.ts. */
+export const catalogBatchPlan = (): {
+  families: readonly { name: string; kind: FamilyEntry["kind"] }[];
+  groups: readonly (readonly string[])[];
+} => ({
+  families: FAMILIES.map((entry) => ({ name: entry.name, kind: entry.kind })),
+  groups: BATCH_GROUPS.map((group) =>
+    group.map((member) => member.family.name),
+  ),
+});
+
+/** One catalog-query stream: a connection's timeout-aware single-statement
+ *  runner and its multi-statement batch runner. Stream 0 is the coordinator. */
+interface ExtractStream {
+  readonly q: QueryRunner;
+  readonly batch: BatchRunner;
+}
 
 /** `target.push(...source)` without the spread's argument-count ceiling — these
  *  arrays are per-family catalog output and can be very large. */
@@ -361,16 +508,24 @@ async function extractOnClient(
   // nothing to share the snapshot with — hand the reservations straight back
   if (usableSnapshot === undefined) releaseClients(reserved);
 
-  // The call order IS the extraction order: facts / edges / diagnostics are
-  // accumulated in `ctx` in the order these run, so this sequence is preserved
-  // exactly from the pre-split single-function extractor. It is also the order
-  // the bounded-parallel scheduler merges its per-family slots in, which is what
-  // makes the two paths produce byte-identical output (see FAMILIES below).
+  // FAMILIES order IS the extraction order: however the families are scheduled
+  // and however their statements are packed into round trips, their per-family
+  // collectors are merged into `ctx` in that fixed order — which is what makes
+  // every execution shape produce byte-identical output (see FAMILIES above).
+  const coordinator: ExtractStream = { q: ctx.q, batch };
   if (workers !== undefined && workers.length > 0) {
     try {
-      await runFamiliesAcrossStreams(
+      await runFamilies(
         ctx,
-        [ctx.q, ...workers.map((worker) => worker.q)],
+        [
+          coordinator,
+          ...workers.map(
+            (worker): ExtractStream => ({
+              q: worker.q,
+              batch: makeBatchRunner(worker.client, statementTimeoutMs),
+            }),
+          ),
+        ],
         redactSecrets,
       );
     } finally {
@@ -379,8 +534,8 @@ async function extractOnClient(
       await closeSnapshotWorkers(workers);
     }
   } else {
-    for (const family of FAMILIES) await family(ctx);
-    await extractDependencyEdges(ctx);
+    // one stream = the serial path, same plan, same merge
+    await runFamilies(ctx, [coordinator], redactSecrets);
   }
 
   // drop metadata satellites whose target was filtered (Item 4a) before
@@ -443,17 +598,26 @@ async function extractOnClient(
   return { factBase, pgVersion, diagnostics: ctx.diagnostics };
 }
 
+/** What one scheduled job produced: the canonical family index and that
+ *  family's own collector. A batch job fills SEVERAL slots in one go. */
+type FilledSlot = readonly [index: number, collector: ExtractContext];
+
 /**
- * Run `FAMILIES` (plus the pg_depend resolver's SQL half) across the given query
- * runners — one per connection, `runners[0]` being the coordinator's — then merge
+ * Run `FAMILIES` (plus the pg_depend resolver's SQL half) across the given
+ * streams — one per connection, `streams[0]` being the coordinator's — then merge
  * the per-family results into `ctx` in FAMILY order.
+ *
+ * ONE stream is the serial path: `runSlottedJobs` then pulls jobs strictly in
+ * index order on a single connection. There is deliberately no separate serial
+ * implementation — the two would have to be argued equivalent forever, whereas
+ * this way "serial" is just the 1-stream case of the same plan.
  */
-async function runFamiliesAcrossStreams(
+async function runFamilies(
   ctx: ExtractContext,
-  runners: readonly QueryRunner[],
+  streams: readonly ExtractStream[],
   redactSecrets: boolean,
 ): Promise<void> {
-  const version = {
+  const version: ServerVersionInfo = {
     serverVersion: ctx.serverVersion,
     serverVersionNum: ctx.serverVersionNum,
     pgMajor: ctx.pgMajor,
@@ -462,53 +626,99 @@ async function runFamiliesAcrossStreams(
   // Every family gets its OWN collector, so its output can be slotted by family
   // index; a family that shared a stream's buffers would interleave with
   // whatever else that stream ran.
-  let dependRows: readonly Row[] = [];
-  const familyJobs: ((
-    stream: number,
-  ) => Promise<ExtractContext | undefined>)[] = FAMILIES.map(
-    (family) =>
-      async (stream: number): Promise<ExtractContext> => {
-        const collector = createCollectorContext(
-          runners[stream]!,
-          version,
-          redactSecrets,
-        );
-        await family(collector);
-        return collector;
-      },
-  );
+  const collector = (stream: number): ExtractContext =>
+    createCollectorContext(streams[stream]!.q, version, redactSecrets);
+
   // The pg_depend resolver is the single most expensive query in the
   // extractor. `runSlottedJobs` pulls jobs off this array in INDEX order (see
   // ./parallel.ts's `pull`), so it must be job 0, not the last one — appended
-  // after all 22 family jobs, it would only start once a stream freed up from
+  // after all the family jobs, it would only start once a stream freed up from
   // the rest of the schedule and become a serial tail at low stream counts.
-  // Putting it first here changes PULL order only: it contributes no
-  // facts/edges of its own (only rows for the post-merge step below), so its
-  // slot is always `undefined` and the merge loop below — which is what
-  // actually determines fact/edge order — skips it regardless of position.
-  const jobs: ((stream: number) => Promise<ExtractContext | undefined>)[] = [
-    async (stream: number): Promise<undefined> => {
-      dependRows = await fetchDependencyRows({ q: runners[stream]! });
-      return undefined;
+  // Putting it first here changes PULL order only: it fills no family slot
+  // (only rows for the post-merge step below), so the merge loop — which is
+  // what actually determines fact/edge order — is unaffected by its position.
+  let dependRows: readonly Row[] = [];
+  const jobs: ((stream: number) => Promise<readonly FilledSlot[]>)[] = [
+    async (stream: number): Promise<readonly FilledSlot[]> => {
+      dependRows = await fetchDependencyRows({ q: streams[stream]!.q });
+      return [];
     },
-    ...familyJobs,
   ];
+
+  // heavy + opaque families: one job, one family, its own round trip(s).
+  for (const [index, entry] of FAMILIES.entries()) {
+    if (entry.kind === "batched") continue; // rides in a batch job below
+    jobs.push(async (stream: number): Promise<readonly FilledSlot[]> => {
+      const own = collector(stream);
+      if (entry.kind === "opaque") {
+        await entry.run(own);
+      } else {
+        const rowSets: Row[][] = [];
+        // sequential on purpose: one statement per round trip is exactly the
+        // pre-batching behavior, including the per-query timeout label
+        for (const sql of entry.statements(version)) {
+          rowSets.push(await streams[stream]!.q(sql));
+        }
+        entry.apply(own, rowSets);
+      }
+      return [[index, own]];
+    });
+  }
+
+  // the cheap tail: one job per group, one ROUND TRIP per job, N family slots
+  for (const group of BATCH_GROUPS) {
+    jobs.push(async (stream: number): Promise<readonly FilledSlot[]> => {
+      const statements: string[] = [];
+      const spans: (BatchMember & { start: number; end: number })[] = [];
+      for (const member of group) {
+        const own = member.family.statements(version);
+        spans.push({
+          ...member,
+          start: statements.length,
+          end: statements.length + own.length,
+        });
+        appendAll(statements, own);
+      }
+      const label = `catalog batch (${group.map((m) => m.family.name).join(", ")})`;
+      const rowSets = await streams[stream]!.batch(statements, label);
+      // A result set per statement, in statement order, is the whole basis for
+      // slicing them back apart. If node-pg / the server ever disagreed, the
+      // slices would silently shift by one family and half the catalog would
+      // vanish from the fact base — so refuse instead of guessing.
+      if (rowSets.length !== statements.length) {
+        throw new Error(
+          `${label} returned ${rowSets.length} result sets for ${statements.length} statements`,
+        );
+      }
+      return spans.map((span): FilledSlot => {
+        const own = collector(stream);
+        span.family.apply(own, rowSets.slice(span.start, span.end));
+        return [span.index, own];
+      });
+    });
+  }
 
   // The stream count follows the connections we ACTUALLY have, never what was
   // requested: a busy shared pool can yield fewer workers than asked for, and a
   // job scheduled onto a stream with no connection would have no query runner.
-  const slots = await runSlottedJobs(jobs, runners.length);
+  const produced = await runSlottedJobs(jobs, streams.length);
 
-  // Deterministic merge: family order, NEVER completion order. This is the
-  // whole equivalence argument — see ./parallel.ts.
-  for (const collector of slots) {
-    if (collector === undefined) continue;
-    appendAll(ctx.facts, collector.facts);
-    appendAll(ctx.edges, collector.edges);
-    appendAll(ctx.diagnostics, collector.diagnostics);
-    appendAll(ctx.factDiagnostics, collector.factDiagnostics);
+  // Deterministic merge: family order, NEVER completion order and NEVER batch
+  // order. This is the whole equivalence argument — see ./parallel.ts.
+  const slots = Array.from({
+    length: FAMILIES.length,
+  }) as (ExtractContext | undefined)[];
+  for (const filled of produced) {
+    for (const [index, own] of filled) slots[index] = own;
   }
-  // last, exactly as in the serial order, and against the MERGED facts (it
+  for (const own of slots) {
+    if (own === undefined) continue;
+    appendAll(ctx.facts, own.facts);
+    appendAll(ctx.edges, own.edges);
+    appendAll(ctx.diagnostics, own.diagnostics);
+    appendAll(ctx.factDiagnostics, own.factDiagnostics);
+  }
+  // last, exactly as in the canonical order, and against the MERGED facts (it
   // reads them to decide GENERATED-column shadow edges)
   applyDependencyRows(ctx, dependRows);
 }
