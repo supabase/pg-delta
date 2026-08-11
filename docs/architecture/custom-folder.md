@@ -164,27 +164,54 @@ the next export and breaks `schema apply`. `pgdelta schema lint` warns when it
 sees one.
 ```
 
-## 7. Non-goals (Phase 1) and Phase 2
+## 7. The delivery model, non-goals, and Phase 2
 
-**Non-goals now:**
+**Delivery model (settled).** Raw SQL — managed and custom alike — executes
+only in the disposable, always-empty shadow. The persistent target never
+receives raw files; it only ever receives *generated artifacts* (the plan,
+consumed as a migration through the user's normal channel). `_custom/`'s
+complete job is therefore to make the shadow load fully so the diff sees
+everything it models; delivering custom content to the target is the migration
+channel's job like everything else — folded **once** into a generated
+migration, with the `-- pgdelta-migration:` directive as the delivery record.
 
-- Executing `_custom/` against the target. Running raw scripts imperatively is
-  migration-runner semantics; `CREATE CAST` has no `IF NOT EXISTS` and bare
-  DML is not idempotent. Defaulting to execution would smuggle an imperative
-  pipeline into a declarative tool.
+**Non-goals (permanent):**
+
+- **Executing `_custom/` against the target — in any mode.** Two designs were
+  considered and rejected:
+  - *Re-run every apply with an idempotency contract* (`--run-custom` +
+    shadow double-run check). Rejected: managed objects converge via computed
+    deltas precisely so files never re-run against a live database; demanding
+    `DO $$ … IF NOT EXISTS` boilerplate only from custom files splits the
+    tool's semantics and shifts a correctness burden onto users.
+  - *Run-once gated on target emptiness* (bootstrap-only execution). Rejected
+    as unnecessary once the delivery model above is settled: an empty target
+    is bootstrapped by replaying migrations, which already carry the custom
+    content. Error-tolerant replay ("skip `already exists`") was also
+    rejected — existence-based tolerance turns edited definitions into silent
+    no-ops, the worst failure mode for a convergence tool.
 - Configurable folder name. Convention over configuration; one reserved name
   keeps the manifest, pruner, and docs simple.
 
 **Phase 2 (deferred, decide separately):**
 
 - `unmodeled_drift` diagnostic: run the existing `detectUnmodeledKinds` probe
-  on **both** shadow and target during apply and warn when the sets differ
-  ("shadow has cast X, target does not"). Catalog-sourced, no SQL parsing —
-  this is the check that makes the folder's effect on the target observable.
-- Opt-in target execution (`schema apply --run-custom`) with a documented
-  idempotency contract, mechanically spot-checked by running each script twice
-  in the shadow and failing if the second run errors. Only if real demand
-  appears.
+  on **both** shadow and target during plan/apply and warn when the sets
+  differ ("shadow has cast X, target does not — plan statements depending on
+  it will fail"). Catalog-sourced, no SQL parsing. This is the pre-flight
+  guard for the delivery model: it fires exactly when a generated migration
+  would fail on a target that has not yet received custom content.
+- A small library helper (custom files + parsed directives, the parser
+  already exists) so frontends can implement fold-into-migration delivery:
+  the Supabase CLI appends undelivered custom files to the generated
+  catch-up migration and stamps the directive back. Run-once semantics come
+  from the migration ledger that already exists; pg-delta executes nothing.
+- Profile-aware lint: under a frontend that automates delivery,
+  `custom_missing_migration_ref` downgrades or disables (the frontend, not
+  the user, maintains the directive).
+- A per-target ledger table for pg-delta-native run-once execution remains
+  explicitly out of scope unless real demand appears — that is a migration
+  runner, and users who need one have one.
 
 ## 8. Alternatives considered
 
