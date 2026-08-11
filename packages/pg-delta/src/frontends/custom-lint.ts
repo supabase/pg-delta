@@ -8,7 +8,7 @@
  * `--strict-coverage`).
  *
  *   custom_missing_migration_ref     a custom file records no migration twin
- *   custom_dangling_migration_ref    a recorded migration path is not on disk
+ *   custom_dangling_migration_ref    a recorded path names no file on disk
  *   custom_conflicting_migration_ref `none` mixed with real paths
  *   custom_modeled_kind              modeled DDL parked in `_custom/`
  *
@@ -17,7 +17,7 @@
  * forbids) and whether the migration was APPLIED to a target (pg-delta does not
  * know the migration runner).
  */
-import { existsSync } from "node:fs";
+import { statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { CUSTOM_DIR_NAME, isCustomPath } from "./custom-dir.ts";
 import { parseCustomMigrationDirectives } from "./custom-migration-directive.ts";
@@ -37,9 +37,9 @@ export interface CustomLintFinding {
 }
 
 export interface LintCustomMigrationRefsOptions {
-  /** Existence probe for a resolved migration path. Injectable for tests;
-   *  defaults to `existsSync`. */
-  exists?: (absolutePath: string) => boolean;
+  /** Probe deciding whether a resolved migration path names a readable regular
+   *  FILE. Injectable for tests; defaults to {@link isRegularFile}. */
+  isFile?: (absolutePath: string) => boolean;
   /**
    * `custom_missing_migration_ref` only. `"off"` is for frontends that maintain
    * the directive THEMSELVES (fold-into-migration delivery — see
@@ -55,6 +55,21 @@ export interface LintCustomMigrationRefsOptions {
 }
 
 /**
+ * Whether `absolutePath` names a regular FILE. A migration reference points at a
+ * migration, so mere EXISTENCE is not enough: `-- pgdelta-migration: ../migrations`
+ * names a directory and records nothing about which migration delivered the
+ * custom file, so it has to read as a broken reference rather than a satisfied
+ * one. `statSync` follows symlinks, so a symlink to a migration still counts.
+ */
+function isRegularFile(absolutePath: string): boolean {
+  try {
+    return statSync(absolutePath).isFile();
+  } catch {
+    return false; // absent, or unreadable — either way, not a usable reference
+  }
+}
+
+/**
  * Check the `-- pgdelta-migration:` bookkeeping of every `_custom/**` file in
  * `files` (paths relative to `root`, as `collectSqlFiles` produces them). Files
  * outside the reserved folder are ignored entirely.
@@ -67,7 +82,7 @@ export function lintCustomMigrationRefs(
   files: readonly SqlFile[],
   options: LintCustomMigrationRefsOptions = {},
 ): CustomLintFinding[] {
-  const exists = options.exists ?? existsSync;
+  const isFile = options.isFile ?? isRegularFile;
   const findings: CustomLintFinding[] = [];
   for (const file of files) {
     if (!isCustomPath(file.name)) continue;
@@ -97,13 +112,13 @@ export function lintCustomMigrationRefs(
     }
     const base = dirname(resolve(root, file.name));
     for (const relative of paths) {
-      if (exists(resolve(base, relative))) continue;
+      if (isFile(resolve(base, relative))) continue;
       findings.push({
         code: "custom_dangling_migration_ref",
         file: file.name,
         message:
-          `migration reference "${relative}" does not exist (resolved against ` +
-          `${base}); fix the path or update it after moving the migration`,
+          `migration reference "${relative}" does not name a file (resolved ` +
+          `against ${base}); fix the path or update it after moving the migration`,
       });
     }
   }
@@ -126,10 +141,17 @@ export function lintCustomMigrationRefs(
  *   never desired-state DDL;
  * - `CREATE_LANGUAGE` is an unmodeled kind (`unmodeled.ts` probes it), so a
  *   user language legitimately lives here;
- * - `ALTER_OWNER` is excluded even though ownership IS modeled: `ALTER OPERATOR
- *   … OWNER TO` and friends classify the same way, and inside `_custom/` an
- *   owner change is more likely to target an unmodeled object than a modeled
- *   one — a false positive here would train operators to ignore the rule.
+ * - `ALTER_OWNER` and `COMMENT` are excluded even though ownership and comments
+ *   ARE modeled. Both classes are TARGET-BLIND: pg-topo gives `COMMENT ON TEXT
+ *   SEARCH CONFIGURATION` (metadata for an unmodeled object, exactly what this
+ *   folder holds) and `COMMENT ON TABLE` the same class, as it does for
+ *   `ALTER OPERATOR … OWNER TO` and `ALTER TABLE … OWNER TO`. Inside `_custom/`
+ *   the target is more likely to be an unmodeled object, so flagging the class
+ *   fires on the folder's own documented use — and a false positive here trains
+ *   operators to ignore the rule. The deliberate trade-off is a false NEGATIVE:
+ *   a `COMMENT ON TABLE` parked here goes unflagged (its duplicate surfaces
+ *   loudly at the next `schema apply`, which cannot converge). Revisit if
+ *   pg-topo ever classifies these per target kind.
  */
 const MODELED_STATEMENT_CLASSES: ReadonlySet<string> = new Set([
   "ALTER_DEFAULT_PRIVILEGES",
@@ -137,7 +159,6 @@ const MODELED_STATEMENT_CLASSES: ReadonlySet<string> = new Set([
   "ALTER_SEQUENCE",
   "ALTER_SUBSCRIPTION",
   "ALTER_TABLE",
-  "COMMENT",
   "CREATE_AGGREGATE",
   "CREATE_COLLATION",
   "CREATE_DOMAIN",

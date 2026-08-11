@@ -25,9 +25,53 @@
  * `pruneUnmanaged` — because that folder is the user's durable home for SQL the
  * engine does not model.
  */
-import { readdirSync, rmSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { type Dirent, readdirSync, rmSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { isCustomPath } from "./custom-dir.ts";
+
+/** A missing directory. The only FS failure this module treats as benign: the
+ *  root does not exist on a first export, and an entry can vanish mid-walk. */
+function isMissing(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === "ENOENT";
+}
+
+/**
+ * Relative POSIX paths of every `*.sql`-named non-directory entry under `dir`,
+ * NEVER descending into the reserved root-level `_custom/`.
+ *
+ * Skipping before the descent (rather than filtering a completed
+ * `readdirSync(recursive)` listing) is what makes the reservation robust: the
+ * pruner must not even READ that subtree, or an unreadable directory the
+ * operator parked in there takes the whole scan down with it — and a scan that
+ * silently comes back empty means stale owned files survive AND the manifest
+ * rewritten after it disowns them, permanently.
+ *
+ * `isCustomPath` matches the FIRST segment only, so `rel` being the accumulated
+ * path from the root is what keeps a nested `schemas/app/_custom/` ordinary
+ * managed space.
+ */
+function collectSqlCandidates(
+  dir: string,
+  prefix: string,
+  out: string[],
+): void {
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    if (isMissing(error)) return;
+    throw error; // EACCES/EIO: a scan that cannot see the tree must not report it empty
+  }
+  for (const entry of entries) {
+    const rel = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+    if (isCustomPath(rel)) continue;
+    if (entry.isDirectory()) {
+      collectSqlCandidates(join(dir, entry.name), rel, out);
+    } else if (entry.name.endsWith(".sql")) {
+      out.push(rel);
+    }
+  }
+}
 
 /**
  * Scan every `*.sql` file under `outRoot` whose absolute path is not in `keep`.
@@ -37,8 +81,10 @@ import { isCustomPath } from "./custom-dir.ts";
  * `removed`, and `unmanaged` comes back empty). `previouslyOwned` is `undefined`
  * when the previous manifest is absent or recorded no `files` list — then every
  * out-of-set `.sql` is unmanaged. A missing `outRoot` (first export) scans
- * nothing. Anything under the reserved root-level `_custom/` is skipped before
- * either classification, so it is neither removed nor reported.
+ * nothing; any OTHER scan failure (EACCES, EIO) is raised rather than reported as
+ * an empty tree, because a caller that then rewrites the manifest would disown
+ * every file the scan could not see. Anything under the reserved root-level
+ * `_custom/` is never walked, so it is neither removed nor reported.
  */
 export function pruneStaleSqlFiles(
   outRoot: string,
@@ -46,28 +92,21 @@ export function pruneStaleSqlFiles(
   previouslyOwned: ReadonlySet<string> | undefined,
   pruneUnmanaged: boolean,
 ): { removed: string[]; unmanaged: string[] } {
-  let entries: string[];
-  try {
-    entries = readdirSync(outRoot, { recursive: true }) as string[];
-  } catch {
-    return { removed: [], unmanaged: [] }; // directory does not exist yet
-  }
+  // The reserved subtree is never even walked, so a manifest that (impossibly —
+  // writeExportFiles guards the write) claims a `_custom/` path still cannot turn
+  // the pruner into a deleter in there.
+  const entries: string[] = [];
+  collectSqlCandidates(outRoot, "", entries);
   const removed: string[] = [];
   const unmanaged: string[] = [];
   for (const entry of entries) {
-    // The reserved subtree is skipped BEFORE the owned/unmanaged split, so a
-    // manifest that (impossibly — writeExportFiles guards the write) claims a
-    // `_custom/` path still cannot turn the pruner into a deleter in there.
-    // `readdirSync(recursive)` has already listed the entries, so skipping them
-    // here is what "never walk into `_custom/`" means in practice.
-    if (isCustomPath(entry)) continue;
-    if (!entry.endsWith(".sql")) continue;
     const full = resolve(outRoot, entry);
     if (keep.has(full)) continue;
     try {
       if (!statSync(full).isFile()) continue;
-    } catch {
-      continue; // vanished between readdir and stat — ignore
+    } catch (error) {
+      if (isMissing(error)) continue; // vanished between readdir and stat, or a dangling symlink
+      throw error;
     }
     if (previouslyOwned?.has(full)) {
       rmSync(full);

@@ -59,13 +59,20 @@ export interface CustomFile {
 /** Recursively collect `.sql` paths under `dir`, lexicographic, as POSIX paths
  *  relative to `dir` — the same ordering convention `collectSqlFiles` uses.
  *  Local rather than shared so this library frontend keeps no dependency on the
- *  CLI layer that happens to host that walker today. */
+ *  CLI layer that happens to host that walker today.
+ *
+ *  Only ENOENT is benign (see {@link listCustomFiles}); every other failure is
+ *  raised. This is the DELIVERY seam — a frontend folds the undelivered files
+ *  into a generated migration — so a subtree that silently reads as "no custom
+ *  files" would produce a silently incomplete migration, the one failure mode
+ *  this helper must not have. */
 function collectSqlPaths(dir: string, prefix: string): string[] {
   let entries: string[];
   try {
     entries = readdirSync(dir).sort();
-  } catch {
-    return []; // absent (or unreadable) `_custom/` is simply "no custom files"
+  } catch (error) {
+    if ((error as { code?: unknown } | null)?.code === "ENOENT") return [];
+    throw error;
   }
   const found: string[] = [];
   for (const entry of entries) {
@@ -82,7 +89,9 @@ function collectSqlPaths(dir: string, prefix: string): string[] {
 /**
  * Every `.sql` file under `<root>/_custom/`, in lexicographic order, with its
  * body and parsed migration directives. Returns `[]` when the reserved folder
- * does not exist — the overwhelmingly common case, and not an error.
+ * does not exist (ENOENT) — the overwhelmingly common case, and not an error.
+ * Any other filesystem failure THROWS: silently returning a short list would
+ * hand a frontend an incomplete delivery set.
  *
  * Non-`.sql` files are skipped, so the scaffolded `README.md` never appears.
  */

@@ -107,6 +107,15 @@ duplicate `CREATE` that the shadow loader can never converge on
 (`max_rounds_exceeded`). Lint is the right home for all four rules — they are
 bookkeeping hygiene, and export/apply should not fail on hygiene.
 
+Statement classes that are TARGET-BLIND are deliberately excluded from the rule
+even when the kind is modeled: pg-topo gives `COMMENT ON TEXT SEARCH
+CONFIGURATION` (legitimate metadata for an unmodeled object) and `COMMENT ON
+TABLE` the same `COMMENT` class, and likewise for `ALTER … OWNER TO`. Inside
+`_custom/` the target is more likely to be unmodeled, so flagging the class
+would fire on the folder's own documented use. The trade-off is a false negative
+(a `COMMENT ON TABLE` parked here is not flagged), chosen over a false positive
+that would train operators to ignore the rule.
+
 What the check deliberately does **not** verify:
 
 - **Content equivalence** between the custom file and the migration — that

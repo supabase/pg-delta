@@ -831,3 +831,28 @@ oversized key past its advertised total-length budget. One further finding is
   exactly this divergence, so the failure is pre-announced. Revisit if a real
   profile hits it.
 
+## PR #403 review triage — the reserved `_custom/` folder
+
+Round-1 findings were fixed in the PR (migration references must resolve to a
+FILE, the pruner skips `_custom/` during traversal instead of after the walk and
+no longer swallows FS errors, `COMMENT` left the modeled-kind allowlist,
+`unmodeled_drift` diffs fully qualified identities, the `unmodeled_kind`
+remediation is per kind, and `listCustomFiles` propagates non-ENOENT failures).
+One finding is **deferred, won't-fix in #403**:
+
+- **Foreign tables (and `SECURITY LABEL`) cannot be flagged by
+  `custom_modeled_kind`.** pg-topo has no statement class for either — both
+  classify as `UNKNOWN` (verified against the current classifier), and
+  `_custom/` deliberately suppresses the `UNKNOWN_STATEMENT_CLASS` lint, so a
+  `CREATE FOREIGN TABLE` parked in the reserved folder is hidden entirely even
+  though pg-delta models foreign tables and will regenerate one into the managed
+  tree. The correct fix is adding `CreateForeignTableStmt` / `SecurityLabelStmt`
+  classes to pg-topo's classifier (`packages/pg-topo/src/classify/`) and listing
+  them in `MODELED_STATEMENT_CLASSES`
+  (`packages/pg-delta/src/frontends/custom-lint.ts`) — a cross-package change,
+  out of scope for #403. Deferred rather than dropped because the failure mode
+  today is LOUD, not silent: the duplicate `CREATE` makes the next
+  export-then-apply fail to converge on the shadow load
+  (`max_rounds_exceeded`), which is exactly the hazard the lint rule
+  pre-announces rather than the hazard it prevents.
+

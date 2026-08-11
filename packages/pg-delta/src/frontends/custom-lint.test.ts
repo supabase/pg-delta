@@ -156,7 +156,7 @@ describe("lintCustomMigrationRefs", () => {
     ]);
   });
 
-  test("an injectable existence probe keeps the rule testable without fs writes", () => {
+  test("an injectable file probe keeps the rule testable without fs writes", () => {
     const findings = lintCustomMigrationRefs(
       "/nowhere",
       [
@@ -165,7 +165,7 @@ describe("lintCustomMigrationRefs", () => {
           "-- pgdelta-migration: ./m.sql\n\nselect 1;\n",
         ),
       ],
-      { exists: () => true },
+      { isFile: () => true },
     );
     expect(findings).toEqual([]);
   });
@@ -178,11 +178,13 @@ describe("lintCustomModeledKinds", () => {
     );
 
   test("warns on DDL pg-delta models (the duplicate-on-re-export hazard)", async () => {
+    // `comment on table` is deliberately NOT among them: pg-topo's COMMENT class
+    // is target-blind, so flagging it would fire on comments about the unmodeled
+    // objects this folder exists to hold (see MODELED_STATEMENT_CLASSES).
     const findings = await analyzeCustom(
       "create table public.t (id int);\ncreate view public.v as select id from public.t;\ngrant select on public.t to public;\ncomment on table public.t is 'x';\n",
     );
     expect(findings.map((f) => f.code)).toEqual([
-      "custom_modeled_kind",
       "custom_modeled_kind",
       "custom_modeled_kind",
       "custom_modeled_kind",
