@@ -1,6 +1,6 @@
 {
   "name": "@supabase/pg-delta",
-  "version": "1.0.0-alpha.35",
+  "version": "1.0.0-alpha.36",
   "description": "PostgreSQL migrations made easy — clean-room schema-diff engine that proves its migrations converge",
   "keywords": [
     "diff",
