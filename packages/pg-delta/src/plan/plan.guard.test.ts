@@ -48,7 +48,10 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // 7 → 8: the platform-provisioned assumed-schema-member scan discriminates
   // owner edges to role facts in the RAW extracts (`e.to.kind === "role"`) —
   // 1 deliberate literal, same shape as the dangling-owner auto-add loop.
-  "plan.ts": 8,
+  // 8 → 9: the source-witnessed role scan probes `source.has({ kind: "role",
+  // name })` for each reference `roleReferencesOf` (rules/helpers.ts) returns —
+  // 1 deliberate literal; the per-kind reference knowledge lives in the rules.
+  "plan.ts": 9,
   // preamble.ts classifies actions into "routine-family or not" for the
   // cosmetic check_function_bodies compaction; the routine kinds themselves
   // come from core ROUTINE_KINDS, leaving only the two extension literals.

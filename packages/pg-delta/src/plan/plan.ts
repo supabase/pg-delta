@@ -26,6 +26,7 @@ import {
   KNOWN_PARAMS,
   type PlanParams,
 } from "./rules.ts";
+import { roleReferencesOf } from "./rules/helpers.ts";
 
 /** Engine version stamped into plan artifacts; apply refuses artifacts
  *  from an engine it does not understand (stage 6 deliverable 1). */
@@ -486,6 +487,26 @@ export function plan(
       if (e.kind === "owner" && e.to.kind === "role" && !fb.has(e.to)) {
         assumedRoleNames.add((e.to as { kind: "role"; name: string }).name);
       }
+    }
+  }
+
+  // A role referenced by a fact KEPT in the SOURCE view is WITNESSED to exist
+  // on the apply target even when its role OBJECT is absent from the view (the
+  // database scope projects every role fact out; a policy exclusion can do the
+  // same): the source view is the target's own extract, and PostgreSQL cannot
+  // record an ACL, default privilege, membership, user mapping, or RLS policy
+  // for a role that does not exist. Without the witness, a teardown `REVOKE …
+  // FROM <role>` consumes a role id the guard can't resolve — a grantee-only
+  // role (it owns nothing) is invisible to the owner-edge auto-add above, and
+  // a DB↔DB caller supplies no `assumedRoles` list (Sentry SUPABASE-API-8CX,
+  // pattern B). SOURCE-side only, deliberately: a DESIRED-side reference with
+  // no witness stays a loud plan-time failure — the role may not exist on the
+  // target at all, or a filter may be hiding its creation. `roleReferencesOf`
+  // (rules/helpers.ts) enumerates exactly the references the rule table turns
+  // into role `consumes`.
+  for (const fact of source.facts()) {
+    for (const name of roleReferencesOf(fact)) {
+      if (!source.has({ kind: "role", name })) assumedRoleNames.add(name);
     }
   }
 
