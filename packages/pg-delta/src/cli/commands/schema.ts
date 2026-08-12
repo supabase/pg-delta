@@ -402,7 +402,7 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     }
   }
 
-  const src = makePool(sourceUrl);
+  const src = makePool(sourceUrl, { role: "source" });
   try {
     const redactSecrets = !flags["unsafe-show-secrets"];
     const profile = profileById(flags["profile"]);

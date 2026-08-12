@@ -83,7 +83,7 @@ describe.skipIf(skipSslSuite)(`SSL operations (${PG_IMAGE})`, () => {
     async () => {
       const managed = makePool(`${baseUri}?sslmode=verify-full`);
       try {
-        await expect(managed.pool.query("SELECT 1")).rejects.toThrow(
+        expect(managed.pool.query("SELECT 1")).rejects.toThrow(
           /self[- ]signed|certificate/i,
         );
       } finally {
