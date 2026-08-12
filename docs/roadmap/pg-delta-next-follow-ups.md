@@ -877,7 +877,8 @@ Two findings on the CLI-1470 fix. P1 was fixed in the PR; P2 is recorded here.
   "present on this target" from "assumed by name" and is the revisit path.
 
 - **Deferred (round 3, P1) — a kept user object over a suppressed wrapper
-  prerequisite plans SQL that fails at apply.** Reproduced (2026-08-11): a
+  prerequisite plans SQL that fails at apply.** Tracked as CLI-2178 (pg-delta
+  1.0.0 stable release project). Reproduced (2026-08-11): a
   `dsl_owner` view over a foreign table on a suppressed wrappers FDW plans
   `CREATE VIEW public.paying_users AS SELECT … FROM stripe.customers` with no
   prerequisite and no plan-time diagnostic — `excludeFactsAndDescendants`
