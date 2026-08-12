@@ -167,25 +167,35 @@ export function buildChangeSet(
       projectionSuppressions.push({ side: "desired", suppression }),
   });
 
-  // Rename proposals come from policy-kept deltas in physical identity space.
-  // This is intentionally a discovery pass: the actual plan is built from a
-  // second diff after accepted role identities have been canonicalized.
-  const discoveryAllDeltas = diff(physicalSource, physicalDesired);
-  const { kept: discoveryDeltas } = options?.policy
-    ? filterDeltas(
-        discoveryAllDeltas,
-        options.policy,
-        physicalSource,
-        physicalDesired,
-      )
-    : { kept: discoveryAllDeltas };
-  const { removed: discoveryRemoved, added: discoveryAdded } =
-    groupDeltas(discoveryDeltas);
-
   const renameMode: RenameMode = options?.renames ?? "off";
   const renameCandidates: RenameCandidate[] = [];
   const discoveredRenames: AcceptedRename[] = [];
   if (renameMode !== "off") {
+    // Rename proposals come from policy-kept deltas in physical identity space.
+    // This is intentionally a discovery pass: the actual plan is built from a
+    // second diff (below) after accepted role identities have been canonicalized.
+    //
+    // Gated on the rename mode because it is pure and its ONLY consumers are in
+    // this block. At `renames: "off"` (the production default) nothing reads
+    // `discoveryRemoved` / `discoveryAdded`, and `diff` / `filterDeltas` /
+    // `groupDeltas` are side-effect-free — they return fresh arrays/maps and
+    // never touch a FactBase, emit a diagnostic or write a suppression (the
+    // projection suppression sink hangs off `reconstructManagedView` above, not
+    // off this diff). So the whole pass was byte-identical duplicate work of the
+    // canonical pass below: with no discovered renames the role-rename map is
+    // empty and `normalizeRoleIdentities` hands the same FactBases straight back.
+    const discoveryAllDeltas = diff(physicalSource, physicalDesired);
+    const { kept: discoveryDeltas } = options?.policy
+      ? filterDeltas(
+          discoveryAllDeltas,
+          options.policy,
+          physicalSource,
+          physicalDesired,
+        )
+      : { kept: discoveryAllDeltas };
+    const { removed: discoveryRemoved, added: discoveryAdded } =
+      groupDeltas(discoveryDeltas);
+
     const candidates = matchRenameCandidates(
       discoveryRemoved,
       discoveryAdded,

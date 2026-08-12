@@ -5,7 +5,7 @@ import type { StableId } from "../core/stable-id.ts";
 import {
   aclJson,
   aclJsonMemberAware,
-  type ExtractContext,
+  type CatalogFamily,
   memberExtensionExpr,
   notExtensionMember,
   parseAcl,
@@ -22,9 +22,7 @@ function reloptions(row: Record<string, unknown>): string[] | null {
   return arr.length > 0 ? arr : null;
 }
 
-export async function extractTables(ctx: ExtractContext): Promise<void> {
-  const { q, pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
-  for (const row of await q(`
+const TABLES_SQL = `
     SELECT n.nspname AS schema, c.relname AS name, r.rolname AS owner,
            c.relpersistence AS persistence,
            c.relrowsecurity AS row_security,
@@ -54,57 +52,63 @@ export async function extractTables(ctx: ExtractContext): Promise<void> {
     JOIN pg_namespace n ON n.oid = c.relnamespace
     JOIN pg_roles r ON r.oid = c.relowner
     WHERE c.relkind IN ('r', 'p') AND ${USER_SCHEMA_FILTER}
-    ORDER BY n.nspname, c.relname`)) {
-    const id: StableId = {
-      kind: "table",
-      schema: String(row["schema"]),
-      name: String(row["name"]),
-    };
-    pushWithMeta(
-      {
-        id,
-        parent: schemaId(row["schema"]),
-        payload: {
-          persistence: String(row["persistence"]),
-          rowSecurity: Boolean(row["row_security"]),
-          forceRowSecurity: Boolean(row["force_row_security"]),
-          replicaIdentity: String(row["replica_identity"]),
-          replicaIdentityIndex:
-            row["replica_identity_index"] == null
-              ? null
-              : (row["replica_identity_index"] as string),
-          partitionKey:
-            row["partition_key"] == null
-              ? null
-              : (row["partition_key"] as string),
-          // partitionBound + parentTable are policy-API surface, not just hash
-          // substance: the `partitionOf` predicate (src/policy/policy.ts)
-          // matches on these exact payload field names. Renaming either
-          // silently un-matches every partitionOf rule — no validatePolicy
-          // error fires.
-          partitionBound:
-            row["partition_bound"] == null
-              ? null
-              : (row["partition_bound"] as string),
-          parentTable:
-            row["parent_table"] == null
-              ? null
-              : (row["parent_table"] as { schema: string; name: string }),
-          reloptions: reloptions(row),
-        },
-      },
-      row,
-      parseAcl(row["acl"]),
-    );
-    pushMemberEdge(id, row);
-    pushOwnerEdge(id, row["owner"]);
-  }
-}
+    ORDER BY n.nspname, c.relname`;
 
-export async function extractColumns(ctx: ExtractContext): Promise<void> {
-  const { q, facts, pushWithMeta } = ctx;
-  // ── columns + defaults (defaults are their own facts, like pg_attrdef) ─
-  for (const row of await q(`
+export const tablesFamily: CatalogFamily = {
+  name: "tables",
+  statements: () => [TABLES_SQL],
+  apply: (ctx, rowSets) => {
+    const { pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
+    for (const row of rowSets[0]!) {
+      const id: StableId = {
+        kind: "table",
+        schema: String(row["schema"]),
+        name: String(row["name"]),
+      };
+      pushWithMeta(
+        {
+          id,
+          parent: schemaId(row["schema"]),
+          payload: {
+            persistence: String(row["persistence"]),
+            rowSecurity: Boolean(row["row_security"]),
+            forceRowSecurity: Boolean(row["force_row_security"]),
+            replicaIdentity: String(row["replica_identity"]),
+            replicaIdentityIndex:
+              row["replica_identity_index"] == null
+                ? null
+                : (row["replica_identity_index"] as string),
+            partitionKey:
+              row["partition_key"] == null
+                ? null
+                : (row["partition_key"] as string),
+            // partitionBound + parentTable are policy-API surface, not just hash
+            // substance: the `partitionOf` predicate (src/policy/policy.ts)
+            // matches on these exact payload field names. Renaming either
+            // silently un-matches every partitionOf rule — no validatePolicy
+            // error fires.
+            partitionBound:
+              row["partition_bound"] == null
+                ? null
+                : (row["partition_bound"] as string),
+            parentTable:
+              row["parent_table"] == null
+                ? null
+                : (row["parent_table"] as { schema: string; name: string }),
+            reloptions: reloptions(row),
+          },
+        },
+        row,
+        parseAcl(row["acl"]),
+      );
+      pushMemberEdge(id, row);
+      pushOwnerEdge(id, row["owner"]);
+    }
+  },
+};
+
+// ── columns + defaults (defaults are their own facts, like pg_attrdef) ─
+const COLUMNS_SQL = `
     SELECT n.nspname AS schema, c.relname AS table, a.attname AS name,
            a.attnum AS position,
            c.relkind AS table_kind,
@@ -153,104 +157,108 @@ export async function extractColumns(ctx: ExtractContext): Promise<void> {
       AND a.attislocal
       AND ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_class", "c.oid")}
-    ORDER BY n.nspname, c.relname, a.attname`)) {
-    const tableId: StableId = {
-      kind: String(row["table_kind"]) === "f" ? "foreignTable" : "table",
-      schema: String(row["schema"]),
-      name: String(row["table"]),
-    };
-    const columnId: StableId = {
-      kind: "column",
-      schema: String(row["schema"]),
-      table: String(row["table"]),
-      name: String(row["name"]),
-    };
-    const generated = row["generated"] != null;
-    pushWithMeta(
-      {
-        id: columnId,
-        parent: tableId,
-        payload: {
-          // `_position` is the declared column position (pg_attribute.attnum).
-          // Column ORDER is row-layout state (SELECT *, positional INSERT, the
-          // relation's row type), so a from-empty CREATE must render columns in
-          // this order — but positional IDENTITY is not desired state (columns
-          // are name-keyed, like composite attributes), so the `_`-prefix
-          // excludes it from the hash and diff (core/hash.ts, core/diff.ts): an
-          // order-only reshuffle on an EXISTING table stays undiffable by design.
-          // attnum has HOLES after DROP COLUMN, but ordering the survivors by it
-          // still yields their declared order, which is what matters. The plan's
-          // ordering phase (plan/phases/action-graph.ts) and the partitioned
-          // inline-column path (plan/rules/tables.ts) render in this order.
-          _position: Number(row["position"]),
-          type: String(row["type"]),
-          notNull: Boolean(row["not_null"]),
-          identity:
-            row["identity"] == null
-              ? null
-              : {
-                  generation: row["identity"] as string,
-                  sequence: row["identity_sequence"] as {
-                    schema: string;
-                    name: string;
-                  } | null,
-                  options:
-                    row["identity_options"] == null
-                      ? null
-                      : (row["identity_options"] as {
-                          increment: string;
-                          start: string;
-                          minValue: string;
-                          maxValue: string;
-                          cache: string;
-                          cycle: boolean;
-                        }),
-                },
-          collation:
-            row["collation"] == null ? null : (row["collation"] as string),
-          generatedExpr:
-            generated && row["default_expr"] != null
-              ? (row["default_expr"] as string)
-              : null,
-        },
-      },
-      row,
-    );
-    if (!generated && row["default_expr"] != null) {
-      facts.push({
-        id: {
-          kind: "default",
-          schema: String(row["schema"]),
-          table: String(row["table"]),
-          name: String(row["name"]),
-        },
-        parent: columnId,
-        payload: { expr: row["default_expr"] as string },
-      });
-    }
-    // Column-level grants (attacl): one acl satellite per grantee, targeting the
-    // owning relation but qualified by this column. Parent is the column so the
-    // grant folds into the column/table drop, exactly like the default above.
-    for (const acl of parseAcl(row["acl"])) {
-      facts.push({
-        id: {
-          kind: "acl",
-          target: tableId,
-          grantee: acl.grantee,
-          column: String(row["name"]),
-        },
-        parent: columnId,
-        payload: { privileges: acl.privileges, grantable: acl.grantable },
-      });
-    }
-  }
-}
+    ORDER BY n.nspname, c.relname, a.attname`;
 
-export async function extractTableConstraints(
-  ctx: ExtractContext,
-): Promise<void> {
-  const { q, pushWithMeta } = ctx;
-  for (const row of await q(`
+export const columnsFamily: CatalogFamily = {
+  name: "columns",
+  statements: () => [COLUMNS_SQL],
+  apply: (ctx, rowSets) => {
+    const { facts, pushWithMeta } = ctx;
+    for (const row of rowSets[0]!) {
+      const tableId: StableId = {
+        kind: String(row["table_kind"]) === "f" ? "foreignTable" : "table",
+        schema: String(row["schema"]),
+        name: String(row["table"]),
+      };
+      const columnId: StableId = {
+        kind: "column",
+        schema: String(row["schema"]),
+        table: String(row["table"]),
+        name: String(row["name"]),
+      };
+      const generated = row["generated"] != null;
+      pushWithMeta(
+        {
+          id: columnId,
+          parent: tableId,
+          payload: {
+            // `_position` is the declared column position (pg_attribute.attnum).
+            // Column ORDER is row-layout state (SELECT *, positional INSERT, the
+            // relation's row type), so a from-empty CREATE must render columns in
+            // this order — but positional IDENTITY is not desired state (columns
+            // are name-keyed, like composite attributes), so the `_`-prefix
+            // excludes it from the hash and diff (core/hash.ts, core/diff.ts): an
+            // order-only reshuffle on an EXISTING table stays undiffable by design.
+            // attnum has HOLES after DROP COLUMN, but ordering the survivors by it
+            // still yields their declared order, which is what matters. The plan's
+            // ordering phase (plan/phases/action-graph.ts) and the partitioned
+            // inline-column path (plan/rules/tables.ts) render in this order.
+            _position: Number(row["position"]),
+            type: String(row["type"]),
+            notNull: Boolean(row["not_null"]),
+            identity:
+              row["identity"] == null
+                ? null
+                : {
+                    generation: row["identity"] as string,
+                    sequence: row["identity_sequence"] as {
+                      schema: string;
+                      name: string;
+                    } | null,
+                    options:
+                      row["identity_options"] == null
+                        ? null
+                        : (row["identity_options"] as {
+                            increment: string;
+                            start: string;
+                            minValue: string;
+                            maxValue: string;
+                            cache: string;
+                            cycle: boolean;
+                          }),
+                  },
+            collation:
+              row["collation"] == null ? null : (row["collation"] as string),
+            generatedExpr:
+              generated && row["default_expr"] != null
+                ? (row["default_expr"] as string)
+                : null,
+          },
+        },
+        row,
+      );
+      if (!generated && row["default_expr"] != null) {
+        facts.push({
+          id: {
+            kind: "default",
+            schema: String(row["schema"]),
+            table: String(row["table"]),
+            name: String(row["name"]),
+          },
+          parent: columnId,
+          payload: { expr: row["default_expr"] as string },
+        });
+      }
+      // Column-level grants (attacl): one acl satellite per grantee, targeting the
+      // owning relation but qualified by this column. Parent is the column so the
+      // grant folds into the column/table drop, exactly like the default above.
+      for (const acl of parseAcl(row["acl"])) {
+        facts.push({
+          id: {
+            kind: "acl",
+            target: tableId,
+            grantee: acl.grantee,
+            column: String(row["name"]),
+          },
+          parent: columnId,
+          payload: { privileges: acl.privileges, grantable: acl.grantable },
+        });
+      }
+    }
+  },
+};
+
+const TABLE_CONSTRAINTS_SQL = `
     SELECT n.nspname AS schema, c.relname AS table, con.conname AS name,
            c.relkind AS table_kind,
            pg_get_constraintdef(con.oid) AS def,
@@ -265,35 +273,41 @@ export async function extractTableConstraints(
     WHERE con.contype IN ('p', 'u', 'f', 'c', 'x') AND con.conislocal
       AND c.relkind IN ('r', 'p', 'f') AND ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_class", "c.oid")}
-    ORDER BY n.nspname, c.relname, con.conname`)) {
-    pushWithMeta(
-      {
-        id: {
-          kind: "constraint",
-          schema: String(row["schema"]),
-          table: String(row["table"]),
-          name: String(row["name"]),
-        },
-        parent: {
-          kind: String(row["table_kind"]) === "f" ? "foreignTable" : "table",
-          schema: String(row["schema"]),
-          name: String(row["table"]),
-        },
-        payload: {
-          def: String(row["def"]),
-          type: String(row["type"]),
-          validated: Boolean(row["validated"]),
-        },
-      },
-      row,
-    );
-  }
-}
+    ORDER BY n.nspname, c.relname, con.conname`;
 
-export async function extractIndexes(ctx: ExtractContext): Promise<void> {
-  const { q, pushWithMeta } = ctx;
-  // ── indexes (excluding constraint-backed ones) ───────────────────────
-  for (const row of await q(`
+export const tableConstraintsFamily: CatalogFamily = {
+  name: "constraints",
+  statements: () => [TABLE_CONSTRAINTS_SQL],
+  apply: (ctx, rowSets) => {
+    const { pushWithMeta } = ctx;
+    for (const row of rowSets[0]!) {
+      pushWithMeta(
+        {
+          id: {
+            kind: "constraint",
+            schema: String(row["schema"]),
+            table: String(row["table"]),
+            name: String(row["name"]),
+          },
+          parent: {
+            kind: String(row["table_kind"]) === "f" ? "foreignTable" : "table",
+            schema: String(row["schema"]),
+            name: String(row["table"]),
+          },
+          payload: {
+            def: String(row["def"]),
+            type: String(row["type"]),
+            validated: Boolean(row["validated"]),
+          },
+        },
+        row,
+      );
+    }
+  },
+};
+
+// ── indexes (excluding constraint-backed ones) ───────────────────────
+const INDEXES_SQL = `
     SELECT n.nspname AS schema, ic.relname AS name, c.relname AS table,
            c.relkind AS table_kind,
            pg_get_indexdef(i.indexrelid) AS def,
@@ -326,49 +340,55 @@ export async function extractIndexes(ctx: ExtractContext): Promise<void> {
       )
       AND NOT EXISTS (SELECT 1 FROM pg_inherits ih WHERE ih.inhrelid = i.indexrelid)
       AND ${notExtensionMember("pg_class", "c.oid")}
-    ORDER BY n.nspname, ic.relname`)) {
-    const tableKind =
-      String(row["table_kind"]) === "m" ? "materializedView" : "table";
-    pushWithMeta(
-      {
-        id: {
-          kind: "index",
-          schema: String(row["schema"]),
-          name: String(row["name"]),
-        },
-        parent: {
-          kind: tableKind,
-          schema: String(row["schema"]),
-          name: String(row["table"]),
-        },
-        // `valid` (pg_index.indisvalid) is SEMANTIC state, not just metadata: a
-        // failed/cancelled CREATE INDEX CONCURRENTLY leaves indisvalid=false with
-        // a def IDENTICAL to the desired valid index, so without this field the
-        // unusable index would hash EQUAL to the valid one and retry planning /
-        // the proof would consider it converged. Including it in the payload
-        // (hashed) makes invalid ≠ valid, and the `valid: "replace"` attribute
-        // strategy repairs it via drop + recreate (the standard fix). A fresh
-        // CREATE INDEX in a SQL-loaded shadow is always valid=true, so the desired
-        // side naturally carries true and never churns a healthy index.
-        //
-        // NOTE (#332): the `valid` SELECT above deliberately forces partitioned
-        // PARENT indexes (relkind 'I') to true. Their indisvalid tracks child
-        // ATTACH-state (and pg_get_indexdef renders them `ON ONLY`, which itself
-        // produces an invalid parent), so surfacing it here would spuriously
-        // fail convergence on every partitioned-index scenario. That attach-state
-        // remains unmodeled and tracked in #332; only regular indexes drive the
-        // valid diff.
-        payload: { def: String(row["def"]), valid: Boolean(row["valid"]) },
-      },
-      row,
-    );
-  }
-}
+    ORDER BY n.nspname, ic.relname`;
 
-export async function extractSequences(ctx: ExtractContext): Promise<void> {
-  const { q, pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
-  // ── sequences (identity-column internals excluded) ───────────────────
-  for (const row of await q(`
+export const indexesFamily: CatalogFamily = {
+  name: "indexes",
+  statements: () => [INDEXES_SQL],
+  apply: (ctx, rowSets) => {
+    const { pushWithMeta } = ctx;
+    for (const row of rowSets[0]!) {
+      const tableKind =
+        String(row["table_kind"]) === "m" ? "materializedView" : "table";
+      pushWithMeta(
+        {
+          id: {
+            kind: "index",
+            schema: String(row["schema"]),
+            name: String(row["name"]),
+          },
+          parent: {
+            kind: tableKind,
+            schema: String(row["schema"]),
+            name: String(row["table"]),
+          },
+          // `valid` (pg_index.indisvalid) is SEMANTIC state, not just metadata: a
+          // failed/cancelled CREATE INDEX CONCURRENTLY leaves indisvalid=false with
+          // a def IDENTICAL to the desired valid index, so without this field the
+          // unusable index would hash EQUAL to the valid one and retry planning /
+          // the proof would consider it converged. Including it in the payload
+          // (hashed) makes invalid ≠ valid, and the `valid: "replace"` attribute
+          // strategy repairs it via drop + recreate (the standard fix). A fresh
+          // CREATE INDEX in a SQL-loaded shadow is always valid=true, so the desired
+          // side naturally carries true and never churns a healthy index.
+          //
+          // NOTE (#332): the `valid` SELECT above deliberately forces partitioned
+          // PARENT indexes (relkind 'I') to true. Their indisvalid tracks child
+          // ATTACH-state (and pg_get_indexdef renders them `ON ONLY`, which itself
+          // produces an invalid parent), so surfacing it here would spuriously
+          // fail convergence on every partitioned-index scenario. That attach-state
+          // remains unmodeled and tracked in #332; only regular indexes drive the
+          // valid diff.
+          payload: { def: String(row["def"]), valid: Boolean(row["valid"]) },
+        },
+        row,
+      );
+    }
+  },
+};
+
+// ── sequences (identity-column internals excluded) ───────────────────
+const SEQUENCES_SQL = `
     SELECT n.nspname AS schema, c.relname AS name, r.rolname AS owner,
            format_type(s.seqtypid, NULL) AS data_type,
            s.seqstart::text AS start, s.seqincrement::text AS increment,
@@ -396,46 +416,52 @@ export async function extractSequences(ctx: ExtractContext): Promise<void> {
         SELECT 1 FROM pg_depend d
         WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
           AND d.deptype = 'i')
-    ORDER BY n.nspname, c.relname`)) {
-    const id: StableId = {
-      kind: "sequence",
-      schema: String(row["schema"]),
-      name: String(row["name"]),
-    };
-    pushWithMeta(
-      {
-        id,
-        parent: schemaId(row["schema"]),
-        payload: {
-          dataType: String(row["data_type"]),
-          start: String(row["start"]),
-          increment: String(row["increment"]),
-          minValue: String(row["min_value"]),
-          maxValue: String(row["max_value"]),
-          cache: String(row["cache"]),
-          cycle: Boolean(row["cycle"]),
-          ownedBy:
-            row["owned_by"] == null
-              ? null
-              : (row["owned_by"] as {
-                  schema: string;
-                  table: string;
-                  column: string;
-                }),
-        },
-      },
-      row,
-      parseAcl(row["acl"]),
-    );
-    pushMemberEdge(id, row);
-    pushOwnerEdge(id, row["owner"]);
-  }
-}
+    ORDER BY n.nspname, c.relname`;
 
-export async function extractViews(ctx: ExtractContext): Promise<void> {
-  const { q, pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
-  // ── views + materialized views ───────────────────────────────────────
-  for (const row of await q(`
+export const sequencesFamily: CatalogFamily = {
+  name: "sequences",
+  statements: () => [SEQUENCES_SQL],
+  apply: (ctx, rowSets) => {
+    const { pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
+    for (const row of rowSets[0]!) {
+      const id: StableId = {
+        kind: "sequence",
+        schema: String(row["schema"]),
+        name: String(row["name"]),
+      };
+      pushWithMeta(
+        {
+          id,
+          parent: schemaId(row["schema"]),
+          payload: {
+            dataType: String(row["data_type"]),
+            start: String(row["start"]),
+            increment: String(row["increment"]),
+            minValue: String(row["min_value"]),
+            maxValue: String(row["max_value"]),
+            cache: String(row["cache"]),
+            cycle: Boolean(row["cycle"]),
+            ownedBy:
+              row["owned_by"] == null
+                ? null
+                : (row["owned_by"] as {
+                    schema: string;
+                    table: string;
+                    column: string;
+                  }),
+          },
+        },
+        row,
+        parseAcl(row["acl"]),
+      );
+      pushMemberEdge(id, row);
+      pushOwnerEdge(id, row["owner"]);
+    }
+  },
+};
+
+// ── views + materialized views ───────────────────────────────────────
+const VIEWS_SQL = `
     SELECT n.nspname AS schema, c.relname AS name, r.rolname AS owner,
            c.relkind AS kind,
            pg_get_viewdef(c.oid) AS def,
@@ -447,29 +473,35 @@ export async function extractViews(ctx: ExtractContext): Promise<void> {
     JOIN pg_namespace n ON n.oid = c.relnamespace
     JOIN pg_roles r ON r.oid = c.relowner
     WHERE c.relkind IN ('v', 'm') AND ${USER_SCHEMA_FILTER}
-    ORDER BY n.nspname, c.relname`)) {
-    const id: StableId = {
-      kind: String(row["kind"]) === "m" ? "materializedView" : "view",
-      schema: String(row["schema"]),
-      name: String(row["name"]),
-    };
-    pushWithMeta(
-      {
-        id,
-        parent: schemaId(row["schema"]),
-        payload: { def: String(row["def"]), reloptions: reloptions(row) },
-      },
-      row,
-      parseAcl(row["acl"]),
-    );
-    pushMemberEdge(id, row);
-    pushOwnerEdge(id, row["owner"]);
-  }
-}
+    ORDER BY n.nspname, c.relname`;
 
-export async function extractTriggers(ctx: ExtractContext): Promise<void> {
-  const { q, pushWithMeta } = ctx;
-  for (const row of await q(`
+export const viewsFamily: CatalogFamily = {
+  name: "views",
+  statements: () => [VIEWS_SQL],
+  apply: (ctx, rowSets) => {
+    const { pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
+    for (const row of rowSets[0]!) {
+      const id: StableId = {
+        kind: String(row["kind"]) === "m" ? "materializedView" : "view",
+        schema: String(row["schema"]),
+        name: String(row["name"]),
+      };
+      pushWithMeta(
+        {
+          id,
+          parent: schemaId(row["schema"]),
+          payload: { def: String(row["def"]), reloptions: reloptions(row) },
+        },
+        row,
+        parseAcl(row["acl"]),
+      );
+      pushMemberEdge(id, row);
+      pushOwnerEdge(id, row["owner"]);
+    }
+  },
+};
+
+const TRIGGERS_SQL = `
     SELECT n.nspname AS schema, c.relname AS table, t.tgname AS name,
            c.relkind AS table_kind,
            pg_get_triggerdef(t.oid) AS def,
@@ -480,42 +512,48 @@ export async function extractTriggers(ctx: ExtractContext): Promise<void> {
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE NOT t.tgisinternal AND t.tgparentid = 0 AND ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_class", "c.oid")}
-    ORDER BY n.nspname, c.relname, t.tgname`)) {
-    const relkind = String(row["table_kind"]);
-    pushWithMeta(
-      {
-        id: {
-          kind: "trigger",
-          schema: String(row["schema"]),
-          table: String(row["table"]),
-          name: String(row["name"]),
-        },
-        parent: {
-          kind:
-            relkind === "v"
-              ? "view"
-              : relkind === "m"
-                ? "materializedView"
-                : relkind === "f"
-                  ? "foreignTable"
-                  : "table",
-          schema: String(row["schema"]),
-          name: String(row["table"]),
-        },
-        payload: {
-          def: String(row["def"]),
-          enabled: String(row["enabled"]),
-        },
-      },
-      row,
-    );
-  }
-}
+    ORDER BY n.nspname, c.relname, t.tgname`;
 
-export async function extractRules(ctx: ExtractContext): Promise<void> {
-  const { q, pushWithMeta } = ctx;
-  // ── rewrite rules (user rules; the view _RETURN rule is the view def) ─
-  for (const row of await q(`
+export const triggersFamily: CatalogFamily = {
+  name: "triggers",
+  statements: () => [TRIGGERS_SQL],
+  apply: (ctx, rowSets) => {
+    const { pushWithMeta } = ctx;
+    for (const row of rowSets[0]!) {
+      const relkind = String(row["table_kind"]);
+      pushWithMeta(
+        {
+          id: {
+            kind: "trigger",
+            schema: String(row["schema"]),
+            table: String(row["table"]),
+            name: String(row["name"]),
+          },
+          parent: {
+            kind:
+              relkind === "v"
+                ? "view"
+                : relkind === "m"
+                  ? "materializedView"
+                  : relkind === "f"
+                    ? "foreignTable"
+                    : "table",
+            schema: String(row["schema"]),
+            name: String(row["table"]),
+          },
+          payload: {
+            def: String(row["def"]),
+            enabled: String(row["enabled"]),
+          },
+        },
+        row,
+      );
+    }
+  },
+};
+
+// ── rewrite rules (user rules; the view _RETURN rule is the view def) ─
+const RULES_SQL = `
     SELECT n.nspname AS schema, c.relname AS table, c.relkind AS table_kind,
            rw.rulename AS name, pg_get_ruledef(rw.oid) AS def,
            rw.ev_enabled AS enabled,
@@ -525,29 +563,37 @@ export async function extractRules(ctx: ExtractContext): Promise<void> {
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE rw.rulename <> '_RETURN' AND ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_class", "c.oid")}
-    ORDER BY n.nspname, c.relname, rw.rulename`)) {
-    const relkind = String(row["table_kind"]);
-    pushWithMeta(
-      {
-        id: {
-          kind: "rule",
-          schema: String(row["schema"]),
-          table: String(row["table"]),
-          name: String(row["name"]),
+    ORDER BY n.nspname, c.relname, rw.rulename`;
+
+export const rulesFamily: CatalogFamily = {
+  name: "rules",
+  statements: () => [RULES_SQL],
+  apply: (ctx, rowSets) => {
+    const { pushWithMeta } = ctx;
+    for (const row of rowSets[0]!) {
+      const relkind = String(row["table_kind"]);
+      pushWithMeta(
+        {
+          id: {
+            kind: "rule",
+            schema: String(row["schema"]),
+            table: String(row["table"]),
+            name: String(row["name"]),
+          },
+          parent: {
+            kind:
+              relkind === "v"
+                ? "view"
+                : relkind === "m"
+                  ? "materializedView"
+                  : "table",
+            schema: String(row["schema"]),
+            name: String(row["table"]),
+          },
+          payload: { def: String(row["def"]), enabled: String(row["enabled"]) },
         },
-        parent: {
-          kind:
-            relkind === "v"
-              ? "view"
-              : relkind === "m"
-                ? "materializedView"
-                : "table",
-          schema: String(row["schema"]),
-          name: String(row["table"]),
-        },
-        payload: { def: String(row["def"]), enabled: String(row["enabled"]) },
-      },
-      row,
-    );
-  }
-}
+        row,
+      );
+    }
+  },
+};

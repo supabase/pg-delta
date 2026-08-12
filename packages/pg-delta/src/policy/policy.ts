@@ -69,13 +69,14 @@
 import type { Delta } from "../core/diff.ts";
 import type { DependencyEdge, EdgeKind, Fact, FactBase } from "../core/fact.ts";
 import { contentHash, type PayloadValue } from "../core/hash.ts";
-import { buildFactBase, retainOwnerRoleDangling } from "../core/fact.ts";
 import type { FactKind, StableId } from "../core/stable-id.ts";
 import { encodeId } from "../core/stable-id.ts";
 import { KNOWN_PARAMS, type PlanParams } from "../plan/rules.ts";
 import { subtractBaseline } from "./baseline.ts";
 import {
+  buildExclusion,
   collectRemovedSuppressions,
+  computeExclusion,
   excludeFactsAndDescendants,
   extensionMemberClosure,
   type ProjectionAuditClassification,
@@ -320,14 +321,38 @@ export interface Policy {
 // Glob helpers (no regex library; implement ourselves)
 // ---------------------------------------------------------------------------
 
+/**
+ * Compiled-glob cache. The scope scan (`resolveView` → `factScopeExclusion`)
+ * evaluates every policy rule's matchers against every fact, so a 20k-fact
+ * catalog drives hundreds of thousands of `globMatch` calls per plan — but only
+ * over the handful of DISTINCT patterns the policy's rules spell out. Compiling
+ * the RegExp once per pattern instead of once per call is the whole win; the
+ * translation is a pure function of the pattern string, so the cache cannot
+ * change a result.
+ *
+ * Capped so a pathological caller (a policy synthesized from untrusted input,
+ * one rule per object) cannot grow it without bound: past the cap we simply
+ * stop memoizing and compile per call — the pre-cache behavior.
+ */
+const GLOB_REGEX_CACHE_MAX = 4096;
+const globRegexCache = new Map<string, RegExp>();
+
 /** Escape all regex meta-characters except `*`, then replace `*` with `.*`. */
 function globToRegex(pattern: string): RegExp {
+  const cached = globRegexCache.get(pattern);
+  if (cached !== undefined) return cached;
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
   const regexSource = escaped.replace(/\*/g, ".*");
-  return new RegExp(`^${regexSource}$`);
+  const compiled = new RegExp(`^${regexSource}$`);
+  if (globRegexCache.size < GLOB_REGEX_CACHE_MAX) {
+    globRegexCache.set(pattern, compiled);
+  }
+  return compiled;
 }
 
 function globMatch(pattern: string, value: string): boolean {
+  // `test` on a cached RegExp is only stateful for /g//y regexes; globToRegex
+  // never sets either flag, so lastIndex never advances and reuse is safe.
   return globToRegex(pattern).test(value);
 }
 
@@ -1192,8 +1217,50 @@ export function resolveView(
       policyRootAttribution.set(encodeId(fact.id), attribution);
     }
   }
-  const pruned = excludeFactsAndDescendants(base, hardRoots);
+  // The hard exclusion and the reference-only marks are ONE rebuild, not two.
+  // Both used to call `buildFactBase` over the same ~20k surviving facts (the
+  // exclusion built an intermediate that the reference-only pass then rebuilt
+  // verbatim, changing only the `referenceOnly` set), so a plan paid four full
+  // catalog re-indexes across its two sides. `computeExclusion` does the pruning
+  // walk without building; `pruned` below is materialized exactly once, with the
+  // final reference-only set already attached.
+  //
+  // Merge the reference-only sets (extension members + assumed-schema), keeping
+  // only facts that actually survived pruning. This is the SINGLE projection
+  // point for the managed view; `referenceOnly` is per-side deterministic (no
+  // cross-side dependency → fingerprint/proof stay consistent).
+  // Nothing to prune AND nothing to mark → the projection is the identity, as it
+  // was when `excludeFactsAndDescendants` short-circuited an empty root set and
+  // the reference-only rebuild was skipped. Keep that free path free: without it
+  // `computeExclusion` would walk every fact and filter every edge to prove it
+  // has nothing to do.
+  if (
+    hardRoots.size === 0 &&
+    memberRefOnly.size === 0 &&
+    policyRefOnly.size === 0
+  ) {
+    return base;
+  }
+
+  const exclusion = computeExclusion(base, hardRoots);
+  const surviving = exclusion.survives;
+  const referenceOnly = new Set<string>();
+  for (const key of memberRefOnly)
+    if (surviving.has(key)) referenceOnly.add(key);
+  for (const key of policyRefOnly)
+    if (surviving.has(key)) referenceOnly.add(key);
+  // Nothing to mark → this is plain `excludeFactsAndDescendants(base, hardRoots)`,
+  // including its by-reference no-op for an empty root set.
+  const pruned =
+    referenceOnly.size === 0
+      ? hardRoots.size === 0
+        ? base
+        : buildExclusion(base, exclusion)
+      : buildExclusion(base, exclusion, referenceOnly);
   if (collectSuppression !== undefined && hardRoots.size > 0) {
+    // `collectRemovedSuppressions` reads only `after.has()` / `after.edges`, both
+    // identical between the old intermediate and `pruned` (same facts, same
+    // edges — only `referenceOnly` differs), so the records are unchanged.
     collectRemovedSuppressions(
       base,
       pruned,
@@ -1201,18 +1268,6 @@ export function resolveView(
       collectSuppression,
     );
   }
-
-  // Merge the reference-only sets (extension members + assumed-schema), keeping
-  // only facts that actually survived pruning. This is the SINGLE projection
-  // point for the managed view; `referenceOnly` is per-side deterministic (no
-  // cross-side dependency → fingerprint/proof stay consistent).
-  if (memberRefOnly.size === 0 && policyRefOnly.size === 0) return pruned;
-  const surviving = new Set(pruned.facts().map((f) => encodeId(f.id)));
-  const referenceOnly = new Set<string>();
-  for (const key of memberRefOnly)
-    if (surviving.has(key)) referenceOnly.add(key);
-  for (const key of policyRefOnly)
-    if (surviving.has(key)) referenceOnly.add(key);
   if (referenceOnly.size === 0) return pruned;
   if (collectSuppression !== undefined) {
     const recordReferenceOnly = (
@@ -1271,20 +1326,15 @@ export function resolveView(
       });
     }
   }
-  // Rebuild to attach the reference-only marks. This runs whenever the view has
-  // extension members / assumed-schema facts — including when `resolveView` is
-  // re-invoked (via `plan()`) on an ALREADY scope-projected view (the export
-  // path), which carries retained dangling owner→role edges. Propagate the
-  // ownership carve-out so the rebuild does not silently re-prune them (a
-  // public-only, extension-free view returns early above and never reaches here,
-  // which is why the regression hid until an extension forced this rebuild).
-  return buildFactBase(
-    pruned.facts(),
-    [...pruned.edges],
-    pruned.source,
-    referenceOnly,
-    { allowDangling: retainOwnerRoleDangling },
-  );
+  // `pruned` was already built WITH the reference-only marks attached above. This
+  // runs whenever the view has extension members / assumed-schema facts —
+  // including when `resolveView` is re-invoked (via `plan()`) on an ALREADY
+  // scope-projected view (the export path), which carries retained dangling
+  // owner→role edges. `buildExclusion` propagates the ownership carve-out
+  // (`allowDangling: retainOwnerRoleDangling`) so those edges are not silently
+  // re-pruned (a public-only, extension-free view returns early above, which is
+  // why that regression hid until an extension forced the rebuild).
+  return pruned;
 }
 
 // ---------------------------------------------------------------------------

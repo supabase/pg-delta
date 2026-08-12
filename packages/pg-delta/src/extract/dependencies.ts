@@ -1,14 +1,16 @@
 /** Dependency edges: inheritance / partition edges and the authoritative
  *  pg_depend resolver (target-architecture §3.2, milestone A set-based form). */
 import { encodeId, type StableId } from "../core/stable-id.ts";
-import { type ExtractContext, SYSTEM_SCHEMAS } from "./scope.ts";
+import {
+  type CatalogFamily,
+  type CollectContext,
+  type ExtractContext,
+  type Row,
+  SYSTEM_SCHEMAS,
+} from "./scope.ts";
 
-export async function extractInheritanceEdges(
-  ctx: ExtractContext,
-): Promise<void> {
-  const { q, edges } = ctx;
-  // ── inheritance / partition edges (child depends on parent) ──────────
-  for (const row of await q(`
+// ── inheritance / partition edges (child depends on parent) ──────────
+const INHERITANCE_SQL = `
     SELECT cn.nspname AS child_schema, cc.relname AS child_name,
            pn.nspname AS parent_schema, pc.relname AS parent_name
     FROM pg_inherits i
@@ -17,27 +19,42 @@ export async function extractInheritanceEdges(
     JOIN pg_class pc ON pc.oid = i.inhparent
     JOIN pg_namespace pn ON pn.oid = pc.relnamespace
     WHERE cc.relkind IN ('r', 'p')
-      AND cn.nspname NOT IN ${SYSTEM_SCHEMAS}`)) {
-    edges.push({
-      from: {
-        kind: "table",
-        schema: String(row["child_schema"]),
-        name: String(row["child_name"]),
-      },
-      to: {
-        kind: "table",
-        schema: String(row["parent_schema"]),
-        name: String(row["parent_name"]),
-      },
-      kind: "depends",
-    });
-  }
-}
+      AND cn.nspname NOT IN ${SYSTEM_SCHEMAS}`;
 
-export async function extractDependencyEdges(
-  ctx: ExtractContext,
-): Promise<void> {
-  const { q, edges, diagnostics } = ctx;
+export const inheritanceEdgesFamily: CatalogFamily = {
+  name: "inheritance",
+  statements: () => [INHERITANCE_SQL],
+  apply: (ctx, rowSets) => {
+    const { edges } = ctx;
+    for (const row of rowSets[0]!) {
+      edges.push({
+        from: {
+          kind: "table",
+          schema: String(row["child_schema"]),
+          name: String(row["child_name"]),
+        },
+        to: {
+          kind: "table",
+          schema: String(row["parent_schema"]),
+          name: String(row["parent_name"]),
+        },
+        kind: "depends",
+      });
+    }
+  },
+};
+
+/**
+ * The SQL half of the pg_depend resolver. It touches ONLY `ctx.q` — nothing in
+ * this query depends on the facts extracted so far — so the scheduler
+ * (./extract.ts) issues it as its own round trip, first in pull order (it is by
+ * far the most expensive query in the extractor), and post-processes its rows
+ * after the per-family merge via `applyDependencyRows`.
+ */
+export async function fetchDependencyRows(
+  ctx: Pick<ExtractContext, "q">,
+): Promise<readonly Row[]> {
+  const { q } = ctx;
   // ── dependency edges from pg_depend (the authoritative source, P1) ───
   // Resolve each pg_depend endpoint to a StableId, set-based. The old form ran
   // a ~160-line correlated CASE scalar subquery TWICE per pg_depend row
@@ -48,7 +65,7 @@ export async function extractDependencyEdges(
   // prevents cross-catalog OID collisions). The json_build_object shapes are
   // byte-identical to the old resolver, so toId() below is unchanged — only the
   // evaluation strategy differs (the depend-edges oracle test pins the result).
-  const dependRows = await q(`
+  return await q(`
     WITH dep AS (
       SELECT d.classid, d.objid, d.objsubid,
              d.refclassid, d.refobjid, d.refobjsubid
@@ -338,7 +355,20 @@ export async function extractDependencyEdges(
     JOIN resolved rr ON rr.classid = dep.refclassid
                     AND rr.objid = dep.refobjid
                     AND rr.objsubid = dep.refobjsubid`);
+}
 
+/**
+ * The row-processing half of the pg_depend resolver. This is the ONLY place in
+ * the whole extractor that READS facts pushed by other families (`ctx.facts`,
+ * for `defaultFactIds` below), so it must be deferred until after the per-family
+ * merge — and run in its canonical position (last), so the edges and diagnostics
+ * it appends land exactly where they always did.
+ */
+export function applyDependencyRows(
+  ctx: CollectContext,
+  dependRows: readonly Row[],
+): void {
+  const { edges, diagnostics } = ctx;
   const toId = (raw: unknown): StableId | undefined => {
     if (raw == null) return undefined;
     const o = raw as Record<string, string>;

@@ -11,6 +11,7 @@
  * Postgres error text is never altered (D6: PG errors remain authoritative);
  * only the synthetic file name is rewritten.
  */
+import { isCustomPath } from "../frontends/custom-dir.ts";
 import { ShadowLoadError } from "../frontends/load-sql-files.ts";
 import type {
   OrderedSqlFile,
@@ -218,6 +219,21 @@ export function formatLintReport(
   for (const diagnostic of result.diagnostics) {
     // cycles are already rendered above from the structured list
     if (diagnostic.code === "CYCLE_DETECTED") {
+      continue;
+    }
+    // `_custom/` (docs/architecture/custom-folder.md) is the documented home
+    // for SQL pg-delta does not model — casts, operators, text-search objects,
+    // etc. — and pg-topo classifies most of that as UNKNOWN. Warning on every
+    // such statement would make a correctly-used _custom/ lint noisy by
+    // design, so this presentation-only rule (pg-delta side, not pg-topo's)
+    // suppresses UNKNOWN_STATEMENT_CLASS there. `custom_modeled_kind`
+    // (custom-lint.ts) still catches the real bug this folder must not hide:
+    // modeled DDL parked in _custom/.
+    if (
+      diagnostic.code === "UNKNOWN_STATEMENT_CLASS" &&
+      diagnostic.location !== undefined &&
+      isCustomPath(diagnostic.location.filePath)
+    ) {
       continue;
     }
     const isError = LINT_ERROR_CODES.has(diagnostic.code);

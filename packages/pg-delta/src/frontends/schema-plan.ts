@@ -14,6 +14,11 @@ import {
 } from "../database-identity.ts";
 import type { ExtractOptions, ExtractResult } from "../extract/extract.ts";
 import {
+  detectUnmodeledDrift,
+  probeUnmodeledIdentities,
+  type UnmodeledIdentities,
+} from "../extract/unmodeled.ts";
+import {
   type IntegrationProfile,
   resolveProfile,
   type ResolveProfileOptions,
@@ -42,6 +47,41 @@ import {
   type OrderedSqlFile,
   type ShadowLoadCycle,
 } from "./sql-order.ts";
+
+/**
+ * {@link probeUnmodeledIdentities}, pinned to the SAME canonical search_path
+ * extraction uses (`extract.ts`: `SET LOCAL search_path TO 'pg_catalog'`).
+ *
+ * The probes' catalog references (`src/extract/unmodeled.ts`, `PROBES[].from`)
+ * are UNQUALIFIED — e.g. `FROM pg_cast c`. Run pool-level, that resolves via
+ * whatever default `search_path` the connecting role/database has. A target
+ * with `search_path = app, pg_catalog` and a user relation named `app.pg_cast`
+ * makes `pg_cast` resolve to the user table FIRST (Postgres searches an
+ * EXPLICITLY listed `pg_catalog` in the stated position, not implicitly
+ * first) — so the probe reads the wrong relation, either erroring on missing
+ * columns or silently reporting nonsense identities. Extraction already pins
+ * its path for exactly this reason; the drift probe must match it, via a
+ * short, dedicated transaction so the pool's OTHER borrowers keep their own
+ * default path (`SET LOCAL` is discarded on COMMIT/ROLLBACK).
+ */
+export async function probeUnmodeledIdentitiesPinned(
+  pool: Pool,
+  major: number,
+): Promise<UnmodeledIdentities> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL search_path TO pg_catalog");
+    const result = await probeUnmodeledIdentities(client, major);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 export class SchemaFrontendError extends Error {
   constructor(message: string) {
@@ -255,10 +295,28 @@ export interface PlanSchemaFilesOptions {
   ) => Error;
 }
 
+/** `current_setting('server_version')` → major (`"17.5"` → 17, `"18beta1"` → 18).
+ *  Both `ExtractResult.pgVersion` and `LoadResult.pgVersion` carry that string,
+ *  so the drift probe reuses versions already round-tripped rather than asking
+ *  each server again. */
+function majorOf(pgVersion: string): number {
+  return Number.parseInt(pgVersion, 10);
+}
+
 export interface PlanSchemaFilesResult {
   plan: Plan;
   loadDiagnostics: Diagnostic[];
   targetDiagnostics: Diagnostic[];
+  /**
+   * `unmodeled_drift` warnings: unmodeled objects the loaded shadow (desired
+   * state) has and the target lacks (docs/architecture/custom-folder.md §7).
+   * Unmodeled kinds produce no facts, so the plan can never create them — a
+   * planned statement depending on one FAILS on the target. Kept separate from
+   * {@link PlanSchemaFilesResult.targetDiagnostics} because this is a comparison
+   * of two databases, not the output of extracting either one; a CLI-like
+   * frontend should print and gate it alongside the other two sets.
+   */
+  driftDiagnostics: Diagnostic[];
   skipped: { file: string; stmt: string }[];
   /** Same resolved profile bundles for a subsequent `apply()`. */
   applyOptions: ApplyOptions;
@@ -585,6 +643,25 @@ export async function planSchemaFiles(
     throw error;
   }
 
+  // Pre-flight guard for the delivery model (docs/architecture/custom-folder.md
+  // §7). Raw SQL — `_custom/` included — runs only in the disposable shadow, so
+  // the shadow can legitimately hold unmodeled objects the target has never
+  // received. Those produce no facts, meaning the diff below is blind to them
+  // and the plan cannot create them; a generated statement depending on one
+  // fails on the target. Compare the two catalogs and say so BEFORE handing the
+  // plan over. Two probe queries per plan, deliberately uncached: the answer is
+  // about live state and a stale "no drift" would be worse than no check.
+  const driftDiagnostics = detectUnmodeledDrift(
+    await probeUnmodeledIdentitiesPinned(
+      shadowPool,
+      majorOf(loadResult.pgVersion),
+    ),
+    await probeUnmodeledIdentitiesPinned(
+      targetPool,
+      majorOf(targetResult.pgVersion),
+    ),
+  );
+
   const planOptions: PlanOptions = {
     renames: options.renames ?? "off",
     scope,
@@ -617,6 +694,7 @@ export async function planSchemaFiles(
     plan: thePlan,
     loadDiagnostics: loadResult.diagnostics,
     targetDiagnostics: targetResult.diagnostics,
+    driftDiagnostics,
     skipped: prepared.skipped,
     applyOptions: ctx.applyOptions,
     planOptions,

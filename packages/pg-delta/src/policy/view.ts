@@ -177,16 +177,29 @@ function resolveRemoval(
 }
 
 /**
- * Return a new FactBase with `rootIds` and their entire descendant subtrees
- * removed; edges with a removed endpoint are pruned. If `rootIds` is empty, `fb`
- * is returned unchanged (referential identity preserved for cheap no-ops).
+ * The exclusion of `rootIds` and their descendant subtrees, COMPUTED but not yet
+ * built into a FactBase.
+ *
+ * Split out so `resolveView` — which has to attach ADDITIONAL reference-only
+ * marks on top of this projection — can do the whole thing in ONE
+ * `buildFactBase` instead of building an intermediate it immediately discards.
+ * Indexing a ~20k-fact catalog is ~30ms, and resolveView runs per side per plan.
  */
-export function excludeFactsAndDescendants(
+export interface ComputedExclusion {
+  keptFacts: Fact[];
+  keptEdges: DependencyEdge[];
+  /** Encoded ids that survived the exclusion. */
+  survives: ReadonlySet<string>;
+  /** `fb.referenceOnly` carried forward, restricted to survivors. */
+  referenceOnly: Set<string>;
+}
+
+/** Compute (without building) the exclusion of `rootIds` + descendants. An empty
+ *  `rootIds` keeps every fact and every edge — the identity projection. */
+export function computeExclusion(
   fb: FactBase,
   rootIds: ReadonlySet<string>,
-): FactBase {
-  if (rootIds.size === 0) return fb;
-
+): ComputedExclusion {
   const removed = new Set<string>();
   const kept = new Set<string>();
   const keptFacts: Fact[] = fb
@@ -215,9 +228,36 @@ export function excludeFactsAndDescendants(
   const referenceOnly = new Set(
     [...fb.referenceOnly].filter((key) => survives.has(key)),
   );
-  return buildFactBase(keptFacts, keptEdges, fb.source, referenceOnly, {
-    allowDangling: retainOwnerRoleDangling,
-  });
+  return { keptFacts, keptEdges, survives, referenceOnly };
+}
+
+/** Build a `ComputedExclusion` into a FactBase, optionally REPLACING the
+ *  carried-forward reference-only set (resolveView's merged marks). */
+export function buildExclusion(
+  fb: FactBase,
+  exclusion: ComputedExclusion,
+  referenceOnly: ReadonlySet<string> = exclusion.referenceOnly,
+): FactBase {
+  return buildFactBase(
+    exclusion.keptFacts,
+    exclusion.keptEdges,
+    fb.source,
+    referenceOnly,
+    { allowDangling: retainOwnerRoleDangling },
+  );
+}
+
+/**
+ * Return a new FactBase with `rootIds` and their entire descendant subtrees
+ * removed; edges with a removed endpoint are pruned. If `rootIds` is empty, `fb`
+ * is returned unchanged (referential identity preserved for cheap no-ops).
+ */
+export function excludeFactsAndDescendants(
+  fb: FactBase,
+  rootIds: ReadonlySet<string>,
+): FactBase {
+  if (rootIds.size === 0) return fb;
+  return buildExclusion(fb, computeExclusion(fb, rootIds));
 }
 
 /** Management scope of a declarative apply (target-architecture §scope). */

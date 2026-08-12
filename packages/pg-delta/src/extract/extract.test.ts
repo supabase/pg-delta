@@ -11,7 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Fact } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
-import { pruneOrphanedSatellites } from "./extract.ts";
+import { catalogBatchPlan, pruneOrphanedSatellites } from "./extract.ts";
 
 const present: StableId = { kind: "table", schema: "public", name: "present" };
 const filtered: StableId = {
@@ -73,5 +73,53 @@ describe("pruneOrphanedSatellites — satellites never outlive their target", ()
     const { facts: kept, diagnostics } = pruneOrphanedSatellites(facts);
     expect(kept).toHaveLength(2);
     expect(diagnostics).toHaveLength(0);
+  });
+});
+
+/**
+ * The catalog batch plan is resolved at module load and refuses to build when
+ * the grouping and the family registry disagree — a batched family left out of
+ * every group would contribute NO facts, which reads downstream as "the user
+ * dropped all those objects". These pin the invariants the resolver enforces,
+ * and (by importing the module at all) that the resolver actually ran.
+ */
+describe("catalog batch plan", () => {
+  const plan = catalogBatchPlan();
+  const grouped = plan.groups.flat();
+
+  test("every batched family is grouped exactly once", () => {
+    const batched = plan.families
+      .filter((f) => f.kind === "batched")
+      .map((f) => f.name);
+    expect(grouped.slice().sort()).toEqual(batched.slice().sort());
+    expect(new Set(grouped).size).toBe(grouped.length);
+  });
+
+  test("no heavy or opaque family is ever batched", () => {
+    const unbatchable = new Set(
+      plan.families.filter((f) => f.kind !== "batched").map((f) => f.name),
+    );
+    for (const name of grouped) expect(unbatchable.has(name)).toBe(false);
+  });
+
+  test("family names are unique — they key the grouping", () => {
+    const names = plan.families.map((f) => f.name);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  test("the tail is packed into a handful of balanced groups", () => {
+    // 2-3 groups: one giant group is a serial tail on a single stream, one group
+    // per family is the per-family round trips the batching exists to remove.
+    expect(plan.groups.length).toBeGreaterThanOrEqual(2);
+    expect(plan.groups.length).toBeLessThanOrEqual(3);
+    for (const group of plan.groups) expect(group.length).toBeGreaterThan(0);
+  });
+
+  test("the three unbatchable families are the probe-branching ones", () => {
+    // These BRANCH on the result of one of their own earlier queries, so their
+    // statement list is not knowable up front (see FamilyEntry).
+    expect(
+      plan.families.filter((f) => f.kind === "opaque").map((f) => f.name),
+    ).toEqual(["foreign", "subscriptions", "securityLabels"]);
   });
 });
