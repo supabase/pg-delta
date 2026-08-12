@@ -40,12 +40,18 @@ export function printDiagnostics(
  * marks a user object the engine cannot faithfully carry into the artifact, so
  * strict mode refuses rather than silently ship an incomplete migration.
  *   - `unmodeled_kind`: a user object of a kind the engine does not model.
+ *   - `unmodeled_drift`: an unmodeled object the DESIRED state has and the
+ *     target lacks. Strictly worse than `unmodeled_kind`: no planned statement
+ *     can create it (unmodeled kinds produce no facts), so a generated statement
+ *     depending on it fails on the target. Strict mode refuses to ship that
+ *     artifact until the operator delivers the prerequisite.
  *   - `unresolved_security_label`: a valid SECURITY LABEL on an unsupported
  *     object (language / database / large object / tablespace) — it cannot
  *     resolve to a managed id, so the label would be silently missing.
  */
 const STRICT_COVERAGE_CODES: ReadonlySet<string> = new Set([
   "unmodeled_kind",
+  "unmodeled_drift",
   "unresolved_security_label",
 ]);
 
@@ -89,7 +95,7 @@ export function exitIfBlocking(
     process.stderr.write(
       `\nRefusing to ${action}: --strict-coverage is set and ${coverageGaps.length} ` +
         `object(s) cannot be faithfully managed by this engine (unmodeled kinds / ` +
-        `unresolved security labels — see above). ` +
+        `unmodeled drift / unresolved security labels — see above). ` +
         `Drop them, or rerun without --strict-coverage to proceed with them unmanaged.\n`,
     );
   } else {

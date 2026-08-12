@@ -17,6 +17,11 @@ const unresolvedLabel: Diagnostic = {
   severity: "warning",
   message: "1 security label on an unsupported object",
 };
+const drift: Diagnostic = {
+  code: "unmodeled_drift",
+  severity: "warning",
+  message: "1 unmodeled cast in the shadow but not on the target",
+};
 const err: Diagnostic = { code: "boom", severity: "error", message: "fatal" };
 
 describe("hasBlockingDiagnostics", () => {
@@ -41,8 +46,17 @@ describe("hasBlockingDiagnostics", () => {
     ).toBe(true);
   });
 
+  test("unmodeled_drift blocks ONLY in strict-coverage mode", () => {
+    // the shadow has an unmodeled object the target lacks: no planned statement
+    // can create it, so a plan depending on it fails on the target
+    expect(hasBlockingDiagnostics([drift])).toBe(false);
+    expect(hasBlockingDiagnostics([drift], { strictCoverage: true })).toBe(
+      true,
+    );
+  });
+
   test("info/warning diagnostics do not block in the default mode", () => {
-    expect(hasBlockingDiagnostics([orphan, unmodeled])).toBe(false);
+    expect(hasBlockingDiagnostics([orphan, unmodeled, drift])).toBe(false);
     expect(hasBlockingDiagnostics([])).toBe(false);
   });
 });

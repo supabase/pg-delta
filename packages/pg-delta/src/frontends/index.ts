@@ -27,6 +27,8 @@ export {
   type ManagementScope,
 } from "./schema-export.ts";
 
+export { listCustomFiles, type CustomFile } from "./custom-files.ts";
+
 export {
   planSchemaFiles,
   prepareSchemaFiles,
