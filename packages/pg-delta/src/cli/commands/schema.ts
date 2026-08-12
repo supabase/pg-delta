@@ -236,7 +236,10 @@ export function collectSqlFiles(dir: string): SqlFile[] {
 
 /**
  * Write the exported SQL files and the `.pgdelta-export.json` manifest under
- * `outRoot`, returning the stale files pruned. Exported for tests.
+ * `outRoot`, returning the stale files pruned plus a per-file classification
+ * of the written set (`created` / `updated` / `unchanged`, as absolute paths
+ * like `removed`). A byte-identical file is NOT rewritten, so mtimes stay
+ * stable for build tools watching the directory. Exported for tests.
  *
  * Creates `outRoot` up front: a database with no managed objects legitimately
  * yields zero files, and the per-file loop (which only mkdirs each file's parent)
@@ -272,6 +275,9 @@ export function writeExportFiles(
 ): {
   removed: string[];
   unmanaged: string[];
+  created: string[];
+  updated: string[];
+  unchanged: string[];
   /** whether this export wrote the `_custom/README.md` scaffold */
   scaffoldedCustomReadme: boolean;
   /** whether the scaffold was skipped because `_custom` is a symlink */
@@ -319,6 +325,9 @@ export function writeExportFiles(
     );
   }
   mkdirSync(outRoot, { recursive: true });
+  const created: string[] = [];
+  const updated: string[] = [];
+  const unchanged: string[] = [];
   for (const file of files) {
     const full = join(outRoot, file.name);
     // defense-in-depth (review P2): even with per-segment encoding in
@@ -328,8 +337,34 @@ export function writeExportFiles(
         `export: refusing to write outside ${outRoot}: ${file.name}`,
       );
     }
+    // Classify against the file already on disk: absent → created; same
+    // bytes → unchanged (skip the write, keeping the mtime stable for build
+    // tools); anything else → updated. A size mismatch alone proves the
+    // content differs, so the old content is only buffered for a plausible
+    // match. Only ENOENT means "created" — any other stat/read error is
+    // surfaced rather than silently reclassified as absence (PR #405 review).
+    let status: "created" | "updated" | "unchanged";
+    try {
+      status =
+        statSync(full).size === Buffer.byteLength(file.sql, "utf8") &&
+        readFileSync(full, "utf8") === file.sql
+          ? "unchanged"
+          : "updated";
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw new Error(
+          `export: cannot read existing file ${full} to classify it: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+      status = "created";
+    }
+    if (status === "unchanged") {
+      unchanged.push(full);
+      continue;
+    }
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, file.sql, "utf8");
+    (status === "created" ? created : updated).push(full);
   }
   // Advertise the escape hatch before anyone needs it. Not a `.sql` file, so the
   // loader and the pruner both ignore it, and it is never an owned file.
@@ -342,6 +377,9 @@ export function writeExportFiles(
   return {
     removed,
     unmanaged,
+    created,
+    updated,
+    unchanged,
     scaffoldedCustomReadme,
     customReadmeSkippedSymlink,
   };
@@ -514,26 +552,32 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     });
 
     const outRoot = resolve(outDir);
-    const { removed, scaffoldedCustomReadme, customReadmeSkippedSymlink } =
-      writeExportFiles(
-        outRoot,
-        result.files,
-        {
-          redactSecrets: result.manifest.redactSecrets,
-          scope: result.manifest.scope,
-          ...(result.manifest.profile !== undefined
-            ? { profile: result.manifest.profile }
-            : {}),
-          ...(result.manifest.baselineDigest !== undefined
-            ? { baselineDigest: result.manifest.baselineDigest }
-            : {}),
-          ...(result.manifest.scope === "database" &&
-          "defaultOwner" in result.manifest
-            ? { defaultOwner: result.manifest.defaultOwner }
-            : {}),
-        },
-        flags["prune-unmanaged"] === true,
-      );
+    const {
+      removed,
+      created,
+      updated,
+      unchanged,
+      scaffoldedCustomReadme,
+      customReadmeSkippedSymlink,
+    } = writeExportFiles(
+      outRoot,
+      result.files,
+      {
+        redactSecrets: result.manifest.redactSecrets,
+        scope: result.manifest.scope,
+        ...(result.manifest.profile !== undefined
+          ? { profile: result.manifest.profile }
+          : {}),
+        ...(result.manifest.baselineDigest !== undefined
+          ? { baselineDigest: result.manifest.baselineDigest }
+          : {}),
+        ...(result.manifest.scope === "database" &&
+        "defaultOwner" in result.manifest
+          ? { defaultOwner: result.manifest.defaultOwner }
+          : {}),
+      },
+      flags["prune-unmanaged"] === true,
+    );
     if (removed.length > 0) {
       process.stderr.write(
         `Removed ${removed.length} stale .sql file(s) from ${outDir}\n`,
@@ -551,7 +595,8 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       );
     }
     process.stderr.write(
-      `Exported ${result.files.length} file(s) to ${outDir} (layout: ${layout})\n`,
+      `Exported ${result.files.length} file(s) to ${outDir} (layout: ${layout}): ` +
+        `${created.length} created, ${updated.length} updated, ${unchanged.length} unchanged\n`,
     );
   } finally {
     await src.end();

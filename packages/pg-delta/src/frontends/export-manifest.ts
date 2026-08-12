@@ -63,11 +63,16 @@ export function writeExportManifest(
     files?: string[];
   },
 ): void {
-  writeFileSync(
-    join(dir, EXPORT_MANIFEST_FILE),
-    `${JSON.stringify({ formatVersion: 1, ...manifest }, null, 2)}\n`,
-    "utf8",
-  );
+  const path = join(dir, EXPORT_MANIFEST_FILE);
+  const content = `${JSON.stringify({ formatVersion: 1, ...manifest }, null, 2)}\n`;
+  // Skip the write when byte-identical, so an identical re-export leaves the
+  // WHOLE directory's mtimes untouched (a watcher may watch more than *.sql).
+  try {
+    if (readFileSync(path, "utf8") === content) return;
+  } catch {
+    // absent (or unreadable, where writing was always the behavior): write.
+  }
+  writeFileSync(path, content, "utf8");
 }
 
 /**

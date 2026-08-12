@@ -11,6 +11,8 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -196,6 +198,68 @@ describe("writeExportFiles", () => {
     expect(removed).toEqual([]);
     expect(unmanaged).toEqual([]);
     expect(existsSync(join(target, "schemas", "app", "t.sql"))).toBe(true);
+  });
+
+  test("classifies files as created / updated / unchanged across re-exports", () => {
+    const target = join(root, "classify");
+    const a = { name: join("schemas", "app", "a.sql"), sql: "-- a v1\n" };
+    const b = { name: join("schemas", "app", "b.sql"), sql: "-- b v1\n" };
+    const first = writeExportFiles(
+      target,
+      [a, b],
+      { redactSecrets: false },
+      false,
+    );
+    expect(first.created).toEqual([
+      join(target, "schemas", "app", "a.sql"),
+      join(target, "schemas", "app", "b.sql"),
+    ]);
+    expect(first.updated).toEqual([]);
+    expect(first.unchanged).toEqual([]);
+
+    const second = writeExportFiles(
+      target,
+      [
+        a, // identical content → unchanged
+        { name: b.name, sql: "-- b v2\n" }, // content differs → updated
+        { name: join("schemas", "app", "c.sql"), sql: "-- c\n" }, // new → created
+      ],
+      { redactSecrets: false },
+      false,
+    );
+    expect(second.created).toEqual([join(target, "schemas", "app", "c.sql")]);
+    expect(second.updated).toEqual([join(target, "schemas", "app", "b.sql")]);
+    expect(second.unchanged).toEqual([join(target, "schemas", "app", "a.sql")]);
+    expect(readFileSync(join(target, "schemas", "app", "b.sql"), "utf8")).toBe(
+      "-- b v2\n",
+    );
+  });
+
+  test("does not rewrite a byte-identical file or manifest (mtimes stay stable for build tools)", () => {
+    const target = join(root, "mtime");
+    const file = {
+      name: join("schemas", "app", "t.sql"),
+      sql: "CREATE TABLE app.t ();\n",
+    };
+    writeExportFiles(target, [file], { redactSecrets: false }, false);
+    // Pin a clearly-in-the-past mtime so a rewrite is unambiguous even on
+    // filesystems with coarse timestamp resolution.
+    const full = join(target, "schemas", "app", "t.sql");
+    const manifest = join(target, ".pgdelta-export.json");
+    const past = new Date("2020-01-01T00:00:00Z");
+    utimesSync(full, past, past);
+    utimesSync(manifest, past, past);
+    const { unchanged } = writeExportFiles(
+      target,
+      [file],
+      { redactSecrets: false },
+      false,
+    );
+    expect(unchanged).toEqual([full]);
+    expect(statSync(full).mtime).toEqual(past);
+    // A watcher on the whole directory must not fire on an identical
+    // re-export: the byte-identical manifest is skipped like the .sql files.
+    expect(statSync(manifest).mtime).toEqual(past);
   });
 
   test("--prune-unmanaged deletes the unmanaged file and proceeds", () => {
