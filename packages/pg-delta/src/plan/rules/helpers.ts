@@ -745,6 +745,43 @@ export function defaultPrivConsumes(id: {
 }
 
 /**
+ * Role names a fact REFERENCES without owning: an ACL grantee, a
+ * default-privilege FOR-role/grantee, the membership endpoints, a
+ * user-mapping role, an RLS policy's TO-roles — exactly the references the
+ * rules in this directory turn into `consumes: [{ kind: "role", … }]`
+ * (grantActions / defaultPrivConsumes / membership / userMapping / policy).
+ * plan() reads these off the SOURCE view to WITNESS that a role exists on the
+ * apply target even when the role OBJECT is projected or filtered out of the
+ * view: PostgreSQL cannot record any of these for a nonexistent role.
+ * `PUBLIC` is a pseudo-role, never an object — excluded, like the consumes
+ * builders do.
+ */
+export function roleReferencesOf(fact: Fact): string[] {
+  const id = fact.id;
+  const names: string[] = [];
+  switch (id.kind) {
+    case "acl":
+      names.push(id.grantee);
+      break;
+    case "defaultPrivilege":
+      names.push(id.role, id.grantee);
+      break;
+    case "membership":
+      names.push(id.role, id.member);
+      break;
+    case "userMapping":
+      names.push(id.role);
+      break;
+    case "policy":
+      names.push(...((fact.payload as { roles?: string[] }).roles ?? []));
+      break;
+    default:
+      break;
+  }
+  return names.filter((name) => name !== "PUBLIC");
+}
+
+/**
  * A `defaultPrivilege` fact with EMPTY `privileges` is a synthesized marker for
  * a REVOKED built-in default (e.g. `ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON
  * FUNCTIONS FROM PUBLIC`): the grantee's built-in default was taken away. Its

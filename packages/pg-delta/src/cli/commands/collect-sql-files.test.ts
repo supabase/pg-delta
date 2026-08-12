@@ -51,6 +51,24 @@ describe("collectSqlFiles", () => {
       ]);
     });
   }
+
+  test("collects _custom/**/*.sql so the shadow can elaborate on it", () => {
+    // The whole point of the reserved folder (docs/architecture/custom-folder.md
+    // §2): `schema apply` needs no change because the recursive glob already
+    // loads it into the shadow. Pinned so a future export-side exclusion is not
+    // accidentally mirrored into the loader.
+    mkdirSync(join(root, "_custom", "nested"), { recursive: true });
+    writeFileSync(
+      join(root, "_custom", "text-search.sql"),
+      "-- pgdelta-migration: none\nSELECT 1;\n",
+    );
+    writeFileSync(join(root, "_custom", "nested", "seed.sql"), "SELECT 2;\n");
+    writeFileSync(join(root, "_custom", "README.md"), "# not sql\n");
+    const names = collectSqlFiles(root).map((f) => f.name);
+    expect(names).toContain(join("_custom", "text-search.sql"));
+    expect(names).toContain(join("_custom", "nested", "seed.sql"));
+    expect(names).not.toContain(join("_custom", "README.md"));
+  });
 });
 
 describe("writeExportFiles", () => {
@@ -271,6 +289,104 @@ describe("writeExportFiles", () => {
     );
     expect(existsSync(join(target, "schemas", "app", "t.sql"))).toBe(true);
     expect(existsSync(join(target, ".pgdelta-export.json"))).toBe(true);
+  });
+
+  test("a .sql file under _custom/ is neither unmanaged nor owned (no refusal, no manifest entry)", () => {
+    // docs/architecture/custom-folder.md §2: the reserved folder survives every
+    // re-export. Before this, the unmanaged scan saw it and refused the export.
+    const target = join(root, "customdir");
+    mkdirSync(join(target, "_custom"), { recursive: true });
+    const customFile = join(target, "_custom", "text-search.sql");
+    const customBody =
+      "-- pgdelta-migration: none\nCREATE TEXT SEARCH CONFIGURATION public.cfg (COPY = pg_catalog.english);\n";
+    writeFileSync(customFile, customBody, "utf8");
+    const { removed, unmanaged } = writeExportFiles(
+      target,
+      [
+        {
+          name: join("schemas", "app", "t.sql"),
+          sql: "CREATE TABLE app.t ();\n",
+        },
+      ],
+      { redactSecrets: false },
+      false,
+    );
+    expect(unmanaged).toEqual([]);
+    expect(removed).toEqual([]);
+    expect(readFileSync(customFile, "utf8")).toBe(customBody);
+    expect(readExportManifest(target)?.files).toEqual(["schemas/app/t.sql"]);
+  });
+
+  test("--prune-unmanaged does not delete inside _custom/", () => {
+    const target = join(root, "customdir-prune");
+    mkdirSync(join(target, "_custom"), { recursive: true });
+    const customFile = join(target, "_custom", "seed.sql");
+    writeFileSync(customFile, "-- pgdelta-migration: none\n", "utf8");
+    const { removed, unmanaged } = writeExportFiles(
+      target,
+      [
+        {
+          name: join("schemas", "app", "t.sql"),
+          sql: "CREATE TABLE app.t ();\n",
+        },
+      ],
+      { redactSecrets: false },
+      true,
+    );
+    expect(removed).toEqual([]);
+    expect(unmanaged).toEqual([]);
+    expect(existsSync(customFile)).toBe(true);
+  });
+
+  test("refuses to write an exported file into the reserved _custom/ folder", () => {
+    // Unreachable through the renderers (no layout emits `_custom/…`), but the
+    // reservation must be enforced where files are written, not merely assumed.
+    const target = join(root, "customdir-collision");
+    expect(() =>
+      writeExportFiles(
+        target,
+        [{ name: join("_custom", "t.sql"), sql: "CREATE TABLE app.t ();\n" }],
+        { redactSecrets: false },
+        false,
+      ),
+    ).toThrow(/_custom/);
+    expect(existsSync(join(target, "_custom", "t.sql"))).toBe(false);
+  });
+
+  test("scaffolds _custom/README.md on export and never overwrites it", () => {
+    const target = join(root, "customdir-readme");
+    const first = writeExportFiles(
+      target,
+      [
+        {
+          name: join("schemas", "app", "t.sql"),
+          sql: "CREATE TABLE app.t ();\n",
+        },
+      ],
+      { redactSecrets: false },
+      false,
+    );
+    const readme = join(target, "_custom", "README.md");
+    expect(first.scaffoldedCustomReadme).toBe(true);
+    expect(readFileSync(readme, "utf8")).toContain("pgdelta-migration");
+    // README.md is not `.sql`, so it is invisible to the loader and the pruner —
+    // and it is never recorded as an owned file.
+    expect(readExportManifest(target)?.files).toEqual(["schemas/app/t.sql"]);
+
+    writeFileSync(readme, "# my notes\n", "utf8");
+    const second = writeExportFiles(
+      target,
+      [
+        {
+          name: join("schemas", "app", "t.sql"),
+          sql: "CREATE TABLE app.t ();\n",
+        },
+      ],
+      { redactSecrets: false },
+      false,
+    );
+    expect(second.scaffoldedCustomReadme).toBe(false);
+    expect(readFileSync(readme, "utf8")).toBe("# my notes\n");
   });
 });
 

@@ -5,7 +5,7 @@
 import { INTENT_UNKEYED, USER_MAPPING_UNREADABLE } from "../core/diagnostic.ts";
 import { subjectOf, type Delta } from "../core/diff.ts";
 import type { FactBase } from "../core/fact.ts";
-import { encodeId, type StableId } from "../core/stable-id.ts";
+import { encodeId, isSatelliteId, type StableId } from "../core/stable-id.ts";
 import { flattenPolicy, type Policy } from "../policy/policy.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
 import {
@@ -26,6 +26,7 @@ import {
   KNOWN_PARAMS,
   type PlanParams,
 } from "./rules.ts";
+import { roleReferencesOf } from "./rules/helpers.ts";
 
 /** Engine version stamped into plan artifacts; apply refuses artifacts
  *  from an engine it does not understand (stage 6 deliverable 1). */
@@ -489,6 +490,26 @@ export function plan(
     }
   }
 
+  // A role referenced by a fact KEPT in the SOURCE view is WITNESSED to exist
+  // on the apply target even when its role OBJECT is absent from the view (the
+  // database scope projects every role fact out; a policy exclusion can do the
+  // same): the source view is the target's own extract, and PostgreSQL cannot
+  // record an ACL, default privilege, membership, user mapping, or RLS policy
+  // for a role that does not exist. Without the witness, a teardown `REVOKE …
+  // FROM <role>` consumes a role id the guard can't resolve — a grantee-only
+  // role (it owns nothing) is invisible to the owner-edge auto-add above, and
+  // a DB↔DB caller supplies no `assumedRoles` list (Sentry SUPABASE-API-8CX,
+  // pattern B). SOURCE-side only, deliberately: a DESIRED-side reference with
+  // no witness stays a loud plan-time failure — the role may not exist on the
+  // target at all, or a filter may be hiding its creation. `roleReferencesOf`
+  // (rules/helpers.ts) enumerates exactly the references the rule table turns
+  // into role `consumes`.
+  for (const fact of source.facts()) {
+    for (const name of roleReferencesOf(fact)) {
+      if (!source.has({ kind: "role", name })) assumedRoleNames.add(name);
+    }
+  }
+
   // schemas the policy assumes exist at apply time but does not manage (e.g.
   // Supabase's `extensions`). Threaded into the action-graph guard so a kept
   // `CREATE EXTENSION … SCHEMA <schema>` whose schema object is filtered out of
@@ -497,6 +518,77 @@ export function plan(
     ...(options?.policy ? flattenPolicy(options.policy).assumedSchemas : []),
     ...(options?.assumedSchemas ?? []),
   ]);
+
+  // PLATFORM-PROVISIONED members of assumed schemas (e.g. Supabase's
+  // `supabase_functions.http_request()`, the DB-webhook trigger function): an
+  // object inside an assumed schema whose owner — read from the RAW extracts,
+  // where the owner edge to the policy-excluded role still exists (resolveView
+  // prunes it together with the role fact) — is a DECLARED assumed role other
+  // than the resolved default owner. The default owner is the role the
+  // platform hands the user, so objects it owns (and objects owned by user
+  // roles) are USER-created: for those the requirement guard keeps the
+  // PR #307 review-P2 fail-fast when the target lacks them. A system-role-owned
+  // member is covered by the same platform guarantee that makes its schema
+  // assumed, so a kept dependent (a user webhook trigger) must plan even when
+  // the target has not had the infra provisioned yet (Sentry SUPABASE-API-8CX).
+  // Threaded into the action-graph requirement guard only — never
+  // ordering/edges. Empty under the raw/no-policy path and for callers that
+  // pass an already-resolved view (its owner edges to excluded roles are gone).
+  //
+  // The provenance judgment is derived from the POLICY alone — its declared
+  // `assumedRoles` minus its own declared `defaultOwner`:
+  //  - NOT `options.assumedRoles`: the database-scoped apply frontend passes
+  //    EVERY role found on the target through it (schema-plan.ts), so the
+  //    combined set would mark a user-role-owned object in an assumed schema
+  //    as platform-provisioned and silence the fail-fast (Codex P1 #1,
+  //    PR #407);
+  //  - NOT the run-level `options.defaultOwner` override: the policy declares
+  //    `postgres` assumed only so ownership/grant references resolve — objects
+  //    it owns are the USER's, and a custom `--default-owner` must not
+  //    reclassify them as platform-provisioned (Codex P1 #2, PR #407).
+  // The exemption then covers the owner-bearing root AND its non-satellite
+  // descendants: extraction resolves relation subobjects to COLUMN ids
+  // (extract/dependencies.ts), so a dependent's `depends` edge can point at a
+  // column of a platform table — the platform guarantee covers the subtree
+  // (Codex P2, PR #407). Satellites are excluded like extensionMemberClosure
+  // does: a user GRANT/COMMENT on a platform object is user state, never a
+  // depends target.
+  const flatPolicy = options?.policy
+    ? flattenPolicy(options.policy)
+    : undefined;
+  const policyAssumedRoleNames = new Set(flatPolicy?.assumedRoles ?? []);
+  const policyDefaultOwner = flatPolicy?.defaultOwner;
+  const assumedPresentIds = new Set<string>();
+  if (policyAssumedRoleNames.size > 0) {
+    for (const fb of [rawSource, rawDesired]) {
+      // The traversal guard is PER FACT BASE, not the shared result set: a
+      // platform root present on BOTH sides is recorded by the source pass
+      // first, but the desired pass must still walk it — its DESIRED-ONLY
+      // descendants (a platform column added by a newer image) would otherwise
+      // never be traversed (Codex P2 round 3, PR #407).
+      const visited = new Set<string>();
+      for (const e of fb.edges) {
+        if (e.kind !== "owner" || e.to.kind !== "role") continue;
+        const schema = (e.from as { schema?: string }).schema;
+        if (schema === undefined || !assumedSchemaNames.has(schema)) continue;
+        const owner = (e.to as { name: string }).name;
+        if (!policyAssumedRoleNames.has(owner)) continue;
+        if (owner === policyDefaultOwner) continue;
+        const stack: StableId[] = [e.from];
+        while (stack.length > 0) {
+          const id = stack.pop() as StableId;
+          const key = encodeId(id);
+          if (visited.has(key)) continue;
+          visited.add(key);
+          assumedPresentIds.add(key);
+          for (const child of fb.childrenOf(id)) {
+            if (isSatelliteId(child.id)) continue;
+            stack.push(child.id);
+          }
+        }
+      }
+    }
+  }
 
   // ── phase 2: replacement expansion + drop-root suppression ────────────
   // Classify set-deltas (alter vs replace), expand the forced dependent
@@ -555,6 +647,7 @@ export function plan(
     acceptsFolds,
     assumedRoleNames,
     assumedSchemaNames,
+    assumedPresentIds,
     capability: options?.capability,
     compact: options?.compact !== false,
     foldConstraints: options?.foldConstraints,

@@ -70,6 +70,17 @@ export function buildActionGraph(
   // `CREATE EXTENSION … SCHEMA <schema>` whose schema object is filtered out of
   // the view is a valid dependency target, not a stranded reference.
   assumedSchemaNames: ReadonlySet<string> = new Set(),
+  // encoded ids of PLATFORM-PROVISIONED members of assumed schemas — objects
+  // owned (in the raw extract, before the owner edge to the policy-excluded
+  // role is pruned) by an assumed role other than the resolved default owner,
+  // e.g. Supabase's `supabase_functions.http_request()` (the DB-webhook trigger
+  // function, owned by `supabase_functions_admin`). The platform guarantee that
+  // makes their schema assumed extends to them, so a kept dependent (a user
+  // webhook trigger) is valid even when the target lacks the object — unlike a
+  // USER-created object in an assumed schema, which stays a plan-time failure
+  // (see `isAmbient`). Computed by plan() (plan.ts); affects ONLY whether the
+  // missing-requirement guard fires, never ordering/edges.
+  assumedPresentIds: ReadonlySet<string> = new Set(),
   // OUT-param (optional): collects the indices of EVALUATOR actions — actions
   // that make PostgreSQL RUN a user expression while the statement applies.
   //
@@ -210,12 +221,19 @@ export function buildActionGraph(
     }
     const schema = (id as { schema?: string }).schema;
     if (schema === undefined || !assumedSchemaNames.has(schema)) return false;
-    // An object in an assumed schema is ambient only when it is genuinely
+    // A PLATFORM-PROVISIONED member of an assumed schema (system-role-owned,
+    // e.g. `supabase_functions.http_request()`) is present at apply time by the
+    // same guarantee that makes its schema assumed — even when the desired view
+    // keeps it reference-only and the target lacks it (the platform provisions
+    // webhooks infra outside the plan). See the parameter doc above.
+    if (assumedPresentIds.has(encodeId(id))) return true;
+    // Any OTHER object in an assumed schema is ambient only when it is genuinely
     // external to the managed view (e.g. an extension member, hard-pruned from
     // both sides). If the DESIRED view KEEPS it (reference-only) yet it is absent
     // from the target (`!source.has`, checked by the caller), the desired side is
-    // referencing something the target lacks — fail at plan time instead of
-    // exempting it and letting apply fail against a missing relation (review P2).
+    // referencing something the target lacks — a user-created object nothing will
+    // provision — so fail at plan time instead of exempting it and letting apply
+    // fail against a missing relation (review P2).
     return !desired.has(id);
   };
 
@@ -781,25 +799,56 @@ function samePrivilegeSet(a: readonly string[], b: readonly string[]): boolean {
  * we filter to the applier's role, else (corpus/raw) consider any role's ADP
  * (conservative — at worst we keep a redundant REVOKE/GRANT).
  */
-function adpCustomizesObjtype(
+/**
+ * The `defaultPrivilege` facts of a desired state, folded by `objtype` so
+ * `adpCustomizesObjtype` is an O(1) lookup instead of a full fact scan.
+ * `allSchemas` records an ADP whose `schema` is null (cluster-wide for that
+ * role — matches ANY target schema); `schemas` the schema-scoped ones.
+ */
+type AdpIndex = ReadonlyMap<
+  string,
+  { allSchemas: boolean; schemas: ReadonlySet<string> }
+>;
+
+/** One pass over `desired`, applying the same role filter the predicate did:
+ *  ADP is keyed by the CREATING role, so with a known `capability` only that
+ *  role's ADP counts; without one (corpus/raw) any role's does. */
+function buildAdpIndex(
   desired: FactBase,
-  target: StableId,
   capability: ApplierCapability | undefined,
-): boolean {
+): AdpIndex {
+  const index = new Map<
+    string,
+    { allSchemas: boolean; schemas: Set<string> }
+  >();
+  for (const fact of desired.facts()) {
+    if (fact.id.kind !== "defaultPrivilege") continue;
+    const d = fact.id;
+    if (capability !== undefined && d.role !== capability.role) continue;
+    let entry = index.get(d.objtype);
+    if (entry === undefined) {
+      entry = { allSchemas: false, schemas: new Set<string>() };
+      index.set(d.objtype, entry);
+    }
+    if (d.schema === null) entry.allSchemas = true;
+    else entry.schemas.add(d.schema);
+  }
+  return index;
+}
+
+function adpCustomizesObjtype(adp: AdpIndex, target: StableId): boolean {
   const objtype = ruleFlag(target.kind, "defaclObjtype");
   if (objtype === undefined) return false; // kind has no default-ACL mechanism
+  const entry = adp.get(objtype);
+  if (entry === undefined) return false;
+  if (entry.allSchemas) return true;
   const targetSchema =
     target.kind === "schema"
       ? null
       : ((target as { schema?: string }).schema ?? null);
-  return desired.facts().some((fact) => {
-    if (fact.id.kind !== "defaultPrivilege") return false;
-    const d = fact.id as Extract<StableId, { kind: "defaultPrivilege" }>;
-    if (d.objtype !== objtype) return false;
-    if (d.schema !== null && d.schema !== targetSchema) return false;
-    if (capability !== undefined && d.role !== capability.role) return false;
-    return true;
-  });
+  // a schema-scoped ADP never matches a schema-less target (the old predicate's
+  // `d.schema !== targetSchema` with targetSchema === null).
+  return targetSchema !== null && entry.schemas.has(targetSchema);
 }
 
 /**
@@ -835,6 +884,12 @@ export function elideDefaultAclCreates(
   desired: FactBase,
   capability?: ApplierCapability,
 ): Action[] {
+  // ADP lookup table, built ONCE. The predicate below used to re-scan
+  // `desired.facts()` (a freshly materialized array) per acl-create action,
+  // which is O(aclCreates x facts) — the dominant cost of a from-empty plan on a
+  // large catalog.
+  const adp = buildAdpIndex(desired, capability);
+
   // ids of the objects actually created in this plan (acl satellites excluded).
   const createdObjects = new Set<string>();
   for (const action of actions) {
@@ -870,7 +925,7 @@ export function elideDefaultAclCreates(
     // customizing this objtype breaks that assumption (the effective default
     // differs, and ADP-vs-CREATE order is not guaranteed in a from-empty plan),
     // so the explicit REVOKE/GRANT is load-bearing — keep it (review P2).
-    if (adpCustomizesObjtype(desired, aclId.target, capability)) continue;
+    if (adpCustomizesObjtype(adp, aclId.target)) continue;
 
     if (aclId.grantee === "PUBLIC") {
       const def = PUBLIC_DEFAULT_PRIVILEGE[aclId.target.kind];

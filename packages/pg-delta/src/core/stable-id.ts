@@ -205,6 +205,14 @@ function seg(part: string): string {
   return part;
 }
 
+/**
+ * Encode a StableId into its canonical string form.
+ *
+ * PURE, and deliberately NOT memoized: this is exported API (`@supabase/pg-delta`
+ * and the `/core` subpath), and `StableId` is a structurally mutable union, so a
+ * consumer that mutates an id and re-encodes must observe the NEW encoding. The
+ * engine's own hot paths use `encodeIdMemo` below instead.
+ */
 export function encodeId(id: StableId): string {
   const k = id.kind;
   switch (k) {
@@ -247,6 +255,62 @@ export function encodeId(id: StableId): string {
       }
       throw new Error(`encodeId: unknown kind ${String(k)}`);
   }
+}
+
+/**
+ * INTERNAL encoding memo, keyed by id OBJECT identity.
+ *
+ * OWNERSHIP RULE — the memo is **registration-only**. Entries are written by
+ * exactly one caller, `buildFactBase` (src/core/fact.ts), for the fact ids, parent
+ * ids and edge endpoint ids it is already encoding as it builds its indexes.
+ * Those objects are ENGINE-OWNED and never mutated after construction. Nothing
+ * else ever writes: `encodeIdMemo` below only READS.
+ *
+ * That asymmetry is what makes the cache safe across a public boundary.
+ * `FactBase.get` / `has` / `hashOf` / `childrenOf` / `outgoingEdges` /
+ * `incomingEdges` / `isReferenceOnly` are public and take a caller's StableId. If
+ * a lookup also POPULATED the memo, a caller that reused and mutated one query
+ * object would get a stale answer on the next lookup. Because lookups only read,
+ * a caller-provided object is simply never in the map and is re-encoded from its
+ * current field values every time.
+ *
+ * Why bother: a plan performs millions of lookups, and `buildFactBase`
+ * re-encodes every fact and edge endpoint on every rebuild (managed-view
+ * reconstruction, scope/target projection, identity normalization). The map stays
+ * module-global — not per-FactBase — so `b.get(factFromA.id)` (diff's hot
+ * pattern) still hits for ids registered when A was built.
+ *
+ * Neither `encodeIdMemo` nor `encodeIdRegister` is re-exported from the package
+ * entry points (`src/index.ts`, `src/core/index.ts`), and no `exports` subpath
+ * maps to this module, so consumers only ever see the pure `encodeId`.
+ *
+ * Same invariant `payloadHashes` in `core/hash.ts` relies on for payloads. Weak
+ * keys, so entries die with the ids that own them.
+ */
+const idEncodings = new WeakMap<object, string>();
+
+/**
+ * READ-ONLY memo lookup, for every path that may see a CALLER's id — i.e. all the
+ * public `FactBase` accessors. Reads the memo; on a miss it pure-encodes and does
+ * NOT write, so a caller object never enters the cache and can never go stale.
+ */
+export function encodeIdMemo(id: StableId): string {
+  return idEncodings.get(id) ?? encodeId(id);
+}
+
+/**
+ * Get-or-register. The ONLY writer of the memo: `buildFactBase`'s indexing pass,
+ * over ids it owns (fact ids, their parents, edge endpoints). Reads first so a
+ * REBUILD of the same fact objects — managed-view reconstruction, scope/target
+ * projection, identity normalization all rebuild constantly — skips the walk
+ * instead of re-encoding every fact and edge endpoint from scratch.
+ */
+export function encodeIdRegister(id: StableId): string {
+  const memo = idEncodings.get(id);
+  if (memo !== undefined) return memo;
+  const encoded = encodeId(id);
+  idEncodings.set(id, encoded);
+  return encoded;
 }
 
 class Cursor {

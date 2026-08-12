@@ -155,3 +155,111 @@ describe("buildFactBase", () => {
     expect(fb.get({ kind: "table", schema: "no", name: "pe" })).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// The lookup layer memoizes id encodings, but ONLY for ids the engine itself
+// registered while building a FactBase. A CALLER's query object must never enter
+// that cache: `fb.get(q)` is public, so a caller may reuse and mutate `q` between
+// lookups and must get an answer for the value `q` currently holds.
+//
+// (Mutating a fact's OWN id object — one obtained from `fb.facts()` — remains
+// undefined behavior: it desynchronizes the string-keyed indexes with or without
+// any memo. That is the pre-existing contract and is not what these pin.)
+// ---------------------------------------------------------------------------
+
+describe("FactBase lookups do not cache caller query objects", () => {
+  const alpha: StableId = { kind: "schema", name: "alpha" };
+  const beta: StableId = { kind: "schema", name: "beta" };
+  const tAlpha: StableId = { kind: "table", schema: "alpha", name: "t" };
+  const tBeta: StableId = { kind: "table", schema: "beta", name: "t" };
+
+  function twoSchemas() {
+    return buildFactBase(
+      [
+        { id: alpha, payload: {} },
+        { id: beta, payload: {} },
+        { id: tAlpha, parent: alpha, payload: {} },
+        { id: tBeta, parent: beta, payload: {} },
+      ],
+      [
+        { from: tAlpha, to: alpha, kind: "owner" },
+        { from: tBeta, to: beta, kind: "owner" },
+      ],
+    );
+  }
+
+  test("get() re-reads a mutated query object", () => {
+    const fb = twoSchemas();
+    const q: StableId = { kind: "schema", name: "alpha" };
+    expect(fb.get(q)?.id).toEqual(alpha);
+    (q as { name: string }).name = "beta";
+    expect(fb.get(q)?.id).toEqual(beta);
+  });
+
+  test("get() reports absence after a query object is mutated to a missing id", () => {
+    const fb = twoSchemas();
+    const q: StableId = { kind: "schema", name: "alpha" };
+    expect(fb.get(q)).toBeDefined();
+    (q as { name: string }).name = "gamma";
+    expect(fb.get(q)).toBeUndefined();
+  });
+
+  test("has() re-reads a mutated query object", () => {
+    const fb = twoSchemas();
+    const q: StableId = { kind: "schema", name: "alpha" };
+    expect(fb.has(q)).toBe(true);
+    (q as { name: string }).name = "gamma";
+    expect(fb.has(q)).toBe(false);
+  });
+
+  test("childrenOf() re-reads a mutated query object", () => {
+    const fb = twoSchemas();
+    const q: StableId = { kind: "schema", name: "alpha" };
+    expect(fb.childrenOf(q).map((f) => f.id)).toEqual([tAlpha]);
+    (q as { name: string }).name = "beta";
+    expect(fb.childrenOf(q).map((f) => f.id)).toEqual([tBeta]);
+  });
+
+  test("outgoingEdges() re-reads a mutated query object", () => {
+    const fb = twoSchemas();
+    const q: StableId = { kind: "table", schema: "alpha", name: "t" };
+    expect(fb.outgoingEdges(q).map((e) => e.to)).toEqual([alpha]);
+    (q as { schema: string }).schema = "beta";
+    expect(fb.outgoingEdges(q).map((e) => e.to)).toEqual([beta]);
+  });
+
+  test("incomingEdges() re-reads a mutated query object", () => {
+    const fb = twoSchemas();
+    const q: StableId = { kind: "schema", name: "alpha" };
+    expect(fb.incomingEdges(q).map((e) => e.from)).toEqual([tAlpha]);
+    (q as { name: string }).name = "beta";
+    expect(fb.incomingEdges(q).map((e) => e.from)).toEqual([tBeta]);
+  });
+
+  test("hashOf()/rollupOf() re-read a mutated query object", () => {
+    const fb = twoSchemas();
+    const q: StableId = { kind: "table", schema: "alpha", name: "t" };
+    const alphaRollup = fb.rollupOf(q);
+    (q as { schema: string }).schema = "beta";
+    expect(fb.rollupOf(q)).toBe(fb.rollupOf(tBeta));
+    expect(fb.rollupOf(q)).not.toBe(alphaRollup);
+    expect(fb.hashOf(q)).toBe(fb.hashOf(tBeta));
+  });
+
+  // Correctness of the registration memo itself: ids registered while building
+  // ONE FactBase must still resolve in ANOTHER (diff's hot pattern is
+  // `b.get(factFromA.id)`), because the memo is module-global.
+  test("an id object registered by one FactBase resolves in another", () => {
+    const a = twoSchemas();
+    const b = twoSchemas();
+    for (const fact of a.facts()) {
+      expect(b.get(fact.id)?.id).toEqual(fact.id);
+      expect(b.has(fact.id)).toBe(true);
+      expect(b.hashOf(fact.id)).toBe(a.hashOf(fact.id));
+    }
+    // and a FactBase that does NOT contain the id still answers honestly
+    const onlyAlpha = buildFactBase([{ id: alpha, payload: {} }], []);
+    expect(onlyAlpha.get(beta)).toBeUndefined();
+    expect(onlyAlpha.get(alpha)?.id).toEqual(alpha);
+  });
+});

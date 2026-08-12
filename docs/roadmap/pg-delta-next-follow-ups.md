@@ -831,3 +831,141 @@ oversized key past its advertised total-length budget. One further finding is
   exactly this divergence, so the failure is pre-announced. Revisit if a real
   profile hits it.
 
+## PR #403 review triage — the reserved `_custom/` folder
+
+Round-1 findings were fixed in the PR (migration references must resolve to a
+FILE, the pruner skips `_custom/` during traversal instead of after the walk and
+no longer swallows FS errors, `COMMENT` left the modeled-kind allowlist,
+`unmodeled_drift` diffs fully qualified identities, the `unmodeled_kind`
+remediation is per kind, and `listCustomFiles` propagates non-ENOENT failures).
+One finding is **deferred, won't-fix in #403**:
+
+- **Foreign tables (and `SECURITY LABEL`) cannot be flagged by
+  `custom_modeled_kind`.** pg-topo has no statement class for either — both
+  classify as `UNKNOWN` (verified against the current classifier), and
+  `_custom/` deliberately suppresses the `UNKNOWN_STATEMENT_CLASS` lint, so a
+  `CREATE FOREIGN TABLE` parked in the reserved folder is hidden entirely even
+  though pg-delta models foreign tables and will regenerate one into the managed
+  tree. The correct fix is adding `CreateForeignTableStmt` / `SecurityLabelStmt`
+  classes to pg-topo's classifier (`packages/pg-topo/src/classify/`) and listing
+  them in `MODELED_STATEMENT_CLASSES`
+  (`packages/pg-delta/src/frontends/custom-lint.ts`) — a cross-package change,
+  out of scope for #403. Deferred rather than dropped because the failure mode
+  today is LOUD, not silent: the duplicate `CREATE` makes the next
+  export-then-apply fail to converge on the shadow load
+  (`max_rounds_exceeded`), which is exactly the hazard the lint rule
+  pre-announces rather than the hazard it prevents.
+
+  Third instance of the same classifier-coverage gap (round-3 review
+  finding): pg-topo has no class for `DropStmt` either, so a modeled DROP
+  (`DROP TABLE …`, `DROP VIEW …`, etc.) parked in `_custom/` also classifies
+  `UNKNOWN` and is hidden by the same `UNKNOWN_STATEMENT_CLASS` suppression
+  — `custom_modeled_kind` cannot flag it because it never sees a
+  drop-target class to compare against `MODELED_STATEMENT_CLASSES`. The
+  hazard shape differs slightly from the create case: a create-then-drop of
+  the same object in the shadow (the `_custom/` file creates it, the
+  managed tree no longer does) makes the plan schedule dropping the LIVE
+  object, not just fail to converge — though this is additionally gated by
+  `--allow-data-loss` at apply time, so not silent either. Same correct fix:
+  add drop-target statement classes to pg-topo's classifier
+  (`packages/pg-topo/src/classify/`) and list them alongside the
+  create-target classes in `MODELED_STATEMENT_CLASSES`
+  (`packages/pg-delta/src/frontends/custom-lint.ts`). Bundling this with the
+  foreign-table / `SECURITY LABEL` fix above is the efficient path, since
+  all three land in the same two files.
+
+- **The scratch-loader cluster-DDL preflight does not catch
+  `GRANT … ON PARAMETER` (pre-existing).** Discovered while verifying the
+  round-1 P1: the preflight's GRANT pattern
+  (`src/frontends/load-sql-files.ts:415`,
+  `/^\s*grant\b(?![\s\S]*\bon\b)/i`) deliberately exempts privilege grants,
+  so `GRANT SET ON PARAMETER … TO …` loads into a co-located
+  (`databaseScratch`) shadow and writes to `pg_parameter_acl` — a SHARED
+  cluster catalog — while the scratch guard snapshots/restores only
+  `pg_roles`/`pg_auth_members`. A plan/dry-run can therefore leave a
+  parameter ACL behind on the live cluster. #403 removed the advice that
+  steered users toward this (the `unmodeled_kind` remediation is now
+  per-kind and never points cluster-shared kinds at `_custom/`), but the
+  loader gap predates the PR and applies to any `.sql` in the tree.
+  Follow-up: extend the preflight to refuse parameter-ACL grants (and audit
+  for other shared-catalog writers, e.g. `ALTER ROLE … SET` is already
+  covered?) in `databaseScratch` mode, or widen the snapshot/restore to
+  `pg_parameter_acl`.
+
+Round-4 findings (loop capped here per the automated-review policy — both are
+re-litigations of already-resolved threads one corner deeper, under
+user-constructed pathological setups):
+
+- **Deferred — drift identity serialization is not injective for dotted
+  quoted identifiers (Codex P2, round 4).** `probeUnmodeledIdentities`
+  renders type/name components with plain `%s`-style joins, so `"a.b".c`
+  and `a."b.c"` flatten identically and a pathological same-rendering pair
+  across shadow/target can mask an `unmodeled_drift` warning. Accepted:
+  the diagnostic is best-effort observability — a masked warning still
+  fails loudly when the generated migration runs — and the setup requires
+  dots inside quoted identifiers colliding across two databases. Fix if
+  ever needed: quote each component (`quote_ident`/`%I`) in the identity
+  projections (`src/extract/unmodeled.ts`).
+- **Deferred — dangling `_custom/README.md` symlink bypasses the scaffold
+  containment (Codex P2, round 4).** Round 3 fixed the symlinked `_custom`
+  root; a dangling symlink at the leaf README path still lets
+  `writeFileSync` create the file outside `outRoot` (`existsSync` is false
+  for dangling links). One-line fix when next touched: create with the
+  exclusive `wx` flag (O_CREAT|O_EXCL does not follow symlinks) in
+  `scaffoldCustomReadme` (`src/frontends/custom-dir.ts`) and treat EEXIST
+  as skip.
+
+## PR #407 review triage (Codex) — platform-provisioned assumed-schema members
+
+Context: PR #407 exempts platform-provisioned members of assumed schemas
+(system-role-owned, e.g. `supabase_functions.http_request()`) from the
+action-graph missing-requirement guard, so a DB-webhook trigger plans against
+a target that has never had webhooks provisioned (Sentry SUPABASE-API-8CX).
+Two round-2 findings were fixed in the PR (run-level `defaultOwner` override
+excluded from provenance; descendant closure). One is **deferred by design**:
+
+- **Deferred — the plan neither creates the platform object nor proves against
+  a target that lacks it ("materialize the dependency before bypassing the
+  guard", Codex P1).** Deliberate: the policy's managed view EXCLUDES platform
+  objects — a user plan must never `CREATE SCHEMA supabase_functions` /
+  `CREATE FUNCTION … http_request` (it may lack the privileges and would claim
+  platform state as user state). "Assumed present" is the same contract as
+  `assumedRoles`/`assumedSchemas`: a plan with `GRANT … TO anon` or
+  `CREATE EXTENSION … SCHEMA extensions` equally fails on a target where the
+  platform never provisioned those; the platform (mgmt-api / Supabase image
+  migrations) owns provisioning, outside the plan. Consequence, accepted: an
+  `apply()`/`provePlan()` run against a bare clone that lacks the webhooks
+  infra fails at the CREATE TRIGGER — the same failure mode the other assumed
+  kinds already have. Revisit only alongside the committed Supabase baseline
+  (docs/roadmap/backlog.md), which is the mechanism that could seed platform
+  objects into proof clones for all assumed kinds at once.
+
+Round-4 findings (loop capped here per the automated-review policy — both are
+contract re-litigation of the provenance heuristic under hypothetical setups,
+not defects reachable on the shipped policy):
+
+- **Deferred — explicit platform-owner designation instead of
+  `assumedRoles \ {policy.defaultOwner}` (Codex P1, round 4).** The heuristic
+  treats a policy-assumed role other than the policy's own declared default
+  owner as a platform object owner within assumed schemas. For the shipped
+  Supabase policy this is exact (`assumedRoles` = SUPABASE_SYSTEM_ROLES +
+  `postgres`, `defaultOwner: postgres`). A CUSTOM policy that added a user
+  role to `assumedRoles` would widen the exemption to that role's objects in
+  assumed schemas. No shipped or known custom policy does this; the clean fix
+  is a new `Policy` field (e.g. `platformObjectOwners`) — an API addition
+  disproportionate to this bug fix. Revisit when a custom-policy consumer
+  actually declares assumed user roles.
+
+- **Refuted for the shipped policy — descendant closure covering "user-added"
+  children of platform tables (Codex P1, round 4).** The claimed
+  counterexample (a user-added `auth.users.custom_flag` column) is not
+  creatable on Supabase: `ADD COLUMN` / `CREATE INDEX` / `ADD CONSTRAINT` /
+  `CREATE POLICY` all require table OWNERSHIP, which the user's `postgres`
+  lacks on system-role-owned tables. The one user-creatable child — a trigger,
+  via the grantable TRIGGER privilege — is deliberately MANAGED (policy
+  include rule 3), so the plan PRODUCES it and the requirement guard never
+  consults the exemption for it. Desired-only FILTERED descendants of a
+  platform root can therefore only be platform-made (image upgrade), which is
+  exactly what the exemption must cover. Revisit together with the explicit
+  platform-owner designation above if any platform grants users DDL on
+  platform-owned relations.

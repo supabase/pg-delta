@@ -2,17 +2,15 @@
 import type { StableId } from "../core/stable-id.ts";
 import {
   aclJsonMemberAware,
-  type ExtractContext,
+  type CatalogFamily,
   memberExtensionExpr,
   parseAcl,
   schemaId,
   USER_SCHEMA_FILTER,
 } from "./scope.ts";
 
-export async function extractRoutines(ctx: ExtractContext): Promise<void> {
-  const { q, pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
-  // ── routines (functions + procedures; pg_get_functiondef canonical) ──
-  for (const row of await q(`
+// ── routines (functions + procedures; pg_get_functiondef canonical) ──
+const ROUTINES_SQL = `
     SELECT n.nspname AS schema, p.proname AS name, r.rolname AS owner,
            p.prokind AS prokind,
            ARRAY(SELECT format_type(t.t, NULL)
@@ -39,70 +37,78 @@ export async function extractRoutines(ctx: ExtractContext): Promise<void> {
         SELECT 1 FROM pg_depend idep
         WHERE idep.classid = 'pg_proc'::regclass AND idep.objid = p.oid
           AND idep.deptype = 'i')
-    ORDER BY n.nspname, p.proname`)) {
-    const args = (row["identity_args"] as string[]).map(String);
-    // GUC names this routine's proconfig SETs (from `config_gucs`, split in SQL).
-    // Carried as the `_`-prefixed `_configGucs` so it is NON-SEMANTIC: dropped
-    // from the hash and diff (core/hash.ts), exactly like `_position` on type
-    // attributes. It exists ONLY so the co-located shadow seed can DECIDE whether
-    // a routine is replayable by a non-superuser (a SUSET-context GUC in the SET
-    // header makes CREATE fail 42501) WITHOUT parsing the `def` SQL text — the SET
-    // clauses are already semantic inside `def`; this is a structured duplicate
-    // for that decision alone. Omitted when empty so it never appears in payloads
-    // that have no proconfig.
-    const configGucs = ((row["config_gucs"] as string[] | null) ?? []).map(
-      String,
-    );
-    // prokind distinguishes procedures ('p') from functions ('f'/'w'); the kind
-    // lives in the id (not the payload) so satellite renderers address the
-    // routine with the correct DDL keyword (FUNCTION vs PROCEDURE). Window
-    // functions ('w') are still FUNCTIONs for DDL — they only differ by `isWindow`.
-    const id: StableId = {
-      kind: String(row["prokind"]) === "p" ? "procedure" : "function",
-      schema: String(row["schema"]),
-      name: String(row["name"]),
-      args,
-    };
-    pushWithMeta(
-      {
-        id,
-        parent: schemaId(row["schema"]),
-        payload: {
-          def: String(row["def"]),
-          // Classification fields for the change path: `def` (pg_get_functiondef)
-          // is itself a CREATE OR REPLACE, so a body/volatility/… change alters
-          // in place — but return type, language, and window-kind are things
-          // CREATE OR REPLACE refuses or cannot express, so a change to any of
-          // them must demolish (see plan/rules/routines.ts). They deliberately
-          // double-count with `def` (all change together) so they carry no extra
-          // diff signal; they exist only to route the change. `return_type` is
-          // NULL for procedures (null-stable — no delta among procedures).
-          returnType:
-            row["return_type"] == null ? null : (row["return_type"] as string),
-          // full argument signature (names / modes / defaults). CREATE OR
-          // REPLACE refuses to rename a parameter or remove a default, so ANY
-          // arg-signature change must demolish. Arg TYPES are identity (a
-          // different stable id → natural drop+create), so within a stable id
-          // this differs only by name/mode/default — the part OR-REPLACE can't
-          // always express.
-          argSignature: String(row["arg_signature"]),
-          language: String(row["language"]),
-          isWindow: String(row["prokind"]) === "w",
-          ...(configGucs.length > 0 ? { _configGucs: configGucs } : {}),
-        },
-      },
-      row,
-      parseAcl(row["acl"]),
-    );
-    pushMemberEdge(id, row);
-    pushOwnerEdge(id, row["owner"]);
-  }
-}
+    ORDER BY n.nspname, p.proname`;
 
-export async function extractAggregates(ctx: ExtractContext): Promise<void> {
-  const { q, pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
-  // ── aggregates (CREATE AGGREGATE is reconstructed from pg_aggregate) ─
-  for (const row of await q(`
+export const routinesFamily: CatalogFamily = {
+  name: "routines",
+  statements: () => [ROUTINES_SQL],
+  apply: (ctx, rowSets) => {
+    const { pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
+    for (const row of rowSets[0]!) {
+      const args = (row["identity_args"] as string[]).map(String);
+      // GUC names this routine's proconfig SETs (from `config_gucs`, split in SQL).
+      // Carried as the `_`-prefixed `_configGucs` so it is NON-SEMANTIC: dropped
+      // from the hash and diff (core/hash.ts), exactly like `_position` on type
+      // attributes. It exists ONLY so the co-located shadow seed can DECIDE whether
+      // a routine is replayable by a non-superuser (a SUSET-context GUC in the SET
+      // header makes CREATE fail 42501) WITHOUT parsing the `def` SQL text — the SET
+      // clauses are already semantic inside `def`; this is a structured duplicate
+      // for that decision alone. Omitted when empty so it never appears in payloads
+      // that have no proconfig.
+      const configGucs = ((row["config_gucs"] as string[] | null) ?? []).map(
+        String,
+      );
+      // prokind distinguishes procedures ('p') from functions ('f'/'w'); the kind
+      // lives in the id (not the payload) so satellite renderers address the
+      // routine with the correct DDL keyword (FUNCTION vs PROCEDURE). Window
+      // functions ('w') are still FUNCTIONs for DDL — they only differ by `isWindow`.
+      const id: StableId = {
+        kind: String(row["prokind"]) === "p" ? "procedure" : "function",
+        schema: String(row["schema"]),
+        name: String(row["name"]),
+        args,
+      };
+      pushWithMeta(
+        {
+          id,
+          parent: schemaId(row["schema"]),
+          payload: {
+            def: String(row["def"]),
+            // Classification fields for the change path: `def` (pg_get_functiondef)
+            // is itself a CREATE OR REPLACE, so a body/volatility/… change alters
+            // in place — but return type, language, and window-kind are things
+            // CREATE OR REPLACE refuses or cannot express, so a change to any of
+            // them must demolish (see plan/rules/routines.ts). They deliberately
+            // double-count with `def` (all change together) so they carry no extra
+            // diff signal; they exist only to route the change. `return_type` is
+            // NULL for procedures (null-stable — no delta among procedures).
+            returnType:
+              row["return_type"] == null
+                ? null
+                : (row["return_type"] as string),
+            // full argument signature (names / modes / defaults). CREATE OR
+            // REPLACE refuses to rename a parameter or remove a default, so ANY
+            // arg-signature change must demolish. Arg TYPES are identity (a
+            // different stable id → natural drop+create), so within a stable id
+            // this differs only by name/mode/default — the part OR-REPLACE can't
+            // always express.
+            argSignature: String(row["arg_signature"]),
+            language: String(row["language"]),
+            isWindow: String(row["prokind"]) === "w",
+            ...(configGucs.length > 0 ? { _configGucs: configGucs } : {}),
+          },
+        },
+        row,
+        parseAcl(row["acl"]),
+      );
+      pushMemberEdge(id, row);
+      pushOwnerEdge(id, row["owner"]);
+    }
+  },
+};
+
+// ── aggregates (CREATE AGGREGATE is reconstructed from pg_aggregate) ─
+const AGGREGATES_SQL = `
     SELECT n.nspname AS schema, p.proname AS name, r.rolname AS owner,
            ARRAY(SELECT format_type(t.t, NULL)
                  FROM unnest(p.proargtypes) WITH ORDINALITY AS t(t, ord)
@@ -140,56 +146,66 @@ export async function extractAggregates(ctx: ExtractContext): Promise<void> {
     JOIN pg_namespace n ON n.oid = p.pronamespace
     JOIN pg_roles r ON r.oid = p.proowner
     WHERE p.prokind = 'a' AND ${USER_SCHEMA_FILTER}
-    ORDER BY n.nspname, p.proname`)) {
-    const id: StableId = {
-      kind: "aggregate",
-      schema: String(row["schema"]),
-      name: String(row["name"]),
-      args: (row["identity_args"] as string[]).map(String),
-    };
-    pushWithMeta(
-      {
-        id,
-        parent: schemaId(row["schema"]),
-        payload: {
-          aggKind: String(row["agg_kind"]),
-          numDirectArgs: Number(row["num_direct_args"]),
-          sfunc: String(row["sfunc"]),
-          stype: String(row["stype"]),
-          sspace: Number(row["sspace"]),
-          finalfunc:
-            row["finalfunc"] == null ? null : (row["finalfunc"] as string),
-          finalfuncExtra: Boolean(row["finalfunc_extra"]),
-          finalfuncModify: String(row["finalfunc_modify"]),
-          combinefunc:
-            row["combinefunc"] == null ? null : (row["combinefunc"] as string),
-          serialfunc:
-            row["serialfunc"] == null ? null : (row["serialfunc"] as string),
-          deserialfunc:
-            row["deserialfunc"] == null
-              ? null
-              : (row["deserialfunc"] as string),
-          msfunc: row["msfunc"] == null ? null : (row["msfunc"] as string),
-          minvfunc:
-            row["minvfunc"] == null ? null : (row["minvfunc"] as string),
-          mstype: row["mstype"] == null ? null : (row["mstype"] as string),
-          msspace: Number(row["msspace"]),
-          mfinalfunc:
-            row["mfinalfunc"] == null ? null : (row["mfinalfunc"] as string),
-          mfinalfuncExtra: Boolean(row["mfinalfunc_extra"]),
-          mfinalfuncModify: String(row["mfinalfunc_modify"]),
-          initcond:
-            row["initcond"] == null ? null : (row["initcond"] as string),
-          minitcond:
-            row["minitcond"] == null ? null : (row["minitcond"] as string),
-          sortop: row["sortop"] == null ? null : (row["sortop"] as string),
-          parallel: String(row["parallel"]),
+    ORDER BY n.nspname, p.proname`;
+
+export const aggregatesFamily: CatalogFamily = {
+  name: "aggregates",
+  statements: () => [AGGREGATES_SQL],
+  apply: (ctx, rowSets) => {
+    const { pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
+    for (const row of rowSets[0]!) {
+      const id: StableId = {
+        kind: "aggregate",
+        schema: String(row["schema"]),
+        name: String(row["name"]),
+        args: (row["identity_args"] as string[]).map(String),
+      };
+      pushWithMeta(
+        {
+          id,
+          parent: schemaId(row["schema"]),
+          payload: {
+            aggKind: String(row["agg_kind"]),
+            numDirectArgs: Number(row["num_direct_args"]),
+            sfunc: String(row["sfunc"]),
+            stype: String(row["stype"]),
+            sspace: Number(row["sspace"]),
+            finalfunc:
+              row["finalfunc"] == null ? null : (row["finalfunc"] as string),
+            finalfuncExtra: Boolean(row["finalfunc_extra"]),
+            finalfuncModify: String(row["finalfunc_modify"]),
+            combinefunc:
+              row["combinefunc"] == null
+                ? null
+                : (row["combinefunc"] as string),
+            serialfunc:
+              row["serialfunc"] == null ? null : (row["serialfunc"] as string),
+            deserialfunc:
+              row["deserialfunc"] == null
+                ? null
+                : (row["deserialfunc"] as string),
+            msfunc: row["msfunc"] == null ? null : (row["msfunc"] as string),
+            minvfunc:
+              row["minvfunc"] == null ? null : (row["minvfunc"] as string),
+            mstype: row["mstype"] == null ? null : (row["mstype"] as string),
+            msspace: Number(row["msspace"]),
+            mfinalfunc:
+              row["mfinalfunc"] == null ? null : (row["mfinalfunc"] as string),
+            mfinalfuncExtra: Boolean(row["mfinalfunc_extra"]),
+            mfinalfuncModify: String(row["mfinalfunc_modify"]),
+            initcond:
+              row["initcond"] == null ? null : (row["initcond"] as string),
+            minitcond:
+              row["minitcond"] == null ? null : (row["minitcond"] as string),
+            sortop: row["sortop"] == null ? null : (row["sortop"] as string),
+            parallel: String(row["parallel"]),
+          },
         },
-      },
-      row,
-      parseAcl(row["acl"]),
-    );
-    pushMemberEdge(id, row);
-    pushOwnerEdge(id, row["owner"]);
-  }
-}
+        row,
+        parseAcl(row["acl"]),
+      );
+      pushMemberEdge(id, row);
+      pushOwnerEdge(id, row["owner"]);
+    }
+  },
+};

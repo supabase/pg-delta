@@ -29,6 +29,29 @@ import { EXPECTED_RED } from "./expected-red.ts";
 const COMPACT_MODES = [true, false] as const;
 type ModeRunner = (key: string, run: () => Promise<void>) => Promise<void>;
 
+/**
+ * TEST-ONLY knob (the library default is unchanged): force the opt-in
+ * bounded-parallel extraction path (`ExtractOptions.concurrency`) for every
+ * corpus extraction, so the proof loop — the only thing that proves each
+ * scenario still applies AND converges — gates the parallel scheduler exactly
+ * like it gates the serial one. Unset / 1 is the production default (serial), so
+ * a normal corpus run and CI are byte-identically unaffected.
+ *
+ *   PGDELTA_TEST_EXTRACT_CONCURRENCY=4 bun test tests/engine.test.ts
+ */
+const EXTRACT_CONCURRENCY = Math.max(
+  1,
+  Math.floor(Number(process.env["PGDELTA_TEST_EXTRACT_CONCURRENCY"] ?? "1")) ||
+    1,
+);
+
+/** `extract` with the corpus-wide concurrency knob applied. */
+function extractState(
+  pool: Parameters<typeof extract>[0],
+): ReturnType<typeof extract> {
+  return extract(pool, { concurrency: EXTRACT_CONCURRENCY });
+}
+
 function compactLabel(compact: boolean): string {
   return compact ? "compact" : "uncompact";
 }
@@ -92,8 +115,8 @@ async function proveOn(
     if (seed) await source.pool.query(seed);
 
     const [sourceState, desiredState] = [
-      await extract(source.pool),
-      await extract(desired.pool),
+      await extractState(source.pool),
+      await extractState(desired.pool),
     ];
     // probe the applier (connection user `test`, a superuser here) so the corpus
     // exercises the capability-gated compaction (Rule 2 owner-ALTER elision).
@@ -120,7 +143,7 @@ async function proveOn(
     try {
       // TEMPLATE cloning skips shared-catalog state (subscriptions): presync
       // the clone to the source's fact base before proving the real plan
-      const cloneState = await extract(clone.pool);
+      const cloneState = await extractState(clone.pool);
       if (cloneState.factBase.rootHash !== sourceState.factBase.rootHash) {
         const presync = plan(cloneState.factBase, sourceState.factBase);
         const presyncReport = await apply(presync, clone.pool, {
