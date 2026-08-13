@@ -69,10 +69,14 @@ describe("parseSslConfig", () => {
     // Naive `url + "&sslmode=..."` concatenation appends a second sslmode;
     // libpq (and pg's own parsing) honor the LAST occurrence, so the appended
     // verify-full must not silently degrade to require's no-verify.
-    const upgraded = parseSslConfig(`${BASE}?sslmode=require&sslmode=verify-full`);
+    const upgraded = parseSslConfig(
+      `${BASE}?sslmode=require&sslmode=verify-full`,
+    );
     expect(upgraded.ssl).toStrictEqual({ rejectUnauthorized: true });
 
-    const disabled = parseSslConfig(`${BASE}?sslmode=verify-full&sslmode=disable`);
+    const disabled = parseSslConfig(
+      `${BASE}?sslmode=verify-full&sslmode=disable`,
+    );
     expect(disabled.ssl).toBe(false);
   });
 

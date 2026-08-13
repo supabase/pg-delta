@@ -112,15 +112,20 @@ export function parseSslConfig(
   role: SslRole = "target",
 ): ParsedSslConfig {
   const urlObj = new URL(url);
-  const sslmode = urlObj.searchParams.get("sslmode");
+  // libpq's conninfo parsing honors the LAST occurrence of a repeated
+  // parameter (URLSearchParams.get() would return the first), so an appended
+  // ?sslmode=verify-full must win over an earlier sslmode=require.
+  const lastParam = (name: string): string | null =>
+    urlObj.searchParams.getAll(name).at(-1) ?? null;
+  const sslmode = lastParam("sslmode");
 
   if (sslmode === null || !HANDLED_MODES.has(sslmode)) {
     return { cleanedUrl: url };
   }
 
-  const sslrootcert = urlObj.searchParams.get("sslrootcert");
-  const sslcert = urlObj.searchParams.get("sslcert");
-  const sslkey = urlObj.searchParams.get("sslkey");
+  const sslrootcert = lastParam("sslrootcert");
+  const sslcert = lastParam("sslcert");
+  const sslkey = lastParam("sslkey");
   urlObj.searchParams.delete("sslmode");
   urlObj.searchParams.delete("sslrootcert");
   urlObj.searchParams.delete("sslcert");
