@@ -26,9 +26,15 @@ export class PostgresSslContainer extends GenericContainer {
     this.serverKeyName = basename(certificates.serverKey);
     this.withExposedPorts(POSTGRES_PORT);
     // Bun has a bug with Wait.forListeningPorts() — use Docker healthcheck instead.
-    // pg_isready connects via Unix socket by default (local), bypassing SSL requirement.
+    // Probe over TCP, not the Unix socket: the official image's docker-entrypoint
+    // starts a TEMPORARY initdb-phase server that listens only on the socket, so a
+    // socket pg_isready reports ready while the real server (and TCP+SSL) is still
+    // seconds away — the first test then dies with "Connection terminated
+    // unexpectedly" (flaked in CI on PG 15/17). The temp server never listens on
+    // TCP, and pg_isready treats a pg_hba/hostssl rejection as "server up", so a
+    // TCP probe only succeeds once the final server is accepting connections.
     this.withHealthCheck({
-      test: ["CMD-SHELL", "pg_isready -U postgres"],
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"],
       interval: 1_000,
       timeout: 5_000,
       retries: 10,
