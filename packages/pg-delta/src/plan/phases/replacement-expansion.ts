@@ -101,6 +101,16 @@ export function expandReplacements(
         if (targets.has(fromKey)) continue;
         const dependent = source.get(edge.from);
         if (!dependent || !desired.has(edge.from)) continue;
+        // A REFERENCE-ONLY dependent (an extension member, or a non-satellite
+        // descendant of one) is never a standalone action: it vanishes with its
+        // extension's DROP (`alsoDestroys`) and re-materializes with the
+        // CREATE. Promoting it into `replaceIds` emits member DROP/CREATE
+        // statements PostgreSQL rejects outright — and, across an extension
+        // replace, wedges the action graph (the pg_net member cycle,
+        // guardrail 4). Reached via its `memberOfExtension` edge when the
+        // extension itself is replaced, or via a `depends` edge into any other
+        // destroyed fact.
+        if (source.isReferenceOnly(edge.from)) continue;
         if (!isRebuildable(dependent.id.kind)) continue;
         // reached only via a kind-restricted seed: honor the allowed kinds
         if (!fullDestroy.has(toKey)) {
