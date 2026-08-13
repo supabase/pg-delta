@@ -14,6 +14,13 @@ export { exportSqlFiles, type ExportOptions } from "./export-sql-files.ts";
 export { saveSnapshot, loadSnapshot } from "./snapshot-file.ts";
 
 export {
+  parseSslConfig,
+  type ParsedSslConfig,
+  type SslOptions,
+  type SslRole,
+} from "./ssl-config.ts";
+
+export {
   EXPORT_MANIFEST_FILE,
   readExportManifest,
   writeExportManifest,

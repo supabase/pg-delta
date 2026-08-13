@@ -125,6 +125,12 @@ export {
   type ProvisionCoLocatedShadowOptions,
 } from "./frontends/shadow.ts";
 export {
+  parseSslConfig,
+  type ParsedSslConfig,
+  type SslOptions,
+  type SslRole,
+} from "./frontends/ssl-config.ts";
+export {
   factMatches,
   deltaMatches,
   filterDeltas,

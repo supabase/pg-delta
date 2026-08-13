@@ -98,6 +98,40 @@ embed a format version and digest; corrupted or foreign-version files
 refuse to load. The Supabase platform baselines are regenerated with
 `scripts/generate-supabase-baseline.ts` against the pinned image tag.
 
+## SSL / `sslmode` semantics
+
+The engine takes caller-built `pg.Pool`s, and node-postgres does **not**
+implement libpq's `sslmode` semantics: it treats `sslmode=require` as "encrypt
+*and verify the chain* against Node's default trust store", so servers with
+private-CA chains (e.g. Supabase-managed databases) are rejected with
+`SELF_SIGNED_CERT_IN_CHAIN`. The legacy engine translated `sslmode` internally;
+the rebuild initially did not, which regressed `sslmode=require` connections.
+
+- The `pgdelta` CLI and `provisionCoLocatedShadow(targetUrl)` translate
+  `sslmode` with libpq semantics again: `require`/`prefer` without a root CA
+  encrypt without verification; `require` + `sslrootcert` behaves like
+  `verify-ca`; `verify-ca` with a supplied CA verifies the chain but not the
+  hostname; `verify-full` verifies both. `PGDELTA_{SOURCE,TARGET}_SSLROOTCERT/
+  SSLCERT/SSLKEY` env vars are honored as PEM content fallbacks.
+- `verify-ca` **without** any CA deviates from libpq (which errors without a
+  root cert): the chain is verified against Node's default trust store with
+  hostname verification kept ON — skipping hostname checks against the public
+  store would accept any valid public-CA cert for any host.
+- **Library consumers building their own pools** get node-postgres' stricter
+  behavior unless they opt in: use the exported `parseSslConfig(url, role?)`
+  to derive `{ ssl, cleanedUrl }` and build the pool as
+  `new pg.Pool({ connectionString: cleanedUrl, ...(ssl !== undefined ? { ssl } : {}) })`
+  — the cleaned URL goes under `connectionString`, and `ssl` is spread only
+  when defined so passthrough URLs keep node-postgres defaults. Passing
+  the raw URL through is the one place the old and new engines still differ.
+- `prefer` does not fall back to a plaintext connection when the server
+  refuses TLS (libpq retries without SSL; node-postgres has no per-connection
+  retry, so `prefer` forces TLS exactly like node-postgres' own and
+  pg-connection-string's `uselibpqcompat` handling of that mode).
+- One deliberate deviation from legacy: URLs without a recognized `sslmode`
+  pass through untouched (legacy forced `ssl: false`), so node-postgres
+  defaults — including `PGSSLMODE` env handling — keep applying.
+
 ## Known gaps
 
 Object kinds the new engine does not model — casts, operators, text-search

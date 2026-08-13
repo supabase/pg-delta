@@ -46,7 +46,7 @@ export async function cmdSnapshot(args: string[]): Promise<void> {
   const outPath = flags["out"];
   const redactSecrets = !flags["unsafe-show-secrets"];
 
-  const src = makePool(sourceUrl);
+  const src = makePool(sourceUrl, { role: "source" });
   try {
     // handler-aware extraction (profile handlers only); no policy/baseline
     // projection — a baseline snapshot is the raw capture. skipBaseline avoids
