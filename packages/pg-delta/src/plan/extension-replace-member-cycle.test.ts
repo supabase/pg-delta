@@ -158,4 +158,76 @@ describe("plan() — non-relocatable extension replace with member-owned schema"
     // dragged BEFORE the DROP by the source-side member edge.
     expect(commentAt).toBeGreaterThan(createExtAt);
   });
+
+  // The mirror of the previous case: the satellite exists only on the SOURCE
+  // (a customization the desired state removes). Its removal action destroys
+  // only metadata, so it targets the NEW incarnation too — the re-created
+  // member may re-materialize script state the desired side doesn't want. The
+  // child-teardown rule must not pin it before DROP EXTENSION (its consumes
+  // orders it after the re-CREATE → the pair would be a cycle).
+  test("a satellite customization removed from a member orders after the re-CREATE", () => {
+    const comment: StableId = { kind: "comment", target: httpGet };
+    const source = pgNetBase("public", [
+      { id: comment, parent: httpGet, payload: { text: "old note" } },
+    ]);
+    const desired = pgNetBase("extensions");
+
+    const thePlan = plan(source, desired);
+    const sqls = thePlan.actions.map((a) => a.sql);
+
+    const createExtAt = sqls.findIndex(
+      (s) => s === `CREATE EXTENSION "pg_net" SCHEMA "extensions"`,
+    );
+    const commentAt = sqls.findIndex((s) =>
+      s.startsWith(`COMMENT ON FUNCTION "net"."http_get"`),
+    );
+    expect(createExtAt).toBeGreaterThanOrEqual(0);
+    expect(commentAt).toBeGreaterThan(createExtAt);
+  });
+
+  // An UNCHANGED user object that depends on a member (not on the member's
+  // schema) is a real casualty of the replace: the member vanishes with
+  // DROP EXTENSION, so the dependent must be rebuilt around it. The rebuild
+  // walk keeps members out of replaceIds but must still traverse THROUGH them
+  // to reach such dependents — otherwise the plan refuses with a
+  // missing-requirement error ("survives but depends on … which this plan
+  // drops without recreating").
+  test("an unchanged user function depending on a member rebuilds around the replace", () => {
+    const wrapper: StableId = {
+      kind: "function",
+      schema: "public",
+      name: "wrapper",
+      args: [],
+    };
+    const wrapperFact: Fact = {
+      id: wrapper,
+      parent: publicSchema,
+      payload: {
+        def: `CREATE OR REPLACE FUNCTION public.wrapper() RETURNS bigint LANGUAGE plpgsql AS $$ begin return net.http_get('x'); end $$`,
+      },
+    };
+    const wrapperEdges: Parameters<typeof buildFactBase>[1] = [
+      { from: wrapper, to: httpGet, kind: "depends" },
+    ];
+    const source = pgNetBase("public", [wrapperFact], wrapperEdges);
+    const desired = pgNetBase("extensions", [wrapperFact], wrapperEdges);
+
+    const thePlan = plan(source, desired);
+    const sqls = thePlan.actions.map((a) => a.sql);
+
+    const dropWrapperAt = sqls.findIndex(
+      (s) => s === `DROP FUNCTION "public"."wrapper"()`,
+    );
+    const dropExtAt = sqls.findIndex((s) => s === `DROP EXTENSION "pg_net"`);
+    const createExtAt = sqls.findIndex(
+      (s) => s === `CREATE EXTENSION "pg_net" SCHEMA "extensions"`,
+    );
+    const createWrapperAt = sqls.findIndex((s) =>
+      s.includes("FUNCTION public.wrapper()"),
+    );
+    expect(dropWrapperAt).toBeGreaterThanOrEqual(0);
+    expect(dropExtAt).toBeGreaterThan(dropWrapperAt);
+    expect(createExtAt).toBeGreaterThan(dropExtAt);
+    expect(createWrapperAt).toBeGreaterThan(createExtAt);
+  });
 });
