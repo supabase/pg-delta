@@ -487,9 +487,20 @@ export function buildActionGraph(
       // child teardown precedes parent teardown
       const fact = source.get(id);
       if (fact?.parent !== undefined) {
-        const parentDestroyer = destroyerOf.get(remember(fact.parent));
+        const parentKey = remember(fact.parent);
+        const parentDestroyer = destroyerOf.get(parentKey);
         if (parentDestroyer !== undefined && parentDestroyer !== index) {
-          edges.push([index, parentDestroyer]);
+          // a metadata satellite whose parent MEMBER an extension replace
+          // re-materializes: the removal targets the NEW incarnation (its
+          // consumes order it after the re-CREATE), so pinning it before the
+          // parent's DROP would close the replace cycle. The old satellite
+          // needs no explicit teardown — it dies with DROP EXTENSION.
+          const parentReproduced =
+            isMetadataKind(id.kind) &&
+            (desiredMemberClosure.get(parentKey) ?? []).some((ext) =>
+              producerOf.has(encodeId(ext)),
+            );
+          if (!parentReproduced) edges.push([index, parentDestroyer]);
         }
       }
     }

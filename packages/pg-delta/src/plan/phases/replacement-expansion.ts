@@ -109,8 +109,15 @@ export function expandReplacements(
         // replace, wedges the action graph (the pg_net member cycle,
         // guardrail 4). Reached via its `memberOfExtension` edge when the
         // extension itself is replaced, or via a `depends` edge into any other
-        // destroyed fact.
-        if (source.isReferenceOnly(edge.from)) continue;
+        // destroyed fact. The walk still traverses THROUGH the member: its
+        // non-member dependents are real casualties of the replace and must
+        // rebuild (an unchanged user function calling a member function).
+        if (source.isReferenceOnly(edge.from)) {
+          fullDestroy.add(fromKey);
+          targets.add(fromKey);
+          worklist.push(fromKey);
+          continue;
+        }
         if (!isRebuildable(dependent.id.kind)) continue;
         // reached only via a kind-restricted seed: honor the allowed kinds
         if (!fullDestroy.has(toKey)) {
