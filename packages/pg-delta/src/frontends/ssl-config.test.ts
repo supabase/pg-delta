@@ -65,6 +65,22 @@ describe("parseSslConfig", () => {
     expect(parseSslConfig(url)).toStrictEqual({ cleanedUrl: url });
   });
 
+  test("duplicate sslmode params: the final occurrence wins (libpq parity)", () => {
+    // Naive `url + "&sslmode=..."` concatenation appends a second sslmode;
+    // libpq (and pg's own parsing) honor the LAST occurrence, so the appended
+    // verify-full must not silently degrade to require's no-verify.
+    const upgraded = parseSslConfig(`${BASE}?sslmode=require&sslmode=verify-full`);
+    expect(upgraded.ssl).toStrictEqual({ rejectUnauthorized: true });
+
+    const disabled = parseSslConfig(`${BASE}?sslmode=verify-full&sslmode=disable`);
+    expect(disabled.ssl).toBe(false);
+  });
+
+  test("duplicate sslmode with an unrecognized final value passes through", () => {
+    const url = `${BASE}?sslmode=require&sslmode=allow`;
+    expect(parseSslConfig(url)).toStrictEqual({ cleanedUrl: url });
+  });
+
   test("absent sslmode passes through untouched (node-postgres defaults apply)", () => {
     const url = `${BASE}?application_name=pgdelta`;
     expect(parseSslConfig(url)).toStrictEqual({ cleanedUrl: url });
