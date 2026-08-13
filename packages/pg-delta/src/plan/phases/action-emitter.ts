@@ -16,6 +16,7 @@ import {
   type ApplierCapability,
 } from "../../policy/capability.ts";
 import { factMatches, type SerializeRule } from "../../policy/policy.ts";
+import { extensionMemberClosure } from "../../policy/view.ts";
 import { lockClassFor } from "../locks.ts";
 import type { Action } from "../plan.ts";
 import { grantTarget, qid } from "../render.ts";
@@ -188,6 +189,14 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     );
   }
 
+  // Desired-side member closure, computed lazily — only an extension REPLACE
+  // needs it (see the satellite replay below).
+  let desiredMemberClosureMemo: Map<string, StableId[]> | undefined;
+  const desiredMemberClosureOf = (): Map<string, StableId[]> => {
+    desiredMemberClosureMemo ??= extensionMemberClosure(projectedDesired);
+    return desiredMemberClosureMemo;
+  };
+
   // replaces: drop old + create new (+ recreate unchanged descendants).
   // Emitted BEFORE the added-creates loop so a replaced parent's CREATE registers
   // its inlined delta-set children (publication members, etc.) in `producerOf`
@@ -256,6 +265,26 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       }
     };
     recreate(newFact.id);
+    // A replaced EXTENSION re-materializes its members with installation
+    // defaults. The members themselves are reference-only (never standalone
+    // actions), but their desired-side SATELLITES (a user COMMENT/GRANT on a
+    // member) die with the DROP — and when the customization is identical on
+    // both sides there is no delta to re-emit it. Replay them from the
+    // projected target; the member consume orders them after the re-CREATE.
+    // (The closure maps members to their owning EXTENSIONS only, so a
+    // non-extension replace key simply matches no members — no kind check.)
+    for (const [memberKey, exts] of desiredMemberClosureOf()) {
+      if (!exts.some((ext) => encodeId(ext) === key)) continue;
+      const member = projectedDesired.getByEncoded(memberKey);
+      if (!member) continue;
+      for (const child of projectedDesired.childrenOf(member.id)) {
+        if (ruleFlag(child.id.kind, "metadata") !== true) continue;
+        const childKey = encodeId(child.id);
+        if (added.has(childKey) || producerOf.has(childKey)) continue;
+        recreatedByReplace.add(childKey);
+        emitCreate(child, projectedDesired);
+      }
+    }
   }
 
   // creates — parents first, so a parent's delta-set inlining (e.g. a
