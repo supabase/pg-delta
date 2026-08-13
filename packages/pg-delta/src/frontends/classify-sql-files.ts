@@ -24,7 +24,8 @@ export interface ClassifySqlFilesInput {
    *  are POSIX-relative. */
   proposed: readonly SqlFile[];
   /** Existing `.sql` file bodies keyed by path relative to the export root.
-   *  Either separator is accepted. Non-`.sql` keys and `_custom/**` are ignored. */
+   *  Either separator is accepted; `.` segments are dropped. Non-`.sql` keys
+   *  and `_custom/**` are ignored. `..` is caller-owned (left as-is). */
   existing: ReadonlyMap<string, string>;
   /** POSIX-relative paths the previous export owned (`ExportManifest.files`).
    *  Absent (pre-feature / hand-authored dir) → every extra `.sql` is
@@ -43,11 +44,14 @@ export interface SqlFileClassification {
   unmanaged: string[];
 }
 
-/** Normalize a relative path to POSIX (`/` separators, no empty segments). */
+/** Normalize a relative path to POSIX (`/` separators, no empty or `.`
+ *  segments). `..` is left as-is — callers must not pass parent-directory
+ *  segments; this helper is pure, so `..` is a mismatch hazard, not a
+ *  traversal one. */
 function posixRelPath(relPath: string): string {
   return relPath
     .split(/[\\/]/)
-    .filter((segment) => segment !== "")
+    .filter((segment) => segment !== "" && segment !== ".")
     .join("/");
 }
 
