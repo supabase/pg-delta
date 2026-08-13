@@ -118,6 +118,7 @@
     "pgdelta-cli-version-and-schema-help",
     "pgdelta-ship-coverage-migration-docs",
     "pgmq-queue-trigger-fallback",
+    "pgnet-extension-replace-cycle",
     "planner-projection-dedup",
     "probe-server-version-once",
     "prove-autoseed-outcomes",
