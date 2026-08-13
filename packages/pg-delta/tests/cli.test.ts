@@ -17,7 +17,11 @@ import {
 import { loadSnapshot } from "../src/frontends/snapshot-file.ts";
 import { serializeSnapshot } from "../src/core/snapshot.ts";
 import { extract } from "../src/extract/extract.ts";
-import { parsePlan, serializePlan } from "../src/plan/artifact.ts";
+import {
+  computePlanId,
+  parsePlan,
+  serializePlan,
+} from "../src/plan/artifact.ts";
 import { plan } from "../src/plan/plan.ts";
 import type { Policy } from "../src/policy/policy.ts";
 import { isolatedClusterPair, sharedCluster } from "./containers.ts";
@@ -116,6 +120,7 @@ describe("CLI: apply failure attribution", () => {
       ]);
       const thePlan = plan(sourceState.factBase, desiredState.factBase);
       thePlan.preamble = [{ name: "lock_timeout", value: "-1" }];
+      thePlan.planId = computePlanId(thePlan); // re-stamp: the preamble joins the hash
       const planFile = join(artifactDir, "plan.json");
       writeFileSync(planFile, serializePlan(thePlan), "utf8");
 
