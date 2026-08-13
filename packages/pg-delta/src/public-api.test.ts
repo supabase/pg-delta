@@ -22,6 +22,11 @@ describe("public API surface", () => {
     expect(root.rawProfile.id).toBe("raw");
   });
 
+  test("root re-exports the export-file classification helper", () => {
+    expect(typeof root.classifySqlFiles).toBe("function");
+    expect(typeof root.classifySqlContent).toBe("function");
+  });
+
   test("the integrations subpath exposes the full profile surface", () => {
     expect(typeof integrations.resolveProfile).toBe("function");
     expect(integrations.supabaseProfile.id).toBe("supabase");

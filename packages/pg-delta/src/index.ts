@@ -94,6 +94,13 @@ export {
   type ExportManifest,
 } from "./frontends/export-manifest.ts";
 export {
+  classifySqlContent,
+  classifySqlFiles,
+  type ClassifySqlFilesInput,
+  type SqlFileChange,
+  type SqlFileClassification,
+} from "./frontends/classify-sql-files.ts";
+export {
   buildSchemaExport,
   type BuildSchemaExportOptions,
   type SchemaExportResult,

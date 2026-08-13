@@ -18,6 +18,10 @@ performance, then DX.
   format decision).
 - **[ephemeral-shadow-design.md](ephemeral-shadow-design.md)** — full design for
   auto-provisioning an ephemeral shadow database (deferred).
+- **[schema-first-cli-enablement.md](schema-first-cli-enablement.md)** — what
+  pg-delta must export so the Supabase CLI can build the schema-first workflow
+  (`schema pull / diff / generate / apply / push`). WP3a (export-file
+  classification) is in progress; remaining WPs are sequenced there.
 
 ## How the engine got here
 
