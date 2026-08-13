@@ -129,6 +129,10 @@ import type {
   ExportGroupingPattern,
 } from "../../frontends/export-sql-files.ts";
 import type { SqlFormatOptions } from "../../frontends/sql-format/index.ts";
+import {
+  classifySqlContent,
+  type SqlFileChange,
+} from "../../frontends/classify-sql-files.ts";
 import { pruneStaleSqlFiles } from "../../frontends/prune-sql-files.ts";
 import {
   CUSTOM_DIR_NAME,
@@ -337,26 +341,24 @@ export function writeExportFiles(
         `export: refusing to write outside ${outRoot}: ${file.name}`,
       );
     }
-    // Classify against the file already on disk: absent → created; same
-    // bytes → unchanged (skip the write, keeping the mtime stable for build
-    // tools); anything else → updated. A size mismatch alone proves the
+    // Classify against the file already on disk via the shared helper
+    // (frontends/classify-sql-files.ts). A size mismatch alone proves the
     // content differs, so the old content is only buffered for a plausible
     // match. Only ENOENT means "created" — any other stat/read error is
     // surfaced rather than silently reclassified as absence (PR #405 review).
-    let status: "created" | "updated" | "unchanged";
+    let status: SqlFileChange;
     try {
       status =
-        statSync(full).size === Buffer.byteLength(file.sql, "utf8") &&
-        readFileSync(full, "utf8") === file.sql
-          ? "unchanged"
-          : "updated";
+        statSync(full).size !== Buffer.byteLength(file.sql, "utf8")
+          ? "updated"
+          : classifySqlContent(readFileSync(full, "utf8"), file.sql);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
         throw new Error(
           `export: cannot read existing file ${full} to classify it: ${e instanceof Error ? e.message : String(e)}`,
         );
       }
-      status = "created";
+      status = classifySqlContent(undefined, file.sql);
     }
     if (status === "unchanged") {
       unchanged.push(full);
