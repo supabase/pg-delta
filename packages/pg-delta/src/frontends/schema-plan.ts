@@ -63,6 +63,12 @@ import {
  * its path for exactly this reason; the drift probe must match it, via a
  * short, dedicated transaction so the pool's OTHER borrowers keep their own
  * default path (`SET LOCAL` is discarded on COMMIT/ROLLBACK).
+ *
+ * @param major - The server's PostgreSQL major version (e.g. `17`); it selects
+ * which version-gated probes run. `ExtractResult.pgVersion` /
+ * `LoadResult.pgVersion` carry `server_version`, so
+ * `Number.parseInt(result.pgVersion, 10)` is the usual source (handles
+ * `"17.5"` and `"18beta1"` alike).
  */
 export async function probeUnmodeledIdentitiesPinned(
   pool: Pool,

@@ -78,7 +78,11 @@ function collectSqlCandidates(
  * A file present in `previouslyOwned` is a stale owned file and is DELETED
  * (returned under `removed`); any other `.sql` is `unmanaged` and left on disk
  * unless `pruneUnmanaged` is true (then it is deleted too and moved to
- * `removed`, and `unmanaged` comes back empty). `previouslyOwned` is `undefined`
+ * `removed`, and `unmanaged` comes back empty). Entries in `keep` and
+ * `previouslyOwned` may be absolute or relative; relative entries are resolved
+ * against `outRoot` (a relative entry that never matched would silently misread
+ * kept files as out-of-set — and delete them under `pruneUnmanaged`).
+ * `previouslyOwned` is `undefined`
  * when the previous manifest is absent or recorded no `files` list — then every
  * out-of-set `.sql` is unmanaged. A missing `outRoot` (first export) scans
  * nothing; any OTHER scan failure (EACCES, EIO) is raised rather than reported as
@@ -92,6 +96,18 @@ export function pruneStaleSqlFiles(
   previouslyOwned: ReadonlySet<string> | undefined,
   pruneUnmanaged: boolean,
 ): { removed: string[]; unmanaged: string[] } {
+  // Anchor everything to one absolute frame before comparing: scan paths are
+  // resolved against outRoot, so keep/previouslyOwned entries must live in the
+  // same frame or membership tests are meaningless (resolve() leaves absolute
+  // entries untouched).
+  outRoot = resolve(outRoot);
+  const keepResolved = new Set(
+    Array.from(keep, (path) => resolve(outRoot, path)),
+  );
+  const ownedResolved =
+    previouslyOwned === undefined
+      ? undefined
+      : new Set(Array.from(previouslyOwned, (path) => resolve(outRoot, path)));
   // The reserved subtree is never even walked, so a manifest that (impossibly —
   // writeExportFiles guards the write) claims a `_custom/` path still cannot turn
   // the pruner into a deleter in there.
@@ -101,14 +117,14 @@ export function pruneStaleSqlFiles(
   const unmanaged: string[] = [];
   for (const entry of entries) {
     const full = resolve(outRoot, entry);
-    if (keep.has(full)) continue;
+    if (keepResolved.has(full)) continue;
     try {
       if (!statSync(full).isFile()) continue;
     } catch (error) {
       if (isMissing(error)) continue; // vanished between readdir and stat, or a dangling symlink
       throw error;
     }
-    if (previouslyOwned?.has(full)) {
+    if (ownedResolved?.has(full)) {
       rmSync(full);
       removed.push(full);
     } else if (pruneUnmanaged) {
