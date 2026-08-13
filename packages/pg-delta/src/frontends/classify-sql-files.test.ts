@@ -75,6 +75,31 @@ describe("classifySqlFiles", () => {
     expect(result.updated).toEqual([]);
   });
 
+  test("a ./ -prefixed existing key matches the same proposed path", () => {
+    const result = classifySqlFiles({
+      proposed: [file("schemas/app/t.sql", "CREATE TABLE app.t ();\n")],
+      existing: existing({
+        "./schemas/app/t.sql": "CREATE TABLE app.t ();\n",
+      }),
+    });
+    expect(result.unchanged).toEqual(["schemas/app/t.sql"]);
+    expect(result.created).toEqual([]);
+    expect(result.unmanaged).toEqual([]);
+  });
+
+  test("./_custom/ is invisible, matching the reserved-folder invariant", () => {
+    const result = classifySqlFiles({
+      proposed: [file("schemas/app/t.sql", "CREATE TABLE app.t ();\n")],
+      existing: existing({
+        "schemas/app/t.sql": "CREATE TABLE app.t ();\n",
+        "./_custom/x.sql": "-- custom\n",
+      }),
+    });
+    expect(result.unchanged).toEqual(["schemas/app/t.sql"]);
+    expect(result.unmanaged).toEqual([]);
+    expect(result.removed).toEqual([]);
+  });
+
   test("a previously-owned file missing from proposed is removed", () => {
     const result = classifySqlFiles({
       proposed: [file("schemas/app/t.sql", "CREATE TABLE app.t ();\n")],
