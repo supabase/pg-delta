@@ -15,7 +15,7 @@
 import type { Pool } from "pg";
 import type { FactBase } from "../core/fact.ts";
 import { extract } from "../extract/extract.ts";
-import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
+import { ENGINE_VERSION, computePlanId, type Plan } from "../plan/plan.ts";
 import { assertDestructionMetadataIntegrity } from "../plan/safety.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
 import { buildApplyPreamble } from "./apply-preamble.ts";
@@ -200,6 +200,15 @@ export async function apply(
     throw new Error(
       `apply: plan was produced by engine ${thePlan.engineVersion}, this engine is ${ENGINE_VERSION} — re-plan`,
     );
+  }
+  if (
+    typeof thePlan.planId !== "string" ||
+    !/^[0-9a-f]{64}$/.test(thePlan.planId)
+  ) {
+    throw new Error("apply: missing or invalid planId — re-plan");
+  }
+  if (thePlan.planId !== computePlanId(thePlan)) {
+    throw new Error("apply: planId does not match contents — re-plan");
   }
   assertDestructionMetadataIntegrity(
     thePlan.actions,

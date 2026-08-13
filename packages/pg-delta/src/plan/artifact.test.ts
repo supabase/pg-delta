@@ -1,10 +1,16 @@
 /** Plan artifact v1: lossless round-trip + version refusals (stage 6). */
 import { describe, expect, test } from "bun:test";
-import { parsePlan, serializePlan } from "./artifact.ts";
-import { ENGINE_VERSION, type Plan } from "./plan.ts";
+import { buildFactBase } from "../core/fact.ts";
+import {
+  parsePlan,
+  serializePlan,
+  computePlanId,
+  stampPlanId,
+} from "./artifact.ts";
+import { ENGINE_VERSION, plan, type Plan } from "./plan.ts";
 import { normalizeProjectionAudit } from "../policy/reconstruct.ts";
 
-const samplePlan: Plan = {
+const samplePlan: Plan = stampPlanId({
   formatVersion: 1,
   engineVersion: ENGINE_VERSION,
   source: { fingerprint: "a".repeat(64) },
@@ -42,7 +48,7 @@ const samplePlan: Plan = {
     nonTransactionalActions: 0,
     lockClasses: { none: 1 },
   },
-};
+});
 
 describe("plan artifact v1", () => {
   test("round-trips losslessly, including bigint payload values", () => {
@@ -54,14 +60,14 @@ describe("plan artifact v1", () => {
   });
 
   test("round-trips an inlined applier capability (follow-up 2)", () => {
-    const withCapability: Plan = {
+    const withCapability: Plan = stampPlanId({
       ...samplePlan,
       capability: {
         role: "app_owner",
         isSuperuser: false,
         memberOf: ["app_owner", "readers"],
       },
-    };
+    });
     const parsed = parsePlan(serializePlan(withCapability));
     expect(parsed.capability).toEqual({
       role: "app_owner",
@@ -71,7 +77,10 @@ describe("plan artifact v1", () => {
   });
 
   test("round-trips the stamped integration profile id (P2 follow-up)", () => {
-    const withProfile: Plan = { ...samplePlan, profile: { id: "supabase" } };
+    const withProfile: Plan = stampPlanId({
+      ...samplePlan,
+      profile: { id: "supabase" },
+    });
     const parsed = parsePlan(serializePlan(withProfile));
     expect(parsed.profile).toEqual({ id: "supabase" });
   });
@@ -83,7 +92,7 @@ describe("plan artifact v1", () => {
 
   test("round-trips the additive projection audit", () => {
     const schemaId = { kind: "schema" as const, name: "hidden" };
-    const withAudit: Plan = {
+    const withAudit: Plan = stampPlanId({
       ...samplePlan,
       projectionAudit: {
         entries: [
@@ -111,7 +120,7 @@ describe("plan artifact v1", () => {
           baseline: 0,
         },
       },
-    };
+    });
     expect(parsePlan(serializePlan(withAudit)).projectionAudit).toEqual(
       withAudit.projectionAudit,
     );
@@ -124,7 +133,7 @@ describe("plan artifact v1", () => {
   });
 
   test("round-trips an opaque PostgreSQL source-lineage stamp", () => {
-    const stamped: Plan = {
+    const stamped: Plan = stampPlanId({
       ...samplePlan,
       source: {
         ...samplePlan.source,
@@ -135,7 +144,7 @@ describe("plan artifact v1", () => {
           databaseHash: "e".repeat(64),
         },
       },
-    };
+    });
 
     expect(parsePlan(serializePlan(stamped)).source).toEqual(stamped.source);
   });
@@ -649,9 +658,51 @@ describe("plan artifact v1", () => {
     // a plan produced with --unsafe-show-secrets fingerprints over unredacted
     // secrets; the artifact must carry redactSecrets:false so apply/prove
     // re-extract the target the same way (otherwise the fingerprint gate fails).
-    const unsafe: Plan = { ...samplePlan, redactSecrets: false };
+    const unsafe: Plan = stampPlanId({ ...samplePlan, redactSecrets: false });
     expect(parsePlan(serializePlan(unsafe)).redactSecrets).toBe(false);
     expect(parsePlan(serializePlan(samplePlan)).redactSecrets).toBeUndefined();
+  });
+
+  test("parsePlan refuses a missing planId", () => {
+    const artifact = JSON.parse(serializePlan(samplePlan)) as Record<
+      string,
+      unknown
+    >;
+    delete artifact["planId"];
+    const json = JSON.stringify(artifact);
+    expect(() => parsePlan(json)).toThrow(/planId/);
+    expect(() => parsePlan(json)).toThrow(/re-plan/);
+  });
+
+  test("parsePlan refuses a tampered action list (planId mismatch)", () => {
+    const artifact = JSON.parse(serializePlan(samplePlan)) as Record<
+      string,
+      unknown
+    >;
+    (artifact["actions"] as Array<Record<string, unknown>>)[0]!["sql"] =
+      "DROP SCHEMA app CASCADE";
+    const json = JSON.stringify(artifact);
+    expect(() => parsePlan(json)).toThrow(/planId/);
+    expect(() => parsePlan(json)).toThrow(/re-plan/);
+  });
+
+  test("stampPlanId is stable for the same ingredients and moves with source fingerprint", () => {
+    const again = stampPlanId({ ...samplePlan });
+    expect(again.planId).toBe(samplePlan.planId);
+    expect(again.planId).toMatch(/^[0-9a-f]{64}$/);
+    const moved = stampPlanId({
+      ...samplePlan,
+      source: { fingerprint: "c".repeat(64) },
+    });
+    expect(moved.planId).not.toBe(samplePlan.planId);
+    expect(computePlanId(moved)).toBe(moved.planId);
+  });
+
+  test("plan() stamps a planId matching the ingredients", () => {
+    const empty = buildFactBase([], []);
+    const thePlan = plan(empty, empty);
+    expect(thePlan.planId).toMatch(/^[0-9a-f]{64}$/);
+    expect(computePlanId(thePlan)).toBe(thePlan.planId);
   });
 
   test("rejects unknown formatVersion", () => {

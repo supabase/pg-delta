@@ -8,6 +8,7 @@
  * Payload values can contain bigints (sequence bounds); they are encoded
  * as {"$bigint": "…"} exactly like fact snapshots (stage 1).
  */
+import { contentHash, type Payload } from "../core/hash.ts";
 import { ALL_FACT_KINDS, type StableId } from "../core/stable-id.ts";
 import { normalizeProjectionAudit } from "../policy/reconstruct.ts";
 import { ENGINE_VERSION, type Action, type Plan } from "./plan.ts";
@@ -251,6 +252,44 @@ function reviver(_key: string, value: unknown): unknown {
   return value;
 }
 
+/**
+ * SHA-256 content hash over the plan-bound approval ingredients. Never
+ * includes `planId` itself. `undefined` profile/scope/policy (direct
+ * library / cluster-default) are omitted by canonicalize, not replaced
+ * with invented strings. Absent `acceptedRenames` hashes as `[]`.
+ */
+export function computePlanId(plan: Omit<Plan, "planId">): string {
+  const payload: Payload = {
+    formatVersion: plan.formatVersion,
+    engineVersion: plan.engineVersion,
+    source: { fingerprint: plan.source.fingerprint },
+    target: { fingerprint: plan.target.fingerprint },
+    acceptedRenames: plan.acceptedRenames ?? [],
+    actions: plan.actions.map((action) => ({
+      sql: action.sql,
+      verb: action.verb,
+      produces: action.produces,
+      consumes: action.consumes,
+      destroys: action.destroys,
+      releases: action.releases,
+      transactionality: action.transactionality,
+      lockClass: action.lockClass,
+      newSegmentBefore: action.newSegmentBefore,
+      dataLoss: action.dataLoss,
+      rewriteRisk: action.rewriteRisk,
+    })),
+    profile: plan.profile,
+    scope: plan.scope,
+    policy: plan.policy as Payload | undefined,
+  };
+  return contentHash(payload);
+}
+
+/** Attach a freshly computed `planId`. Does not include the digest in its own hash. */
+export function stampPlanId(plan: Omit<Plan, "planId">): Plan {
+  return { ...plan, planId: computePlanId(plan) };
+}
+
 export function serializePlan(thePlan: Plan): string {
   return JSON.stringify(thePlan, replacer, 2);
 }
@@ -339,6 +378,13 @@ export function parsePlan(json: string): Plan {
         `plan artifact: invalid projectionAudit — ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  }
+  if (typeof artifact.planId !== "string" || !SHA256.test(artifact.planId)) {
+    throw new Error("plan artifact: missing or invalid planId — re-plan");
+  }
+  const computed = computePlanId(artifact as Omit<Plan, "planId">);
+  if (artifact.planId !== computed) {
+    throw new Error("plan artifact: planId does not match contents — re-plan");
   }
   return artifact as Plan;
 }

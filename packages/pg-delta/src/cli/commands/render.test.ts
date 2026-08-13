@@ -10,8 +10,12 @@ import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { Action, Plan } from "../../plan/plan.ts";
-import { ENGINE_VERSION } from "../../plan/plan.ts";
+import {
+  ENGINE_VERSION,
+  stampPlanId,
+  type Action,
+  type Plan,
+} from "../../plan/plan.ts";
 import { serializePlan } from "../../plan/artifact.ts";
 import { cmdRender } from "./render.ts";
 
@@ -33,7 +37,7 @@ function action(overrides: Partial<Action>): Action {
 }
 
 function makePlan(actions: Action[]): Plan {
-  return {
+  return stampPlanId({
     formatVersion: 1,
     engineVersion: ENGINE_VERSION,
     source: { fingerprint: "a".repeat(64) },
@@ -49,7 +53,7 @@ function makePlan(actions: Action[]): Plan {
       nonTransactionalActions: 0,
       lockClasses: {},
     },
-  } as Plan;
+  });
 }
 
 /** A 3-segment plan: two commitBoundaryAfter actions force `_1`/`_2`/`_3`. */

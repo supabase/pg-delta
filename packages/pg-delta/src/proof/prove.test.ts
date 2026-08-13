@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Pool } from "pg";
 import { buildFactBase } from "../core/fact.ts";
-import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
+import { ENGINE_VERSION, stampPlanId, type Plan } from "../plan/plan.ts";
 import {
   composeAutoSeedBaseline,
   detectAutoSeedSideEffects,
@@ -52,7 +52,7 @@ describe("provePlan — destruction metadata preflight", () => {
       table: "t",
       name: "secret",
     };
-    const thePlan: Plan = {
+    const thePlan: Plan = stampPlanId({
       formatVersion: 1,
       engineVersion: ENGINE_VERSION,
       source: { fingerprint: empty.rootHash },
@@ -82,7 +82,7 @@ describe("provePlan — destruction metadata preflight", () => {
         nonTransactionalActions: 0,
         lockClasses: { accessExclusive: 1 },
       },
-    };
+    });
     const verdict = await provePlan(thePlan, {} as Pool, empty, {
       reextract: () => {
         throw new Error("proof touched the clone before rejecting metadata");

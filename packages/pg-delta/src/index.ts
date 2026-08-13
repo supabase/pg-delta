@@ -53,7 +53,12 @@ export {
   type ProjectionAuditSubject,
   type ProjectionAuditSuppression,
 } from "./plan/plan.ts";
-export { serializePlan, parsePlan } from "./plan/artifact.ts";
+export {
+  serializePlan,
+  parsePlan,
+  computePlanId,
+  stampPlanId,
+} from "./plan/artifact.ts";
 export { type RenameCandidate, type RenameMode } from "./plan/renames.ts";
 export { type LockClass } from "./plan/locks.ts";
 

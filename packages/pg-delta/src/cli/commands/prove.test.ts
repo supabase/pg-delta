@@ -24,6 +24,7 @@ import { connectionEndpointHash } from "../connection-safety.ts";
 import type { ProofCoverage } from "../../proof/prove.ts";
 import { buildFactBase } from "../../core/fact.ts";
 import { serializeSnapshot } from "../../core/snapshot.ts";
+import { serializePlan, stampPlanId } from "../../plan/artifact.ts";
 import { ENGINE_VERSION } from "../../plan/plan.ts";
 import { UsageError } from "../flags.ts";
 import type { ProofVerdict } from "../../proof/prove.ts";
@@ -872,19 +873,28 @@ describe("cmdProve — desired-snapshot profile reconciliation", () => {
     // a minimal, parse-valid plan artifact stamping the plan's profile id
     writeFileSync(
       planPath,
-      JSON.stringify({
-        formatVersion: 1,
-        engineVersion: ENGINE_VERSION,
-        actions: [],
-        deltas: [],
-        renameCandidates: [],
-        safetyReport: { level: "safe", findings: [] },
-        redactSecrets: true,
-        profile: { id: planProfileId },
-        source: { fingerprint: "a".repeat(64) },
-        target: { fingerprint: "b".repeat(64) },
-        ...(projectionAudit === undefined ? {} : { projectionAudit }),
-      }),
+      serializePlan(
+        stampPlanId({
+          formatVersion: 1,
+          engineVersion: ENGINE_VERSION,
+          preamble: [],
+          filteredDeltas: [],
+          actions: [],
+          deltas: [],
+          renameCandidates: [],
+          safetyReport: {
+            destructiveActions: 0,
+            rewriteRiskActions: 0,
+            nonTransactionalActions: 0,
+            lockClasses: {},
+          },
+          redactSecrets: true,
+          profile: { id: planProfileId },
+          source: { fingerprint: "a".repeat(64) },
+          target: { fingerprint: "b".repeat(64) },
+          ...(projectionAudit === undefined ? {} : { projectionAudit }),
+        }),
+      ),
       "utf8",
     );
     writeFileSync(

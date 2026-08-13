@@ -27,6 +27,7 @@ import {
   type PlanParams,
 } from "./rules.ts";
 import { roleReferencesOf } from "./rules/helpers.ts";
+import { stampPlanId } from "./artifact.ts";
 
 /** Engine version stamped into plan artifacts; apply refuses artifacts
  *  from an engine it does not understand (stage 6 deliverable 1). */
@@ -37,7 +38,12 @@ export const ENGINE_VERSION = "0.2.0";
 // `@supabase/pg-delta/plan` (the subpath that maps here), so the documented path
 // must be real. Cycle-safe: artifact.ts's only import from this module is
 // ENGINE_VERSION, which it reads inside a function body, never at module-eval time.
-export { parsePlan, serializePlan } from "./artifact.ts";
+export {
+  parsePlan,
+  serializePlan,
+  computePlanId,
+  stampPlanId,
+} from "./artifact.ts";
 export type {
   ProjectionAudit,
   ProjectionAuditEntry,
@@ -98,6 +104,11 @@ export interface SourceDatabaseIdentity {
 export interface Plan {
   formatVersion: 1;
   engineVersion: string;
+  /** SHA-256 content hash over the plan-bound approval ingredients
+   *  (formatVersion, engineVersion, source/target fingerprints,
+   *  acceptedRenames, the ordered action list, profile/scope/policy).
+   *  Required; a missing or mismatching artifact must be re-planned. */
+  planId: string;
   source: {
     fingerprint: string;
     /** Credential-free hash of the CLI source endpoint. Used only to reject
@@ -654,7 +665,7 @@ export function plan(
     rulesForId,
   });
 
-  return {
+  return stampPlanId({
     formatVersion: 1,
     engineVersion: ENGINE_VERSION,
     // Identity normalization rewrites source ids into desired-name space for
@@ -713,5 +724,5 @@ export function plan(
       : {}),
     actions: finalActions,
     safetyReport,
-  };
+  });
 }
