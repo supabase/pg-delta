@@ -101,18 +101,25 @@ export function expandReplacements(
         if (targets.has(fromKey)) continue;
         const dependent = source.get(edge.from);
         if (!dependent || !desired.has(edge.from)) continue;
-        // A REFERENCE-ONLY dependent (an extension member, or a non-satellite
-        // descendant of one) is never a standalone action: it vanishes with its
+        // An extension MEMBER whose owning extension this plan DESTROYS (drop
+        // or replace) is never a standalone action: it vanishes with the
         // extension's DROP (`alsoDestroys`) and re-materializes with the
         // CREATE. Promoting it into `replaceIds` emits member DROP/CREATE
         // statements PostgreSQL rejects outright — and, across an extension
         // replace, wedges the action graph (the pg_net member cycle,
-        // guardrail 4). Reached via its `memberOfExtension` edge when the
-        // extension itself is replaced, or via a `depends` edge into any other
-        // destroyed fact. The walk still traverses THROUGH the member: its
+        // guardrail 4). The walk still traverses THROUGH the member: its
         // non-member dependents are real casualties of the replace and must
         // rebuild (an unchanged user function calling a member function).
-        if (source.isReferenceOnly(edge.from)) {
+        // Scoped to members of a destroyed extension — a reference-only fact
+        // kept by a POLICY (an assumed-schema platform object) does not
+        // vanish, so it keeps the pre-existing rebuild path below.
+        const vanishesWithExtension = source
+          .outgoingEdges(dependent.id)
+          .some(
+            (e) =>
+              e.kind === "memberOfExtension" && fullDestroy.has(encodeId(e.to)),
+          );
+        if (vanishesWithExtension) {
           fullDestroy.add(fromKey);
           targets.add(fromKey);
           worklist.push(fromKey);
