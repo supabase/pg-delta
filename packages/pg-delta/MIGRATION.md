@@ -119,8 +119,15 @@ the rebuild initially did not, which regressed `sslmode=require` connections.
   store would accept any valid public-CA cert for any host.
 - **Library consumers building their own pools** get node-postgres' stricter
   behavior unless they opt in: use the exported `parseSslConfig(url, role?)`
-  to derive `{ ssl, cleanedUrl }` and pass both to `new pg.Pool(...)`. Passing
+  to derive `{ ssl, cleanedUrl }` and build the pool as
+  `new pg.Pool({ connectionString: cleanedUrl, ...(ssl !== undefined ? { ssl } : {}) })`
+  — the cleaned URL goes under `connectionString`, and `ssl` is spread only
+  when defined so passthrough URLs keep node-postgres defaults. Passing
   the raw URL through is the one place the old and new engines still differ.
+- `prefer` does not fall back to a plaintext connection when the server
+  refuses TLS (libpq retries without SSL; node-postgres has no per-connection
+  retry, so `prefer` forces TLS exactly like node-postgres' own and
+  pg-connection-string's `uselibpqcompat` handling of that mode).
 - One deliberate deviation from legacy: URLs without a recognized `sslmode`
   pass through untouched (legacy forced `ssl: false`), so node-postgres
   defaults — including `PGSSLMODE` env handling — keep applying.

@@ -886,3 +886,30 @@ not defects reachable on the shipped policy):
   exactly what the exemption must cover. Revisit together with the explicit
   platform-owner designation above if any platform grants users DDL on
   platform-owned relations.
+
+## PR #412 review triage (Codex) — libpq sslmode semantics
+
+Context: PR #412 restores the legacy engine's `sslmode` translation for
+URL-based connections (`parseSslConfig`), fixing `sslmode=require` against
+private-CA servers (CLI-2176). The MIGRATION.md pool-construction example was
+fixed in the PR (round 1). Two findings are **deferred by design**:
+
+- **Deferred — `sslmode=require` does not read `PGDELTA_*_SSLROOTCERT` env
+  content (Codex P1, round 1).** Deliberate legacy parity, asserted by a
+  dedicated unit test ("require does NOT read the env CA"). libpq's upgrade
+  rule ("require behaves as verify-ca") triggers on a root CA *file*; the
+  role-scoped env var is pg-delta's own PEM-content extension and env vars are
+  ambient across invocations. Honoring it under `require` would let a CA set
+  for one server silently enable chain verification against a different
+  server whose URL carries `sslmode=require` (the standard Supabase URL
+  shape), breaking connections that work today. Users who want env-CA
+  verification say so with `sslmode=verify-ca`. Revisit only if consumers ask
+  for an explicit opt-in (e.g. a parse option), not by flipping the default.
+- **Deferred — `sslmode=prefer` does not fall back to plaintext when the
+  server refuses TLS (Codex P2, round 1).** node-postgres has no
+  per-connection retry, so a single pool config cannot express libpq's
+  try-SSL-then-plaintext. node-postgres' native `prefer` handling, upstream
+  pg-connection-string's `uselibpqcompat` mode, and the legacy engine all
+  force TLS identically; a bespoke connect-retry wrapper in `makePool` is
+  disproportionate. Documented as a limitation in the module header and
+  MIGRATION.md. Revisit if node-postgres grows native fallback support.

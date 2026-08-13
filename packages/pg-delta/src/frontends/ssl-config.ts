@@ -18,6 +18,8 @@
  * Mode semantics (matching libpq, https://www.postgresql.org/docs/current/libpq-ssl.html):
  * - `disable`                    → no TLS.
  * - `require`/`prefer`, no CA    → encrypt, no chain or hostname verification.
+ *   (`prefer` never falls back to plaintext when the server refuses TLS —
+ *   node-postgres has no per-connection retry; same limitation as upstream.)
  * - `require`/`prefer` + CA file → behaves like `verify-ca` (libpq compat rule).
  * - `verify-ca` + CA             → verify the chain, skip hostname verification.
  * - `verify-ca`, no CA           → verify chain AND hostname against Node's
