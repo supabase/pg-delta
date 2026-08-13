@@ -969,3 +969,28 @@ not defects reachable on the shipped policy):
   exactly what the exemption must cover. Revisit together with the explicit
   platform-owner designation above if any platform grants users DDL on
   platform-owned relations.
+
+## PR #410 review triage (Codex) — extension-replace member handling
+
+Rounds 1–2 were real defects in the PR's own changes and were fixed in-PR
+with RED-first regressions (member-satellite removal cycle, traverse-through
+for member dependents, member-satellite replay, vanish-gate scoped to
+`memberOfExtension` edges into destroyed extensions). Round 3 re-litigates a
+pre-existing contract corner; loop capped here per the automated-review
+policy.
+
+- **Deferred — renamed dependents escape the forced-rebuild walk (Codex P1,
+  round 3).** With `renames: "auto"`, `expandReplacements`' dependent check
+  (`desired.has(edge.from)`) sees only the dependent's NEW id, so a dependent
+  being renamed in the same plan is never rebuilt around a destroyed
+  dependency — e.g. renaming a table whose column uses an extension-owned
+  type while that extension is replaced yields `ALTER TABLE … RENAME` +
+  `DROP EXTENSION` and PostgreSQL rejects the drop. This gap PREDATES PR
+  #410 and is not extension-specific: the same shape exists for a rename
+  crossing an enum/type replace (the walk has never carried the
+  accepted-rename identity mapping). The clean fix is to thread
+  `acceptedRenames` into `ReplacementExpansionInput` and translate ids during
+  the walk — or to refuse the plan when a renamed dependent would need a
+  rebuild (rename + rebuild of the same object in one plan is currently
+  unexpressible). Disproportionate to the pg_net cycle fix; needs its own
+  RED coverage for the rename × forced-rebuild matrix.
