@@ -49,6 +49,13 @@ export {
   type ReconciledSchemaOptions,
 } from "./schema-plan.ts";
 
+// Schema-first CLI helpers: prune owned stale .sql, dry-run apply SQL, unmodeled-drift probe.
+export { pruneStaleSqlFiles } from "./prune-sql-files.ts";
+export { renderApplyScript } from "./render-apply-script.ts";
+export { probeUnmodeledIdentitiesPinned } from "./schema-plan.ts";
+export type { ApplyTimeoutOptions } from "../apply/apply-preamble.ts";
+export type { UnmodeledIdentities } from "../extract/unmodeled.ts";
+
 export {
   renderPlanFiles,
   isDestructiveAction,
