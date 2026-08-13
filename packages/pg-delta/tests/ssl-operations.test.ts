@@ -83,6 +83,9 @@ describe.skipIf(skipSslSuite)(`SSL operations (${PG_IMAGE})`, () => {
     async () => {
       const managed = makePool(`${baseUri}?sslmode=verify-full`);
       try {
+        // No `await`: bun's typings declare `.rejects.toThrow()` as void
+        // (oxlint await-thenable rejects it) and the runner tracks the
+        // pending assertion itself, failing this test if it resolves.
         expect(managed.pool.query("SELECT 1")).rejects.toThrow(
           /self[- ]signed|certificate/i,
         );

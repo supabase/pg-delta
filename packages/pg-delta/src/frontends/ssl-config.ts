@@ -19,12 +19,22 @@
  * - `disable`                    → no TLS.
  * - `require`/`prefer`, no CA    → encrypt, no chain or hostname verification.
  * - `require`/`prefer` + CA file → behaves like `verify-ca` (libpq compat rule).
- * - `verify-ca`                  → verify the chain, skip hostname verification.
+ * - `verify-ca` + CA             → verify the chain, skip hostname verification.
+ * - `verify-ca`, no CA           → verify chain AND hostname against Node's
+ *   default trust store. Deliberate deviation: libpq errors without a root
+ *   cert, but skipping hostname checks against the public store would accept
+ *   any valid public-CA cert for any host, so we keep full verification.
  * - `verify-full`                → verify chain and hostname.
  * - absent or unrecognized       → passthrough: the URL is returned untouched
  *   and node-postgres' own defaults apply. (The legacy engine forced
  *   `ssl: false` here; passthrough is a deliberate deviation so URLs without
  *   an sslmode keep today's behavior, including pg's PGSSLMODE env handling.)
+ *
+ * Related art: pg-connection-string (bundled with pg ≥ 8.12) ships a similar
+ * translation behind `uselibpqcompat=true`. We keep our own because pg-delta
+ * also honors the PGDELTA_*_SSL* env vars as PEM *content* (upstream only
+ * reads file paths), reports cert-read failures with the offending path, and
+ * deviates on verify-ca-without-CA (upstream throws; we keep verifying).
  *
  * Certificates come from query parameters as file paths (`sslrootcert`,
  * `sslcert`, `sslkey`), or from `PGDELTA_{SOURCE,TARGET}_SSLROOTCERT/SSLCERT/
@@ -43,9 +53,9 @@ export interface SslOptions {
   cert?: string;
   key?: string;
   /**
-   * Custom server identity check. Present when the chain is verified but the
-   * hostname must not be (verify-ca semantics); returning undefined signals
-   * success to Node's TLS layer.
+   * Custom server identity check. Present when the chain is verified against
+   * a caller-supplied CA but the hostname must not be (verify-ca semantics);
+   * returning undefined signals success to Node's TLS layer.
    */
   checkServerIdentity?: () => undefined;
 }
@@ -139,7 +149,11 @@ export function parseSslConfig(
   if (shouldVerifyCa && caValue) {
     ssl.ca = caValue;
   }
-  if (shouldVerifyCa && !shouldVerifyHostname) {
+  // Skip hostname verification only against a caller-supplied CA (libpq's
+  // verify-ca semantics). Without one, the chain is checked against Node's
+  // default public store, where skipping the hostname check would accept any
+  // valid public-CA cert for any host — keep full verification instead.
+  if (shouldVerifyCa && !shouldVerifyHostname && caValue !== undefined) {
     ssl.checkServerIdentity = () => undefined;
   }
 

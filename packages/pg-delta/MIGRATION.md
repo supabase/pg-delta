@@ -110,9 +110,13 @@ the rebuild initially did not, which regressed `sslmode=require` connections.
 - The `pgdelta` CLI and `provisionCoLocatedShadow(targetUrl)` translate
   `sslmode` with libpq semantics again: `require`/`prefer` without a root CA
   encrypt without verification; `require` + `sslrootcert` behaves like
-  `verify-ca`; `verify-ca` verifies the chain but not the hostname;
-  `verify-full` verifies both. `PGDELTA_{SOURCE,TARGET}_SSLROOTCERT/SSLCERT/
-  SSLKEY` env vars are honored as PEM content fallbacks.
+  `verify-ca`; `verify-ca` with a supplied CA verifies the chain but not the
+  hostname; `verify-full` verifies both. `PGDELTA_{SOURCE,TARGET}_SSLROOTCERT/
+  SSLCERT/SSLKEY` env vars are honored as PEM content fallbacks.
+- `verify-ca` **without** any CA deviates from libpq (which errors without a
+  root cert): the chain is verified against Node's default trust store with
+  hostname verification kept ON — skipping hostname checks against the public
+  store would accept any valid public-CA cert for any host.
 - **Library consumers building their own pools** get node-postgres' stricter
   behavior unless they opt in: use the exported `parseSslConfig(url, role?)`
   to derive `{ ssl, cleanedUrl }` and pass both to `new pg.Pool(...)`. Passing
