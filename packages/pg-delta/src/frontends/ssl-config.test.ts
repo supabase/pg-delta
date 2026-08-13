@@ -62,13 +62,13 @@ describe("parseSslConfig", () => {
     expect(ssl).toStrictEqual({ rejectUnauthorized: true });
   });
 
-  test("verify-ca verifies the chain but skips hostname verification", () => {
+  test("verify-ca without a CA keeps hostname verification (Node trust store)", () => {
+    // Skipping hostname checks is only safe against a caller-supplied CA.
+    // With no CA resolved, the chain is verified against Node's default
+    // public store, where "any valid cert for any host" must not pass —
+    // so no checkServerIdentity override.
     const { ssl } = parseSslConfig(`${BASE}?sslmode=verify-ca`);
-    if (ssl === false || ssl === undefined)
-      throw new Error("expected ssl options");
-    expect(ssl.rejectUnauthorized).toBe(true);
-    expect(ssl.checkServerIdentity?.()).toBeUndefined();
-    expect(ssl.checkServerIdentity).toBeDefined();
+    expect(ssl).toStrictEqual({ rejectUnauthorized: true });
   });
 
   describe("with certificate files", () => {
@@ -93,6 +93,18 @@ describe("parseSslConfig", () => {
       expect(ssl.ca).toBe("CA-PEM");
       expect(ssl.checkServerIdentity).toBeDefined();
       expect(new URL(cleanedUrl).searchParams.get("sslrootcert")).toBeNull();
+    });
+
+    test("verify-ca + sslrootcert skips hostname verification (libpq semantics)", () => {
+      const { ssl } = parseSslConfig(
+        `${BASE}?sslmode=verify-ca&sslrootcert=${encodeURIComponent(caPath)}`,
+      );
+      if (ssl === false || ssl === undefined)
+        throw new Error("expected ssl options");
+      expect(ssl.rejectUnauthorized).toBe(true);
+      expect(ssl.ca).toBe("CA-PEM");
+      expect(ssl.checkServerIdentity).toBeDefined();
+      expect(ssl.checkServerIdentity?.()).toBeUndefined();
     });
 
     test("verify-full + sslrootcert keeps hostname verification", () => {
@@ -146,6 +158,10 @@ describe("parseSslConfig", () => {
         rejectUnauthorized: true,
         ca: "TARGET-CA",
       });
+      // An env-resolved CA counts as a supplied CA: hostname checks skip.
+      if (target.ssl === false || target.ssl === undefined)
+        throw new Error("expected ssl options");
+      expect(target.ssl.checkServerIdentity).toBeDefined();
     });
 
     test("require does NOT read the env CA (libpq: only an explicit root CA file upgrades require)", () => {
