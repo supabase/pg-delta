@@ -200,7 +200,17 @@ jobs:
       fail-fast: false
       matrix:
         postgres_version: ["14", "15", "16", "17", "18"]
-        shard: ["0/4", "1/4", "2/4", "3/4"]
+        shard:
+          - "0/10"
+          - "1/10"
+          - "2/10"
+          - "3/10"
+          - "4/10"
+          - "5/10"
+          - "6/10"
+          - "7/10"
+          - "8/10"
+          - "9/10"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -211,6 +221,12 @@ jobs:
         env:
           PGDELTA_TEST_IMAGE: postgres:${{ matrix.postgres_version }}-alpine
           PGDELTA_NEXT_SHARD: ${{ matrix.shard }}
+          # Public-repo standard runners have 4 vCPUs; engine.test.ts caps the
+          # pool to the core count anyway. With concurrency > 1 bun's per-case
+          # reporting collapses into one aggregate test, so PGDELTA_NEXT_PROGRESS
+          # keeps a per-case PASS/FAIL line in the job log.
+          PGDELTA_NEXT_CONCURRENCY: "4"
+          PGDELTA_NEXT_PROGRESS: "1"
         run: bun test tests/engine.test.ts
 
   pg-delta-integration:
@@ -219,13 +235,14 @@ jobs:
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
       (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
-    name: "pg-delta: Integration (PG ${{ matrix.postgres_version }})"
+    name: "pg-delta: Integration (PG ${{ matrix.postgres_version }}, group ${{ matrix.group }})"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         postgres_version: ["14", "15", "16", "17", "18"]
+        group: ["0", "1", "2", "3"]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -235,10 +252,32 @@ jobs:
         working-directory: packages/pg-delta
         env:
           PGDELTA_TEST_IMAGE: postgres:${{ matrix.postgres_version }}-alpine
+          GROUP: ${{ matrix.group }}
         run: |
           # The corpus proof loop (engine.test.ts) runs in its own sharded job.
-          find tests -maxdepth 1 -name '*.test.ts' ! -name 'engine.test.ts' \
-            | sort | xargs bun test
+          # The remaining files are split across 4 groups so no single job
+          # serializes ~5 minutes of tests. The few files that dominate wall
+          # time get pinned groups (0 and 1) — a blind round-robin can put two
+          # of them in the same group and recreate the bottleneck. Everything
+          # else (including any newly added test file) round-robins into
+          # groups 2/3. Pinned files are selected via `grep -xF` against the
+          # discovered list, so a renamed/deleted pin drops out gracefully
+          # instead of failing `bun test` with a missing path.
+          HEAVY_0=$(printf '%s\n' tests/fixture-validity.test.ts tests/security-label-proof.test.ts)
+          HEAVY_1=$(printf '%s\n' tests/cli.test.ts tests/extension-intent-cron-privileges.test.ts tests/generative.test.ts)
+          ALL=$(find tests -maxdepth 1 -name '*.test.ts' ! -name 'engine.test.ts' | sort)
+          REST=$(printf '%s\n' "$ALL" | grep -vxF "$HEAVY_0" | grep -vxF "$HEAVY_1")
+          case "$GROUP" in
+            0) FILES=$(printf '%s\n' "$ALL" | grep -xF "$HEAVY_0") ;;
+            1) FILES=$(printf '%s\n' "$ALL" | grep -xF "$HEAVY_1") ;;
+            2) FILES=$(printf '%s\n' "$REST" | awk 'NR % 2 == 0') ;;
+            3) FILES=$(printf '%s\n' "$REST" | awk 'NR % 2 == 1') ;;
+          esac
+          if [ -z "$FILES" ]; then
+            echo "No test files in group $GROUP (pinned files renamed?); nothing to run."
+            exit 0
+          fi
+          printf '%s\n' "$FILES" | xargs bun test
 
   # Stable status-check names for branch protection. The integration/corpus
   # matrices produce per-version/per-shard job names that are unstable to

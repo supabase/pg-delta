@@ -199,15 +199,15 @@ The `Lint Pull Request` CI check (see `.github/workflows/lint-pull-request.yml`)
 - GitHub Actions with `dorny/paths-filter` detects which packages changed (`.github/actions/detect-changes`). Only affected packages are tested.
 - pg-delta test jobs in `.github/workflows/tests.yml`:
   - `pg-delta-unit` — `bun test src/`.
-  - `pg-delta-corpus` — the proof loop (`tests/engine.test.ts`), matrix of **PG 14–18 × 4 shards** (`PGDELTA_TEST_IMAGE` + `PGDELTA_NEXT_SHARD`).
-  - `pg-delta-integration` — everything except the corpus loop, matrix of **PG 14–18**.
+  - `pg-delta-corpus` — the proof loop (`tests/engine.test.ts`), matrix of **PG 14–18 × 10 shards** (`PGDELTA_TEST_IMAGE` + `PGDELTA_NEXT_SHARD`), each shard running scenarios with in-job concurrency (`PGDELTA_NEXT_CONCURRENCY=4`, matched to the 4-vCPU public-repo runners).
+  - `pg-delta-integration` — everything except the corpus loop, matrix of **PG 14–18 × 4 file groups**. The wall-time-dominating files are pinned to groups 0/1 in the workflow's split script; all other files (including new ones) round-robin into groups 2/3. If a test file grows to dominate its group (check the job timings), move it to a pinned group.
   - `pg-delta-integration-pg15-compat` / `pg-delta-integration-pg17-compat` — stable status-check names (for branch protection) that aggregate the corpus + integration matrices.
 - `check-types` and `format-and-lint` build `@supabase/pg-topo` first, because pg-delta type-checks its optional peer through pg-topo's gitignored `dist/*.d.ts`.
 - Changesets automate releases on merge to main; `release-preview` publishes a `pkg-pr-new` preview of both packages.
 
 When changing shard count or PG versions, update all of these locations:
 
-- `.github/workflows/tests.yml` — the `postgres_version` list and `shard` list in `pg-delta-corpus`, and the `postgres_version` list in `pg-delta-integration`.
+- `.github/workflows/tests.yml` — the `postgres_version` list and `shard` list in `pg-delta-corpus`, and the `postgres_version` + `group` lists in `pg-delta-integration`.
 - This file (`AGENTS.md` / `CLAUDE.md`) — both the CI section and the Testing Discipline section.
 
 ### Coverage
