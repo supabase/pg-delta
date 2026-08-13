@@ -8,7 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { apply } from "../src/apply/apply.ts";
 import { extract } from "../src/extract/extract.ts";
 import { normalizeRoleIdentities } from "../src/plan/identity-normalize.ts";
-import { plan } from "../src/plan/plan.ts";
+import { computePlanId, plan } from "../src/plan/plan.ts";
 import type { Policy } from "../src/policy/policy.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import {
@@ -442,6 +442,7 @@ describe("stage 9: renames", () => {
         dataLoss: "none",
         rewriteRisk: false,
       });
+      thePlan.planId = computePlanId(thePlan); // re-stamp the lie past apply's planId gate
       const verdict = await provePlan(thePlan, dbs.source.pool, d.factBase);
       // row count dropped 5 → 0 under the NEW name — a data violation
       expect(verdict.dataViolations).toEqual([
