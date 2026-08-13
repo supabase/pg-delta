@@ -105,7 +105,7 @@ export interface Plan {
   formatVersion: 1;
   engineVersion: string;
   /** SHA-256 content hash over the plan-bound approval ingredients
-   *  (formatVersion, engineVersion, source/target fingerprints,
+   *  (formatVersion, engineVersion, source/target fingerprints, preamble,
    *  acceptedRenames, the ordered action list, profile/scope/policy).
    *  Required; a missing or mismatching artifact must be re-planned. */
   planId: string;

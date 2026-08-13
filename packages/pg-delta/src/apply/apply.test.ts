@@ -192,7 +192,7 @@ function planWithPreamble(
   transactionality: Action["transactionality"],
   preamble: Plan["preamble"],
 ): Plan {
-  return { ...planWithAction(transactionality), preamble };
+  return stampPlanId({ ...planWithAction(transactionality), preamble });
 }
 
 function segmentOutcomes(events: ApplyEvent[]): string[] {

@@ -686,6 +686,22 @@ describe("plan artifact v1", () => {
     expect(() => parsePlan(json)).toThrow(/re-plan/);
   });
 
+  test("parsePlan refuses a tampered preamble (planId mismatch)", () => {
+    // the preamble is executed per segment by apply, so an edited artifact
+    // that changes it must not verify against the original digest
+    const artifact = JSON.parse(serializePlan(samplePlan)) as Record<
+      string,
+      unknown
+    >;
+    (artifact["preamble"] as Array<Record<string, unknown>>).push({
+      name: "check_function_bodies",
+      value: "off",
+    });
+    const json = JSON.stringify(artifact);
+    expect(() => parsePlan(json)).toThrow(/planId/);
+    expect(() => parsePlan(json)).toThrow(/re-plan/);
+  });
+
   test("stampPlanId is stable for the same ingredients and moves with source fingerprint", () => {
     const again = stampPlanId({ ...samplePlan });
     expect(again.planId).toBe(samplePlan.planId);

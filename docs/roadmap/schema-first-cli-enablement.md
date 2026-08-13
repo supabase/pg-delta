@@ -60,8 +60,9 @@ flattened to rendered SQL:
 ## WP1 — **this change** Stable plan identifier
 
 `Plan.planId` is a required SHA-256 content hash over `formatVersion`,
-`engineVersion`, source/target fingerprints, `acceptedRenames`, the ordered
-action list, and `profile`/`scope`/`policy`. `plan()` stamps it via
+`engineVersion`, source/target fingerprints, the `preamble` (executed per
+segment by apply — run content, like the action list), `acceptedRenames`,
+the ordered action list, and `profile`/`scope`/`policy`. `plan()` stamps it via
 `stampPlanId`; `parsePlan` and `apply()` refuse a missing or mismatching
 digest (`re-plan` — never silently upgrade). Version fail-closed for
 `formatVersion`/`engineVersion` was already in place. Stale artifacts

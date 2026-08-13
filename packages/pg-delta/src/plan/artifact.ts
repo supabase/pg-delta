@@ -257,6 +257,8 @@ function reviver(_key: string, value: unknown): unknown {
  * includes `planId` itself. `undefined` profile/scope/policy (direct
  * library / cluster-default) are omitted by canonicalize, not replaced
  * with invented strings. Absent `acceptedRenames` hashes as `[]`.
+ * The preamble is hashed because apply executes it per segment — it is
+ * run content, exactly like the action list, not reporting metadata.
  */
 export function computePlanId(plan: Omit<Plan, "planId">): string {
   const payload: Payload = {
@@ -264,6 +266,10 @@ export function computePlanId(plan: Omit<Plan, "planId">): string {
     engineVersion: plan.engineVersion,
     source: { fingerprint: plan.source.fingerprint },
     target: { fingerprint: plan.target.fingerprint },
+    preamble: plan.preamble.map((entry) => ({
+      name: entry.name,
+      value: entry.value,
+    })),
     acceptedRenames: plan.acceptedRenames ?? [],
     actions: plan.actions.map((action) => ({
       sql: action.sql,
@@ -288,6 +294,21 @@ export function computePlanId(plan: Omit<Plan, "planId">): string {
 /** Attach a freshly computed `planId`. Does not include the digest in its own hash. */
 export function stampPlanId(plan: Omit<Plan, "planId">): Plan {
   return { ...plan, planId: computePlanId(plan) };
+}
+
+/**
+ * Refuse a missing, malformed, or mismatching `planId`. Shared by
+ * `parsePlan` (artifact path) and `apply` (programmatic path — catches a
+ * plan mutated after `plan()` stamped it). `context` prefixes the error
+ * ("plan artifact" / "apply") so the two sites cannot drift.
+ */
+export function assertPlanId(thePlan: Plan, context: string): void {
+  if (typeof thePlan.planId !== "string" || !SHA256.test(thePlan.planId)) {
+    throw new Error(`${context}: missing or invalid planId — re-plan`);
+  }
+  if (thePlan.planId !== computePlanId(thePlan)) {
+    throw new Error(`${context}: planId does not match contents — re-plan`);
+  }
 }
 
 export function serializePlan(thePlan: Plan): string {
@@ -368,6 +389,15 @@ export function parsePlan(json: string): Plan {
   }
   exactKeys(artifact.target, ["fingerprint"], [], "target");
   sha256Field(artifact.target, "fingerprint", "target");
+  // the preamble is executed per segment by apply and joins the planId hash,
+  // so its shape must be pinned before computePlanId dereferences it
+  if (!Array.isArray(artifact.preamble)) fail("preamble", "an array");
+  artifact.preamble.forEach((entry, index) => {
+    if (!record(entry)) fail(`preamble[${index}]`, "an object");
+    exactKeys(entry, ["name", "value"], [], `preamble[${index}]`);
+    stringField(entry, "name", `preamble[${index}]`);
+    stringField(entry, "value", `preamble[${index}]`);
+  });
   if (artifact.projectionAudit !== undefined) {
     try {
       artifact.projectionAudit = normalizeProjectionAudit(
@@ -379,12 +409,6 @@ export function parsePlan(json: string): Plan {
       );
     }
   }
-  if (typeof artifact.planId !== "string" || !SHA256.test(artifact.planId)) {
-    throw new Error("plan artifact: missing or invalid planId — re-plan");
-  }
-  const computed = computePlanId(artifact as Omit<Plan, "planId">);
-  if (artifact.planId !== computed) {
-    throw new Error("plan artifact: planId does not match contents — re-plan");
-  }
+  assertPlanId(artifact as Plan, "plan artifact");
   return artifact as Plan;
 }
