@@ -1,0 +1,5 @@
+---
+"@supabase/pg-delta": patch
+---
+
+fix: the action-graph missing-requirement guard no longer rejects a plan whose action consumes a role that is absent from the managed view but witnessed by the source side (Sentry SUPABASE-API-8CX, pattern B). The `database` scope projects every `role` fact out of both views, and only roles referenced via `owner` edges (or a caller-supplied `assumedRoles` list) were exempted — so a database-scoped DB↔DB diff tearing down a grant to a role that owns nothing threw `missing requirement: … consumes role:<name>` even though the role provably exists on the apply target. plan() now treats any role referenced by a fact kept in the SOURCE view — an ACL grantee, a default-privilege FOR-role/grantee, a membership endpoint, a user-mapping role, an RLS policy TO-role — as present at apply time: the source view is the target's own extract, and PostgreSQL cannot record such a fact for a nonexistent role. Desired-side references with no source witness still fail loudly at plan time.

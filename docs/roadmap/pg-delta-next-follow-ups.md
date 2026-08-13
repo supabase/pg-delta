@@ -831,6 +831,89 @@ oversized key past its advertised total-length budget. One further finding is
   exactly this divergence, so the failure is pre-announced. Revisit if a real
   profile hits it.
 
+## PR #403 review triage — the reserved `_custom/` folder
+
+Round-1 findings were fixed in the PR (migration references must resolve to a
+FILE, the pruner skips `_custom/` during traversal instead of after the walk and
+no longer swallows FS errors, `COMMENT` left the modeled-kind allowlist,
+`unmodeled_drift` diffs fully qualified identities, the `unmodeled_kind`
+remediation is per kind, and `listCustomFiles` propagates non-ENOENT failures).
+One finding is **deferred, won't-fix in #403**:
+
+- **Foreign tables (and `SECURITY LABEL`) cannot be flagged by
+  `custom_modeled_kind`.** pg-topo has no statement class for either — both
+  classify as `UNKNOWN` (verified against the current classifier), and
+  `_custom/` deliberately suppresses the `UNKNOWN_STATEMENT_CLASS` lint, so a
+  `CREATE FOREIGN TABLE` parked in the reserved folder is hidden entirely even
+  though pg-delta models foreign tables and will regenerate one into the managed
+  tree. The correct fix is adding `CreateForeignTableStmt` / `SecurityLabelStmt`
+  classes to pg-topo's classifier (`packages/pg-topo/src/classify/`) and listing
+  them in `MODELED_STATEMENT_CLASSES`
+  (`packages/pg-delta/src/frontends/custom-lint.ts`) — a cross-package change,
+  out of scope for #403. Deferred rather than dropped because the failure mode
+  today is LOUD, not silent: the duplicate `CREATE` makes the next
+  export-then-apply fail to converge on the shadow load
+  (`max_rounds_exceeded`), which is exactly the hazard the lint rule
+  pre-announces rather than the hazard it prevents.
+
+  Third instance of the same classifier-coverage gap (round-3 review
+  finding): pg-topo has no class for `DropStmt` either, so a modeled DROP
+  (`DROP TABLE …`, `DROP VIEW …`, etc.) parked in `_custom/` also classifies
+  `UNKNOWN` and is hidden by the same `UNKNOWN_STATEMENT_CLASS` suppression
+  — `custom_modeled_kind` cannot flag it because it never sees a
+  drop-target class to compare against `MODELED_STATEMENT_CLASSES`. The
+  hazard shape differs slightly from the create case: a create-then-drop of
+  the same object in the shadow (the `_custom/` file creates it, the
+  managed tree no longer does) makes the plan schedule dropping the LIVE
+  object, not just fail to converge — though this is additionally gated by
+  `--allow-data-loss` at apply time, so not silent either. Same correct fix:
+  add drop-target statement classes to pg-topo's classifier
+  (`packages/pg-topo/src/classify/`) and list them alongside the
+  create-target classes in `MODELED_STATEMENT_CLASSES`
+  (`packages/pg-delta/src/frontends/custom-lint.ts`). Bundling this with the
+  foreign-table / `SECURITY LABEL` fix above is the efficient path, since
+  all three land in the same two files.
+
+- **The scratch-loader cluster-DDL preflight does not catch
+  `GRANT … ON PARAMETER` (pre-existing).** Discovered while verifying the
+  round-1 P1: the preflight's GRANT pattern
+  (`src/frontends/load-sql-files.ts:415`,
+  `/^\s*grant\b(?![\s\S]*\bon\b)/i`) deliberately exempts privilege grants,
+  so `GRANT SET ON PARAMETER … TO …` loads into a co-located
+  (`databaseScratch`) shadow and writes to `pg_parameter_acl` — a SHARED
+  cluster catalog — while the scratch guard snapshots/restores only
+  `pg_roles`/`pg_auth_members`. A plan/dry-run can therefore leave a
+  parameter ACL behind on the live cluster. #403 removed the advice that
+  steered users toward this (the `unmodeled_kind` remediation is now
+  per-kind and never points cluster-shared kinds at `_custom/`), but the
+  loader gap predates the PR and applies to any `.sql` in the tree.
+  Follow-up: extend the preflight to refuse parameter-ACL grants (and audit
+  for other shared-catalog writers, e.g. `ALTER ROLE … SET` is already
+  covered?) in `databaseScratch` mode, or widen the snapshot/restore to
+  `pg_parameter_acl`.
+
+Round-4 findings (loop capped here per the automated-review policy — both are
+re-litigations of already-resolved threads one corner deeper, under
+user-constructed pathological setups):
+
+- **Deferred — drift identity serialization is not injective for dotted
+  quoted identifiers (Codex P2, round 4).** `probeUnmodeledIdentities`
+  renders type/name components with plain `%s`-style joins, so `"a.b".c`
+  and `a."b.c"` flatten identically and a pathological same-rendering pair
+  across shadow/target can mask an `unmodeled_drift` warning. Accepted:
+  the diagnostic is best-effort observability — a masked warning still
+  fails loudly when the generated migration runs — and the setup requires
+  dots inside quoted identifiers colliding across two databases. Fix if
+  ever needed: quote each component (`quote_ident`/`%I`) in the identity
+  projections (`src/extract/unmodeled.ts`).
+- **Deferred — dangling `_custom/README.md` symlink bypasses the scaffold
+  containment (Codex P2, round 4).** Round 3 fixed the symlinked `_custom`
+  root; a dangling symlink at the leaf README path still lets
+  `writeFileSync` create the file outside `outRoot` (`existsSync` is false
+  for dangling links). One-line fix when next touched: create with the
+  exclusive `wx` flag (O_CREAT|O_EXCL does not follow symlinks) in
+  `scaffoldCustomReadme` (`src/frontends/custom-dir.ts`) and treat EEXIST
+  as skip.
 
 ## PR #407 review triage (Codex) — platform-provisioned assumed-schema members
 
@@ -913,3 +996,28 @@ fixed in the PR (round 1). Two findings are **deferred by design**:
   force TLS identically; a bespoke connect-retry wrapper in `makePool` is
   disproportionate. Documented as a limitation in the module header and
   MIGRATION.md. Revisit if node-postgres grows native fallback support.
+
+## PR #410 review triage (Codex) — extension-replace member handling
+
+Rounds 1–2 were real defects in the PR's own changes and were fixed in-PR
+with RED-first regressions (member-satellite removal cycle, traverse-through
+for member dependents, member-satellite replay, vanish-gate scoped to
+`memberOfExtension` edges into destroyed extensions). Round 3 re-litigates a
+pre-existing contract corner; loop capped here per the automated-review
+policy.
+
+- **Deferred — renamed dependents escape the forced-rebuild walk (Codex P1,
+  round 3).** With `renames: "auto"`, `expandReplacements`' dependent check
+  (`desired.has(edge.from)`) sees only the dependent's NEW id, so a dependent
+  being renamed in the same plan is never rebuilt around a destroyed
+  dependency — e.g. renaming a table whose column uses an extension-owned
+  type while that extension is replaced yields `ALTER TABLE … RENAME` +
+  `DROP EXTENSION` and PostgreSQL rejects the drop. This gap PREDATES PR
+  #410 and is not extension-specific: the same shape exists for a rename
+  crossing an enum/type replace (the walk has never carried the
+  accepted-rename identity mapping). The clean fix is to thread
+  `acceptedRenames` into `ReplacementExpansionInput` and translate ids during
+  the walk — or to refuse the plan when a renamed dependent would need a
+  rebuild (rename + rebuild of the same object in one plan is currently
+  unexpressible). Disproportionate to the pg_net cycle fix; needs its own
+  RED coverage for the rename × forced-rebuild matrix.

@@ -1,5 +1,156 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.37
+
+### Patch Changes
+
+- a204214: Fix the planner dependency cycle when a non-relocatable extension is replaced
+  (e.g. pg_net installed in different schemas on the two sides). The forced
+  dependent rebuild no longer promotes reference-only extension members into
+  standalone DROP/CREATE actions, and actions that consume an extension member
+  now order against exactly one side of the replace (teardown before the DROP,
+  build-up after the re-CREATE) instead of impossibly against both.
+
+## 1.0.0-alpha.36
+
+### Minor Changes
+
+- 113414e: `pgdelta schema export` now reports a per-file change summary — the final
+  `Exported N file(s) ...` line includes how many files were created, updated,
+  and unchanged (stale removals were already reported). Byte-identical files —
+  including the `.pgdelta-export.json` manifest — are no longer rewritten, so
+  mtimes across the output directory stay stable for build tools watching it.
+  `writeExportFiles` returns the classification as `created` /
+  `updated` / `unchanged` alongside the existing `removed` / `unmanaged` lists.
+
+## 1.0.0-alpha.35
+
+### Minor Changes
+
+- d0be5d5: feat: opt-in bounded-parallel extraction via `ExtractOptions.concurrency`.
+
+  `extract(pool, { concurrency: 4 })` now exports the coordinator's snapshot with
+  `pg_export_snapshot()` and fans the catalog families out over that many
+  connections from the same pool, all importing that snapshot — so the capture is
+  still one consistent moment in database time. It exists for high-latency links,
+  where serial extraction is dominated by its sequential catalog round trips rather
+  than by work (see the batched-catalog changeset for the current count).
+
+  The output is byte-identical to a serial extraction — same facts, same edge
+  order, same diagnostics order, same fact-base fingerprint — because per-family
+  results are slotted by family index and merged in the fixed call order, never in
+  completion order. Default (`1` / unset) keeps the serial, single-connection
+  capture.
+
+  Requesting more streams than the pool's `max` clamps to it (the coordinator holds
+  a client for the whole extraction, so over-requesting would deadlock on
+  `connect()`), with a hard cap of 8. If the snapshot cannot be shared — a standby,
+  a pooler that blocks `SET TRANSACTION SNAPSHOT`, a `max: 1` pool — extraction
+  degrades silently to serial with no extra diagnostic.
+
+- a86caa8: `schema export` now reserves a `_custom/` directory at the root of the export
+  tree: it is never written into, never pruned (not even with
+  `--prune-unmanaged`), never counted as an unmanaged file (so a re-export no
+  longer refuses on it), and never recorded in `.pgdelta-export.json`. It is the
+  durable home for SQL pg-delta detects but does not model (casts, operators,
+  text-search objects, … reported as `unmodeled_kind`) and for idempotent DML —
+  `schema apply` already loads it into the shadow, so a modeled object depending
+  on an unmodeled prerequisite (an index over a custom text search configuration,
+  say) elaborates again. Its files are never executed against the target; deliver
+  them through your normal migration channel, optionally recorded per file with a
+  head-of-file `-- pgdelta-migration: <path>` (or `none`) comment. On export a
+  `_custom/README.md` documenting the contract is scaffolded once, `schema lint`
+  gains four warnings (`custom_missing_migration_ref`,
+  `custom_dangling_migration_ref`, `custom_conflicting_migration_ref`,
+  `custom_modeled_kind`), and the `unmodeled_kind` diagnostic now points at the
+  folder.
+- a86caa8: Planning now pre-flights the gap the reserved `_custom/` folder creates. Raw SQL
+  — managed and custom alike — executes only in the disposable shadow, so the
+  shadow can hold unmodeled objects (casts, operators, text-search objects, …) the
+  target has never received; because unmodeled kinds produce no facts, the diff is
+  blind to them and no planned statement can create them, yet a generated statement
+  depending on one fails on the target. `planSchemaFiles` (and hence `schema apply`,
+  including `--dry-run`) now probes both catalogs and emits one `unmodeled_drift`
+  warning per kind the shadow has and the target lacks, listing the missing
+  identities — printed under the `[drift]` label, carried on the new
+  `PlanSchemaFilesResult.driftDiagnostics`, and blocking under
+  `--strict-coverage`. It is catalog-sourced only: nothing parses SQL, and the
+  reverse direction (target extras) is deliberately not reported.
+
+  Two frontend seams ship alongside it, for tools that own the migration channel
+  and can automate delivery instead of asking the user to. The new
+  `listCustomFiles(root)` returns every `_custom/**/*.sql` with its body and its
+  parsed `-- pgdelta-migration:` directives plus a `delivered` flag (a recorded
+  migration, or an explicit `none`), so a frontend can fold the undelivered files
+  into the catch-up migration it already generates and stamp the directive back —
+  run-once semantics come from its own migration ledger, and pg-delta still
+  executes nothing against a target. And `schema lint` gains
+  `--custom-migration-refs warn|off` (default `warn`), where `off` silences
+  `custom_missing_migration_ref` alone for exactly those frontends; the dangling and
+  conflicting rules are never suppressible, because a recorded-but-wrong reference
+  is a bug whoever wrote it.
+
+### Patch Changes
+
+- d0be5d5: perf: batch the cheap catalog families into a few multi-statement round trips —
+  a full extraction now costs 23 round trips instead of 38.
+
+  Extraction issued one round trip per catalog family, and most of those families
+  (roles, schemas, tables, sequences, views, domains, types, collations, event
+  triggers, rules, publications, inheritance edges) are cheap enough that their
+  entire cost is network latency. Their statements now travel as three
+  multi-statement batches, while the measured server/transfer-heavy families
+  (columns, constraints, indexes, routines, aggregates, triggers, policies) and the
+  pg_depend resolver keep a round trip each — both so the parallel scheduler can
+  spread the expensive work and so a `statement_timeout` still names the exact query
+  that blew the budget. On a remote database at ~85ms RTT that is roughly 1.3s per
+  serial extraction, and a diff extracts twice; at concurrency 5 the longest stream
+  drops from 12 round trips to 8.
+
+  Extraction output is unchanged, and provably so: no query text changed (only where
+  it is sent), every family still gets its own collector, and the collectors are
+  merged in the same fixed family order as before — so facts, edges, diagnostics
+  order and the fact-base fingerprint are byte-identical for both the serial and the
+  bounded-parallel path. `statement_timeout` remains per-statement inside a
+  multi-statement batch, so the budget is not weakened. The serial path is now
+  literally the one-stream case of the parallel plan rather than a second
+  implementation.
+
+  Three families are deliberately left unbatched — foreign-data objects,
+  subscriptions and security labels each branch on the result of their own
+  permission/existence probe, so their statement list is not knowable up front.
+
+- d0be5d5: perf: batch the extraction session preamble into 2 round trips instead of 4-5.
+
+  Every extraction — not just the opt-in parallel one — used to spend a separate
+  round trip on each of `BEGIN`, `SET LOCAL search_path`, the optional
+  `SET LOCAL statement_timeout`, the server-version probe, and the JIT-disable
+  before touching a single catalog. These now travel as one multi-statement batch
+  (plus a second round trip for JIT-off, whose form depends on the major version
+  that same batch discovers), so the fixed cost before extraction starts drops from
+  4-5 RTT to 2. On a remote database at ~85ms RTT that is roughly a quarter of a
+  second per extraction, and a diff extracts twice.
+
+  Session state after setup is unchanged and asserted to be identical
+  (`search_path`, `statement_timeout`, `jit`, isolation level, read-only).
+
+- 1fa625a: fix: the action-graph missing-requirement guard no longer rejects a plan whose action consumes a role that is absent from the managed view but witnessed by the source side (Sentry SUPABASE-API-8CX, pattern B). The `database` scope projects every `role` fact out of both views, and only roles referenced via `owner` edges (or a caller-supplied `assumedRoles` list) were exempted — so a database-scoped DB↔DB diff tearing down a grant to a role that owns nothing threw `missing requirement: … consumes role:<name>` even though the role provably exists on the apply target. plan() now treats any role referenced by a fact kept in the SOURCE view — an ACL grantee, a default-privilege FOR-role/grantee, a membership endpoint, a user-mapping role, an RLS policy TO-role — as present at apply time: the source view is the target's own extract, and PostgreSQL cannot record such a fact for a nonexistent role. Desired-side references with no source witness still fail loudly at plan time.
+- a2ac70d: Speed up `plan()` on large catalogs. Six behavior-preserving changes to the
+  planner's hot loops — the compiled-glob cache in policy matching, a per-object
+  memo for stable-id encoding, an objtype index for the default-ACL elision's
+  `ALTER DEFAULT PRIVILEGES` gate, memoized tie keys in the topological sort,
+  skipping the rename discovery diff when `renames` is `"off"` (the default), and
+  building the managed view's projection in a single `buildFactBase` pass.
+
+  Measured on a 21.9k-fact catalog (p50 of 10 timed reps, back-to-back on one
+  machine): a tiny-delta plan drops from ~604ms to ~294ms under the Supabase
+  profile and from ~248ms to ~183ms under the raw profile, and a from-empty plan of
+  the whole catalog from ~2.46s to ~486ms. The rendered plan SQL is byte-identical
+  (sha256) and action counts are unchanged in every cell.
+
+- a86caa8: `pgdelta schema lint` no longer emits `UNKNOWN_STATEMENT_CLASS` for statements inside the reserved `_custom/` directory, since that folder is the documented home for SQL pg-delta does not model (casts, operators, text-search objects, ...); the warning still fires everywhere else, and `custom_modeled_kind` still catches modeled DDL mistakenly parked in `_custom/`.
+- d050eca: Fix the planner's missing-requirement guard rejecting DB-webhook triggers (`CREATE TRIGGER … EXECUTE FUNCTION supabase_functions.http_request(...)`) when the target database has never had the webhooks infrastructure provisioned. A platform-provisioned member of an assumed schema — an object owned by a policy-declared assumed role other than the default owner, such as `supabase_functions.http_request()` (owned by `supabase_functions_admin`) — is now treated as present at apply time by the same platform guarantee that makes its schema assumed. User-created objects in assumed schemas (owned by the default owner or a user role) still fail fast at plan time when the target lacks them.
+
 ## 1.0.0-alpha.34
 
 ### Major Changes

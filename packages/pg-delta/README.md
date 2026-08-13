@@ -113,7 +113,60 @@ Object kinds the engine doesn't model — casts, operators, text-search
 configuration, statistics objects, languages, transforms — are **detected and
 reported** as `unmodeled_kind` diagnostics, never silently dropped.
 See [COVERAGE.md](./COVERAGE.md) for the authoritative map and the deliberate
-exclusions.
+exclusions, and `_custom/` below for where that SQL lives.
+
+## `_custom/` — the escape hatch inside an export
+
+`schema export` owns its output directory: it prunes what a previous export
+owned and refuses when it finds a `.sql` it does not own. The one exception is
+`_custom/`, a reserved directory at the root of the tree:
+
+```text
+schema/
+  _custom/           ← yours; never written to, never pruned, never refused on
+    README.md        ← scaffolded on export, documents this contract
+    text-search.sql
+  schemas/…          ← regenerated on every export
+  .pgdelta-export.json
+```
+
+Put there the SQL pg-delta detects but doesn't model (the `unmodeled_kind`
+kinds) plus idempotent DML — and keep modeled DDL out (`schema lint` warns).
+
+- **Loaded into the shadow, not the target.** `schema apply` loads
+  `_custom/**/*.sql` into the shadow, so modeled objects that depend on
+  unmodeled ones (an index over a custom text search configuration, say)
+  elaborate correctly. It is never executed against the target: unmodeled
+  objects produce no facts, so they cannot enter a plan. Deliver the same change
+  through your normal migration channel.
+- **Record the twin migration** as a head-of-file comment —
+  `-- pgdelta-migration: ../../supabase/migrations/20260811_add_cast.sql`, or
+  `-- pgdelta-migration: none` for a file that deliberately has no twin.
+  `schema lint` reports missing, dangling and conflicting references, and
+  modeled DDL parked in the folder, as warnings.
+
+Because the folder feeds only the shadow, planning **pre-flights the gap it
+creates**: an `unmodeled_drift` warning (printed under the `[drift]` label) names
+every unmodeled object the shadow has and the target lacks — `3 unmodeled "cast"
+objects exist in the desired state (shadow) but NOT on the target (…)`. No
+planned statement can create one (unmodeled kinds produce no facts), so a
+statement that depends on one fails on the target; deliver it through your
+migration channel first. It is catalog-sourced (no SQL parsing), non-blocking by
+default, and blocking under `--strict-coverage`.
+
+Frontends that own the migration channel can automate delivery instead of asking
+the user to. `listCustomFiles(root)` returns every `_custom/**/*.sql` with its
+body and parsed directives, plus a `delivered` flag (a recorded migration, or an
+explicit `none`); a frontend appends the undelivered ones to the catch-up
+migration it already generates and stamps the directive back, taking run-once
+semantics from its own migration ledger. pg-delta still executes nothing.
+
+Under such a frontend the user never maintains the directive by hand, so
+`schema lint --custom-migration-refs off` silences `custom_missing_migration_ref`
+alone — the dangling and conflicting rules always fire, because a recorded-but-
+wrong reference is a bug whoever wrote it.
+
+Full contract: [custom-folder.md](https://github.com/supabase/pg-toolbelt/blob/main/docs/architecture/custom-folder.md).
 
 ## Integration profiles
 

@@ -19,12 +19,34 @@
  *     the formatter (frontends/sql-format), e.g. '{"keywordCase":"upper","maxWidth":180}'.
  *     Off by default (raw renderer output). Cosmetic — load(export) ≡ db still holds.
  *
+ *   The export OWNS its directory (`.pgdelta-export.json` records the files it
+ *   wrote): a re-export prunes what the previous one owned and REFUSES when it
+ *   finds a `.sql` it does not own (--prune-unmanaged deletes those instead).
+ *   The one exception is the reserved root-level `_custom/` directory
+ *   (frontends/custom-dir.ts): never written into (a collision is a hard error),
+ *   never pruned — not even with --prune-unmanaged — never reported unmanaged,
+ *   never recorded in the manifest. Its `README.md` is scaffolded once. That is
+ *   where SQL the engine detects but does not model (`unmodeled_kind`: casts,
+ *   operators, text-search objects, …) and idempotent DML live, so re-exports
+ *   preserve them and the shadow can elaborate modeled dependents.
+ *
  * schema apply --dir <dir> [--shadow <pg-url>] --target <pg-url>
  *              [--renames auto|prompt|off] [--force]
  *              [--accept-rename <from>=<to>] (repeatable) [--no-reorder]
  *              [--dry-run] [--verbose] [--out-plan <plan.json>]
  *   Read .sql files recursively (lexicographic), load into shadow, extract
  *   target, plan, apply.  Maps to old `declarative-apply` / `sync`.
+ *
+ *   The recursive read includes `_custom/**\/*.sql`, which is how that folder
+ *   feeds the SHADOW. Nothing in it is ever executed against the target: it is
+ *   loaded, extracted, and whatever it created that the engine does not model
+ *   produces no facts and therefore cannot enter a plan.
+ *
+ *   Which is why planning also PRE-FLIGHTS that gap: an `unmodeled_drift`
+ *   warning (labelled `[drift]`) names every unmodeled object the shadow has and
+ *   the target lacks, because no planned statement can create one and a planned
+ *   statement depending on one will fail on the target. Deliver it through your
+ *   migration channel first. `--strict-coverage` makes it blocking.
  *
  *   By default the SQL files are passed through the statement-reordering assist
  *   (target-architecture §4.4.1): each file is split into one-statement units
@@ -75,6 +97,23 @@
  *     Write the plan artifact (the same format `plan --out` produces) to this
  *     path right after planning, before apply (or the --dry-run script). Useful
  *     for inspecting/archiving the exact plan a `schema apply` run executed.
+ *
+ * schema lint --dir <dir> [--custom-migration-refs warn|off]
+ *   Static analysis only — no database. Reports the pg-topo findings (cycles,
+ *   unknown statement classes, duplicate producers, …) plus the `_custom/`
+ *   bookkeeping rules (frontends/custom-lint.ts), all as non-blocking warnings:
+ *   custom_missing_migration_ref / custom_dangling_migration_ref /
+ *   custom_conflicting_migration_ref (the `-- pgdelta-migration:` head-of-file
+ *   directive) and custom_modeled_kind (modeled DDL parked in `_custom/`, which
+ *   the next export would duplicate). Hygiene lives in lint alone: export and
+ *   apply never fail on it, and --strict-coverage cannot reach these codes.
+ *
+ *   --custom-migration-refs warn|off   (default warn)
+ *     `off` silences custom_missing_migration_ref only — for frontends that
+ *     maintain the directive themselves by folding undelivered custom files into
+ *     a generated migration (frontends/custom-files.ts `listCustomFiles`). The
+ *     dangling and conflicting rules always fire: a recorded-but-WRONG reference
+ *     is a bug whoever wrote it.
  */
 import type { Pool } from "pg";
 import {
@@ -92,6 +131,17 @@ import type {
 import type { SqlFormatOptions } from "../../frontends/sql-format/index.ts";
 import { pruneStaleSqlFiles } from "../../frontends/prune-sql-files.ts";
 import {
+  CUSTOM_DIR_NAME,
+  CUSTOM_README_NAME,
+  isCustomPath,
+  scaffoldCustomReadme,
+} from "../../frontends/custom-dir.ts";
+import {
+  lintCustomMigrationRefs,
+  lintCustomModeledKinds,
+  type CustomLintFinding,
+} from "../../frontends/custom-lint.ts";
+import {
   readExportManifest,
   writeExportManifest,
 } from "../../frontends/export-manifest.ts";
@@ -108,6 +158,7 @@ import {
 import {
   appendShadowCycleHint,
   formatLintReport,
+  formatStatementLocation,
   rewriteReorderedShadowError,
 } from "../reorder-display.ts";
 import { serializePlan } from "../../plan/artifact.ts";
@@ -185,7 +236,10 @@ export function collectSqlFiles(dir: string): SqlFile[] {
 
 /**
  * Write the exported SQL files and the `.pgdelta-export.json` manifest under
- * `outRoot`, returning the stale files pruned. Exported for tests.
+ * `outRoot`, returning the stale files pruned plus a per-file classification
+ * of the written set (`created` / `updated` / `unchanged`, as absolute paths
+ * like `removed`). A byte-identical file is NOT rewritten, so mtimes stay
+ * stable for build tools watching the directory. Exported for tests.
  *
  * Creates `outRoot` up front: a database with no managed objects legitimately
  * yields zero files, and the per-file loop (which only mkdirs each file's parent)
@@ -200,6 +254,12 @@ export function collectSqlFiles(dir: string): SqlFile[] {
  * `--prune-unmanaged` (threaded here as `pruneUnmanaged`) to delete them. The
  * new manifest records the owned files as SORTED relative POSIX paths so the
  * next re-export knows what it may prune.
+ *
+ * The reserved root-level `_custom/` folder (frontends/custom-dir.ts) is outside
+ * all of that: the pruner never scans it, so it is never `unmanaged` (no
+ * refusal) and never deleted; the exporter refuses to WRITE into it; and it never
+ * appears in the manifest's owned `files`. Its `README.md` is scaffolded once so
+ * the contract is discoverable in the tree itself.
  */
 export function writeExportFiles(
   outRoot: string,
@@ -212,7 +272,17 @@ export function writeExportFiles(
     defaultOwner?: string | null;
   },
   pruneUnmanaged: boolean,
-): { removed: string[]; unmanaged: string[] } {
+): {
+  removed: string[];
+  unmanaged: string[];
+  created: string[];
+  updated: string[];
+  unchanged: string[];
+  /** whether this export wrote the `_custom/README.md` scaffold */
+  scaffoldedCustomReadme: boolean;
+  /** whether the scaffold was skipped because `_custom` is a symlink */
+  customReadmeSkippedSymlink: boolean;
+} {
   // Normalize ONCE: the manifest's owned paths resolve to absolute paths, so
   // every path compared against them (the keep set, the pruner's scan) must
   // be absolute too — with a relative --out-dir the pruner otherwise misreads
@@ -243,7 +313,21 @@ export function writeExportFiles(
         `\nPass --prune-unmanaged to delete them and take ownership of the directory.`,
     );
   }
+  // Refuse BEFORE writing anything, like the unmanaged check: no layout emits a
+  // `_custom/…` path, so this is unreachable — but the reservation must be
+  // ENFORCED where files are written, not assumed, since writing there would
+  // silently overwrite hand-authored SQL the pruner is protecting.
+  const reserved = files.filter((file) => isCustomPath(file.name));
+  if (reserved.length > 0) {
+    throw new Error(
+      `export: refusing to write into the reserved ${CUSTOM_DIR_NAME}/ directory:\n` +
+        reserved.map((file) => `  ${file.name}`).join("\n"),
+    );
+  }
   mkdirSync(outRoot, { recursive: true });
+  const created: string[] = [];
+  const updated: string[] = [];
+  const unchanged: string[] = [];
   for (const file of files) {
     const full = join(outRoot, file.name);
     // defense-in-depth (review P2): even with per-segment encoding in
@@ -253,12 +337,52 @@ export function writeExportFiles(
         `export: refusing to write outside ${outRoot}: ${file.name}`,
       );
     }
+    // Classify against the file already on disk: absent → created; same
+    // bytes → unchanged (skip the write, keeping the mtime stable for build
+    // tools); anything else → updated. A size mismatch alone proves the
+    // content differs, so the old content is only buffered for a plausible
+    // match. Only ENOENT means "created" — any other stat/read error is
+    // surfaced rather than silently reclassified as absence (PR #405 review).
+    let status: "created" | "updated" | "unchanged";
+    try {
+      status =
+        statSync(full).size === Buffer.byteLength(file.sql, "utf8") &&
+        readFileSync(full, "utf8") === file.sql
+          ? "unchanged"
+          : "updated";
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw new Error(
+          `export: cannot read existing file ${full} to classify it: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+      status = "created";
+    }
+    if (status === "unchanged") {
+      unchanged.push(full);
+      continue;
+    }
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, file.sql, "utf8");
+    (status === "created" ? created : updated).push(full);
   }
+  // Advertise the escape hatch before anyone needs it. Not a `.sql` file, so the
+  // loader and the pruner both ignore it, and it is never an owned file.
+  const {
+    written: scaffoldedCustomReadme,
+    skippedSymlink: customReadmeSkippedSymlink,
+  } = scaffoldCustomReadme(outRoot);
   const ownedFiles = files.map((file) => file.name.split(sep).join("/")).sort();
   writeExportManifest(outRoot, { ...manifest, files: ownedFiles });
-  return { removed, unmanaged };
+  return {
+    removed,
+    unmanaged,
+    created,
+    updated,
+    unchanged,
+    scaffoldedCustomReadme,
+    customReadmeSkippedSymlink,
+  };
 }
 
 export async function cmdSchemaExport(args: string[]): Promise<void> {
@@ -428,7 +552,14 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     });
 
     const outRoot = resolve(outDir);
-    const { removed } = writeExportFiles(
+    const {
+      removed,
+      created,
+      updated,
+      unchanged,
+      scaffoldedCustomReadme,
+      customReadmeSkippedSymlink,
+    } = writeExportFiles(
       outRoot,
       result.files,
       {
@@ -452,8 +583,20 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
         `Removed ${removed.length} stale .sql file(s) from ${outDir}\n`,
       );
     }
+    if (scaffoldedCustomReadme) {
+      process.stderr.write(
+        `Scaffolded ${CUSTOM_DIR_NAME}/${CUSTOM_README_NAME} — put SQL pg-delta does not model ` +
+          `(and idempotent DML) there; it is preserved across exports and loaded into the shadow.\n`,
+      );
+    }
+    if (customReadmeSkippedSymlink) {
+      process.stderr.write(
+        `custom: ${CUSTOM_DIR_NAME} is a symlink; skipping README scaffold\n`,
+      );
+    }
     process.stderr.write(
-      `Exported ${result.files.length} file(s) to ${outDir} (layout: ${layout})\n`,
+      `Exported ${result.files.length} file(s) to ${outDir} (layout: ${layout}): ` +
+        `${created.length} created, ${updated.length} updated, ${unchanged.length} unchanged\n`,
     );
   } finally {
     await src.end();
@@ -876,10 +1019,21 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
 
     printDiagnostics(planned.loadDiagnostics, { label: "shadow" });
     printDiagnostics(planned.targetDiagnostics, { label: "target" });
-    exitIfBlocking([...planned.loadDiagnostics, ...planned.targetDiagnostics], {
-      strictCoverage: flags["strict-coverage"],
-      action: "apply",
-    });
+    // `unmodeled_drift` is neither side's extraction output but a comparison of
+    // the two, so it gets its own label — and it gates like the other coverage
+    // gaps under --strict-coverage.
+    printDiagnostics(planned.driftDiagnostics, { label: "drift" });
+    exitIfBlocking(
+      [
+        ...planned.loadDiagnostics,
+        ...planned.targetDiagnostics,
+        ...planned.driftDiagnostics,
+      ],
+      {
+        strictCoverage: flags["strict-coverage"],
+        action: "apply",
+      },
+    );
 
     const thePlan = planned.plan;
     process.stderr.write(`Planning: ${thePlan.actions.length} action(s)\n`);
@@ -1054,11 +1208,13 @@ export async function cmdSchemaLint(args: string[]): Promise<void> {
   try {
     parsed = parseFlags(args, {
       dir: { type: "value", required: true },
+      "custom-migration-refs": { type: "value" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       throw new UsageError(
-        `${err.message}\nUsage: pgdelta schema lint --dir <dir>`,
+        `${err.message}\nUsage: pgdelta schema lint --dir <dir> ` +
+          `[--custom-migration-refs warn|off]`,
       );
     }
     throw err;
@@ -1066,32 +1222,81 @@ export async function cmdSchemaLint(args: string[]): Promise<void> {
 
   const { flags } = parsed;
   const dir = flags["dir"];
+  const missingRefMode = flags["custom-migration-refs"] ?? "warn";
+  if (missingRefMode !== "warn" && missingRefMode !== "off") {
+    throw new UsageError(
+      `--custom-migration-refs must be warn or off (got: ${missingRefMode})`,
+    );
+  }
   const files = collectSqlFiles(dir);
   if (files.length === 0) {
     process.stderr.write(`No .sql files found in ${dir}.\n`);
     return;
   }
 
+  const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
+  const emit = (
+    lines: readonly string[],
+    errorCount: number,
+    warningCount: number,
+  ): void => {
+    process.stderr.write(`Linted ${files.length} file(s) in ${dir}.\n`);
+    for (const line of lines) {
+      process.stderr.write(`  ${line}\n`);
+    }
+    if (lines.length === 0) {
+      process.stderr.write("No issues found.\n");
+    } else {
+      process.stderr.write(
+        `\n${errorCount} error(s), ${warningCount} warning(s).\n`,
+      );
+    }
+  };
+  const render = (finding: CustomLintFinding): string => {
+    const location =
+      finding.location !== undefined
+        ? formatStatementLocation(
+            finding.location,
+            originalSqlByName.get(finding.location.filePath),
+          )
+        : finding.file;
+    return `WARNING [${finding.code}] ${location}: ${finding.message}`;
+  };
+
+  // The `_custom/` bookkeeping rules (docs/architecture/custom-folder.md §4) are
+  // lint-only warnings and never blocking. The directive rules are pure fs work,
+  // so they run BEFORE the pg-topo analysis — an absent optional peer must not
+  // swallow findings that never needed it.
+  const customFindings = lintCustomMigrationRefs(dir, files, {
+    missingRef: missingRefMode,
+  });
+
   // Pure static analysis — no shadow/target database. Surfaces pg-topo
   // diagnostics (cycles, unknown statements, duplicate producers, …) for
   // proactive authoring; deliberately kept OUT of the apply path so apply stays
   // Postgres-truth. Throws ReorderUnavailableError (with an install hint) when
   // @supabase/pg-topo is absent.
-  const { cycles, diagnostics } = await analyzeForShadow(files);
-  const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
-  const report = formatLintReport({ cycles, diagnostics }, originalSqlByName);
+  let analyzed;
+  try {
+    analyzed = await analyzeForShadow(files);
+  } catch (error) {
+    // Report what we already know, then let the install hint propagate.
+    if (customFindings.length > 0) {
+      emit(customFindings.map(render), 0, customFindings.length);
+    }
+    throw error;
+  }
+  customFindings.push(...lintCustomModeledKinds(analyzed.files));
+  const report = formatLintReport(
+    { cycles: analyzed.cycles, diagnostics: analyzed.diagnostics },
+    originalSqlByName,
+  );
 
-  process.stderr.write(`Linted ${files.length} file(s) in ${dir}.\n`);
-  for (const line of report.lines) {
-    process.stderr.write(`  ${line}\n`);
-  }
-  if (report.lines.length === 0) {
-    process.stderr.write("No issues found.\n");
-  } else {
-    process.stderr.write(
-      `\n${report.errorCount} error(s), ${report.warningCount} warning(s).\n`,
-    );
-  }
+  emit(
+    [...report.lines, ...customFindings.map(render)],
+    report.errorCount,
+    report.warningCount + customFindings.length,
+  );
   if (report.blocking) {
     throw new CliExit(1);
   }

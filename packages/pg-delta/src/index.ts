@@ -99,6 +99,7 @@ export {
   type SchemaExportResult,
   type ManagementScope,
 } from "./frontends/schema-export.ts";
+export { listCustomFiles, type CustomFile } from "./frontends/custom-files.ts";
 export {
   planSchemaFiles,
   prepareSchemaFiles,
