@@ -47,6 +47,24 @@ describe("parseSslConfig", () => {
     expect(new URL(cleanedUrl).searchParams.get("sslmode")).toBeNull();
   });
 
+  test("node-postgres ssl param is stripped when a handled sslmode takes ownership", () => {
+    // pg merges connection-string params OVER explicit config, so a surviving
+    // ssl=no-verify would silently disable the verification verify-full asks
+    // for (and ssl=true would re-enable TLS under sslmode=disable).
+    const full = parseSslConfig(`${BASE}?sslmode=verify-full&ssl=no-verify`);
+    expect(full.ssl).toStrictEqual({ rejectUnauthorized: true });
+    expect(new URL(full.cleanedUrl).searchParams.get("ssl")).toBeNull();
+
+    const off = parseSslConfig(`${BASE}?ssl=true&sslmode=disable`);
+    expect(off.ssl).toBe(false);
+    expect(new URL(off.cleanedUrl).searchParams.get("ssl")).toBeNull();
+  });
+
+  test("node-postgres ssl param survives passthrough (no recognized sslmode)", () => {
+    const url = `${BASE}?ssl=no-verify`;
+    expect(parseSslConfig(url)).toStrictEqual({ cleanedUrl: url });
+  });
+
   test("absent sslmode passes through untouched (node-postgres defaults apply)", () => {
     const url = `${BASE}?application_name=pgdelta`;
     expect(parseSslConfig(url)).toStrictEqual({ cleanedUrl: url });
