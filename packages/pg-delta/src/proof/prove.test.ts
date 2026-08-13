@@ -94,6 +94,52 @@ describe("provePlan — destruction metadata preflight", () => {
       { actionIndex: 0, object: column },
     ]);
   });
+
+  test("a mutated plan is rejected by the planId preflight before any clone work", async () => {
+    const empty = buildFactBase([], []);
+    const stamped = stampPlanId({
+      formatVersion: 1,
+      engineVersion: ENGINE_VERSION,
+      source: { fingerprint: empty.rootHash },
+      target: { fingerprint: empty.rootHash },
+      preamble: [],
+      deltas: [],
+      filteredDeltas: [],
+      renameCandidates: [],
+      actions: [],
+      safetyReport: {
+        destructiveActions: 0,
+        rewriteRiskActions: 0,
+        nonTransactionalActions: 0,
+        lockClasses: {},
+      },
+    });
+    const tampered: Plan = {
+      ...stamped,
+      actions: [
+        {
+          sql: "DROP SCHEMA app CASCADE",
+          verb: "drop",
+          produces: [],
+          consumes: [],
+          destroys: [],
+          releases: [],
+          transactionality: "transactional",
+          lockClass: "accessExclusive",
+          newSegmentBefore: false,
+          dataLoss: "none",
+          rewriteRisk: false,
+        },
+      ],
+    };
+    expect(
+      provePlan(tampered, {} as Pool, empty, {
+        reextract: () => {
+          throw new Error("proof touched the clone before rejecting planId");
+        },
+      }),
+    ).rejects.toThrow(/planId.*re-plan/);
+  });
 });
 
 describe("detectViolations — content + coverage (review #3)", () => {
