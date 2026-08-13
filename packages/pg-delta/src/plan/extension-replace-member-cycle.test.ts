@@ -185,6 +185,33 @@ describe("plan() — non-relocatable extension replace with member-owned schema"
     expect(commentAt).toBeGreaterThan(createExtAt);
   });
 
+  // An UNCHANGED member customization (same COMMENT/GRANT on both sides) has
+  // no delta — but the replace destroys it with the member and CREATE EXTENSION
+  // restores only installation defaults. The plan must replay the desired-side
+  // satellite after the re-CREATE, or the apply leaves immediate drift.
+  test("an unchanged member customization is replayed after the re-CREATE", () => {
+    const comment: StableId = { kind: "comment", target: httpGet };
+    const commentFact: Fact = {
+      id: comment,
+      parent: httpGet,
+      payload: { text: "kept" },
+    };
+    const source = pgNetBase("public", [commentFact]);
+    const desired = pgNetBase("extensions", [commentFact]);
+
+    const thePlan = plan(source, desired);
+    const sqls = thePlan.actions.map((a) => a.sql);
+
+    const createExtAt = sqls.findIndex(
+      (s) => s === `CREATE EXTENSION "pg_net" SCHEMA "extensions"`,
+    );
+    const commentAt = sqls.findIndex((s) =>
+      s.startsWith(`COMMENT ON FUNCTION "net"."http_get"`),
+    );
+    expect(createExtAt).toBeGreaterThanOrEqual(0);
+    expect(commentAt).toBeGreaterThan(createExtAt);
+  });
+
   // An UNCHANGED user object that depends on a member (not on the member's
   // schema) is a real casualty of the replace: the member vanishes with
   // DROP EXTENSION, so the dependent must be rebuilt around it. The rebuild
