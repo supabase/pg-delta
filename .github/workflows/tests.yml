@@ -266,10 +266,13 @@ jobs:
           HEAVY_0=$(printf '%s\n' tests/fixture-validity.test.ts tests/security-label-proof.test.ts)
           HEAVY_1=$(printf '%s\n' tests/cli.test.ts tests/extension-intent-cron-privileges.test.ts tests/generative.test.ts)
           ALL=$(find tests -maxdepth 1 -name '*.test.ts' ! -name 'engine.test.ts' | sort)
-          REST=$(printf '%s\n' "$ALL" | grep -vxF "$HEAVY_0" | grep -vxF "$HEAVY_1")
+          # `|| true`: grep exits 1 on zero matches, which under the runner's
+          # `bash -e` would abort the step before the empty-FILES guard below
+          # can turn "all pins renamed" into a graceful no-op.
+          REST=$(printf '%s\n' "$ALL" | grep -vxF "$HEAVY_0" | grep -vxF "$HEAVY_1" || true)
           case "$GROUP" in
-            0) FILES=$(printf '%s\n' "$ALL" | grep -xF "$HEAVY_0") ;;
-            1) FILES=$(printf '%s\n' "$ALL" | grep -xF "$HEAVY_1") ;;
+            0) FILES=$(printf '%s\n' "$ALL" | grep -xF "$HEAVY_0" || true) ;;
+            1) FILES=$(printf '%s\n' "$ALL" | grep -xF "$HEAVY_1" || true) ;;
             2) FILES=$(printf '%s\n' "$REST" | awk 'NR % 3 == 0') ;;
             3) FILES=$(printf '%s\n' "$REST" | awk 'NR % 3 == 1') ;;
             4) FILES=$(printf '%s\n' "$REST" | awk 'NR % 3 == 2') ;;
