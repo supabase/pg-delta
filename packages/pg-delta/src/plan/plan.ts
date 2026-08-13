@@ -30,8 +30,11 @@ import { roleReferencesOf } from "./rules/helpers.ts";
 import { stampPlanId } from "./artifact.ts";
 
 /** Engine version stamped into plan artifacts; apply refuses artifacts
- *  from an engine it does not understand (stage 6 deliverable 1). */
-export const ENGINE_VERSION = "0.2.0";
+ *  from an engine it does not understand (stage 6 deliverable 1).
+ *  0.3.0: required `planId` digest — bumped so a pre-planId executor
+ *  fails closed on stamped artifacts (it would otherwise parse them and
+ *  apply without verifying the digest), keeping fail-closed symmetric. */
+export const ENGINE_VERSION = "0.3.0";
 
 // The plan-artifact (JSON serialize/parse) helpers live in ./artifact.ts but are
 // part of this module's public surface: docs/getting-started.md imports them from

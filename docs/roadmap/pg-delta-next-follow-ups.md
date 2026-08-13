@@ -1021,3 +1021,44 @@ policy.
   rebuild (rename + rebuild of the same object in one plan is currently
   unexpressible). Disproportionate to the pg_net cycle fix; needs its own
   RED coverage for the rename × forced-rebuild matrix.
+
+## PR #418 review triage (Codex) — planId content hash
+
+Context: PR #418 adds required `Plan.planId` (WP1). Threat model: planId is an
+**integrity check against accidental divergence** (stale/hand-edited artifacts
+drifting from what was approved), NOT a security boundary — `computePlanId` is
+a public export, so a deliberate artifact editor can always re-stamp. Findings
+whose only failure scenario is a malicious editor gain nothing from hashing.
+
+Fixed in the PR (rounds 1–3): preamble bound into the digest (it is executed
+per segment — run content); `ENGINE_VERSION` bumped to 0.3.0 so pre-planId
+executors fail closed on stamped artifacts; `assertPlanId` preflight added to
+`provePlan()` so every public execution path validates before clone work.
+
+- **Deferred — bind `projectionAudit` into planId (Codex P1, round 2).** The
+  audit is gate INPUT under `prove --strict-audit`, so it is the one remaining
+  field that neither fails loud nor is reporting-only. Not hashed yet because
+  (a) the only exploit path is a deliberate editor (re-stampable → no
+  adversarial gain), and (b) `parsePlan` runs `normalizeProjectionAudit`
+  BEFORE the digest check, so inclusion requires proving normalize-stability
+  between `plan()` output and re-parsed artifacts — a false "re-plan" reject
+  is the worst failure mode this feature can have. If revisited: hash the
+  NORMALIZED form on both sides and extend the round-trip suite with
+  audit-bearing plans.
+- **Declined — bind `source.endpointHash`/`source.identity` into planId
+  (Codex P1, round 2).** These are transport stamps the CLI attaches AFTER
+  `plan()` precisely so planId stays a transport-independent content
+  identity (same plan against two replicas must share an id). They defend
+  against accidental endpoint mixups (`prove --clone "$SOURCE_URL"`), which
+  do not involve artifact editing; the described bypass requires a deliberate
+  editor, who re-stamps.
+- **Declined — bind `baseline.digest` into planId (Codex P2, round 2).**
+  Baseline already fails loud on accidental drift: apply/prove reconcile the
+  live-resolved baseline against the stamped digest (even under `--force`).
+  The described bypass needs a deliberate two-step edit — re-stampable.
+- **Declined — `major` changeset (Codex P1, round 1).** The package is on a
+  0.x pre/alpha train (every bump releases as `-alpha.N`); the repo has never
+  queued a `major`, and doing so would promote pg-delta to 1.0.0 the day
+  `changeset pre exit` runs — a release-train side effect worse than the
+  labeling nit. Breaking-in-alpha ships as `minor` here by established
+  practice.
