@@ -125,6 +125,10 @@ export function parseSslConfig(
   urlObj.searchParams.delete("sslrootcert");
   urlObj.searchParams.delete("sslcert");
   urlObj.searchParams.delete("sslkey");
+  // node-postgres' own `ssl` param would override the translated config on
+  // merge (e.g. ssl=no-verify negating verify-full) — this parser owns SSL
+  // for handled modes, so it goes too. Untouched on the passthrough path.
+  urlObj.searchParams.delete("ssl");
   const cleanedUrl = urlObj.toString();
 
   if (sslmode === "disable") {
