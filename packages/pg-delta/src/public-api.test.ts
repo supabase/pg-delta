@@ -19,6 +19,8 @@ import * as planSubpath from "./plan/plan.ts";
 import { pruneStaleSqlFiles } from "./frontends/prune-sql-files.ts";
 import { renderApplyScript } from "./frontends/render-apply-script.ts";
 import { probeUnmodeledIdentitiesPinned } from "./frontends/schema-plan.ts";
+import { hasBlockingDiagnostics } from "./frontends/diagnostics.ts";
+import { dataLossActions } from "./frontends/data-loss-actions.ts";
 import {
   observeDatabaseIdentity,
   databaseIdentityStamp,
@@ -134,6 +136,8 @@ describe("public API surface", () => {
   test("root and frontends re-export coverage, data-loss, and database-identity helpers", () => {
     expect(typeof root.hasBlockingDiagnostics).toBe("function");
     expect(typeof frontends.hasBlockingDiagnostics).toBe("function");
+    expect(root.hasBlockingDiagnostics).toBe(hasBlockingDiagnostics);
+    expect(frontends.hasBlockingDiagnostics).toBe(hasBlockingDiagnostics);
 
     const src = readFileSync(
       fileURLToPath(new URL("./index.ts", import.meta.url)),
@@ -150,6 +154,8 @@ describe("public API surface", () => {
 
     expect(typeof root.dataLossActions).toBe("function");
     expect(typeof frontends.dataLossActions).toBe("function");
+    expect(root.dataLossActions).toBe(dataLossActions);
+    expect(frontends.dataLossActions).toBe(dataLossActions);
 
     expect(typeof root.observeDatabaseIdentity).toBe("function");
     expect(typeof root.databaseIdentityStamp).toBe("function");
