@@ -83,15 +83,16 @@ the exported library surface (stable `planId`, `HazardKind` codes, file
 classification, segments, coverage/data-loss helpers, named loader options).
 Most of the RFC's integration boundary is already satisfied; the work is
 targeted additions plus moving CLI-only logic out of `src/cli/**`. Full plan
-and WP sequencing: [schema-first-cli-enablement.md](schema-first-cli-enablement.md).
-WP3a (pure `classifySqlFiles` helper) ships with this change. Linear: the
+and WP sequencing plus per-slice status:
+[schema-first-cli-enablement.md](schema-first-cli-enablement.md). Linear: the
 RFC plus CLI-1459–1464 (WP2).
 
 ### 🟡 Risk classification 2.0
 The engine already computes proof-verified per-action safety (`dataLoss`,
-`rewriteRisk`, `lockClass`, `transactionality`). Derive stable `HazardKind` codes
-from those fields, attach them to the plan artifact (additive), add an
-`--allow-hazards` gate and a GitLab Code-Quality JSON reporter. CLI-1459–1464.
+`rewriteRisk`, `lockClass`, `transactionality`). `HazardKind` codes are derived
+as a view (`actionHazards` / `classifyPlanHazards`, WP2 #420) — never stored on
+`Plan`/`Action` and not part of `planId`. Remaining: the `--allow-hazards` gate
+and a GitLab Code-Quality JSON reporter in the Supabase CLI. CLI-1459–1464.
 
 ### 🟡 Migration squash / repair
 Collapse a chain of migration files into one consolidated migration, and emit it
