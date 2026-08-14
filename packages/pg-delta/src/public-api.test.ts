@@ -12,8 +12,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import * as root from "./index.ts";
+import * as frontends from "./frontends/index.ts";
 import * as integrations from "./integrations/index.ts";
 import * as planSubpath from "./plan/plan.ts";
+import { pruneStaleSqlFiles } from "./frontends/prune-sql-files.ts";
+import { renderApplyScript } from "./frontends/render-apply-script.ts";
+import { probeUnmodeledIdentitiesPinned } from "./frontends/schema-plan.ts";
 
 describe("public API surface", () => {
   test("root re-exports the headline profile API", () => {
@@ -76,6 +80,25 @@ describe("public API surface", () => {
     expect(entry?.bun).toBe("./src/integrations/index.ts");
     expect(entry?.import).toBe("./dist/integrations/index.js");
     expect(entry?.types).toBe("./dist/integrations/index.d.ts");
+  });
+
+  test("root and frontends re-export schema-first CLI helpers", () => {
+    expect(typeof root.pruneStaleSqlFiles).toBe("function");
+    expect(typeof root.renderApplyScript).toBe("function");
+    expect(typeof root.probeUnmodeledIdentitiesPinned).toBe("function");
+    expect(root.pruneStaleSqlFiles).toBe(pruneStaleSqlFiles);
+    expect(root.renderApplyScript).toBe(renderApplyScript);
+    expect(root.probeUnmodeledIdentitiesPinned).toBe(
+      probeUnmodeledIdentitiesPinned,
+    );
+    expect(typeof frontends.pruneStaleSqlFiles).toBe("function");
+    expect(typeof frontends.renderApplyScript).toBe("function");
+    expect(typeof frontends.probeUnmodeledIdentitiesPinned).toBe("function");
+    expect(frontends.pruneStaleSqlFiles).toBe(pruneStaleSqlFiles);
+    expect(frontends.renderApplyScript).toBe(renderApplyScript);
+    expect(frontends.probeUnmodeledIdentitiesPinned).toBe(
+      probeUnmodeledIdentitiesPinned,
+    );
   });
 
   // The build is ESM-only (package `type: module`, NodeNext output). A `require`
