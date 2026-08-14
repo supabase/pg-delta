@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Pool } from "pg";
 import { buildFactBase } from "../core/fact.ts";
-import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
+import { ENGINE_VERSION, stampPlanId, type Plan } from "../plan/plan.ts";
 import {
   composeAutoSeedBaseline,
   detectAutoSeedSideEffects,
@@ -52,7 +52,7 @@ describe("provePlan — destruction metadata preflight", () => {
       table: "t",
       name: "secret",
     };
-    const thePlan: Plan = {
+    const thePlan: Plan = stampPlanId({
       formatVersion: 1,
       engineVersion: ENGINE_VERSION,
       source: { fingerprint: empty.rootHash },
@@ -82,7 +82,7 @@ describe("provePlan — destruction metadata preflight", () => {
         nonTransactionalActions: 0,
         lockClasses: { accessExclusive: 1 },
       },
-    };
+    });
     const verdict = await provePlan(thePlan, {} as Pool, empty, {
       reextract: () => {
         throw new Error("proof touched the clone before rejecting metadata");
@@ -93,6 +93,52 @@ describe("provePlan — destruction metadata preflight", () => {
     expect(verdict.safetyMetadataViolations).toEqual([
       { actionIndex: 0, object: column },
     ]);
+  });
+
+  test("a mutated plan is rejected by the planId preflight before any clone work", async () => {
+    const empty = buildFactBase([], []);
+    const stamped = stampPlanId({
+      formatVersion: 1,
+      engineVersion: ENGINE_VERSION,
+      source: { fingerprint: empty.rootHash },
+      target: { fingerprint: empty.rootHash },
+      preamble: [],
+      deltas: [],
+      filteredDeltas: [],
+      renameCandidates: [],
+      actions: [],
+      safetyReport: {
+        destructiveActions: 0,
+        rewriteRiskActions: 0,
+        nonTransactionalActions: 0,
+        lockClasses: {},
+      },
+    });
+    const tampered: Plan = {
+      ...stamped,
+      actions: [
+        {
+          sql: "DROP SCHEMA app CASCADE",
+          verb: "drop",
+          produces: [],
+          consumes: [],
+          destroys: [],
+          releases: [],
+          transactionality: "transactional",
+          lockClass: "accessExclusive",
+          newSegmentBefore: false,
+          dataLoss: "none",
+          rewriteRisk: false,
+        },
+      ],
+    };
+    expect(
+      provePlan(tampered, {} as Pool, empty, {
+        reextract: () => {
+          throw new Error("proof touched the clone before rejecting planId");
+        },
+      }),
+    ).rejects.toThrow(/planId.*re-plan/);
   });
 });
 

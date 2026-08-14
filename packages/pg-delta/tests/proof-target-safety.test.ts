@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { extract } from "../src/extract/extract.ts";
-import { plan } from "../src/plan/plan.ts";
+import { computePlanId, plan } from "../src/plan/plan.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import { sharedCluster } from "./containers.ts";
 
@@ -117,6 +117,7 @@ describe("proof target safety", () => {
         dataLoss: "none",
         rewriteRisk: false,
       });
+      thePlan.planId = computePlanId(thePlan); // re-stamp the injection past apply's planId gate
 
       const verdict = await provePlan(thePlan, clone.pool, state.factBase);
 
@@ -154,6 +155,7 @@ describe("proof target safety", () => {
         dataLoss: "none",
         rewriteRisk: false,
       });
+      thePlan.planId = computePlanId(thePlan); // re-stamp the injection past apply's planId gate
 
       const verdict = await provePlan(thePlan, clone.pool, state.factBase);
       expect(verdict.ok).toBe(false);
@@ -193,6 +195,7 @@ describe("proof target safety", () => {
         dataLoss: "none",
         rewriteRisk: false,
       });
+      thePlan.planId = computePlanId(thePlan); // re-stamp the injection past apply's planId gate
 
       const verdict = await provePlan(thePlan, clone.pool, state.factBase);
       expect(verdict.ok).toBe(false);

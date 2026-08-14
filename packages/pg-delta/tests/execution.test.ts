@@ -7,7 +7,11 @@
 import { describe, expect, test } from "bun:test";
 import { apply } from "../src/apply/apply.ts";
 import { extract } from "../src/extract/extract.ts";
-import { parsePlan, serializePlan } from "../src/plan/artifact.ts";
+import {
+  computePlanId,
+  parsePlan,
+  serializePlan,
+} from "../src/plan/artifact.ts";
 import { plan } from "../src/plan/plan.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import { sharedCluster } from "./containers.ts";
@@ -34,6 +38,7 @@ describe("stage 6: execution", () => {
         // sabotage the LAST action; everything before it is one segment
         const last = thePlan.actions.length - 1;
         thePlan.actions[last]!.sql = "SELECT 1/0";
+        thePlan.planId = computePlanId(thePlan); // re-stamp the sabotage past apply's planId gate
         const report = await apply(thePlan, db.pool, {
           fingerprintGate: false,
         });
@@ -78,6 +83,7 @@ describe("stage 6: execution", () => {
       expect(boundaryPos).toBeGreaterThan(0);
       // sabotage an action AFTER the boundary: segment 1 must stay applied
       thePlan.actions[boundaryPos]!.sql = "SELECT 1/0";
+      thePlan.planId = computePlanId(thePlan); // re-stamp the sabotage past apply's planId gate
       const report = await apply(thePlan, source.pool, {
         fingerprintGate: false,
       });

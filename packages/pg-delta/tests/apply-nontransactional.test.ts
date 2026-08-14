@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import pg from "pg";
 import { apply } from "../src/apply/apply.ts";
-import { ENGINE_VERSION, type Plan } from "../src/plan/plan.ts";
+import { ENGINE_VERSION, stampPlanId, type Plan } from "../src/plan/plan.ts";
 import { createTestDb, type TestDb } from "./containers.ts";
 
 let db: TestDb;
@@ -20,7 +20,7 @@ afterAll(async () => {
 });
 
 function planWithFailingNonTxnAction(): Plan {
-  return {
+  return stampPlanId({
     formatVersion: 1,
     engineVersion: ENGINE_VERSION,
     source: { fingerprint: "a".repeat(64) },
@@ -50,7 +50,7 @@ function planWithFailingNonTxnAction(): Plan {
       nonTransactionalActions: 1,
       lockClasses: { none: 1 },
     },
-  };
+  });
 }
 
 describe("non-transactional apply: reset + inDoubt (P1)", () => {

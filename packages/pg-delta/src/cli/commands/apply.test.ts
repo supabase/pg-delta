@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { serializePlan, stampPlanId } from "../../plan/artifact.ts";
 import { ENGINE_VERSION } from "../../plan/plan.ts";
 import { cmdApply } from "./apply.ts";
 import { UsageError } from "../flags.ts";
@@ -20,37 +21,39 @@ function destructivePlan(): string {
   const path = join(dir, "plan.json");
   writeFileSync(
     path,
-    JSON.stringify({
-      formatVersion: 1,
-      engineVersion: ENGINE_VERSION,
-      source: { fingerprint: "a".repeat(64) },
-      target: { fingerprint: "b".repeat(64) },
-      preamble: [],
-      deltas: [],
-      filteredDeltas: [],
-      renameCandidates: [],
-      safetyReport: {
-        destructiveActions: 0,
-        rewriteRiskActions: 0,
-        nonTransactionalActions: 0,
-        lockClasses: {},
-      },
-      actions: [
-        {
-          sql: "DROP TABLE app.t",
-          verb: "drop",
-          produces: [],
-          consumes: [],
-          destroys: [{ kind: "table", schema: "app", name: "t" }],
-          releases: [],
-          transactionality: "transactional",
-          lockClass: "accessExclusive",
-          newSegmentBefore: false,
-          dataLoss: "destructive",
-          rewriteRisk: false,
+    serializePlan(
+      stampPlanId({
+        formatVersion: 1,
+        engineVersion: ENGINE_VERSION,
+        source: { fingerprint: "a".repeat(64) },
+        target: { fingerprint: "b".repeat(64) },
+        preamble: [],
+        deltas: [],
+        filteredDeltas: [],
+        renameCandidates: [],
+        safetyReport: {
+          destructiveActions: 0,
+          rewriteRiskActions: 0,
+          nonTransactionalActions: 0,
+          lockClasses: {},
         },
-      ],
-    }),
+        actions: [
+          {
+            sql: "DROP TABLE app.t",
+            verb: "drop",
+            produces: [],
+            consumes: [],
+            destroys: [{ kind: "table", schema: "app", name: "t" }],
+            releases: [],
+            transactionality: "transactional",
+            lockClass: "accessExclusive",
+            newSegmentBefore: false,
+            dataLoss: "destructive",
+            rewriteRisk: false,
+          },
+        ],
+      }),
+    ),
   );
   return path;
 }

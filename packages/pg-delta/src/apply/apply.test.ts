@@ -6,7 +6,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import type { Pool } from "pg";
 import type { Action, Plan } from "../plan/plan.ts";
-import { ENGINE_VERSION } from "../plan/plan.ts";
+import { ENGINE_VERSION, stampPlanId } from "../plan/plan.ts";
 import { apply, type ApplyEvent, segmentActions } from "./apply.ts";
 
 const txn = (newSegmentBefore = false) => ({
@@ -69,7 +69,7 @@ describe("segmentActions", () => {
 });
 
 function planWithAction(transactionality: Action["transactionality"]): Plan {
-  return {
+  return stampPlanId({
     formatVersion: 1,
     engineVersion: ENGINE_VERSION,
     source: { fingerprint: "source" },
@@ -99,7 +99,7 @@ function planWithAction(transactionality: Action["transactionality"]): Plan {
       nonTransactionalActions: transactionality === "nonTransactional" ? 1 : 0,
       lockClasses: {},
     },
-  } as Plan;
+  });
 }
 
 async function expectObserverLatencyExcluded(
@@ -192,7 +192,7 @@ function planWithPreamble(
   transactionality: Action["transactionality"],
   preamble: Plan["preamble"],
 ): Plan {
-  return { ...planWithAction(transactionality), preamble };
+  return stampPlanId({ ...planWithAction(transactionality), preamble });
 }
 
 function segmentOutcomes(events: ApplyEvent[]): string[] {
@@ -444,7 +444,7 @@ describe("apply plan integrity", () => {
         throw new Error("must not connect");
       },
     } as unknown as Pool;
-    const thePlan = {
+    const thePlan = stampPlanId({
       formatVersion: 1,
       engineVersion: ENGINE_VERSION,
       source: { fingerprint: "a".repeat(64) },
@@ -474,7 +474,7 @@ describe("apply plan integrity", () => {
         nonTransactionalActions: 0,
         lockClasses: { accessExclusive: 1 },
       },
-    } satisfies Plan;
+    });
 
     let error: unknown;
     try {
@@ -486,6 +486,99 @@ describe("apply plan integrity", () => {
     expect((error as Error).message).toMatch(
       /destroys.*table:app\.t.*dataLoss:none/,
     );
+    expect(connected).toBe(false);
+  });
+
+  test("rejects a missing planId before connecting or mutating", async () => {
+    let connected = false;
+    const target = {
+      connect: async () => {
+        connected = true;
+        throw new Error("must not connect");
+      },
+    } as unknown as Pool;
+    const stamped = stampPlanId({
+      formatVersion: 1,
+      engineVersion: ENGINE_VERSION,
+      source: { fingerprint: "a".repeat(64) },
+      target: { fingerprint: "b".repeat(64) },
+      preamble: [],
+      deltas: [],
+      filteredDeltas: [],
+      renameCandidates: [],
+      actions: [],
+      safetyReport: {
+        destructiveActions: 0,
+        rewriteRiskActions: 0,
+        nonTransactionalActions: 0,
+        lockClasses: {},
+      },
+    });
+    const missing = { ...stamped, planId: undefined } as unknown as Plan;
+    let error: unknown;
+    try {
+      await apply(missing, target, { fingerprintGate: false });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/planId/);
+    expect((error as Error).message).toMatch(/re-plan/);
+    expect(connected).toBe(false);
+  });
+
+  test("rejects a mismatching planId before connecting or mutating", async () => {
+    let connected = false;
+    const target = {
+      connect: async () => {
+        connected = true;
+        throw new Error("must not connect");
+      },
+    } as unknown as Pool;
+    const stamped = stampPlanId({
+      formatVersion: 1,
+      engineVersion: ENGINE_VERSION,
+      source: { fingerprint: "a".repeat(64) },
+      target: { fingerprint: "b".repeat(64) },
+      preamble: [],
+      deltas: [],
+      filteredDeltas: [],
+      renameCandidates: [],
+      actions: [],
+      safetyReport: {
+        destructiveActions: 0,
+        rewriteRiskActions: 0,
+        nonTransactionalActions: 0,
+        lockClasses: {},
+      },
+    });
+    const tampered: Plan = {
+      ...stamped,
+      actions: [
+        {
+          sql: "SELECT 1",
+          verb: "create",
+          produces: [],
+          consumes: [],
+          destroys: [],
+          releases: [],
+          transactionality: "transactional",
+          lockClass: "none",
+          newSegmentBefore: false,
+          dataLoss: "none",
+          rewriteRisk: false,
+        },
+      ],
+    };
+    let error: unknown;
+    try {
+      await apply(tampered, target, { fingerprintGate: false });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/planId/);
+    expect((error as Error).message).toMatch(/re-plan/);
     expect(connected).toBe(false);
   });
 });

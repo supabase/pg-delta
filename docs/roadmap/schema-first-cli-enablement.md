@@ -1,6 +1,6 @@
 # Schema-first CLI enablement
 
-- **Status**: In progress — WP3a shipping; remaining WPs sequenced below.
+- **Status**: In progress — WP1 shipping; remaining WPs sequenced below.
 - **Date**: 2026-08-13
 - **Source**: RFC *Schema-First Database Development* (Linear
   `rfc-schema-first-database-development-532de5a122d5`, 2026-08-12, **revised
@@ -50,19 +50,23 @@ flattened to rendered SQL:
 **Inventory corrections vs the RFC text:**
 
 - Plan artifacts already stamp `formatVersion` + `engineVersion`; `parsePlan`
-  and `apply()` refuse a mismatch. WP1's remaining work is `Plan.planId`.
+  and `apply()` refuse a mismatch. WP1 adds required `Plan.planId` (this change).
 - `segmentActions()` is already exported from `@supabase/pg-delta/apply`. WP3
   still needs the `Segment` type, a `planSegments(plan)` helper, and
   root/`frontends` re-exports, plus `renderApplyScript`.
 
 ---
 
-## WP1 — 🟠 Stable plan identifier
+## WP1 — **this change** Stable plan identifier
 
-Add `Plan.planId`: a content hash over source fingerprint, desired
-fingerprint, accepted renames, an action-list digest, profile/scope/policy,
-and engine + artifact format version. `parsePlan` verifies it. Version
-fail-closed is already there.
+`Plan.planId` is a required SHA-256 content hash over `formatVersion`,
+`engineVersion`, source/target fingerprints, the `preamble` (executed per
+segment by apply — run content, like the action list), `acceptedRenames`,
+the ordered action list, and `profile`/`scope`/`policy`. `plan()` stamps it via
+`stampPlanId`; `parsePlan` and `apply()` refuse a missing or mismatching
+digest (`re-plan` — never silently upgrade). Version fail-closed for
+`formatVersion`/`engineVersion` was already in place. Stale artifacts
+without `planId` must be re-planned.
 
 ---
 
@@ -82,7 +86,7 @@ Library frontends accept pools and SQL files; they return typed data. No
 
 | Slice | Status | Notes |
 |---|---|---|
-| **WP3a** export file classification | **this change** | Pure `classifySqlFiles` / `classifySqlContent`. Does **not** export `writeExportFiles` (writes, scaffolds `_custom/README.md`, refuses unmanaged). |
+| **WP3a** export file classification | shipped (#414) | Pure `classifySqlFiles` / `classifySqlContent`. Does **not** export `writeExportFiles` (writes, scaffolds `_custom/README.md`, refuses unmanaged). |
 | **WP3b** | next | Re-export `pruneStaleSqlFiles`, `renderApplyScript`, `probeUnmodeledIdentitiesPinned`. |
 | **WP3c** | | Export `Segment` + `planSegments(plan)` from root/`frontends`. |
 | **WP3d** | | Move `STRICT_COVERAGE_CODES` + `hasBlockingDiagnostics` into a frontend; leave `printDiagnostics` / `exitIfBlocking` in the CLI. |

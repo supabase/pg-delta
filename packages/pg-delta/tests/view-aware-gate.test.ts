@@ -11,7 +11,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { apply } from "../src/apply/apply.ts";
 import { extract } from "../src/extract/extract.ts";
-import { plan, type Plan } from "../src/plan/plan.ts";
+import { plan, stampPlanId, type Plan } from "../src/plan/plan.ts";
 import type { Policy } from "../src/policy/policy.ts";
 import { buildFactBase } from "../src/core/fact.ts";
 import { createTestDb, type TestDb } from "./containers.ts";
@@ -57,10 +57,10 @@ describe("view-aware apply/prove fingerprint gate (P0-2)", () => {
       baseline: "platform-baseline",
     };
     // a hand-built 0-action plan that records a baseline-declaring policy
-    const baselinePlan: Plan = {
+    const baselinePlan: Plan = stampPlanId({
       ...plan(buildFactBase([], []), buildFactBase([], [])),
       policy: baselinePolicy,
-    };
+    });
     let err: unknown;
     try {
       await apply(baselinePlan, db.pool); // no options.baseline

@@ -15,6 +15,7 @@ import { diff, type Delta } from "../core/diff.ts";
 import type { FactBase } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
 import { extract } from "../extract/extract.ts";
+import { assertPlanId } from "../plan/artifact.ts";
 import type { Action, Plan, ProjectionAudit } from "../plan/plan.ts";
 import { projectTarget } from "../plan/project.ts";
 import {
@@ -638,6 +639,10 @@ export async function provePlan(
   desired: FactBase,
   options: ProveOptions = {},
 ): Promise<ProducedProofVerdict> {
+  // planId preflight: a plan mutated after plan() stamped it must be rejected
+  // BEFORE any clone work (re-extract, stats, auto-seed), not deep inside
+  // apply — every public execution path validates the immutable plan first.
+  assertPlanId(thePlan, "prove");
   const auditAvailable = thePlan.projectionAudit !== undefined;
   const projectionAuditStatus = auditAvailable ? "available" : "unavailable";
   const projectionAudit: ProjectionAudit = auditAvailable

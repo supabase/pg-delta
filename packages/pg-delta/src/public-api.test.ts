@@ -51,6 +51,10 @@ describe("public API surface", () => {
     // from the package root. A round-trip proves the re-export is the real thing.
     expect(typeof planSubpath.serializePlan).toBe("function");
     expect(typeof planSubpath.parsePlan).toBe("function");
+    expect(typeof planSubpath.computePlanId).toBe("function");
+    expect(typeof planSubpath.stampPlanId).toBe("function");
+    expect(typeof root.computePlanId).toBe("function");
+    expect(typeof root.stampPlanId).toBe("function");
   });
 
   test("package.json declares the ./plan subpath export", () => {

@@ -15,6 +15,7 @@
 import type { Pool } from "pg";
 import type { FactBase } from "../core/fact.ts";
 import { extract } from "../extract/extract.ts";
+import { assertPlanId } from "../plan/artifact.ts";
 import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
 import { assertDestructionMetadataIntegrity } from "../plan/safety.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
@@ -201,6 +202,7 @@ export async function apply(
       `apply: plan was produced by engine ${thePlan.engineVersion}, this engine is ${ENGINE_VERSION} — re-plan`,
     );
   }
+  assertPlanId(thePlan, "apply");
   assertDestructionMetadataIntegrity(
     thePlan.actions,
     thePlan.acceptedRenames,
