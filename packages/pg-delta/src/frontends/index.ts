@@ -68,6 +68,25 @@ export type { UnmodeledIdentities } from "../extract/unmodeled.ts";
 // Apply transaction segments: group a plan into maximal transactional runs.
 export { segmentActions, planSegments, type Segment } from "../apply/apply.ts";
 
+// Schema-first CLI helpers: coverage gate, data-loss listing, database identity.
+export {
+  STRICT_COVERAGE_CODES,
+  hasBlockingDiagnostics,
+} from "./diagnostics.ts";
+export { dataLossActions, type DataLossAction } from "./data-loss-actions.ts";
+export { type SourceDatabaseIdentity } from "../plan/plan.ts";
+export {
+  observeDatabaseIdentity,
+  databaseIdentityStamp,
+  isDatabaseIdentityObservationUnavailable,
+  databaseIdentityObservationUnavailableCode,
+  observeDatabaseIdentityForMutation,
+  isSamePostgresLineage,
+  isSameDatabase,
+  type ObservedDatabaseIdentity,
+  type DatabaseIdentityObservationUnavailableCode,
+} from "../database-identity.ts";
+
 export {
   renderPlanFiles,
   isDestructiveAction,

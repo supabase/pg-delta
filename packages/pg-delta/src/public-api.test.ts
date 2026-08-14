@@ -20,6 +20,13 @@ import { planSegments, segmentActions } from "./apply/apply.ts";
 import { pruneStaleSqlFiles } from "./frontends/prune-sql-files.ts";
 import { renderApplyScript } from "./frontends/render-apply-script.ts";
 import { probeUnmodeledIdentitiesPinned } from "./frontends/schema-plan.ts";
+import { hasBlockingDiagnostics } from "./frontends/diagnostics.ts";
+import { dataLossActions } from "./frontends/data-loss-actions.ts";
+import {
+  observeDatabaseIdentity,
+  databaseIdentityStamp,
+  isSameDatabase,
+} from "./database-identity.ts";
 
 describe("public API surface", () => {
   test("root re-exports the headline profile API", () => {
@@ -147,6 +154,44 @@ describe("public API surface", () => {
       "utf-8",
     );
     expect(frontendSrc).toContain("type Segment");
+  });
+
+  test("root and frontends re-export coverage, data-loss, and database-identity helpers", () => {
+    expect(typeof root.hasBlockingDiagnostics).toBe("function");
+    expect(typeof frontends.hasBlockingDiagnostics).toBe("function");
+    expect(root.hasBlockingDiagnostics).toBe(hasBlockingDiagnostics);
+    expect(frontends.hasBlockingDiagnostics).toBe(hasBlockingDiagnostics);
+
+    const src = readFileSync(
+      fileURLToPath(new URL("./index.ts", import.meta.url)),
+      "utf-8",
+    );
+    const frontendSrc = readFileSync(
+      fileURLToPath(new URL("./frontends/index.ts", import.meta.url)),
+      "utf-8",
+    );
+    expect(src).toContain("STRICT_COVERAGE_CODES");
+    expect(frontendSrc).toContain("STRICT_COVERAGE_CODES");
+    expect(src).toContain("type SourceDatabaseIdentity");
+    expect(frontendSrc).toContain("type SourceDatabaseIdentity");
+
+    expect(typeof root.dataLossActions).toBe("function");
+    expect(typeof frontends.dataLossActions).toBe("function");
+    expect(root.dataLossActions).toBe(dataLossActions);
+    expect(frontends.dataLossActions).toBe(dataLossActions);
+
+    expect(typeof root.observeDatabaseIdentity).toBe("function");
+    expect(typeof root.databaseIdentityStamp).toBe("function");
+    expect(typeof root.isSameDatabase).toBe("function");
+    expect(root.observeDatabaseIdentity).toBe(observeDatabaseIdentity);
+    expect(root.databaseIdentityStamp).toBe(databaseIdentityStamp);
+    expect(root.isSameDatabase).toBe(isSameDatabase);
+    expect(typeof frontends.observeDatabaseIdentity).toBe("function");
+    expect(typeof frontends.databaseIdentityStamp).toBe("function");
+    expect(typeof frontends.isSameDatabase).toBe("function");
+    expect(frontends.observeDatabaseIdentity).toBe(observeDatabaseIdentity);
+    expect(frontends.databaseIdentityStamp).toBe(databaseIdentityStamp);
+    expect(frontends.isSameDatabase).toBe(isSameDatabase);
   });
 
   // The build is ESM-only (package `type: module`, NodeNext output). A `require`
