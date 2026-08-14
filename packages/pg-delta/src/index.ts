@@ -61,6 +61,12 @@ export {
 } from "./plan/artifact.ts";
 export { type RenameCandidate, type RenameMode } from "./plan/renames.ts";
 export { type LockClass } from "./plan/locks.ts";
+export {
+  actionHazards,
+  classifyPlanHazards,
+  HAZARD_KIND_ORDER,
+} from "./plan/hazards.ts";
+export type { HazardKind, ActionHazard, HazardReport } from "./plan/hazards.ts";
 
 // ── apply ────────────────────────────────────────────────────────────────────
 export {

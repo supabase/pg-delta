@@ -80,9 +80,9 @@ describe("actionHazards", () => {
     expect(actionHazards(action({ lockClass: "shareRowExclusive" }))).toEqual(
       [],
     );
-    expect(actionHazards(action({ lockClass: "shareUpdateExclusive" }))).toEqual(
-      [],
-    );
+    expect(
+      actionHazards(action({ lockClass: "shareUpdateExclusive" })),
+    ).toEqual([]);
     expect(actionHazards(action({ lockClass: "none" }))).toEqual([]);
   });
 
@@ -152,9 +152,7 @@ describe("classifyPlanHazards", () => {
     const report = classifyPlanHazards({
       actions: [action(), action({ dataLoss: "destructive" }), action()],
     });
-    expect(report.actions).toEqual([
-      { actionIndex: 1, kinds: ["data_loss"] },
-    ]);
+    expect(report.actions).toEqual([{ actionIndex: 1, kinds: ["data_loss"] }]);
     expect(report.coverage).toEqual([]);
     expect(report.kinds).toEqual(["data_loss"]);
   });
@@ -211,9 +209,7 @@ describe("classifyPlanHazards", () => {
       { actions: [action({ dataLoss: "destructive" })] },
       [diagnostic("unmodeled_kind")],
     );
-    expect(report.actions).toEqual([
-      { actionIndex: 0, kinds: ["data_loss"] },
-    ]);
+    expect(report.actions).toEqual([{ actionIndex: 0, kinds: ["data_loss"] }]);
     expect(report.coverage).toEqual(["unmodeled_kind"]);
     expect(report.kinds).toEqual(["data_loss", "unmodeled_kind"]);
   });
@@ -269,10 +265,7 @@ describe("classifyPlanHazards", () => {
           }),
         ],
       },
-      [
-        diagnostic("unresolved_security_label"),
-        diagnostic("unmodeled_kind"),
-      ],
+      [diagnostic("unresolved_security_label"), diagnostic("unmodeled_kind")],
     );
     expect(report.actions).toEqual([
       {
