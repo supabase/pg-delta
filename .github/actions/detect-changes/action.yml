@@ -56,6 +56,12 @@ runs:
             - '.oxlintrc.json'
             - '.oxfmtrc.json'
             - '.changeset/**'
+            # A change to the test workflow or the composite actions it runs
+            # must re-run the full suite it defines — otherwise a CI-only PR
+            # (e.g. re-sharding the matrices) merges without ever executing
+            # the jobs it rewired.
+            - '.github/workflows/tests.yml'
+            - '.github/actions/**'
 
     # Detect any file outside the release-PR whitelist. Uses
     # predicate-quantifier: every so a file matches only when it satisfies
