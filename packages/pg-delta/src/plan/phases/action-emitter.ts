@@ -189,12 +189,29 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     );
   }
 
-  // Desired-side member closure, computed lazily — only an extension REPLACE
-  // needs it (see the satellite replay below).
-  let desiredMemberClosureMemo: Map<string, StableId[]> | undefined;
-  const desiredMemberClosureOf = (): Map<string, StableId[]> => {
-    desiredMemberClosureMemo ??= extensionMemberClosure(projectedDesired);
-    return desiredMemberClosureMemo;
+  // Desired-side extension → member-keys index, computed lazily — only an
+  // extension REPLACE needs it (see the satellite replay below). Inverted from
+  // extensionMemberClosure so each replaced extension does ONE Map lookup
+  // instead of scanning every member of every extension per replace key;
+  // members keep the closure's iteration order, so emission order is unchanged.
+  let desiredMembersByExtensionMemo: Map<string, string[]> | undefined;
+  const desiredMembersByExtension = (): Map<string, string[]> => {
+    if (desiredMembersByExtensionMemo === undefined) {
+      desiredMembersByExtensionMemo = new Map();
+      for (const [memberKey, exts] of extensionMemberClosure(
+        projectedDesired,
+      )) {
+        for (const extKey of new Set(exts.map((ext) => encodeId(ext)))) {
+          const members = desiredMembersByExtensionMemo.get(extKey);
+          if (members === undefined) {
+            desiredMembersByExtensionMemo.set(extKey, [memberKey]);
+          } else {
+            members.push(memberKey);
+          }
+        }
+      }
+    }
+    return desiredMembersByExtensionMemo;
   };
 
   // replaces: drop old + create new (+ recreate unchanged descendants).
@@ -272,17 +289,18 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // both sides there is no delta to re-emit it. Replay them from the
     // projected target; the member consume orders them after the re-CREATE.
     // (The closure maps members to their owning EXTENSIONS only, so a
-    // non-extension replace key simply matches no members — no kind check.)
-    for (const [memberKey, exts] of desiredMemberClosureOf()) {
-      if (!exts.some((ext) => encodeId(ext) === key)) continue;
-      const member = projectedDesired.getByEncoded(memberKey);
-      if (!member) continue;
-      for (const child of projectedDesired.childrenOf(member.id)) {
-        if (ruleFlag(child.id.kind, "metadata") !== true) continue;
-        const childKey = encodeId(child.id);
-        if (added.has(childKey) || producerOf.has(childKey)) continue;
-        recreatedByReplace.add(childKey);
-        emitCreate(child, projectedDesired);
+    // non-extension replace key can never have members — skip the lookup.)
+    if (oldFact.id.kind === "extension") {
+      for (const memberKey of desiredMembersByExtension().get(key) ?? []) {
+        const member = projectedDesired.getByEncoded(memberKey);
+        if (!member) continue;
+        for (const child of projectedDesired.childrenOf(member.id)) {
+          if (ruleFlag(child.id.kind, "metadata") !== true) continue;
+          const childKey = encodeId(child.id);
+          if (added.has(childKey) || producerOf.has(childKey)) continue;
+          recreatedByReplace.add(childKey);
+          emitCreate(child, projectedDesired);
+        }
       }
     }
   }
