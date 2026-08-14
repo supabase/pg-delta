@@ -7,7 +7,12 @@ import { describe, expect, spyOn, test } from "bun:test";
 import type { Pool } from "pg";
 import type { Action, Plan } from "../plan/plan.ts";
 import { ENGINE_VERSION, stampPlanId } from "../plan/plan.ts";
-import { apply, type ApplyEvent, segmentActions } from "./apply.ts";
+import {
+  apply,
+  type ApplyEvent,
+  planSegments,
+  segmentActions,
+} from "./apply.ts";
 
 const txn = (newSegmentBefore = false) => ({
   transactionality: "transactional" as const,
@@ -65,6 +70,17 @@ describe("segmentActions", () => {
 
   test("empty plans yield no segments", () => {
     expect(segmentActions([])).toEqual([]);
+  });
+});
+
+describe("planSegments", () => {
+  test("equals segmentActions(plan.actions) for mixed transactionality", () => {
+    const actions = [txn(), nonTxn(), txn(), boundary(), txn(true), txn()];
+    expect(planSegments({ actions })).toEqual(segmentActions(actions));
+  });
+
+  test("equals segmentActions(plan.actions) for an empty plan", () => {
+    expect(planSegments({ actions: [] })).toEqual(segmentActions([]));
   });
 });
 

@@ -71,11 +71,14 @@ export type { HazardKind, ActionHazard, HazardReport } from "./plan/hazards.ts";
 // ── apply ────────────────────────────────────────────────────────────────────
 export {
   apply,
+  segmentActions,
+  planSegments,
   type ApplyError,
   type ApplyReport,
   type ApplyOptions,
   type ApplyEvent,
   type ActionStatus,
+  type Segment,
 } from "./apply/apply.ts";
 
 // ── proof ────────────────────────────────────────────────────────────────────
