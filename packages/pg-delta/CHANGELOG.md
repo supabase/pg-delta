@@ -1,5 +1,19 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.39
+
+### Minor Changes
+
+- dd843ab: Export `classifySqlFiles` / `classifySqlContent`, a pure helper that classifies a proposed declarative export against an existing tree (`created` / `updated` / `unchanged` / `removed` / `unmanaged`) without writing or deleting files. The Supabase CLI can compose this for `schema pull`; `pgdelta schema export` keeps staging, unmanaged-file refusal, and install.
+- 8cac632: Require `Plan.planId`, a SHA-256 content hash over the plan-bound approval ingredients (format/engine version, source/target fingerprints, the preamble, accepted renames, the ordered action list, and profile/scope/policy). `plan()` stamps it; `parsePlan` and `apply()` refuse a missing or mismatching digest. Stale artifacts without `planId` must be re-planned — they are never silently upgraded.
+- 551e88b: Export `pruneStaleSqlFiles`, `renderApplyScript`, and `probeUnmodeledIdentitiesPinned` from the package root and `@supabase/pg-delta/frontends` so library consumers can prune stale schema files, render a dry-run apply script, and probe unmodeled drift without importing `src/cli/**` or unexported frontend modules. `pgdelta` already used them internally.
+
+  `pruneStaleSqlFiles` now resolves relative `keep`/`previouslyOwned` entries against `outRoot` (absolute entries are unchanged), so a consumer passing outRoot-relative paths cannot misread kept files as out-of-set — which under `pruneUnmanaged` would have deleted them.
+
+### Patch Changes
+
+- d5ac415: Export the named `LoadSqlFilesOptions` type from the package root. Library default for `strictDataStatements` remains permissive (`false`).
+
 ## 1.0.0-alpha.38
 
 ### Patch Changes
