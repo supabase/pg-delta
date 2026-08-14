@@ -90,6 +90,13 @@ describe("public API surface", () => {
     expect(typeof root.stampPlanId).toBe("function");
   });
 
+  test("root and ./plan re-export hazard classification helpers", () => {
+    expect(typeof root.actionHazards).toBe("function");
+    expect(typeof root.classifyPlanHazards).toBe("function");
+    expect(typeof planSubpath.actionHazards).toBe("function");
+    expect(typeof planSubpath.classifyPlanHazards).toBe("function");
+  });
+
   test("package.json declares the ./plan subpath export", () => {
     const pkgPath = fileURLToPath(new URL("../package.json", import.meta.url));
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {

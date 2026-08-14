@@ -47,6 +47,12 @@ export {
   computePlanId,
   stampPlanId,
 } from "./artifact.ts";
+export {
+  actionHazards,
+  classifyPlanHazards,
+  HAZARD_KIND_ORDER,
+} from "./hazards.ts";
+export type { HazardKind, ActionHazard, HazardReport } from "./hazards.ts";
 export type {
   ProjectionAudit,
   ProjectionAuditEntry,

@@ -33,6 +33,7 @@ function isPlannerBodyModuleFilename(name: string): boolean {
 const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   "artifact.ts": 73,
   "graph.ts": 0,
+  "hazards.ts": 0,
   "identity-normalize.ts": 17,
   // 28 → 30: mergeCoTargetGrants (multi-grantee GRANT merge) discriminates acl
   // actions via the isAclId type guard — 2 deliberate literals (type + guard).
