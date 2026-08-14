@@ -4,6 +4,13 @@
  * on Plan/Action and are not part of planId.
  *
  * Policy (which hazards block which target) stays in the caller.
+ *
+ * `non_transactional` mirrors SafetyReport.nonTransactionalActions: it fires
+ * only for `transactionality: "nonTransactional"`. A `commitBoundaryAfter`
+ * action is itself transactional (it rolls back cleanly) and is NOT a hazard,
+ * even though its forced COMMIT means the plan as a whole may apply in more
+ * than one transaction — callers that need single-transaction detection must
+ * inspect `Action.transactionality` directly.
  */
 import type { Diagnostic } from "../core/diagnostic.ts";
 import type { Action, Plan } from "./plan.ts";
