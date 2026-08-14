@@ -65,11 +65,14 @@ export { type LockClass } from "./plan/locks.ts";
 // ── apply ────────────────────────────────────────────────────────────────────
 export {
   apply,
+  segmentActions,
+  planSegments,
   type ApplyError,
   type ApplyReport,
   type ApplyOptions,
   type ApplyEvent,
   type ActionStatus,
+  type Segment,
 } from "./apply/apply.ts";
 
 // ── proof ────────────────────────────────────────────────────────────────────

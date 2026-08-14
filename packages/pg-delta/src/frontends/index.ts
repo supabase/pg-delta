@@ -65,6 +65,9 @@ export { probeUnmodeledIdentitiesPinned } from "./schema-plan.ts";
 export type { ApplyTimeoutOptions } from "../apply/apply-preamble.ts";
 export type { UnmodeledIdentities } from "../extract/unmodeled.ts";
 
+// Apply transaction segments: group a plan into maximal transactional runs.
+export { segmentActions, planSegments, type Segment } from "../apply/apply.ts";
+
 // Schema-first CLI helpers: coverage gate, data-loss listing, database identity.
 export {
   STRICT_COVERAGE_CODES,

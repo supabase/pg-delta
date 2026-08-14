@@ -16,6 +16,7 @@ import { type LoadSqlFilesOptions } from "./index.ts";
 import * as frontends from "./frontends/index.ts";
 import * as integrations from "./integrations/index.ts";
 import * as planSubpath from "./plan/plan.ts";
+import { planSegments, segmentActions } from "./apply/apply.ts";
 import { pruneStaleSqlFiles } from "./frontends/prune-sql-files.ts";
 import { renderApplyScript } from "./frontends/render-apply-script.ts";
 import { probeUnmodeledIdentitiesPinned } from "./frontends/schema-plan.ts";
@@ -131,6 +132,28 @@ describe("public API surface", () => {
     expect(frontends.probeUnmodeledIdentitiesPinned).toBe(
       probeUnmodeledIdentitiesPinned,
     );
+  });
+
+  test("root and frontends re-export plan segment helpers", () => {
+    expect(typeof root.planSegments).toBe("function");
+    expect(typeof root.segmentActions).toBe("function");
+    expect(root.planSegments).toBe(planSegments);
+    expect(root.segmentActions).toBe(segmentActions);
+    expect(typeof frontends.planSegments).toBe("function");
+    expect(typeof frontends.segmentActions).toBe("function");
+    expect(frontends.planSegments).toBe(planSegments);
+    expect(frontends.segmentActions).toBe(segmentActions);
+
+    const src = readFileSync(
+      fileURLToPath(new URL("./index.ts", import.meta.url)),
+      "utf-8",
+    );
+    expect(src).toContain("type Segment");
+    const frontendSrc = readFileSync(
+      fileURLToPath(new URL("./frontends/index.ts", import.meta.url)),
+      "utf-8",
+    );
+    expect(frontendSrc).toContain("type Segment");
   });
 
   test("root and frontends re-export coverage, data-loss, and database-identity helpers", () => {

@@ -100,7 +100,7 @@ export interface ApplyOptions {
   onEvent?: (event: ApplyEvent) => void;
 }
 
-interface Segment {
+export interface Segment {
   /** indexes into plan.actions, contiguous and in order */
   start: number;
   end: number; // exclusive
@@ -143,6 +143,12 @@ export function segmentActions(
     segments.push({ start, end: actions.length, transactional: true });
   }
   return segments;
+}
+
+export function planSegments(plan: {
+  readonly actions: Parameters<typeof segmentActions>[0];
+}): Segment[] {
+  return segmentActions(plan.actions);
 }
 
 function errorEntry(
