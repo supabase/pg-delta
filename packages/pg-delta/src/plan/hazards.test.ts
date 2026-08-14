@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Diagnostic } from "../core/diagnostic.ts";
-import type { Action } from "./plan.ts";
+import { buildFactBase } from "../core/fact.ts";
+import { plan, type Action } from "./plan.ts";
 import {
   actionHazards,
   classifyPlanHazards,
@@ -47,6 +48,13 @@ describe("HAZARD_KIND_ORDER", () => {
       "unmodeled_drift",
       "unresolved_security_label",
     ]);
+  });
+
+  test("is frozen so callers cannot mutate classification order", () => {
+    expect(Object.isFrozen(HAZARD_KIND_ORDER)).toBe(true);
+    expect(() => {
+      (HAZARD_KIND_ORDER as HazardKind[]).reverse();
+    }).toThrow();
   });
 });
 
@@ -283,5 +291,34 @@ describe("classifyPlanHazards", () => {
       "unmodeled_kind",
       "unresolved_security_label",
     ]);
+  });
+
+  test("reads safety fields from a real plan() table drop", () => {
+    const schema = { kind: "schema" as const, name: "app" };
+    const table = { kind: "table" as const, schema: "app", name: "records" };
+    const column = {
+      kind: "column" as const,
+      schema: "app",
+      table: "records",
+      name: "id",
+    };
+    const generated = plan(
+      buildFactBase(
+        [
+          { id: schema, payload: {} },
+          { id: table, parent: schema, payload: {} },
+          { id: column, parent: table, payload: {} },
+        ],
+        [],
+      ),
+      buildFactBase([{ id: schema, payload: {} }], []),
+      { compact: false },
+    );
+    const report = classifyPlanHazards(generated);
+    expect(report.kinds).toContain("data_loss");
+    expect(report.kinds).toContain("access_exclusive_lock");
+    expect(
+      report.actions.some((entry) => entry.kinds.includes("data_loss")),
+    ).toBe(true);
   });
 });

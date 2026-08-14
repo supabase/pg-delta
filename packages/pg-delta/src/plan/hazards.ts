@@ -17,8 +17,9 @@ export type HazardKind =
   | "unmodeled_drift"
   | "unresolved_security_label";
 
-/** Stable display order for unions / reports. */
-export const HAZARD_KIND_ORDER: readonly HazardKind[] = [
+/** Stable display order for unions / reports. Frozen so a caller cannot
+ *  mutate the module singleton that sortKinds() reads. */
+export const HAZARD_KIND_ORDER: readonly HazardKind[] = Object.freeze([
   "data_loss",
   "rewrite_risk",
   "non_transactional",
@@ -26,7 +27,7 @@ export const HAZARD_KIND_ORDER: readonly HazardKind[] = [
   "unmodeled_kind",
   "unmodeled_drift",
   "unresolved_security_label",
-];
+]);
 
 /** Coverage-diagnostic codes, duplicated locally as HazardKind literals
  *  that match the diagnostic codes. Do not import from src/cli/**. */

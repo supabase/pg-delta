@@ -122,7 +122,6 @@
     "pgdelta-ship-coverage-migration-docs",
     "pgmq-queue-trigger-fallback",
     "pgnet-extension-replace-cycle",
-    "plan-hazard-classification",
     "plan-id-content-hash",
     "planner-projection-dedup",
     "probe-server-version-once",
