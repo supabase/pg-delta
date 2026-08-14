@@ -75,14 +75,7 @@ describe("segmentActions", () => {
 
 describe("planSegments", () => {
   test("equals segmentActions(plan.actions) for mixed transactionality", () => {
-    const actions = [
-      txn(),
-      nonTxn(),
-      txn(),
-      boundary(),
-      txn(true),
-      txn(),
-    ];
+    const actions = [txn(), nonTxn(), txn(), boundary(), txn(true), txn()];
     expect(planSegments({ actions })).toEqual(segmentActions(actions));
   });
 
