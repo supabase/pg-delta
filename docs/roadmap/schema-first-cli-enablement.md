@@ -1,12 +1,13 @@
 # Schema-first CLI enablement
 
-- **Status**: In progress — WP1 shipping; remaining WPs sequenced below.
-- **Date**: 2026-08-13
+- **Status**: Shipped — every V1 work package has landed. Remaining items
+  are WP5 (not V1) and WP6 (deferred).
+- **Date**: 2026-08-13 (status refresh 2026-08-14)
 - **Source**: RFC *Schema-First Database Development* (Linear
   `rfc-schema-first-database-development-532de5a122d5`, 2026-08-12, **revised
   2026-08-13**).
 
-What `@supabase/pg-delta` must add so the Supabase CLI can build the
+What `@supabase/pg-delta` exports so the Supabase CLI can build the
 schema-first workflow (`schema pull / diff / generate / apply / push`).
 pg-delta is the schema compiler; the CLI owns the workflow layer.
 
@@ -17,9 +18,7 @@ base. Observed provenance (WP6) is deferred.
 
 | Symbol | Meaning |
 |---|---|
-| ✅ | Already provided by the engine |
-| 🟠 | Net-new engineering |
-| 🟡 | Substrate exists; build the consumer/surface |
+| ✅ | Shipped / already provided by the engine |
 | ⚪ | Deliberate deferral |
 
 ---
@@ -47,60 +46,54 @@ flattened to rendered SQL:
 - `_custom/` preservation (exporter never writes/prunes/claims it) and
   `ExportManifest.files` ownership list.
 
-**Inventory corrections vs the RFC text:**
-
-- Plan artifacts already stamp `formatVersion` + `engineVersion`; `parsePlan`
-  and `apply()` refuse a mismatch. WP1 adds required `Plan.planId` (this change).
-- `segmentActions()` is already exported from `@supabase/pg-delta/apply`. WP3
-  still needs the `Segment` type, a `planSegments(plan)` helper, and
-  root/`frontends` re-exports, plus `renderApplyScript`.
-
 ---
 
-## WP1 — **this change** Stable plan identifier
+## WP1 — ✅ Stable plan identifier (#418)
 
 `Plan.planId` is a required SHA-256 content hash over `formatVersion`,
-`engineVersion`, source/target fingerprints, the `preamble` (executed per
-segment by apply — run content, like the action list), `acceptedRenames`,
-the ordered action list, and `profile`/`scope`/`policy`. `plan()` stamps it via
-`stampPlanId`; `parsePlan` and `apply()` refuse a missing or mismatching
-digest (`re-plan` — never silently upgrade). Version fail-closed for
-`formatVersion`/`engineVersion` was already in place. Stale artifacts
-without `planId` must be re-planned.
+`engineVersion`, source/target fingerprints, `preamble`, `acceptedRenames`,
+the ordered action list, and `profile`/`scope`/`policy`. `plan()` stamps it
+via `stampPlanId`; `parsePlan` and `apply()` refuse a missing or mismatching
+digest (`re-plan` — never silently upgrade).
 
 ---
 
-## WP2 — 🟡 Hazard classification 2.0
+## WP2 — ✅ Hazard classification 2.0 (#420)
 
-Derive per-action `HazardKind[]` from existing proof-verified safety fields
-plus coverage diagnostics. Export stable codes and a plan-level hazard
-report. Policy (which hazards block which target class) stays in the
+`actionHazards` / `classifyPlanHazards` export stable `HazardKind` codes
+derived from proof-verified action safety fields (`dataLoss`, `rewriteRisk`,
+`transactionality`, `lockClass`) and coverage diagnostics. Hazard kinds are
+a **view** — they are not stored on `Plan`/`Action` and are not part of
+`planId`. Policy (which hazards block which target class) stays in the
 Supabase CLI. Linear: CLI-1459–1464.
 
+The original backlog also named a `pgdelta --allow-hazards` gate and a
+GitLab Code-Quality JSON reporter. Those remain optional `pgdelta` CLI DX;
+the RFC adapter classifies via the library and applies policy itself.
+
 ---
 
-## WP3 — 🟡 Promote CLI-only logic into exported library frontends
+## WP3 — ✅ Promote CLI-only logic into exported library frontends
 
 Library frontends accept pools and SQL files; they return typed data. No
 `supabase/` paths, prompts, or CLI JSON. `pgdelta` stays a thin consumer.
 
 | Slice | Status | Notes |
 |---|---|---|
-| **WP3a** export file classification | shipped (#414) | Pure `classifySqlFiles` / `classifySqlContent`. Does **not** export `writeExportFiles` (writes, scaffolds `_custom/README.md`, refuses unmanaged). |
-| **WP3b** | next | Re-export `pruneStaleSqlFiles`, `renderApplyScript`, `probeUnmodeledIdentitiesPinned`. |
-| **WP3c** | | Export `Segment` + `planSegments(plan)` from root/`frontends`. |
-| **WP3d** | | Move `STRICT_COVERAGE_CODES` + `hasBlockingDiagnostics` into a frontend; leave `printDiagnostics` / `exitIfBlocking` in the CLI. |
-| **WP3e** | | Move `dataLossActions` into a frontend; leave `assertDataLossAllowed` in the CLI. |
-| **WP3f** | | Export `SourceDatabaseIdentity` + `src/database-identity.ts` helpers (not URL parsing). |
+| **WP3a** export file classification | ✅ #414 | Pure `classifySqlFiles` / `classifySqlContent`. Does **not** export `writeExportFiles`. |
+| **WP3b** prune / dry-run / unmodeled probe | ✅ #416 | `pruneStaleSqlFiles`, `renderApplyScript`, `probeUnmodeledIdentitiesPinned`. |
+| **WP3c** segments | ✅ #421 | `Segment` + `planSegments(plan)` from root/`frontends`. |
+| **WP3d** strict-coverage gate | ✅ #423 | `STRICT_COVERAGE_CODES` + `hasBlockingDiagnostics`. `printDiagnostics` / `exitIfBlocking` stay in the CLI. |
+| **WP3e** data-loss helpers | ✅ #423 | `dataLossActions`. `assertDataLossAllowed` stays in the CLI. |
+| **WP3f** target-identity safety | ✅ #423 | `SourceDatabaseIdentity` + `database-identity.ts` helpers (not URL parsing). |
 
 ---
 
-## WP4 — 🟠 Loader contract polish
+## WP4 — ✅ Loader contract polish (#419)
 
-Name and export `LoadSqlFilesOptions`. Library default for
+`LoadSqlFilesOptions` is a named, exported type. The library default for
 `strictDataStatements` stays permissive (warning); the Supabase CLI adapter
-**must** pass `strictDataStatements: true`. Flipping the library default is
-a breaking change with no engine benefit.
+**must** pass `strictDataStatements: true`.
 
 ---
 
@@ -120,17 +113,22 @@ designed, or if diff-UX demand justifies Tier 1 on its own.
 
 ---
 
-## Sequencing
+## RFC phase mapping (pg-delta side)
 
-WP3a → WP3b/c (pull's file summary + segments) → WP1 → WP2 → WP3d/e/f → WP4.
+| RFC phase | pg-delta |
+|---|---|
+| Phase 0 — strengthen current declarative workflow | ✅ WP2 + WP3d |
+| Phase 1 — `schema pull` / `diff` / `generate` | ✅ WP1 + WP3a–c |
+| Phase 2 — `schema apply` + draft journal | ✅ `apply()` plus WP1 `planId` and WP2 hazard codes |
+| Phase 3–4 — `schema push` / top-level composition | Nothing new on the pg-delta side |
+| Phase 5 — stronger verification | WP5 tracks |
 
-RFC phase mapping: Phase 0 needs WP2 + WP3d; Phase 1 needs WP1 + WP3a–c;
-Phase 2 consumes `planId` + hazard codes; Phases 3–4 need nothing new on
-the pg-delta side.
+The remaining work is the **Supabase CLI adapter**: staging, `--force`,
+unmanaged-file policy, checkpoints, draft journals, and hazard *policy*.
 
 ---
 
-## Boundary (binding on every WP)
+## Boundary (binding)
 
 - pg-delta does not learn about `supabase/database`, `supabase/migrations`,
   linked projects, branch protection, prompts, or CLI JSON.
