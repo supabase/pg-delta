@@ -612,70 +612,74 @@ async function listPopulatedManagedTables(
   return populated;
 }
 
+export interface LoadSqlFilesOptions {
+  maxRounds?: number;
+  mode?: "databaseScratch" | "isolatedCluster";
+  /** Extractor for the loaded shadow state. Defaults to the raw core
+   *  `extract`; a profile-aware caller passes its `ctx.extract` so the shadow
+   *  desired state is projected with the SAME handlers as the target (review
+   *  P1 — SQL-file workflows must match the profile-aware DB-to-DB path). */
+  extract?: (pool: Pool, options?: ExtractOptions) => Promise<ExtractResult>;
+  /** Assumed schemas the caller PRE-SEEDED into the shadow (Phase 2b): the
+   *  emptiness guard below excludes them from its count so a deliberately
+   *  seeded shadow (auth.users under --profile supabase) is not rejected as
+   *  "not empty". Only these schemas are exempt — an unexpected object
+   *  anywhere else still fails the guard. */
+  seededSchemas?: string[];
+  /** Encoded stable ids of the routines the Phase 2b seed ACTUALLY created,
+   *  mapped to each routine's seeded `pg_get_functiondef` text. Scopes the
+   *  post-load body-validation leniency: a routine is treated as
+   *  "seeded platform code" (warn on a wonky body) only when its overload-safe
+   *  encoded identity is in this map AND its current def is unchanged from the
+   *  seeded def. A user-authored routine in a seeded schema — a new overload,
+   *  or a CREATE OR REPLACE that changes the body — is NOT in (or no longer
+   *  matches) this map and THROWS (Codex #329). When OMITTED (direct library
+   *  callers), leniency falls back to the coarser `seededSchemas` name check
+   *  for backward compatibility; the CLI always passes this once it seeds. */
+  seededRoutines?: ReadonlyMap<string, string>;
+  /** Escalate a USER routine's post-load body-validation failure back to a
+   *  fatal error (default `false`). By default a user routine whose body fails
+   *  the `check_function_bodies = on` re-lint is reported as a loud WARNING and
+   *  the load proceeds: Postgres already accepted it under check-off (which
+   *  pg-delta's own apply executor emits in every plan preamble), so refusing
+   *  to read it back would be pg-delta imposing stricter validation than
+   *  Postgres and would block round-tripping any schema that relies on
+   *  check-off. Set to `true` (CLI `--strict-function-bodies`) to restore the
+   *  fatal gate for CI. Only class-3 (user-schema) failures honour this flag —
+   *  a routine in a seeded schema that is NOT an unchanged seed always throws
+   *  (Codex #329), and an unchanged seeded routine always warns. */
+  strictFunctionBodies?: boolean;
+  /** Tolerate rows that already existed in the shadow BEFORE this load
+   *  (default: `true` in `"isolatedCluster"` mode, `false` otherwise). A
+   *  dedicated shadow may be pre-provisioned by a platform — the Supabase CLI
+   *  boots auth / storage / realtime against it, and those services write their
+   *  own migration bookkeeping rows — long before declarative SQL is loaded.
+   *  When enabled the loader snapshots which managed non-extension tables are
+   *  populated before the load and exempts exactly those from the post-load DML
+   *  observation, silently; the exempted set is returned as
+   *  {@link LoadResult.preExistingPopulatedTables}. Exemption is by qualified
+   *  table NAME (no data comparison, ever), so a pre-populated table stays
+   *  exempt even if a declarative file inserts into it — an accepted limitation
+   *  of observing rather than parsing. */
+  allowPreExistingRows?: boolean;
+  /** Escalate the post-load DML observation back to a fatal error (default
+   *  `false`). By default a managed non-extension table holding rows the load
+   *  cannot account for is a loud `data_statement` WARNING and the load
+   *  proceeds: pg-delta only diffs schema, so incidental data cannot corrupt a
+   *  plan, and refusing to read the schema back would block every directory
+   *  that carries some. Set to `true` (CLI `--strict-data-statements`) to
+   *  restore the `ShadowLoadError` refusal for CI. Pre-existing rows exempted
+   *  by `allowPreExistingRows` are never escalated — they are not observed at
+   *  all. Library default remains `false` (warning); a schema-first / Supabase
+   *  CLI adapter must pass `true` so declarative DML is rejected rather than
+   *  warned. */
+  strictDataStatements?: boolean;
+}
+
 export async function loadSqlFiles(
   files: SqlFile[],
   shadow: Pool,
-  options: {
-    maxRounds?: number;
-    mode?: "databaseScratch" | "isolatedCluster";
-    /** Extractor for the loaded shadow state. Defaults to the raw core
-     *  `extract`; a profile-aware caller passes its `ctx.extract` so the shadow
-     *  desired state is projected with the SAME handlers as the target (review
-     *  P1 — SQL-file workflows must match the profile-aware DB-to-DB path). */
-    extract?: (pool: Pool, options?: ExtractOptions) => Promise<ExtractResult>;
-    /** Assumed schemas the caller PRE-SEEDED into the shadow (Phase 2b): the
-     *  emptiness guard below excludes them from its count so a deliberately
-     *  seeded shadow (auth.users under --profile supabase) is not rejected as
-     *  "not empty". Only these schemas are exempt — an unexpected object
-     *  anywhere else still fails the guard. */
-    seededSchemas?: string[];
-    /** Encoded stable ids of the routines the Phase 2b seed ACTUALLY created,
-     *  mapped to each routine's seeded `pg_get_functiondef` text. Scopes the
-     *  post-load body-validation leniency: a routine is treated as
-     *  "seeded platform code" (warn on a wonky body) only when its overload-safe
-     *  encoded identity is in this map AND its current def is unchanged from the
-     *  seeded def. A user-authored routine in a seeded schema — a new overload,
-     *  or a CREATE OR REPLACE that changes the body — is NOT in (or no longer
-     *  matches) this map and THROWS (Codex #329). When OMITTED (direct library
-     *  callers), leniency falls back to the coarser `seededSchemas` name check
-     *  for backward compatibility; the CLI always passes this once it seeds. */
-    seededRoutines?: ReadonlyMap<string, string>;
-    /** Escalate a USER routine's post-load body-validation failure back to a
-     *  fatal error (default `false`). By default a user routine whose body fails
-     *  the `check_function_bodies = on` re-lint is reported as a loud WARNING and
-     *  the load proceeds: Postgres already accepted it under check-off (which
-     *  pg-delta's own apply executor emits in every plan preamble), so refusing
-     *  to read it back would be pg-delta imposing stricter validation than
-     *  Postgres and would block round-tripping any schema that relies on
-     *  check-off. Set to `true` (CLI `--strict-function-bodies`) to restore the
-     *  fatal gate for CI. Only class-3 (user-schema) failures honour this flag —
-     *  a routine in a seeded schema that is NOT an unchanged seed always throws
-     *  (Codex #329), and an unchanged seeded routine always warns. */
-    strictFunctionBodies?: boolean;
-    /** Tolerate rows that already existed in the shadow BEFORE this load
-     *  (default: `true` in `"isolatedCluster"` mode, `false` otherwise). A
-     *  dedicated shadow may be pre-provisioned by a platform — the Supabase CLI
-     *  boots auth / storage / realtime against it, and those services write their
-     *  own migration bookkeeping rows — long before declarative SQL is loaded.
-     *  When enabled the loader snapshots which managed non-extension tables are
-     *  populated before the load and exempts exactly those from the post-load DML
-     *  observation, silently; the exempted set is returned as
-     *  {@link LoadResult.preExistingPopulatedTables}. Exemption is by qualified
-     *  table NAME (no data comparison, ever), so a pre-populated table stays
-     *  exempt even if a declarative file inserts into it — an accepted limitation
-     *  of observing rather than parsing. */
-    allowPreExistingRows?: boolean;
-    /** Escalate the post-load DML observation back to a fatal error (default
-     *  `false`). By default a managed non-extension table holding rows the load
-     *  cannot account for is a loud `data_statement` WARNING and the load
-     *  proceeds: pg-delta only diffs schema, so incidental data cannot corrupt a
-     *  plan, and refusing to read the schema back would block every directory
-     *  that carries some. Set to `true` (CLI `--strict-data-statements`) to
-     *  restore the `ShadowLoadError` refusal for CI. Pre-existing rows exempted
-     *  by `allowPreExistingRows` are never escalated — they are not observed at
-     *  all. */
-    strictDataStatements?: boolean;
-  } = {},
+  options: LoadSqlFilesOptions = {},
 ): Promise<LoadResult> {
   // Rounds scale with dependency DEPTH, not file count: each round resolves
   // every file whose dependencies now exist. A deterministic, convergent load

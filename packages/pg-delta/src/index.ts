@@ -81,6 +81,7 @@ export {
   ShadowLoadError,
   type SqlFile,
   type LoadResult,
+  type LoadSqlFilesOptions,
 } from "./frontends/load-sql-files.ts";
 export {
   exportSqlFiles,

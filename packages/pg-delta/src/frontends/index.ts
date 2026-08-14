@@ -7,6 +7,7 @@ export {
   ShadowLoadError,
   type SqlFile,
   type LoadResult,
+  type LoadSqlFilesOptions,
 } from "./load-sql-files.ts";
 
 export { exportSqlFiles, type ExportOptions } from "./export-sql-files.ts";
