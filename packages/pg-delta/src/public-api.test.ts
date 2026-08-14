@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import * as root from "./index.ts";
+import { type LoadSqlFilesOptions } from "./index.ts";
 import * as frontends from "./frontends/index.ts";
 import * as integrations from "./integrations/index.ts";
 import * as planSubpath from "./plan/plan.ts";
@@ -29,6 +30,30 @@ describe("public API surface", () => {
   test("root re-exports the export-file classification helper", () => {
     expect(typeof root.classifySqlFiles).toBe("function");
     expect(typeof root.classifySqlContent).toBe("function");
+  });
+
+  test("root re-exports LoadSqlFilesOptions", () => {
+    // Runtime: type-only re-exports have no value, so bun test cannot see
+    // them except via the barrel source. Combined with `satisfies` so tsc
+    // also checks the named type is the same surface.
+    const src = readFileSync(
+      fileURLToPath(new URL("./index.ts", import.meta.url)),
+      "utf-8",
+    );
+    expect(src).toContain("type LoadSqlFilesOptions");
+    const frontendSrc = readFileSync(
+      fileURLToPath(new URL("./frontends/index.ts", import.meta.url)),
+      "utf-8",
+    );
+    expect(frontendSrc).toContain("type LoadSqlFilesOptions");
+
+    // Named type for the loadSqlFiles third argument. Pinning
+    // `strictDataStatements: true` is valid and documents the schema-first /
+    // Supabase CLI adapter contract without flipping the library default.
+    const options = {
+      strictDataStatements: true,
+    } satisfies LoadSqlFilesOptions;
+    expect(options.strictDataStatements).toBe(true);
   });
 
   test("the integrations subpath exposes the full profile surface", () => {
