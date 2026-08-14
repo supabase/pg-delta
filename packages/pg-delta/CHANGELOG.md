@@ -1,5 +1,13 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.40
+
+### Minor Changes
+
+- b5a4666: Export `actionHazards` / `classifyPlanHazards` with stable `HazardKind` codes derived from proof-verified action safety fields and coverage diagnostics. Policy (which hazards block which target) stays in the caller. Hazard kinds are not stored on `Plan`/`Action` and are not part of `planId`.
+- 751f749: Export `hasBlockingDiagnostics` / `STRICT_COVERAGE_CODES`, `dataLossActions`, and database-identity helpers (`SourceDatabaseIdentity`, `observeDatabaseIdentity`, `databaseIdentityStamp`, …) from the package root and `@supabase/pg-delta/frontends`. CLI policy helpers (`printDiagnostics`, `exitIfBlocking`, `assertDataLossAllowed`) stay in `pgdelta`.
+- 68a3035: Export `Segment`, `segmentActions`, and `planSegments` from the package root and `@supabase/pg-delta/frontends` so library consumers can group a plan into apply transaction segments without importing `src/apply/apply.ts`.
+
 ## 1.0.0-alpha.39
 
 ### Minor Changes

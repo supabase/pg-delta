@@ -122,6 +122,7 @@
     "pgdelta-ship-coverage-migration-docs",
     "pgmq-queue-trigger-fallback",
     "pgnet-extension-replace-cycle",
+    "plan-hazard-classification",
     "plan-id-content-hash",
     "planner-projection-dedup",
     "probe-server-version-once",
@@ -144,6 +145,7 @@
     "schema-apply-error-channel",
     "schema-apply-shadow-leak-owner-guard",
     "schema-apply-statement-debugging",
+    "schema-first-cli-coverage-dataloss-identity",
     "schema-first-cli-frontend-reexports",
     "scope-owner-exclusion-ordering",
     "scope-seeded-body-validation",
@@ -175,6 +177,7 @@
     "unmodeled-drift-custom-delivery",
     "warm-tables-learn",
     "wasm-fdw-dependents",
-    "window-function-and-table-rule-depend-edges"
+    "window-function-and-table-rule-depend-edges",
+    "wp3c-plan-segments"
   ]
 }
