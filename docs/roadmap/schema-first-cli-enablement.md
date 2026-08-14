@@ -1,7 +1,7 @@
 # Schema-first CLI enablement
 
-- **Status**: V1 engine slices implemented; WP2 (#420), WP3c (#421), and
-  WP3d–f (#423) await merge. WP5 is not a V1 blocker; WP6 stays deferred.
+- **Status**: V1 engine slices implemented; WP2 (#420) and WP3d–f (#423)
+  await merge. WP3c shipped (#421). WP5 is not a V1 blocker; WP6 stays deferred.
 - **Date**: 2026-08-14
 - **Source**: RFC *Schema-First Database Development* (Linear
   `rfc-schema-first-database-development-532de5a122d5`, 2026-08-12, **revised
@@ -60,9 +60,9 @@ flattened to rendered SQL:
 
 - Plan artifacts already stamp `formatVersion` + `engineVersion`; `parsePlan`
   and `apply()` refuse a mismatch. WP1 (`Plan.planId`) shipped in #418.
-- `segmentActions()` is exported from `@supabase/pg-delta/apply`. WP3c adds
-  the `Segment` type and `planSegments(plan)` on the root/`frontends` barrels
-  (implemented, awaiting merge). `renderApplyScript` shipped in WP3b (#416).
+- `segmentActions()`, `planSegments(plan)`, and `Segment` are exported from
+  the root/`frontends` barrels (WP3c, #421). `renderApplyScript` shipped in
+  WP3b (#416).
 
 ---
 
@@ -102,7 +102,7 @@ Library frontends accept pools and SQL files; they return typed data. No
 |---|---|---|
 | **WP3a** export file classification | shipped (#414) | Pure `classifySqlFiles` / `classifySqlContent`. Does **not** export `writeExportFiles` (writes, scaffolds `_custom/README.md`, refuses unmanaged). |
 | **WP3b** prune / apply-script / unmodeled-drift | shipped (#416) | `pruneStaleSqlFiles`, `renderApplyScript`, `probeUnmodeledIdentitiesPinned`. |
-| **WP3c** `Segment` + `planSegments` | implemented, awaiting merge (#421) | Also re-exports `segmentActions` from root/`frontends`. |
+| **WP3c** `Segment` + `planSegments` | shipped (#421) | Also re-exports `segmentActions` from root/`frontends`. |
 | **WP3d** coverage gate | implemented, awaiting merge (#423) | `STRICT_COVERAGE_CODES` + `hasBlockingDiagnostics` in a frontend; `printDiagnostics` / `exitIfBlocking` stay in the CLI. |
 | **WP3e** data-loss listing | implemented, awaiting merge (#423) | `dataLossActions` in a frontend; `assertDataLossAllowed` stays in the CLI. |
 | **WP3f** database identity | implemented, awaiting merge (#423) | `SourceDatabaseIdentity` + `src/database-identity.ts` helpers (not URL parsing). |
@@ -138,9 +138,8 @@ designed, or if diff-UX demand justifies Tier 1 on its own.
 
 WP3a → WP3b/c (pull's file summary + segments) → WP1 → WP2 → WP3d/e/f → WP4.
 
-Shipped on `main`: WP3a (#414), WP3b (#416), WP1 (#418), WP4 (#419). The
-remaining V1 slices were implemented in parallel and await merge: WP2
-(#420), WP3c (#421), WP3d–f (#423). They do not depend on each other.
+Shipped on `main`: WP3a (#414), WP3b (#416), WP1 (#418), WP3c (#421), WP4
+(#419). Remaining V1 slices awaiting merge: WP2 (#420), WP3d–f (#423).
 
 RFC phase mapping: Phase 0 needs WP2 + WP3d; Phase 1 needs WP1 + WP3a–c;
 Phase 2 consumes `planId` + hazard codes; Phases 3–4 need nothing new on
