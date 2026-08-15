@@ -928,10 +928,11 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     if (shadowFlag !== undefined) {
       const { targetIdentity, shadowIdentity } =
         await observeExplicitShadowIdentities(tgt.pool, shadow.pool);
-      if (
-        isSameDatabase(targetIdentity, shadowIdentity) &&
-        !flags["allow-same-database-identity"]
-      ) {
+      const sameDatabaseIdentity = isSameDatabase(
+        targetIdentity,
+        shadowIdentity,
+      );
+      if (sameDatabaseIdentity && !flags["allow-same-database-identity"]) {
         throw new UsageError(
           `schema apply: shadow and target are the same observed database (${targetIdentity.database}); refusing to load declarative SQL. ` +
             `A physically cloned shadow (e.g. a warm shadow cache restored from a PGDATA snapshot of the target cluster) inherits the ` +
@@ -939,20 +940,31 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
             `server, pass --allow-same-database-identity to bypass this check`,
         );
       }
+      // The flag attests "my shadow is a physical clone of the target" — it exempts
+      // lineage containment ONLY for that exact-identity match, never for a
+      // same-lineage sibling database (same system identifier, different database
+      // OID), which is a genuinely different database on the same cluster and must
+      // still be refused.
+      const trustedCloneBypass =
+        flags["allow-same-database-identity"] === true && sameDatabaseIdentity;
       if (
         scope === "cluster" &&
-        isSamePostgresLineage(targetIdentity, shadowIdentity)
+        isSamePostgresLineage(targetIdentity, shadowIdentity) &&
+        !trustedCloneBypass
       ) {
         throw new UsageError(
-          "schema apply: --scope cluster requires a shadow from a different PostgreSQL lineage; the supplied shadow shares the target lineage",
+          "schema apply: --scope cluster requires a shadow from a different PostgreSQL lineage; the supplied shadow shares the target lineage " +
+            "(same-lineage sibling databases are not covered by --allow-same-database-identity)",
         );
       }
       if (
         flags["isolated-shadow"] &&
-        isSamePostgresLineage(targetIdentity, shadowIdentity)
+        isSamePostgresLineage(targetIdentity, shadowIdentity) &&
+        !trustedCloneBypass
       ) {
         throw new UsageError(
-          "schema apply: an isolated shadow (--isolated-shadow) requires a different PostgreSQL lineage; the supplied shadow shares the target lineage",
+          "schema apply: an isolated shadow (--isolated-shadow) requires a different PostgreSQL lineage; the supplied shadow shares the target lineage " +
+            "(same-lineage sibling databases are not covered by --allow-same-database-identity)",
         );
       }
     }
