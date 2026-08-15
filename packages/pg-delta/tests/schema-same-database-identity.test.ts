@@ -98,7 +98,9 @@ describe("planSchemaFiles same-database identity bypass", () => {
           `SELECT to_regnamespace('cloned_shadow') IS NOT NULL AS present`,
         ),
       ).toMatchObject({ rows: [{ present: true }] });
-      expect(warnings.some((w) => /same database identity/i.test(w))).toBe(true);
+      expect(warnings.some((w) => /same database identity/i.test(w))).toBe(
+        true,
+      );
     } finally {
       await db.drop();
     }

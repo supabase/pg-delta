@@ -286,6 +286,14 @@ export interface PlanSchemaFilesOptions {
   allowPreExistingRows?: boolean;
   /** Make the shadow load's DML observation fatal again (default: warning). */
   strictDataStatements?: boolean;
+  /** Proceed when the shadow and the target observe the SAME database identity
+   *  (system identifier + database OID) instead of refusing. Physical clones —
+   *  a warm shadow cache restored from a PGDATA snapshot of the target cluster —
+   *  inherit both, so a genuinely separate shadow server is indistinguishable
+   *  from the target here. Off by default; when it is on and the identities do
+   *  match, the bypass is reported through {@link PlanSchemaFilesOptions.onWarning}.
+   *  A no-op when the identities differ. */
+  allowSameDatabaseIdentity?: boolean;
   /** Statement-reorder assist. Default: true. */
   reorder?: boolean;
   /** Soft warnings (reorder fallback, ADP caveat, …). */
@@ -383,8 +391,19 @@ export async function planSchemaFiles(
     "planSchemaFiles shadow safety",
   );
   if (isSameDatabase(targetIdentity, shadowIdentity)) {
-    throw new SchemaFrontendError(
-      `planSchemaFiles: shadow and target are the same observed database (${targetIdentity.database}); refusing to load declarative SQL`,
+    if (options.allowSameDatabaseIdentity !== true) {
+      throw new SchemaFrontendError(
+        `planSchemaFiles: shadow and target are the same observed database (${targetIdentity.database}); refusing to load declarative SQL. ` +
+          `A physically cloned shadow (e.g. a warm shadow cache restored from a PGDATA snapshot of the target cluster) inherits the target's ` +
+          `system identifier and database OIDs and reports as the same database here; if the shadow is known to be a separate server, ` +
+          `pass allowSameDatabaseIdentity: true to bypass this check`,
+      );
+    }
+    options.onWarning?.(
+      `shadow and target report the same database identity (system identifier + database OID) for "${targetIdentity.database}". ` +
+        `This is expected for a physically restored/cloned shadow; the same-database safety guard was explicitly bypassed ` +
+        `(allowSameDatabaseIdentity / --allow-same-database-identity). If the shadow is NOT a separate server, ` +
+        `declarative SQL is being loaded into the target itself.`,
     );
   }
   if (
