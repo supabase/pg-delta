@@ -1134,3 +1134,25 @@ Also fixed after the round-3 triage:
   form. The residual corner (making partitioned queues replayable via
   part_config-sourced intervals) is still the follow-up above.
 
+Round 4 (final round — loop capped per the automated-review policy):
+
+- **Changeset overclaimed the raw profile's safety (Codex round 4) — FIXED.**
+  The release note said "a `raw` or custom profile never plans `DROP TABLE`"
+  against the operational tables, but `rawProfile` is `handlers: []` and never
+  invokes the handler, so under `--profile raw` a source-to-empty diff still
+  treats `pgmq.q_*`/`a_*` as ordinary managed tables. Reworded to scope the
+  guarantee to profiles that compose the handler.
+- **The `INTENT_UNSUPPORTED` collision gate probes PRE-filter fact bases
+  (Codex round 4) — declined, recorded.** `plan()` checks
+  `rawSource.has(id)` / `rawDesired.has(id)` before `buildChangeSet` applies
+  policy or baseline projection, so a profile that composes `pgmqHandler`
+  while simultaneously policy-filtering its intent facts would be over-blocked
+  even though the filtered diff would produce no action. Declined because the
+  configuration is contrived (a user wanting queues unmanaged simply omits the
+  opt-in handler), the failure direction is fail-safe (planning refuses with a
+  clear message naming the queue; no wrong DDL is emitted), and the placement
+  mirrors the pre-existing `INTENT_UNKEYED` gate directly above it. If a real
+  profile ever hits the over-block, the fix shape is to move the probe onto
+  the kept-delta / managed views, mirroring the `USER_MAPPING_UNREADABLE`
+  gate's zero-over-block approach lower in the same function.
+

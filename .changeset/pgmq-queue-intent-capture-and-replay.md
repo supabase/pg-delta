@@ -11,8 +11,10 @@ keyed by `queue_name` (its unique registry key, so a queue is never unkeyable)
 and replays it through pgmq's own API: `select pgmq.create(…)` /
 `select pgmq.create_unlogged(…)`, and `select pgmq.drop_queue(…)` marked
 `destructive` because dropping a queue destroys its messages. The handler also
-tags each queue's `pgmq.q_*` / `pgmq.a_*` tables `managedBy` the extension, so a
-`raw` or custom profile never plans `DROP TABLE` against them.
+tags each queue's `pgmq.q_*` / `pgmq.a_*` tables `managedBy` the extension, so
+any profile composing it — the `supabase` profile, or a custom profile
+referencing `"pgmq"` — never plans `DROP TABLE` against them. The default `raw`
+profile composes no handlers and does not get this protection.
 
 This closes the loop that was previously unprovable: a database containing a
 queue now round-trips through `schema export` → load into a fresh shadow →
