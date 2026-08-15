@@ -242,6 +242,60 @@ it is platform history, not something a policy can express.
   after `CREATE TABLE` + columns/PK. **produces**: the parent intent fact + (via
   `managedBy`) its operational children.
 
+#### 3.3.1 As built (CLI-2044), and where it deviates from the sketch above
+
+The sketch above predates the implementation. `src/policy/extensions/pg-partman.ts`
+is authoritative; its header carries the **full `part_config` column
+disposition table**, audited against **pg_partman 5.3.1** (the version shipped
+in `supabase/postgres:17.6.1.135`). All 29 columns of 5.3.1 are classified:
+
+| class | count | what it is | how it replays |
+|---|---|---|---|
+| (a) | 13 | intent reachable from a `create_parent()` argument | rendered as that named argument |
+| (b) | 11 | intent with **no** `create_parent()` argument (`retention*`, `optimize_constraint`, `infinite_time_partitions`, `inherit_privileges`, `constraint_valid`, `ignore_default_data`, `maintenance_order`) | a follow-up `UPDATE part_config`, emitted only when the intent differs from partman's own defaults |
+| (c) | 5 | runtime state (`datetime_string`, `undo_in_progress`, `maintenance_last_run`, `async_partitioning_in_progress`, `sub_partition_set_full`) | never captured |
+
+Every (a) and (b) column is on the hashed payload, so drift in a (b) column is
+**visible** (it replaces the intent) rather than silently dropped. A unit test
+asserts `payloadAttrs` covers every captured key, so a column added by a future
+partman cannot slip through unnoticed.
+
+Deviations from the sketch, each deliberate:
+
+- **No `parent_sub` intent kind.** A sub-partitioned set is **scoped out** with
+  an `INTENT_UNSUPPORTED` warning (mirroring pgmq's partitioned queues):
+  `create_sub_parent` writes a `part_config_sub` row on the top parent *and* a
+  `part_config` row per partman-created sub-parent, so neither row is a faithful
+  `create_parent` replay. Their partitions stay `managedBy`-tagged at every
+  level, so nothing plans a `DROP TABLE`.
+- **Drop is `DELETE FROM part_config`, not `undo_partition`.**
+  `undo_partition()` requires a separate `p_target_table` to move rows into and
+  is batched by `p_loop_count` (verified on 5.3.1), so it cannot be a replay at
+  all. Deregistering is the minimal honest inverse and destroys nothing
+  (`dataLoss: "none"`); the now-unmanaged partitions surface as ordinary user
+  tables that a second sync round removes under the normal data-loss gate. See
+  the CLI-2044 triage in `docs/roadmap/pg-delta-next-follow-ups.md`.
+- **`partition_type` is `range`/`list` only** (5.3.1's own
+  `check_partition_type`), and `p_type` **does** exist in 5.3.x — it was removed
+  in 5.0 and later reintroduced.
+- **`p_default_table` has no `part_config` column** but is real intent, so it is
+  recovered structurally from `pg_partitioned_table.partdefid <> 0`.
+  `p_start_partition` / `p_offset_id` are one-shot boundaries for the first
+  premade set and are NOT captured; `p_control_not_null` is a pure guard
+  (partman raises on a nullable control column, never mutates) and is always
+  passed as `false`.
+- **`partmanSchema` rides on the payload.** pg_partman is relocatable and an
+  `IntentKindRule` sees only the fact (there is no view on `drop`), so the
+  install schema must be on the payload for the replay to be renderable.
+- **The auto-created template table is `managedBy`.** `create_parent` creates
+  `<partman_schema>.template_<parent_schema>_<parent_name>`, which carries no
+  `pg_depend deptype='e'` and would otherwise export as a user table — an
+  ordering hazard the by-object loader cannot resolve, since `create_parent`
+  creates it `IF NOT EXISTS` and the later `CREATE TABLE` would then fail
+  permanently. A user-supplied template table stays a normal fact and is
+  `consumes`d by the replay (partman errors on a missing one, so the loader's
+  retry rounds converge).
+
 ### 3.4 supabase_vault / pg_net (boundary cases)
 
 - **vault**: **presence-only** handler. Captures "enabled"; never reads
