@@ -44,7 +44,8 @@ driving `plan()` directly: the handler now emits intent facts, and `plan()`
 must be given their replay rules or the rule resolver throws rather than
 silently dropping declared intent. The supported way to obtain them is a
 profile: wrap the handlers in an `IntegrationProfile`
-(`{ id, handlers: [pgPartmanHandler, …] }`), call `resolveProfile(profile)`,
-and spread the returned `planOptions` (which carries `intentRules`) into
-`plan()` — hand-assembling the recipe without a profile is not a supported
-composition.
+(`{ id, handlers: [pgPartmanHandler, …] }`), call
+`await resolveProfile(pool, profile)` (async — it resolves against a live
+connection), and spread the returned `planOptions` (which carries
+`intentRules`) into `plan()` — hand-assembling the recipe without a profile is
+not a supported composition.

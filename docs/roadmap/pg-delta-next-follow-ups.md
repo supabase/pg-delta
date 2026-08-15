@@ -1372,3 +1372,22 @@ two are real but out of this PR's partman scope; recorded here.
   planner-machinery family as the two-round drop above. Until then the
   supported path for repartitioning a live set is partman's own tooling,
   not a pg-delta replay.
+
+### Round 3
+
+- **Fixed — the changeset's migration snippet called `resolveProfile(profile)`.**
+  The real signature is `await resolveProfile(pool, profile)` (async, pool
+  first), so a typed caller following the note verbatim failed to compile and
+  an untyped one threw at runtime. Snippet corrected in the changeset.
+
+- **Deferred — switching `templateTable` from partman's auto-created template
+  to a user-supplied one orphans the old auto template.** A second instance of
+  the materialized-set replace class above: the replacement replays
+  `DELETE FROM part_config` + `create_parent(p_template_table := …)` without
+  touching the old `template_<schema>_<name>` table, which the next capture no
+  longer recognises as the configured auto template — it surfaces as an
+  ordinary (empty) user table, the proof reports the drift loudly, and the
+  second sync round drops it under the normal gate, exactly like the two-round
+  deregister path. A faithful one-shot transition needs the same in-place
+  ALTER hook / planner transition gate as the `p_default_table` corner, so it
+  lands with that machinery, not piecemeal here.
