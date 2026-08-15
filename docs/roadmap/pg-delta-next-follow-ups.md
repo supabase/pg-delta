@@ -831,6 +831,78 @@ oversized key past its advertised total-length budget. One further finding is
   exactly this divergence, so the failure is pre-announced. Revisit if a real
   profile hits it.
 
+
+## PR #401 review triage (Codex) — wrappers-FDW suppression
+
+Two findings on the CLI-1470 fix. P1 was fixed in the PR; P2 is recorded here.
+
+- **Fixed (P1) — bare `DROP EXTENSION "wrappers"` when the desired state
+  omits the dashboard-installed extension.** With wrappers-provisioned FDWs
+  projected out (Rule 6c), keeping the extension itself managed planned a
+  bare drop that PostgreSQL rejects (the suppressed FDW still depends on the
+  extension's handler/validator functions). Fix: `wrappers` joined
+  `SUPABASE_SYSTEM_EXTENSIONS` — it is dashboard-installed, never declared in
+  user schema files, so the same platform judgment as `pg_graphql` (#5555)
+  applies; the extension and its FDWs are now assumed-present together.
+
+- **Deferred (P2) — `isNamedObjectPredicate()` / `containsWildcardMatcher()`
+  do not inspect `edgeTo`, so a concrete `edgeTo: { name: "wrappers" }`
+  selector in a CUSTOM policy without explicit `audit` metadata defaults to
+  the `suspicious` projection-audit classification.** Deferred by design
+  judgment, not oversight: no `edgeTo` form was ever classified as a
+  named-object selector (including a concrete `schema`), and the default is
+  arguably correct — an edge-based rule pins a concrete *provenance*, not
+  concrete named objects; it still excludes an unbounded class of dependents
+  (every FDW depending on `wrappers`), which is exactly what the audit's
+  "suspicious" bucket exists to surface. `suspicious` is a review flag, not
+  a behavior change, and explicit `audit` metadata (which the Supabase rule
+  supplies) is the intended escape hatch for a policy author who has made
+  the judgment deliberately. Revisit only if a real custom-policy consumer
+  hits audit friction with a pinned edgeTo selector.
+
+- **Deferred (round 2, P2) — declarative `CREATE EXTENSION wrappers` is not
+  emitted for a target that lacks it.** True, and identical to the other four
+  `SUPABASE_SYSTEM_EXTENSIONS` entries: the platform list makes an extension
+  invisible in BOTH directions, so a user-declared platform extension is
+  never created either. The finding's failure mode ("retained user objects
+  that depend on its members fail during apply") has no instance under this
+  policy: the only objects that depend on wrappers members are FDWs built
+  from its handlers, which Rule 6c deliberately removes from the managed
+  surface (their servers / foreign tables / user mappings cascade out). The
+  fair kernel is that `wrappers` is CONDITIONALLY present (installed when a
+  dashboard integration is enabled) while the other entries are
+  image-provisioned — that conditionality is exactly the known name-list
+  limitation the policy header documents; the committed Supabase baseline
+  (docs/roadmap/backlog.md) is the mechanism that can distinguish
+  "present on this target" from "assumed by name" and is the revisit path.
+
+- **Deferred (round 3, P1) — a kept user object over a suppressed wrapper
+  prerequisite plans SQL that fails at apply.** Tracked as CLI-2178 (pg-delta
+  1.0.0 stable release project). Reproduced (2026-08-11): a
+  `dsl_owner` view over a foreign table on a suppressed wrappers FDW plans
+  `CREATE VIEW public.paying_users AS SELECT … FROM stripe.customers` with no
+  prerequisite and no plan-time diagnostic — `excludeFactsAndDescendants`
+  prunes by parent descent only, and the view's `depends` edge drops with its
+  endpoint, so apply fails on any target lacking the dashboard integration.
+  Valid, but the gap is a PRE-EXISTING property of every policy suppression
+  of non-schema-keyed objects (an `supabase_admin`-owned FDW chain has the
+  identical behavior today); this PR widens its reach to the real Cloud
+  ownership rather than introducing it. The PR is still strictly net-positive:
+  before it, EVERY integration-bearing project planned unreplayable
+  `CREATE FOREIGN DATA WRAPPER` DDL; after it, only the dependent-view subset
+  still fails, and one step later. A principled fix is architecturally
+  significant and general, not wrappers-specific: either (a) reference-only
+  semantics for suppressed prerequisite chains + shadow-seed materialization
+  (the `auth.users`-trigger mechanism, but keyed on objects rather than
+  assumed schemas — needs seed-side support to materialize a foreign table
+  whose server/extension are also suppressed), or (b) a plan-time
+  "suppressed prerequisite" diagnostic: the projection-suppression collector
+  already records every suppressed fact with attribution, so `plan()` can
+  cross-check kept deltas' extraction-time edges against it and escalate
+  warning→fatal exactly when a delta touches a stranded consumer (the
+  `USER_MAPPING_UNREADABLE` precedent). Option (b) is the cheaper first step
+  and benefits every suppression rule, not just Rule 6c.
+
 ## PR #403 review triage — the reserved `_custom/` folder
 
 Round-1 findings were fixed in the PR (migration references must resolve to a

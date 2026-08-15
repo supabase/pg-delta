@@ -39,14 +39,17 @@
  *   - `name` matches target.name via glob
  * Replaces the three earlier satellite predicates targetKind/targetSchema/targetName.
  *
- * ### `{ edgeTo: { edgeKind?: EdgeKind; kind?: string; schema?: string | string[] } }`
+ * ### `{ edgeTo: { edgeKind?: EdgeKind; kind?: string; schema?: string | string[]; name?: string | string[] } }`
  * Matches when the fact has an outgoing edge of the given `edgeKind`
  * (provenance: depends / owner / memberOfExtension / managedBy) and/or to a
- * fact whose id.kind equals `kind` and/or whose id `schema` matches a glob.
- * Needed for: detecting user-created triggers whose function lives in a
+ * fact whose id.kind equals `kind` and/or whose id `schema` / `name` match a
+ * glob. Needed for: detecting user-created triggers whose function lives in a
  * non-managed schema (edgeTo {kind: "function", schema: not in
- * SYSTEM_SCHEMAS}), and for provenance filtering of operationally-managed
- * objects (edgeTo {edgeKind: "managedBy"}).
+ * SYSTEM_SCHEMAS}), provenance filtering of operationally-managed
+ * objects (edgeTo {edgeKind: "managedBy"}), and pinning a dependency to a
+ * NAMED fact — a wrappers-provisioned FDW depends on the `wrappers`
+ * extension because pg_depend endpoint resolution collapses its
+ * extension-member handler/validator onto the extension fact (CLI-1470).
  *
  * ### `{ partitionOf: { schema?: string | string[]; name?: string | string[] } }`
  * Matches a declarative partition child: a fact whose payload carries a
@@ -178,9 +181,10 @@ export type TargetPredicate = {
 /**
  * Matches when the fact has an outgoing dependency edge (fb.outgoingEdges)
  * to a fact whose id.kind equals `kind` (if given) and/or whose id `schema`
- * field matches any glob (if given).
+ * / `name` fields match any glob (if given).
  * Added for user-trigger detection (edgeTo non-system procedure schema) and
- * extension-provenance filtering.
+ * extension-provenance filtering; `name` pins the edge to a NAMED target
+ * (e.g. depends on the `wrappers` extension, CLI-1470).
  */
 export type EdgeToPredicate = {
   edgeTo: {
@@ -189,6 +193,7 @@ export type EdgeToPredicate = {
     edgeKind?: EdgeKind;
     kind?: string;
     schema?: string | string[];
+    name?: string | string[];
   };
 };
 
@@ -609,6 +614,14 @@ export function factMatches(
           ? predicate.edgeTo.schema
           : [predicate.edgeTo.schema];
         if (!schemaPatterns.some((p) => globMatch(p, toSchema))) continue;
+      }
+      if (predicate.edgeTo.name !== undefined) {
+        const toName = toId["name"];
+        if (typeof toName !== "string") continue;
+        const namePatterns = Array.isArray(predicate.edgeTo.name)
+          ? predicate.edgeTo.name
+          : [predicate.edgeTo.name];
+        if (!namePatterns.some((p) => globMatch(p, toName))) continue;
       }
       return true;
     }

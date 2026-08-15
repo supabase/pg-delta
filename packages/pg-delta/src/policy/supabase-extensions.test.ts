@@ -19,6 +19,7 @@ const ext = (name: string, schema: string): Fact => ({
 });
 const pgGraphql: StableId = { kind: "extension", name: "pg_graphql" };
 const pgTrgm: StableId = { kind: "extension", name: "pg_trgm" };
+const wrappers: StableId = { kind: "extension", name: "wrappers" };
 
 describe("supabase policy — platform extensions", () => {
   test("projects out pg_graphql but keeps a user extension", () => {
@@ -31,5 +32,18 @@ describe("supabase policy — platform extensions", () => {
     expect(view.get(pgGraphql)).toBeUndefined();
     // user-declarable → still managed
     expect(view.get(pgTrgm)).toBeDefined();
+  });
+
+  test("projects out the wrappers extension (dashboard-installed, CLI-1470)", () => {
+    // `wrappers` is installed by the dashboard when the user enables a wrapper
+    // integration, so it is never declared in user schema files. Keeping it
+    // managed would plan `DROP EXTENSION "wrappers"` on every diff against a
+    // project with an integration enabled — and with the wrappers-provisioned
+    // FDWs projected out (Rule 6c), that drop is not even appliable: the
+    // suppressed FDW's handler/validator dependencies block a bare DROP
+    // EXTENSION (PR #401 review, P1).
+    const fb = buildFactBase([ext("wrappers", "extensions")], []);
+    const view = resolveView(fb, supabasePolicy);
+    expect(view.get(wrappers)).toBeUndefined();
   });
 });
