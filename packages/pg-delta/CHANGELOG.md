@@ -1,5 +1,134 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.41
+
+### Minor Changes
+
+- ad261ed: Capture and replay pg_partman parent registrations as extension intent (CLI-2044).
+
+  Registering a partitioned parent with pg_partman is not schema DDL —
+  `partman.create_parent(...)` is a function call that writes a row to partman's
+  own `part_config` registry and premakes the child partitions. Until now a
+  from-scratch declarative rebuild therefore produced a BARE
+  `PARTITION BY RANGE` parent: no registration, no children, no maintenance.
+
+  `pgPartmanHandler` now captures each `part_config` row as an `extensionIntent`
+  fact keyed by the catalog-canonical `<schema>.<table>` and replays it through
+  partman's own API — `select partman.create_parent(…)`, ordered after
+  `CREATE EXTENSION pg_partman` (a `depends` edge) and after the parent's
+  `CREATE TABLE` (a `consumes` edge). The eleven intent columns `create_parent`
+  has no argument for (retention, `optimize_constraint`,
+  `infinite_time_partitions`, …) replay as a follow-up `UPDATE part_config`,
+  emitted only when they differ from partman's own defaults, so they are neither
+  lost nor noisy. A database containing a configured parent now round-trips
+  through `schema export` → load into a fresh shadow → re-extract with an empty
+  diff and an identical `part_config` row.
+
+  The full `part_config` column disposition — which of the 29 columns are intent
+  reachable from a `create_parent` argument, intent settable only by updating
+  `part_config`, or pure runtime state — is documented in the handler header and
+  in `docs/architecture/extension-intent.md` §3.3.1, audited against pg_partman
+  5.3.1.
+
+  Deliberate scope, each recorded in `docs/roadmap/pg-delta-next-follow-ups.md`:
+  removing a registration DEREGISTERS it (`DELETE FROM part_config`,
+  `dataLoss: "none"`) and destroys no partition — `undo_partition()` needs a
+  separate target table and is loop-batched, so it is not renderable as a replay —
+  which leaves the orphaned partitions for an explicit second sync round.
+  Sub-partitioned sets (`create_sub_parent`) emit the `intent-unsupported` warning
+  instead of a fact that could never converge. Phase A is unchanged: every
+  partition at every level stays tagged `managedBy`, so nothing ever plans a
+  `DROP TABLE` against them, and partman's auto-created template table is now
+  tagged too.
+
+  Note for existing callers passing `pgPartmanHandler` to `extract()` and then
+  driving `plan()` directly: the handler now emits intent facts, and `plan()`
+  must be given their replay rules or the rule resolver throws rather than
+  silently dropping declared intent. The supported way to obtain them is a
+  profile: wrap the handlers in an `IntegrationProfile`
+  (`{ id, handlers: [pgPartmanHandler, …] }`), call
+  `await resolveProfile(pool, profile)` (async — it resolves against a live
+  connection), and spread the returned `planOptions` (which carries
+  `intentRules`) into `plan()` — hand-assembling the recipe without a profile is
+  not a supported composition.
+
+- 46fee37: Capture and replay pgmq queues as extension intent (CLI-2054).
+
+  A pgmq queue is not schema DDL — `pgmq.create('jobs')` registers a row in
+  pgmq's own `pgmq.meta` registry and creates two operational tables. The new
+  `pgmqHandler` captures each queue from `pgmq.meta` as an `extensionIntent` fact
+  keyed by `queue_name` (its unique registry key, so a queue is never unkeyable)
+  and replays it through pgmq's own API: `select pgmq.create(…)` /
+  `select pgmq.create_unlogged(…)`, and `select pgmq.drop_queue(…)` marked
+  `destructive` because dropping a queue destroys its messages. The handler also
+  tags each queue's `pgmq.q_*` / `pgmq.a_*` tables `managedBy` the extension, so
+  any profile composing it — the `supabase` profile, or a custom profile
+  referencing `"pgmq"` — never plans `DROP TABLE` against them. The default `raw`
+  profile composes no handlers and does not get this protection.
+
+  This closes the loop that was previously unprovable: a database containing a
+  queue now round-trips through `schema export` → load into a fresh shadow →
+  re-extract with an empty diff, because pgmq — unlike pg_cron — has no
+  single-database constraint and needs no `shadowPrecheck`.
+
+  The handler is composed into the `supabase` profile and is referenceable as
+  `"pgmq"` from a custom `--profile <file>`. It takes no configuration: unlike
+  pg_cron, `pgmq.meta` records no owner or role, so there is nothing to normalize
+  and no superuser-only argument to elide.
+
+  Partitioned queues are deliberately left unmanaged: `pgmq.meta` records only the
+  `is_partitioned` flag, while `create_partitioned`'s partition and retention
+  intervals live in pg_partman's `part_config`, so a faithful replay is not
+  derivable from pgmq's catalog. Such a queue emits a new `intent-unsupported`
+  warning instead of a fact that could never converge — its operational tables are
+  still tagged, so nothing plans to drop them.
+
+  That warning is non-blocking on its own: a diff whose desired state merely
+  contains a partitioned queue — including the steady state where both sides have
+  the same one — still plans, and the queue is simply left alone. `plan()`
+  escalates to an error only on a same-key COLLISION, where the opposite side
+  manages a regular queue of the same name and acting on the diff would be wrong
+  either way: a partitioned queue declared over a source's regular one would
+  otherwise plan a bare destructive `pgmq.drop_queue(...)` whose proof falsely
+  converges, and the reverse (regular declared over a source's partitioned one)
+  would emit a `pgmq.create(...)` that no-ops against the live registration and
+  fail the proof much later. Both directions are now refused up front, naming the
+  queue and the side that holds the unreplayable form.
+
+### Patch Changes
+
+- 21d4c6f: Replace the per-replace scan over the full extension-member closure in the
+  satellite-replay loop with an inverted extension → members index plus an
+  extension kind guard. Emission order and rendered SQL are unchanged; plans with
+  wide replace sets on extension-heavy schemas (PostGIS, TimescaleDB) no longer
+  pay O(replaced facts × total extension members), and extension-free plans skip
+  building the closure entirely.
+- 6c36986: Add an opt-in bypass for the shadow-vs-target same-database identity refusal.
+
+  A physically restored shadow — a warm shadow cache rehydrated from a PGDATA
+  snapshot of the target cluster, as the Supabase CLI provisions — inherits the
+  target's `system_identifier` and every database OID, so the identity guard
+  cannot tell it apart from the target and refused to load declarative SQL,
+  blocking declarative sync whenever the shadow cache was on.
+
+  `planSchemaFiles` now accepts `allowSameDatabaseIdentity`, and `schema apply`
+  accepts `--allow-same-database-identity`, to proceed in that case; both emit a
+  loud warning naming what was bypassed. Default behavior is unchanged (the
+  refusal still fires), and both refusal messages now explain that physically
+  cloned shadows legitimately trigger the guard and name the escape hatch.
+
+  The pre-existing PostgreSQL-lineage containment guards (`isolatedShadow` /
+  `--scope cluster` / `--isolated-shadow`, which check `systemIdentifier` alone)
+  are now also exempted, but only for the exact-identity match the bypass
+  already covers — a physical clone shares the target's lineage by construction,
+  so without this the lineage guard would reject the very case the bypass exists
+  to allow. A same-lineage **sibling** database (same system identifier,
+  different database OID — a genuinely different database on the same cluster)
+  is not covered: it still fails `isSameDatabase()` and the lineage guards still
+  refuse it even with the flag set.
+
+- a758961: Suppress FOREIGN DATA WRAPPER diffs for Supabase Wrappers-provisioned FDWs under the `supabase` policy (CLI-1470). Dashboard-provisioned wrappers (Wasm and native) are created via supautils and end up owned by `postgres` on Cloud, so the system-role owner rule never excluded them and plans leaked superuser-only `CREATE FOREIGN DATA WRAPPER … HANDLER extensions.wasm_fdw_handler` DDL. The policy now excludes FDW facts whose handler/validator come from the `wrappers` extension (a `depends` edge onto the extension fact, via pg_depend endpoint resolution); their servers, foreign tables, and user mappings cascade out through the managed-view projection. User FDWs with hand-rolled handlers keep round-tripping. The `wrappers` extension itself is now also platform-managed (like `pg_graphql`): it is dashboard-installed, and with its FDWs projected out a managed `DROP EXTENSION "wrappers"` would be a bare drop PostgreSQL rejects. Also extends the policy DSL's `edgeTo` predicate with a `name` glob sub-field.
+
 ## 1.0.0-alpha.40
 
 ### Minor Changes
