@@ -77,11 +77,21 @@ one unsplittable query that caps the ceiling). Deferred.
 
 ## Milestone B — DX
 
+### ✅ Schema-first CLI enablement
+Promote engine primitives the RFC's `PgDeltaSchemaEngine` adapter needs onto
+the exported library surface (stable `planId`, `HazardKind` codes, file
+classification, segments, coverage/data-loss helpers, named loader options).
+*Shipped* (#414, #416, #418–#421, #423). The Supabase CLI owns the workflow
+adapter. Remaining tracks (WP5 supporting, WP6 provenance) are documented in
+[schema-first-cli-enablement.md](schema-first-cli-enablement.md).
+
 ### 🟡 Risk classification 2.0
-The engine already computes proof-verified per-action safety (`dataLoss`,
-`rewriteRisk`, `lockClass`, `transactionality`). Derive stable `HazardKind` codes
-from those fields, attach them to the plan artifact (additive), add an
-`--allow-hazards` gate and a GitLab Code-Quality JSON reporter. CLI-1459–1464.
+Library classification shipped with schema-first WP2 (#420): `actionHazards` /
+`classifyPlanHazards` expose stable `HazardKind` codes as a view over
+proof-verified safety fields and coverage diagnostics. Policy stays in the
+Supabase CLI. Remaining `pgdelta` CLI DX (an `--allow-hazards` gate and a
+GitLab Code-Quality JSON reporter) is optional and not a V1 RFC blocker.
+CLI-1459–1464.
 
 ### 🟡 Migration squash / repair
 Collapse a chain of migration files into one consolidated migration, and emit it

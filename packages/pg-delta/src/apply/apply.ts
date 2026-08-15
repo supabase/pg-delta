@@ -15,6 +15,7 @@
 import type { Pool } from "pg";
 import type { FactBase } from "../core/fact.ts";
 import { extract } from "../extract/extract.ts";
+import { assertPlanId } from "../plan/artifact.ts";
 import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
 import { assertDestructionMetadataIntegrity } from "../plan/safety.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
@@ -99,7 +100,7 @@ export interface ApplyOptions {
   onEvent?: (event: ApplyEvent) => void;
 }
 
-interface Segment {
+export interface Segment {
   /** indexes into plan.actions, contiguous and in order */
   start: number;
   end: number; // exclusive
@@ -142,6 +143,12 @@ export function segmentActions(
     segments.push({ start, end: actions.length, transactional: true });
   }
   return segments;
+}
+
+export function planSegments(plan: {
+  readonly actions: Parameters<typeof segmentActions>[0];
+}): Segment[] {
+  return segmentActions(plan.actions);
 }
 
 function errorEntry(
@@ -201,6 +208,7 @@ export async function apply(
       `apply: plan was produced by engine ${thePlan.engineVersion}, this engine is ${ENGINE_VERSION} — re-plan`,
     );
   }
+  assertPlanId(thePlan, "apply");
   assertDestructionMetadataIntegrity(
     thePlan.actions,
     thePlan.acceptedRenames,

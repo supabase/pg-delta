@@ -7,9 +7,16 @@
  * now prints diagnostics to STDERR (stdout carries machine output like the plan
  * JSON) and, in strict-coverage mode, refuses to produce an apply artifact
  * while the engine cannot manage every user object.
+ *
+ * The blocking predicate itself is a library frontend
+ * (`frontends/diagnostics.ts`); this module keeps the CLI renderer and exit.
  */
 import type { Diagnostic } from "../core/diagnostic.ts";
 import { encodeId } from "../core/stable-id.ts";
+import {
+  STRICT_COVERAGE_CODES,
+  hasBlockingDiagnostics,
+} from "../frontends/diagnostics.ts";
 import { CliExit } from "./flags.ts";
 
 const SEVERITY_LABEL: Record<Diagnostic["severity"], string> = {
@@ -33,45 +40,6 @@ export function printDiagnostics(
       `${prefix}${SEVERITY_LABEL[d.severity]} [${d.code}]${subject} ${d.message}\n`,
     );
   }
-}
-
-/**
- * Diagnostic codes that escalate to blocking under `--strict-coverage`: each
- * marks a user object the engine cannot faithfully carry into the artifact, so
- * strict mode refuses rather than silently ship an incomplete migration.
- *   - `unmodeled_kind`: a user object of a kind the engine does not model.
- *   - `unmodeled_drift`: an unmodeled object the DESIRED state has and the
- *     target lacks. Strictly worse than `unmodeled_kind`: no planned statement
- *     can create it (unmodeled kinds produce no facts), so a generated statement
- *     depending on it fails on the target. Strict mode refuses to ship that
- *     artifact until the operator delivers the prerequisite.
- *   - `unresolved_security_label`: a valid SECURITY LABEL on an unsupported
- *     object (language / database / large object / tablespace) — it cannot
- *     resolve to a managed id, so the label would be silently missing.
- */
-const STRICT_COVERAGE_CODES: ReadonlySet<string> = new Set([
-  "unmodeled_kind",
-  "unmodeled_drift",
-  "unresolved_security_label",
-]);
-
-/**
- * Whether diagnostics should HALT a command before it produces something to
- * apply:
- *   - an error-severity diagnostic always blocks;
- *   - in strict-coverage mode, a {@link STRICT_COVERAGE_CODES} warning blocks
- *     too — the engine refuses to act while user objects it cannot faithfully
- *     manage exist.
- */
-export function hasBlockingDiagnostics(
-  diagnostics: readonly Diagnostic[],
-  options: { strictCoverage?: boolean } = {},
-): boolean {
-  return diagnostics.some(
-    (d) =>
-      d.severity === "error" ||
-      (options.strictCoverage === true && STRICT_COVERAGE_CODES.has(d.code)),
-  );
 }
 
 /**

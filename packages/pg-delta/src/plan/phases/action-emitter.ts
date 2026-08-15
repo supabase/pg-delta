@@ -16,6 +16,7 @@ import {
   type ApplierCapability,
 } from "../../policy/capability.ts";
 import { factMatches, type SerializeRule } from "../../policy/policy.ts";
+import { extensionMemberClosure } from "../../policy/view.ts";
 import { lockClassFor } from "../locks.ts";
 import type { Action } from "../plan.ts";
 import { grantTarget, qid } from "../render.ts";
@@ -188,6 +189,31 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     );
   }
 
+  // Desired-side extension → member-keys index, computed lazily — only an
+  // extension REPLACE needs it (see the satellite replay below). Inverted from
+  // extensionMemberClosure so each replaced extension does ONE Map lookup
+  // instead of scanning every member of every extension per replace key;
+  // members keep the closure's iteration order, so emission order is unchanged.
+  let desiredMembersByExtensionMemo: Map<string, string[]> | undefined;
+  const desiredMembersByExtension = (): Map<string, string[]> => {
+    if (desiredMembersByExtensionMemo === undefined) {
+      desiredMembersByExtensionMemo = new Map();
+      for (const [memberKey, exts] of extensionMemberClosure(
+        projectedDesired,
+      )) {
+        for (const extKey of new Set(exts.map((ext) => encodeId(ext)))) {
+          const members = desiredMembersByExtensionMemo.get(extKey);
+          if (members === undefined) {
+            desiredMembersByExtensionMemo.set(extKey, [memberKey]);
+          } else {
+            members.push(memberKey);
+          }
+        }
+      }
+    }
+    return desiredMembersByExtensionMemo;
+  };
+
   // replaces: drop old + create new (+ recreate unchanged descendants).
   // Emitted BEFORE the added-creates loop so a replaced parent's CREATE registers
   // its inlined delta-set children (publication members, etc.) in `producerOf`
@@ -256,6 +282,27 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       }
     };
     recreate(newFact.id);
+    // A replaced EXTENSION re-materializes its members with installation
+    // defaults. The members themselves are reference-only (never standalone
+    // actions), but their desired-side SATELLITES (a user COMMENT/GRANT on a
+    // member) die with the DROP — and when the customization is identical on
+    // both sides there is no delta to re-emit it. Replay them from the
+    // projected target; the member consume orders them after the re-CREATE.
+    // (The closure maps members to their owning EXTENSIONS only, so a
+    // non-extension replace key can never have members — skip the lookup.)
+    if (oldFact.id.kind === "extension") {
+      for (const memberKey of desiredMembersByExtension().get(key) ?? []) {
+        const member = projectedDesired.getByEncoded(memberKey);
+        if (!member) continue;
+        for (const child of projectedDesired.childrenOf(member.id)) {
+          if (ruleFlag(child.id.kind, "metadata") !== true) continue;
+          const childKey = encodeId(child.id);
+          if (added.has(childKey) || producerOf.has(childKey)) continue;
+          recreatedByReplace.add(childKey);
+          emitCreate(child, projectedDesired);
+        }
+      }
+    }
   }
 
   // creates — parents first, so a parent's delta-set inlining (e.g. a

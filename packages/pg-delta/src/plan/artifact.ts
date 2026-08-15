@@ -8,6 +8,7 @@
  * Payload values can contain bigints (sequence bounds); they are encoded
  * as {"$bigint": "…"} exactly like fact snapshots (stage 1).
  */
+import { contentHash, type Payload } from "../core/hash.ts";
 import { ALL_FACT_KINDS, type StableId } from "../core/stable-id.ts";
 import { normalizeProjectionAudit } from "../policy/reconstruct.ts";
 import { ENGINE_VERSION, type Action, type Plan } from "./plan.ts";
@@ -251,6 +252,65 @@ function reviver(_key: string, value: unknown): unknown {
   return value;
 }
 
+/**
+ * SHA-256 content hash over the plan-bound approval ingredients. Never
+ * includes `planId` itself. `undefined` profile/scope/policy (direct
+ * library / cluster-default) are omitted by canonicalize, not replaced
+ * with invented strings. Absent `acceptedRenames` hashes as `[]`.
+ * The preamble is hashed because apply executes it per segment — it is
+ * run content, exactly like the action list, not reporting metadata.
+ */
+export function computePlanId(plan: Omit<Plan, "planId">): string {
+  const payload: Payload = {
+    formatVersion: plan.formatVersion,
+    engineVersion: plan.engineVersion,
+    source: { fingerprint: plan.source.fingerprint },
+    target: { fingerprint: plan.target.fingerprint },
+    preamble: plan.preamble.map((entry) => ({
+      name: entry.name,
+      value: entry.value,
+    })),
+    acceptedRenames: plan.acceptedRenames ?? [],
+    actions: plan.actions.map((action) => ({
+      sql: action.sql,
+      verb: action.verb,
+      produces: action.produces,
+      consumes: action.consumes,
+      destroys: action.destroys,
+      releases: action.releases,
+      transactionality: action.transactionality,
+      lockClass: action.lockClass,
+      newSegmentBefore: action.newSegmentBefore,
+      dataLoss: action.dataLoss,
+      rewriteRisk: action.rewriteRisk,
+    })),
+    profile: plan.profile,
+    scope: plan.scope,
+    policy: plan.policy as Payload | undefined,
+  };
+  return contentHash(payload);
+}
+
+/** Attach a freshly computed `planId`. Does not include the digest in its own hash. */
+export function stampPlanId(plan: Omit<Plan, "planId">): Plan {
+  return { ...plan, planId: computePlanId(plan) };
+}
+
+/**
+ * Refuse a missing, malformed, or mismatching `planId`. Shared by
+ * `parsePlan` (artifact path) and `apply` (programmatic path — catches a
+ * plan mutated after `plan()` stamped it). `context` prefixes the error
+ * ("plan artifact" / "apply") so the two sites cannot drift.
+ */
+export function assertPlanId(thePlan: Plan, context: string): void {
+  if (typeof thePlan.planId !== "string" || !SHA256.test(thePlan.planId)) {
+    throw new Error(`${context}: missing or invalid planId — re-plan`);
+  }
+  if (thePlan.planId !== computePlanId(thePlan)) {
+    throw new Error(`${context}: planId does not match contents — re-plan`);
+  }
+}
+
 export function serializePlan(thePlan: Plan): string {
   return JSON.stringify(thePlan, replacer, 2);
 }
@@ -329,6 +389,15 @@ export function parsePlan(json: string): Plan {
   }
   exactKeys(artifact.target, ["fingerprint"], [], "target");
   sha256Field(artifact.target, "fingerprint", "target");
+  // the preamble is executed per segment by apply and joins the planId hash,
+  // so its shape must be pinned before computePlanId dereferences it
+  if (!Array.isArray(artifact.preamble)) fail("preamble", "an array");
+  artifact.preamble.forEach((entry, index) => {
+    if (!record(entry)) fail(`preamble[${index}]`, "an object");
+    exactKeys(entry, ["name", "value"], [], `preamble[${index}]`);
+    stringField(entry, "name", `preamble[${index}]`);
+    stringField(entry, "value", `preamble[${index}]`);
+  });
   if (artifact.projectionAudit !== undefined) {
     try {
       artifact.projectionAudit = normalizeProjectionAudit(
@@ -340,5 +409,6 @@ export function parsePlan(json: string): Plan {
       );
     }
   }
+  assertPlanId(artifact as Plan, "plan artifact");
   return artifact as Plan;
 }

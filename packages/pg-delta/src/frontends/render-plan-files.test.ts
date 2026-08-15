@@ -5,7 +5,7 @@
  * rendered files reflect exactly how the plan would be executed.
  */
 import { describe, expect, test } from "bun:test";
-import type { Action, Plan } from "../plan/plan.ts";
+import { stampPlanId, type Action, type Plan } from "../plan/plan.ts";
 import { renderPlanFiles } from "./render-plan-files.ts";
 
 function action(overrides: Partial<Action>): Action {
@@ -26,7 +26,7 @@ function action(overrides: Partial<Action>): Action {
 }
 
 function makePlan(overrides: Partial<Plan>): Plan {
-  return {
+  return stampPlanId({
     formatVersion: 1,
     engineVersion: "test",
     source: { fingerprint: "a" },
@@ -43,7 +43,7 @@ function makePlan(overrides: Partial<Plan>): Plan {
       lockClasses: {},
     },
     ...overrides,
-  } as Plan;
+  });
 }
 
 describe("renderPlanFiles", () => {

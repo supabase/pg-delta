@@ -1,5 +1,56 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.40
+
+### Minor Changes
+
+- b5a4666: Export `actionHazards` / `classifyPlanHazards` with stable `HazardKind` codes derived from proof-verified action safety fields and coverage diagnostics. Policy (which hazards block which target) stays in the caller. Hazard kinds are not stored on `Plan`/`Action` and are not part of `planId`.
+- 751f749: Export `hasBlockingDiagnostics` / `STRICT_COVERAGE_CODES`, `dataLossActions`, and database-identity helpers (`SourceDatabaseIdentity`, `observeDatabaseIdentity`, `databaseIdentityStamp`, …) from the package root and `@supabase/pg-delta/frontends`. CLI policy helpers (`printDiagnostics`, `exitIfBlocking`, `assertDataLossAllowed`) stay in `pgdelta`.
+- 68a3035: Export `Segment`, `segmentActions`, and `planSegments` from the package root and `@supabase/pg-delta/frontends` so library consumers can group a plan into apply transaction segments without importing `src/apply/apply.ts`.
+
+## 1.0.0-alpha.39
+
+### Minor Changes
+
+- dd843ab: Export `classifySqlFiles` / `classifySqlContent`, a pure helper that classifies a proposed declarative export against an existing tree (`created` / `updated` / `unchanged` / `removed` / `unmanaged`) without writing or deleting files. The Supabase CLI can compose this for `schema pull`; `pgdelta schema export` keeps staging, unmanaged-file refusal, and install.
+- 8cac632: Require `Plan.planId`, a SHA-256 content hash over the plan-bound approval ingredients (format/engine version, source/target fingerprints, the preamble, accepted renames, the ordered action list, and profile/scope/policy). `plan()` stamps it; `parsePlan` and `apply()` refuse a missing or mismatching digest. Stale artifacts without `planId` must be re-planned — they are never silently upgraded.
+- 551e88b: Export `pruneStaleSqlFiles`, `renderApplyScript`, and `probeUnmodeledIdentitiesPinned` from the package root and `@supabase/pg-delta/frontends` so library consumers can prune stale schema files, render a dry-run apply script, and probe unmodeled drift without importing `src/cli/**` or unexported frontend modules. `pgdelta` already used them internally.
+
+  `pruneStaleSqlFiles` now resolves relative `keep`/`previouslyOwned` entries against `outRoot` (absolute entries are unchanged), so a consumer passing outRoot-relative paths cannot misread kept files as out-of-set — which under `pruneUnmanaged` would have deleted them.
+
+### Patch Changes
+
+- d5ac415: Export the named `LoadSqlFilesOptions` type from the package root. Library default for `strictDataStatements` remains permissive (`false`).
+
+## 1.0.0-alpha.38
+
+### Patch Changes
+
+- df2178a: Restore libpq-compatible `sslmode` semantics for URL-based connections (CLI pools and `provisionCoLocatedShadow`), fixing `SELF_SIGNED_CERT_IN_CHAIN` failures against servers with private-CA chains under `sslmode=require`. `require`/`prefer` without a root CA now encrypt without chain verification (matching psql and the legacy engine); `verify-ca`/`verify-full` keep verifying (`verify-ca` skips hostname checks per libpq only when a CA is supplied; without one it keeps full verification against Node's default trust store instead of erroring like libpq); `require` + `sslrootcert` upgrades to verify-ca behavior; `sslrootcert`/`sslcert`/`sslkey` query params (file paths) and `PGDELTA_{SOURCE,TARGET}_SSLROOTCERT/SSLCERT/SSLKEY` env vars (PEM content) are honored. The translation is exported as `parseSslConfig(url, role?)` so library consumers building their own pools can opt in. URLs without a recognized `sslmode` pass through to node-postgres untouched.
+
+## 1.0.0-alpha.37
+
+### Patch Changes
+
+- a204214: Fix the planner dependency cycle when a non-relocatable extension is replaced
+  (e.g. pg_net installed in different schemas on the two sides). The forced
+  dependent rebuild no longer promotes reference-only extension members into
+  standalone DROP/CREATE actions, and actions that consume an extension member
+  now order against exactly one side of the replace (teardown before the DROP,
+  build-up after the re-CREATE) instead of impossibly against both.
+
+## 1.0.0-alpha.36
+
+### Minor Changes
+
+- 113414e: `pgdelta schema export` now reports a per-file change summary — the final
+  `Exported N file(s) ...` line includes how many files were created, updated,
+  and unchanged (stale removals were already reported). Byte-identical files —
+  including the `.pgdelta-export.json` manifest — are no longer rewritten, so
+  mtimes across the output directory stay stable for build tools watching it.
+  `writeExportFiles` returns the classification as `created` /
+  `updated` / `unchanged` alongside the existing `removed` / `unmanaged` lists.
+
 ## 1.0.0-alpha.35
 
 ### Minor Changes

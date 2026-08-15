@@ -53,18 +53,32 @@ export {
   type ProjectionAuditSubject,
   type ProjectionAuditSuppression,
 } from "./plan/plan.ts";
-export { serializePlan, parsePlan } from "./plan/artifact.ts";
+export {
+  serializePlan,
+  parsePlan,
+  computePlanId,
+  stampPlanId,
+} from "./plan/artifact.ts";
 export { type RenameCandidate, type RenameMode } from "./plan/renames.ts";
 export { type LockClass } from "./plan/locks.ts";
+export {
+  actionHazards,
+  classifyPlanHazards,
+  HAZARD_KIND_ORDER,
+} from "./plan/hazards.ts";
+export type { HazardKind, ActionHazard, HazardReport } from "./plan/hazards.ts";
 
 // ── apply ────────────────────────────────────────────────────────────────────
 export {
   apply,
+  segmentActions,
+  planSegments,
   type ApplyError,
   type ApplyReport,
   type ApplyOptions,
   type ApplyEvent,
   type ActionStatus,
+  type Segment,
 } from "./apply/apply.ts";
 
 // ── proof ────────────────────────────────────────────────────────────────────
@@ -81,6 +95,7 @@ export {
   ShadowLoadError,
   type SqlFile,
   type LoadResult,
+  type LoadSqlFilesOptions,
 } from "./frontends/load-sql-files.ts";
 export {
   exportSqlFiles,
@@ -93,6 +108,13 @@ export {
   writeExportManifest,
   type ExportManifest,
 } from "./frontends/export-manifest.ts";
+export {
+  classifySqlContent,
+  classifySqlFiles,
+  type ClassifySqlFilesInput,
+  type SqlFileChange,
+  type SqlFileClassification,
+} from "./frontends/classify-sql-files.ts";
 export {
   buildSchemaExport,
   type BuildSchemaExportOptions,
@@ -109,6 +131,33 @@ export {
   type PlanSchemaFilesResult,
   type PreparedSchemaFiles,
 } from "./frontends/schema-plan.ts";
+// Schema-first CLI helpers: prune owned stale .sql, dry-run apply SQL, unmodeled-drift probe.
+export { pruneStaleSqlFiles } from "./frontends/prune-sql-files.ts";
+export { renderApplyScript } from "./frontends/render-apply-script.ts";
+export { probeUnmodeledIdentitiesPinned } from "./frontends/schema-plan.ts";
+export type { ApplyTimeoutOptions } from "./apply/apply-preamble.ts";
+export type { UnmodeledIdentities } from "./extract/unmodeled.ts";
+// Schema-first CLI helpers: coverage gate, data-loss listing, database identity.
+export {
+  STRICT_COVERAGE_CODES,
+  hasBlockingDiagnostics,
+} from "./frontends/diagnostics.ts";
+export {
+  dataLossActions,
+  type DataLossAction,
+} from "./frontends/data-loss-actions.ts";
+export { type SourceDatabaseIdentity } from "./plan/plan.ts";
+export {
+  observeDatabaseIdentity,
+  databaseIdentityStamp,
+  isDatabaseIdentityObservationUnavailable,
+  databaseIdentityObservationUnavailableCode,
+  observeDatabaseIdentityForMutation,
+  isSamePostgresLineage,
+  isSameDatabase,
+  type ObservedDatabaseIdentity,
+  type DatabaseIdentityObservationUnavailableCode,
+} from "./database-identity.ts";
 export {
   renderPlanFiles,
   isDestructiveAction,
@@ -124,6 +173,12 @@ export {
   type CoLocatedShadow,
   type ProvisionCoLocatedShadowOptions,
 } from "./frontends/shadow.ts";
+export {
+  parseSslConfig,
+  type ParsedSslConfig,
+  type SslOptions,
+  type SslRole,
+} from "./frontends/ssl-config.ts";
 export {
   factMatches,
   deltaMatches,

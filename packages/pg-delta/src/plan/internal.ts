@@ -22,7 +22,7 @@ import {
 import { type ApplierCapability, canSetOwner } from "../policy/capability.ts";
 import { extensionMemberClosure } from "../policy/view.ts";
 import type { Action, SafetyReport } from "./plan.ts";
-import { ruleFlag } from "./rule-flags.ts";
+import { isMetadataKind, ruleFlag } from "./rule-flags.ts";
 import { defaultRulesForId, type FoldHint, type RulesForId } from "./rules.ts";
 import { renderGrantSql } from "./rules/helpers.ts";
 import { schemaCreateSql } from "./rules/schemas.ts";
@@ -276,6 +276,15 @@ export function buildActionGraph(
         edges.push([index, destroyer]);
       }
     }
+    // When a member's extension is REPLACED (both produced and destroyed in
+    // this plan, DROP ordered before CREATE), a member-consuming action can
+    // order against only ONE side — demanding both is unsatisfiable (the
+    // pg_net member cycle, guardrail 4). An action that tears down a real
+    // (non-metadata) object belongs to the OLD incarnation and must precede
+    // the DROP; everything else (creates, alters, metadata satellite changes
+    // — REVOKE / COMMENT are idempotent) targets the NEW incarnation the
+    // re-CREATE materializes.
+    const isTeardown = action.destroys.some((d) => !isMetadataKind(d.kind));
     for (const id of action.consumes) {
       const key = remember(id);
       const producer = producerOf.get(key);
@@ -283,13 +292,22 @@ export function buildActionGraph(
         edges.push([producer, index]);
       const destroyer = destroyerOf.get(key);
       // consumer-before-destroyer applies only when the id is NOT being
-      // re-produced; consumers of a replaced fact use the new one
+      // re-produced; consumers of a replaced fact use the new one. A consumed
+      // extension MEMBER of a replaced extension IS re-produced — by the
+      // CREATE EXTENSION (`producerOf` never tracks members) — so a build-up
+      // consumer uses the new incarnation and must not be pinned before the
+      // DROP (unsatisfiable with its member-closure producer edge below).
       if (
         destroyer !== undefined &&
         destroyer !== index &&
         producer === undefined
       ) {
-        edges.push([index, destroyer]);
+        const memberReproduced =
+          !isTeardown &&
+          (desiredMemberClosure.get(key) ?? []).some((ext) =>
+            producerOf.has(encodeId(ext)),
+          );
+        if (!memberReproduced) edges.push([index, destroyer]);
       }
       // A consumed EXTENSION MEMBER is reference-only (its object is never a
       // create/drop action — CREATE/DROP EXTENSION materializes/removes it). A
@@ -299,14 +317,20 @@ export function buildActionGraph(
       // BEFORE `DROP EXTENSION` (the member vanishes with it — REVOKE it while it
       // still exists).
       for (const ext of desiredMemberClosure.get(key) ?? []) {
-        const extProducer = producerOf.get(encodeId(ext));
-        if (extProducer !== undefined && extProducer !== index)
-          edges.push([extProducer, index]);
+        const extKey = encodeId(ext);
+        const extProducer = producerOf.get(extKey);
+        if (extProducer === undefined || extProducer === index) continue;
+        // replace: a teardown action orders against the DROP, not the CREATE
+        if (isTeardown && destroyerOf.has(extKey)) continue;
+        edges.push([extProducer, index]);
       }
       for (const ext of sourceMemberClosure.get(key) ?? []) {
-        const extDestroyer = destroyerOf.get(encodeId(ext));
-        if (extDestroyer !== undefined && extDestroyer !== index)
-          edges.push([index, extDestroyer]);
+        const extKey = encodeId(ext);
+        const extDestroyer = destroyerOf.get(extKey);
+        if (extDestroyer === undefined || extDestroyer === index) continue;
+        // replace: a build-up action orders against the CREATE, not the DROP
+        if (!isTeardown && producerOf.has(extKey)) continue;
+        edges.push([index, extDestroyer]);
       }
       // the id must exist on the target before apply (source) or be
       // produced by this plan; "it's in the desired state" is not enough —
@@ -463,9 +487,20 @@ export function buildActionGraph(
       // child teardown precedes parent teardown
       const fact = source.get(id);
       if (fact?.parent !== undefined) {
-        const parentDestroyer = destroyerOf.get(remember(fact.parent));
+        const parentKey = remember(fact.parent);
+        const parentDestroyer = destroyerOf.get(parentKey);
         if (parentDestroyer !== undefined && parentDestroyer !== index) {
-          edges.push([index, parentDestroyer]);
+          // a metadata satellite whose parent MEMBER an extension replace
+          // re-materializes: the removal targets the NEW incarnation (its
+          // consumes order it after the re-CREATE), so pinning it before the
+          // parent's DROP would close the replace cycle. The old satellite
+          // needs no explicit teardown — it dies with DROP EXTENSION.
+          const parentReproduced =
+            isMetadataKind(id.kind) &&
+            (desiredMemberClosure.get(parentKey) ?? []).some((ext) =>
+              producerOf.has(encodeId(ext)),
+            );
+          if (!parentReproduced) edges.push([index, parentDestroyer]);
         }
       }
     }

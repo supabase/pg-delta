@@ -1041,3 +1041,96 @@ not defects reachable on the shipped policy):
   exactly what the exemption must cover. Revisit together with the explicit
   platform-owner designation above if any platform grants users DDL on
   platform-owned relations.
+
+## PR #412 review triage (Codex) — libpq sslmode semantics
+
+Context: PR #412 restores the legacy engine's `sslmode` translation for
+URL-based connections (`parseSslConfig`), fixing `sslmode=require` against
+private-CA servers (CLI-2176). The MIGRATION.md pool-construction example was
+fixed in the PR (round 1). Two findings are **deferred by design**:
+
+- **Deferred — `sslmode=require` does not read `PGDELTA_*_SSLROOTCERT` env
+  content (Codex P1, round 1).** Deliberate legacy parity, asserted by a
+  dedicated unit test ("require does NOT read the env CA"). libpq's upgrade
+  rule ("require behaves as verify-ca") triggers on a root CA *file*; the
+  role-scoped env var is pg-delta's own PEM-content extension and env vars are
+  ambient across invocations. Honoring it under `require` would let a CA set
+  for one server silently enable chain verification against a different
+  server whose URL carries `sslmode=require` (the standard Supabase URL
+  shape), breaking connections that work today. Users who want env-CA
+  verification say so with `sslmode=verify-ca`. Revisit only if consumers ask
+  for an explicit opt-in (e.g. a parse option), not by flipping the default.
+- **Deferred — `sslmode=prefer` does not fall back to plaintext when the
+  server refuses TLS (Codex P2, round 1).** node-postgres has no
+  per-connection retry, so a single pool config cannot express libpq's
+  try-SSL-then-plaintext. node-postgres' native `prefer` handling, upstream
+  pg-connection-string's `uselibpqcompat` mode, and the legacy engine all
+  force TLS identically; a bespoke connect-retry wrapper in `makePool` is
+  disproportionate. Documented as a limitation in the module header and
+  MIGRATION.md. Revisit if node-postgres grows native fallback support.
+
+## PR #410 review triage (Codex) — extension-replace member handling
+
+Rounds 1–2 were real defects in the PR's own changes and were fixed in-PR
+with RED-first regressions (member-satellite removal cycle, traverse-through
+for member dependents, member-satellite replay, vanish-gate scoped to
+`memberOfExtension` edges into destroyed extensions). Round 3 re-litigates a
+pre-existing contract corner; loop capped here per the automated-review
+policy.
+
+- **Deferred — renamed dependents escape the forced-rebuild walk (Codex P1,
+  round 3).** With `renames: "auto"`, `expandReplacements`' dependent check
+  (`desired.has(edge.from)`) sees only the dependent's NEW id, so a dependent
+  being renamed in the same plan is never rebuilt around a destroyed
+  dependency — e.g. renaming a table whose column uses an extension-owned
+  type while that extension is replaced yields `ALTER TABLE … RENAME` +
+  `DROP EXTENSION` and PostgreSQL rejects the drop. This gap PREDATES PR
+  #410 and is not extension-specific: the same shape exists for a rename
+  crossing an enum/type replace (the walk has never carried the
+  accepted-rename identity mapping). The clean fix is to thread
+  `acceptedRenames` into `ReplacementExpansionInput` and translate ids during
+  the walk — or to refuse the plan when a renamed dependent would need a
+  rebuild (rename + rebuild of the same object in one plan is currently
+  unexpressible). Disproportionate to the pg_net cycle fix; needs its own
+  RED coverage for the rename × forced-rebuild matrix.
+
+## PR #418 review triage (Codex) — planId content hash
+
+Context: PR #418 adds required `Plan.planId` (WP1). Threat model: planId is an
+**integrity check against accidental divergence** (stale/hand-edited artifacts
+drifting from what was approved), NOT a security boundary — `computePlanId` is
+a public export, so a deliberate artifact editor can always re-stamp. Findings
+whose only failure scenario is a malicious editor gain nothing from hashing.
+
+Fixed in the PR (rounds 1–3): preamble bound into the digest (it is executed
+per segment — run content); `ENGINE_VERSION` bumped to 0.3.0 so pre-planId
+executors fail closed on stamped artifacts; `assertPlanId` preflight added to
+`provePlan()` so every public execution path validates before clone work.
+
+- **Deferred — bind `projectionAudit` into planId (Codex P1, round 2).** The
+  audit is gate INPUT under `prove --strict-audit`, so it is the one remaining
+  field that neither fails loud nor is reporting-only. Not hashed yet because
+  (a) the only exploit path is a deliberate editor (re-stampable → no
+  adversarial gain), and (b) `parsePlan` runs `normalizeProjectionAudit`
+  BEFORE the digest check, so inclusion requires proving normalize-stability
+  between `plan()` output and re-parsed artifacts — a false "re-plan" reject
+  is the worst failure mode this feature can have. If revisited: hash the
+  NORMALIZED form on both sides and extend the round-trip suite with
+  audit-bearing plans.
+- **Declined — bind `source.endpointHash`/`source.identity` into planId
+  (Codex P1, round 2).** These are transport stamps the CLI attaches AFTER
+  `plan()` precisely so planId stays a transport-independent content
+  identity (same plan against two replicas must share an id). They defend
+  against accidental endpoint mixups (`prove --clone "$SOURCE_URL"`), which
+  do not involve artifact editing; the described bypass requires a deliberate
+  editor, who re-stamps.
+- **Declined — bind `baseline.digest` into planId (Codex P2, round 2).**
+  Baseline already fails loud on accidental drift: apply/prove reconcile the
+  live-resolved baseline against the stamped digest (even under `--force`).
+  The described bypass needs a deliberate two-step edit — re-stampable.
+- **Declined — `major` changeset (Codex P1, round 1).** The package is on a
+  0.x pre/alpha train (every bump releases as `-alpha.N`); the repo has never
+  queued a `major`, and doing so would promote pg-delta to 1.0.0 the day
+  `changeset pre exit` runs — a release-train side effect worse than the
+  labeling nit. Breaking-in-alpha ships as `minor` here by established
+  practice.

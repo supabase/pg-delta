@@ -1,0 +1,5 @@
+---
+"@supabase/pg-delta": patch
+---
+
+Restore libpq-compatible `sslmode` semantics for URL-based connections (CLI pools and `provisionCoLocatedShadow`), fixing `SELF_SIGNED_CERT_IN_CHAIN` failures against servers with private-CA chains under `sslmode=require`. `require`/`prefer` without a root CA now encrypt without chain verification (matching psql and the legacy engine); `verify-ca`/`verify-full` keep verifying (`verify-ca` skips hostname checks per libpq only when a CA is supplied; without one it keeps full verification against Node's default trust store instead of erroring like libpq); `require` + `sslrootcert` upgrades to verify-ca behavior; `sslrootcert`/`sslcert`/`sslkey` query params (file paths) and `PGDELTA_{SOURCE,TARGET}_SSLROOTCERT/SSLCERT/SSLKEY` env vars (PEM content) are honored. The translation is exported as `parseSslConfig(url, role?)` so library consumers building their own pools can opt in. URLs without a recognized `sslmode` pass through to node-postgres untouched.

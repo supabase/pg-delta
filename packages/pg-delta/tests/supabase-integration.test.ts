@@ -243,6 +243,138 @@ describe.skipIf(!runSupabaseBareTests)(
       }
     }, 240_000);
 
+    // pg_net `extnamespace` DRIFT (the extension installed into different
+    // schemas on the two sides). pg_net is non-relocatable, so the planner must
+    // replace it — and pg_net owns schema `net` plus every `net.*` function
+    // (deptype 'e'), the shape that made the replace emit standalone member
+    // DROP/CREATE actions and cycle in production ("dependency cycle among 21
+    // actions", Sentry event 06bb0a36). The plan must be a clean
+    // DROP EXTENSION → CREATE EXTENSION with no `net.*` member actions, and it
+    // must apply and converge.
+    test("pg_net extnamespace drift replans as a clean extension replace (no member cycle)", async () => {
+      const cluster = await supabaseCluster();
+      const main = await cluster.createDb("supa_pgnet_drift_main");
+      const branch = await cluster.createDb("supa_pgnet_drift_branch");
+      try {
+        // main: pg_net at its CREATE-time default home (`public`); branch: the
+        // Supabase baseline home (`extensions`). Members live in `net` either way.
+        await main.pool.query(
+          `CREATE SCHEMA IF NOT EXISTS extensions;\n` +
+            `CREATE EXTENSION pg_net;`,
+        );
+        await branch.pool.query(
+          `CREATE SCHEMA IF NOT EXISTS extensions;\n` +
+            `CREATE EXTENSION pg_net SCHEMA extensions;`,
+        );
+
+        const ctx = await resolveCliProfile(main.pool, "supabase");
+        const extractFn = ctx.extract ?? extract;
+        const [s, d] = await Promise.all([
+          extractFn(main.pool),
+          extractFn(branch.pool),
+        ]);
+
+        const thePlan = plan(s.factBase, d.factBase, {
+          compact: true,
+          ...ctx.planOptions,
+        });
+        const sqls = thePlan.actions.map((a) => a.sql);
+        const dropAt = sqls.findIndex((sql) =>
+          sql.includes(`DROP EXTENSION "pg_net"`),
+        );
+        const createAt = sqls.findIndex((sql) =>
+          sql.includes(`CREATE EXTENSION "pg_net" SCHEMA "extensions"`),
+        );
+        expect(dropAt).toBeGreaterThanOrEqual(0);
+        expect(createAt).toBeGreaterThan(dropAt);
+        // members converge via the extension — never their own DROP/CREATE
+        expect(sqls.filter((sql) => /FUNCTION "?net"?\./.test(sql))).toEqual(
+          [],
+        );
+
+        const report = await apply(thePlan, main.pool, {
+          fingerprintGate: false,
+          ...ctx.applyOptions,
+        });
+        if (report.status !== "applied") {
+          throw new Error(
+            `apply failed at action ${report.error?.actionIndex ?? "?"}: ${report.error?.message ?? report.status}\nSQL: ${report.error?.sql ?? "(none)"}`,
+          );
+        }
+
+        const after = await extractFn(main.pool);
+        const drift = plan(after.factBase, d.factBase, ctx.planOptions);
+        if (drift.actions.length > 0) {
+          throw new Error(
+            `${drift.actions.length} drift action(s) after apply:\n${drift.actions.map((a) => a.sql).join("\n")}`,
+          );
+        }
+        expect(drift.actions).toEqual([]);
+      } finally {
+        await Promise.all([main.drop(), branch.drop()]);
+      }
+    }, 240_000);
+
+    // RAW-profile variant of the drift test, pinning member-customization
+    // replay: an IDENTICAL customization on a member (COMMENT on the member
+    // schema `net`, same on both sides) has no delta, yet dies with the
+    // replace — the plan must replay it after the re-CREATE or the apply
+    // leaves immediate drift. The supabase profile can't see this (Rule 10
+    // excludes satellites targeting the `net` system schema), so this runs
+    // raw; the Supabase IMAGE is still required for pg_net itself.
+    test("pg_net extnamespace drift replays unchanged member customizations (raw profile)", async () => {
+      const cluster = await supabaseCluster();
+      const main = await cluster.createDb("supa_pgnet_raw_main");
+      const branch = await cluster.createDb("supa_pgnet_raw_branch");
+      try {
+        await main.pool.query(
+          `CREATE SCHEMA IF NOT EXISTS extensions;\n` +
+            `CREATE EXTENSION pg_net;\n` +
+            `COMMENT ON SCHEMA net IS 'pinned by pgdelta test';`,
+        );
+        await branch.pool.query(
+          `CREATE SCHEMA IF NOT EXISTS extensions;\n` +
+            `CREATE EXTENSION pg_net SCHEMA extensions;\n` +
+            `COMMENT ON SCHEMA net IS 'pinned by pgdelta test';`,
+        );
+
+        const [s, d] = await Promise.all([
+          extract(main.pool),
+          extract(branch.pool),
+        ]);
+        const thePlan = plan(s.factBase, d.factBase, { compact: true });
+        const sqls = thePlan.actions.map((a) => a.sql);
+        const createExtAt = sqls.findIndex((sql) =>
+          sql.includes(`CREATE EXTENSION "pg_net" SCHEMA "extensions"`),
+        );
+        const commentAt = sqls.findIndex((sql) =>
+          sql.startsWith(`COMMENT ON SCHEMA "net"`),
+        );
+        expect(createExtAt).toBeGreaterThanOrEqual(0);
+        expect(commentAt).toBeGreaterThan(createExtAt);
+
+        const report = await apply(thePlan, main.pool, {
+          fingerprintGate: false,
+        });
+        if (report.status !== "applied") {
+          throw new Error(
+            `apply failed at action ${report.error?.actionIndex ?? "?"}: ${report.error?.message ?? report.status}\nSQL: ${report.error?.sql ?? "(none)"}`,
+          );
+        }
+
+        const after = await extract(main.pool);
+        const drift = plan(after.factBase, d.factBase);
+        if (drift.actions.length > 0) {
+          throw new Error(
+            `${drift.actions.length} drift action(s) after apply:\n${drift.actions.map((a) => a.sql).join("\n")}`,
+          );
+        }
+        expect(drift.actions).toEqual([]);
+      } finally {
+        await Promise.all([main.drop(), branch.drop()]);
+      }
+    }, 240_000);
+
     // Export-as-source-of-truth on the heavy image, through the FULL CLI
     // pipeline (schema export → schema apply), for a realistic middleware shape:
     // a real extension (pgmq), cross-schema mutual FKs, and multi-role ADP

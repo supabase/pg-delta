@@ -31,3 +31,6 @@ export const cascadesToChildren = (kind: string): boolean =>
 
 export const isRebuildable = (kind: string): boolean =>
   ruleFlag(kind, "rebuildable") === true;
+
+export const isMetadataKind = (kind: string): boolean =>
+  ruleFlag(kind, "metadata") === true;

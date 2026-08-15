@@ -119,7 +119,7 @@ export async function cmdPlan(args: string[]): Promise<void> {
     }
   }
 
-  const src = makePool(sourceUrl);
+  const src = makePool(sourceUrl, { role: "source" });
   const dst = makePool(desiredUrl);
   try {
     // redaction mode is passed into profile resolution so a profile-declared

@@ -212,6 +212,42 @@ describe("pruneStaleSqlFiles", () => {
     },
   );
 
+  test("keep and previouslyOwned entries may be relative to outRoot", () => {
+    // Public-API hardening: the manifest and internal callers use absolute
+    // paths, but a library consumer passing outRoot-relative entries must get
+    // the same semantics — not have every file misread as out-of-set.
+    const kept = write("schemas/app/tables/kept.sql");
+    const stale = write("schemas/app/tables/dropped.sql");
+    const { removed, unmanaged } = pruneStaleSqlFiles(
+      root,
+      new Set(["schemas/app/tables/kept.sql"]),
+      new Set([
+        "schemas/app/tables/kept.sql",
+        "schemas/app/tables/dropped.sql",
+      ]),
+      false,
+    );
+    expect(removed).toEqual([stale]);
+    expect(unmanaged).toEqual([]);
+    expect(existsSync(kept)).toBe(true);
+    expect(existsSync(stale)).toBe(false);
+  });
+
+  test("pruneUnmanaged with relative keep entries must not delete kept files", () => {
+    // The sharp edge that motivated the normalization: a relative keep set plus
+    // pruneUnmanaged=true previously matched nothing and deleted the whole tree.
+    const kept = write("kept.sql");
+    const { removed, unmanaged } = pruneStaleSqlFiles(
+      root,
+      new Set(["kept.sql"]),
+      undefined,
+      true,
+    );
+    expect(removed).toEqual([]);
+    expect(unmanaged).toEqual([]);
+    expect(existsSync(kept)).toBe(true);
+  });
+
   test("a NESTED _custom/ directory is ordinary managed space", () => {
     // only the ROOT-level `_custom` is reserved (one auditable location).
     const nestedCustom = write("schemas/app/_custom/x.sql");

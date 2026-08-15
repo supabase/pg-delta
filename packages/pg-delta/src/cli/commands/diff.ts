@@ -61,7 +61,7 @@ export async function cmdDiff(args: string[]): Promise<void> {
   const desiredUrl = flags["desired"];
   const redactSecrets = !flags["unsafe-show-secrets"];
 
-  const src = makePool(sourceUrl);
+  const src = makePool(sourceUrl, { role: "source" });
   const dst = makePool(desiredUrl);
   try {
     // Resolve the profile against the source: handler-aware extraction + the

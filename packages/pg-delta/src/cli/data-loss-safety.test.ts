@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Action } from "../plan/plan.ts";
-import { assertDataLossAllowed, dataLossActions } from "./data-loss-safety.ts";
+import { assertDataLossAllowed } from "./data-loss-safety.ts";
 import { UsageError } from "./flags.ts";
 
 const action = (dataLoss: Action["dataLoss"]): Action => ({
@@ -17,13 +17,7 @@ const action = (dataLoss: Action["dataLoss"]): Action => ({
   rewriteRisk: false,
 });
 
-describe("data-loss safety", () => {
-  test("derives destructive operations from actions", () => {
-    expect(dataLossActions([action("none"), action("destructive")])).toEqual([
-      { actionIndex: 1, sql: "DROP TABLE app.t" },
-    ]);
-  });
-
+describe("assertDataLossAllowed", () => {
   test("requires a separate explicit approval", () => {
     expect(() =>
       assertDataLossAllowed([action("destructive")], false, "apply"),
@@ -34,13 +28,5 @@ describe("data-loss safety", () => {
     expect(() =>
       assertDataLossAllowed([action("none")], false, "apply"),
     ).not.toThrow();
-  });
-
-  test("fails closed for malformed dataLoss metadata from non-artifact callers", () => {
-    for (const dataLoss of [undefined, null, "unknown"]) {
-      expect(() =>
-        dataLossActions([{ ...action("none"), dataLoss } as unknown as Action]),
-      ).toThrow(/action\[0\]\.dataLoss/);
-    }
   });
 });

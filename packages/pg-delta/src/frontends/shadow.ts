@@ -15,6 +15,7 @@
  * `pool.end()` before calling `cleanup()`.
  */
 import pg from "pg";
+import { parseSslConfig } from "./ssl-config.ts";
 
 /** Swap the database name in a connection URL, preserving everything else. */
 export function withDatabaseName(url: string, dbname: string): string {
@@ -28,7 +29,14 @@ function quoteIdent(name: string): string {
 }
 
 function makePool(url: string): pg.Pool {
-  const pool = new pg.Pool({ connectionString: url, max: 5 });
+  // libpq sslmode semantics (require/prefer = encrypt without verification) so
+  // co-located shadows work against targets with private-CA chains (CLI-2176).
+  const { ssl, cleanedUrl } = parseSslConfig(url);
+  const pool = new pg.Pool({
+    connectionString: cleanedUrl,
+    max: 5,
+    ...(ssl !== undefined ? { ssl } : {}),
+  });
   pool.on("error", () => {
     // idle client errors (server restart) must not crash the process
   });

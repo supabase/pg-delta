@@ -6,7 +6,12 @@
  */
 import { describe, expect, test } from "bun:test";
 import { extract } from "../src/extract/extract.ts";
-import { plan, type Plan, type ProjectionAudit } from "../src/plan/plan.ts";
+import {
+  computePlanId,
+  plan,
+  type Plan,
+  type ProjectionAudit,
+} from "../src/plan/plan.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import type { Policy } from "../src/policy/policy.ts";
 import { sharedCluster } from "./containers.ts";
@@ -72,6 +77,7 @@ describe("proof: rewrite observation", () => {
       // must now catch the relfilenode change that nobody warned about.
       const buggy = structuredClone(honest);
       for (const a of buggy.actions) a.rewriteRisk = false;
+      buggy.planId = computePlanId(buggy); // re-stamp the lie past apply's planId gate
       const verdict = await provePlan(buggy, source.pool, d.factBase);
       expect(verdict.rewriteViolations.length).toBeGreaterThan(0);
       // `.table` is structured { schema, name } — unambiguous (identifiers can
@@ -144,6 +150,7 @@ describe("proof: auto-seed data preservation", () => {
         dataLoss: "none", // the lie the proof must catch
         rewriteRisk: false,
       });
+      thePlan.planId = computePlanId(thePlan); // re-stamp the lie past apply's planId gate
       // without auto-seed the kept table is empty, so the loss is invisible
       const blind = await provePlan(
         structuredClone(thePlan),
@@ -173,6 +180,7 @@ describe("proof: auto-seed data preservation", () => {
           dataLoss: "none",
           rewriteRisk: false,
         });
+        thePlan2.planId = computePlanId(thePlan2); // re-stamp the lie past apply's planId gate
         const seeded = await provePlan(thePlan2, source2.pool, d.factBase, {
           autoSeed: true,
         });
@@ -284,6 +292,7 @@ describe("proof: projection audit on early returns", () => {
         dataLoss: "none",
         rewriteRisk: false,
       });
+      thePlan.planId = computePlanId(thePlan); // re-stamp the injection past apply's planId gate
       const audit = installSuspiciousAudit(thePlan);
 
       const verdict = await provePlan(thePlan, source.pool, factBase, {

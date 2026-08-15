@@ -33,6 +33,7 @@ function isPlannerBodyModuleFilename(name: string): boolean {
 const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   "artifact.ts": 73,
   "graph.ts": 0,
+  "hazards.ts": 0,
   "identity-normalize.ts": 17,
   // 28 → 30: mergeCoTargetGrants (multi-grantee GRANT merge) discriminates acl
   // actions via the isAclId type guard — 2 deliberate literals (type + guard).
@@ -41,7 +42,11 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // "defaultPrivilege" }>` cast — narrowing on the `!==` check suffices.
   "internal.ts": 29,
   "locks.ts": 18,
-  "phases/action-emitter.ts": 10,
+  // 10 → 11: the extension-replace satellite replay guards on
+  // `oldFact.id.kind === "extension"` so a plan with no extension replace
+  // never builds the member-closure index — 1 deliberate literal (the closure
+  // maps members to owning EXTENSIONS only, so the guard is behavior-neutral).
+  "phases/action-emitter.ts": 11,
   "phases/action-graph.ts": 1,
   "phases/change-set.ts": 4,
   "phases/replacement-expansion.ts": 0,

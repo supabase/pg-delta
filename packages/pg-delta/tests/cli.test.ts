@@ -17,7 +17,11 @@ import {
 import { loadSnapshot } from "../src/frontends/snapshot-file.ts";
 import { serializeSnapshot } from "../src/core/snapshot.ts";
 import { extract } from "../src/extract/extract.ts";
-import { parsePlan, serializePlan } from "../src/plan/artifact.ts";
+import {
+  computePlanId,
+  parsePlan,
+  serializePlan,
+} from "../src/plan/artifact.ts";
 import { plan } from "../src/plan/plan.ts";
 import type { Policy } from "../src/policy/policy.ts";
 import { isolatedClusterPair, sharedCluster } from "./containers.ts";
@@ -116,6 +120,7 @@ describe("CLI: apply failure attribution", () => {
       ]);
       const thePlan = plan(sourceState.factBase, desiredState.factBase);
       thePlan.preamble = [{ name: "lock_timeout", value: "-1" }];
+      thePlan.planId = computePlanId(thePlan); // re-stamp: the preamble joins the hash
       const planFile = join(artifactDir, "plan.json");
       writeFileSync(planFile, serializePlan(thePlan), "utf8");
 
@@ -822,6 +827,49 @@ describe("CLI: schema export", () => {
       expect(existsSync(goneFile)).toBe(false);
       expect(existsSync(join(outDir, "schemas/clitest/tables/items.sql"))).toBe(
         true,
+      );
+    } finally {
+      await source.drop();
+    }
+  }, 90_000);
+
+  test("re-export reports the created/updated/unchanged/removed summary on stderr", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_export_summary_src");
+    try {
+      await source.pool.query(SCHEMA_SQL);
+      await source.pool.query(
+        `CREATE TABLE clitest.gone (id integer PRIMARY KEY);`,
+      );
+
+      const outDir = join(tmpdir(), `pg-delta-next-summary-${Date.now()}`);
+      const args = [
+        "schema",
+        "export",
+        "--source",
+        source.uri,
+        "--out-dir",
+        outDir,
+      ];
+
+      // first export into an empty dir: everything is created.
+      const first = await runCli(args);
+      expect(first.exitCode).toBe(0);
+      expect(first.stderr).toMatch(
+        /Exported (\d+) file\(s\) to \S+ \(layout: by-object\): \1 created, 0 updated, 0 unchanged\n/,
+      );
+      expect(first.stderr).not.toContain("Removed");
+
+      // one object changes, one is dropped, the rest are byte-identical.
+      await source.pool.query(
+        `ALTER TABLE clitest.items ADD COLUMN note text;`,
+      );
+      await source.pool.query(`DROP TABLE clitest.gone;`);
+      const re = await runCli(args);
+      expect(re.exitCode).toBe(0);
+      expect(re.stderr).toContain("Removed 1 stale .sql file(s)");
+      expect(re.stderr).toMatch(
+        /Exported \d+ file\(s\) to \S+ \(layout: by-object\): 0 created, 1 updated, \d+ unchanged\n/,
       );
     } finally {
       await source.drop();
