@@ -30,6 +30,35 @@ export const INTENT_UNKEYED = "intent-unkeyed";
  *  warning is the early signal that a plain connection will be rejected. */
 export const INTENT_PRIVILEGED = "intent-privileged";
 
+/** Diagnostic code for an extension-intent object the handler can KEY but
+ *  cannot faithfully REPLAY, because the extension's own catalog does not
+ *  record everything its constructor needs — today, a PARTITIONED pgmq queue
+ *  (`pgmq.meta` stores the `is_partitioned` flag but not the partition /
+ *  retention intervals, which live in pg_partman's `part_config`). Skip + warn
+ *  is the honest outcome: emitting a fact whose `create()` guesses the missing
+ *  arguments would produce a plan that can never converge. Distinct from
+ *  {@link INTENT_UNKEYED} (no stable identity at all) and
+ *  {@link INTENT_PRIVILEGED} (replayable, but only by a superuser).
+ *
+ *  Unlike {@link INTENT_UNKEYED}, this is NOT fatal by side — it is fatal by
+ *  COLLISION. On its own (either side) the object is simply unmanaged and the
+ *  warning is the whole story, so a diff whose desired state merely CONTAINS a
+ *  partitioned queue still plans. `plan()` escalates to an error only when the
+ *  OPPOSITE side's fact base holds a fact under the SAME key, where acting on
+ *  the diff is wrong in both directions:
+ *    - unsupported on the DESIRED side, fact in the source → the diff reads as
+ *      a removal and plans a bare destructive drop whose proof falsely
+ *      CONVERGES (the desired re-extract skips the fact too);
+ *    - unsupported on the SOURCE side, fact in the desired → the plan emits a
+ *      create that no-ops against the existing registration (pgmq's create is
+ *      IF NOT EXISTS) and the proof fails later with a confusing mismatch.
+ *  Reconstructing the would-be id for that check requires the KEY, so an
+ *  emitter must put `{ ext, intentKind, key }` in the diagnostic's `context`.
+ *  A desired-side diagnostic WITHOUT a key cannot be proven collision-free and
+ *  stays fatal (conservative); a source-side one without a key stays a
+ *  warning. */
+export const INTENT_UNSUPPORTED = "intent-unsupported";
+
 /** Diagnostic code for a `pg_user_mapping` row whose options a non-superuser
  *  extraction could not read (the `pg_user_mappings` fallback view NULLs
  *  `umoptions` for a row the caller isn't authorized on — see

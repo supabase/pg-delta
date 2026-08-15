@@ -10,7 +10,7 @@
  * registered rule fails loudly. No Docker — synthetic fact bases.
  */
 import { describe, expect, test } from "bun:test";
-import { INTENT_UNKEYED } from "../core/diagnostic.ts";
+import { INTENT_UNKEYED, INTENT_UNSUPPORTED } from "../core/diagnostic.ts";
 import { buildFactBase, type Fact } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
 import { plan } from "./plan.ts";
@@ -206,5 +206,85 @@ describe("plan() — extension intent wiring", () => {
     });
     const desired = buildFactBase(baseFacts, []);
     expect(() => plan(source, desired, { intentRules })).not.toThrow();
+  });
+
+  // ── INTENT_UNSUPPORTED: keyable but not replayable (a PARTITIONED pgmq
+  // queue). The gate is COLLISION-SCOPED, not side-scoped: the warning alone is
+  // benign (the object stays unmanaged on whichever side holds it), but if the
+  // OPPOSITE side manages a fact under the SAME key, acting on the diff is
+  // wrong in both directions — so plan() refuses only then. The diagnostic
+  // carries `key` in its context so the would-be id can be reconstructed here.
+  // ext/intentKind are pg_cron/job below purely so the ids line up with
+  // `jobFact` — the gate itself is extension-agnostic. ────────────────────────
+  const unsupported = (key: string) => ({
+    code: INTENT_UNSUPPORTED,
+    severity: "warning" as const,
+    message: `intent '${key}' is PARTITIONED and cannot be replayed`,
+    context: { ext: "pg_cron", intentKind: "job", key },
+  });
+
+  test("desired-side unsupported + a same-key SOURCE fact aborts the plan", () => {
+    // Source manages `clash`; desired declares an unreplayable form of the same
+    // key. Ungated the diff sees only a removal and plans a bare destructive
+    // drop whose proof falsely converges (the desired re-extract skips it too).
+    const source = buildFactBase(
+      [...baseFacts, jobFact("clash", "0 0 * * *")],
+      [{ from: job("clash"), to: pgCron, kind: "depends" }],
+    );
+    const desired = buildFactBase(baseFacts, []);
+    desired.diagnostics.push(unsupported("clash"));
+    expect(() => plan(source, desired, { intentRules })).toThrow(/clash/);
+  });
+
+  test("source-side unsupported + a same-key DESIRED fact aborts the plan", () => {
+    // Mirror image: source holds the unreplayable form, desired declares a
+    // manageable one under the same key. Ungated the plan emits a create that
+    // no-ops against the existing registration (pgmq's create is IF NOT
+    // EXISTS) and the proof fails later with a confusing mismatch.
+    const source = buildFactBase(baseFacts, []);
+    source.diagnostics.push(unsupported("clash"));
+    const desired = buildFactBase(
+      [...baseFacts, jobFact("clash", "0 0 * * *")],
+      [{ from: job("clash"), to: pgCron, kind: "depends" }],
+    );
+    expect(() => plan(source, desired, { intentRules })).toThrow(/clash/);
+  });
+
+  test("desired-side unsupported with no same-key source fact does NOT abort", () => {
+    const source = buildFactBase(baseFacts, []);
+    const desired = buildFactBase(baseFacts, []);
+    desired.diagnostics.push(unsupported("solo"));
+    expect(() => plan(source, desired, { intentRules })).not.toThrow();
+  });
+
+  test("source-side unsupported with no same-key desired fact does NOT abort", () => {
+    const source = buildFactBase(baseFacts, []);
+    source.diagnostics.push(unsupported("solo"));
+    const desired = buildFactBase(baseFacts, []);
+    expect(() => plan(source, desired, { intentRules })).not.toThrow();
+  });
+
+  test("the steady state — the same unsupported key on BOTH sides — does NOT abort", () => {
+    const source = buildFactBase(baseFacts, []);
+    source.diagnostics.push(unsupported("parted"));
+    const desired = buildFactBase(baseFacts, []);
+    desired.diagnostics.push(unsupported("parted"));
+    expect(() => plan(source, desired, { intentRules })).not.toThrow();
+  });
+
+  test("a desired-side unsupported diagnostic with NO key aborts (conservative)", () => {
+    // A third-party handler predating the key-carrying context: the gate cannot
+    // prove the source holds nothing under that key, so it refuses.
+    const source = buildFactBase(baseFacts, []);
+    const desired = buildFactBase(baseFacts, []);
+    desired.diagnostics.push({
+      code: INTENT_UNSUPPORTED,
+      severity: "warning",
+      message: "some intent is unreplayable",
+      context: { ext: "pgmq", intentKind: "queue" },
+    });
+    expect(() => plan(source, desired, { intentRules })).toThrow(
+      /cannot replay/i,
+    );
   });
 });

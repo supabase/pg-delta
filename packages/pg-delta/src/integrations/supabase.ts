@@ -11,6 +11,7 @@
 import type { ExtensionHandler } from "../extract/handler.ts";
 import {
   makePgCronHandler,
+  pgmqHandler,
   pgPartmanHandler,
 } from "../policy/extensions/index.ts";
 import { supabasePolicy } from "../policy/supabase.ts";
@@ -39,6 +40,9 @@ const supabasePgCronHandler = makePgCronHandler({
 export const SUPABASE_EXTENSION_HANDLERS: readonly ExtensionHandler[] = [
   pgPartmanHandler,
   supabasePgCronHandler,
+  // pgmq needs no Supabase-specific configuration: `pgmq.meta` records no owner
+  // or role, so there is nothing to normalize the way pg_cron's job owner is.
+  pgmqHandler,
 ];
 
 export const supabaseProfile: IntegrationProfile = {

@@ -1134,3 +1134,97 @@ executors fail closed on stamped artifacts; `assertPlanId` preflight added to
   `changeset pre exit` runs — a release-train side effect worse than the
   labeling nit. Breaking-in-alpha ships as `minor` here by established
   practice.
+## CLI-2054 triage — pgmq intent capture and replay
+
+- **RESOLVED in-PR — `plan()` now has a collision-scoped
+  `intent-unsupported` gate** (Codex round-2 P1 sharpened the
+  consequence: a regular→partitioned transition of the same queue name
+  planned a bare destructive `drop_queue` whose proof falsely converged,
+  because the desired re-extract skipped the fact too). It shipped first as
+  an unconditional desired-side refusal mirroring the `INTENT_UNKEYED`
+  check, then was narrowed to fire only when the opposite side manages a
+  fact under the SAME key — an unconditional gate blocked benign diffs whose
+  desired state merely contained a partitioned queue. Still open here: whether
+  the intervals can be sourced from `part_config` once the pg_partman intent
+  handler (CLI-2044) lands, making partitioned queues replayable instead of
+  refused.
+
+### PR #399 review triage (Codex)
+
+Fixed: `drop_queue` now reports `lockClass: "accessExclusive"` (it DROPs the
+`q_*`/`a_*` relations; the intent adapter's `"none"` default misrepresented a
+destructive drop as lock-free in the safety report).
+
+Deferred (recorded here, not fixed in the PR):
+
+- **Old-pgmq catalog shapes are not probed.** `capture()` selects
+  `is_partitioned`/`is_unlogged` from `pgmq.meta` unconditionally; a pgmq
+  older than 0.31 (mid-2023, before those columns existed) fails extraction
+  with a loud `undefined_column` naming `pgmq.meta`. Every pgmq Supabase has
+  ever shipped (≥1.4) has both columns, so this is unreachable on the
+  Supabase profile; it needs a raw/custom profile composed against a 3+
+  year old pgmq. The failure is loud and actionable (upgrade pgmq or drop
+  the handler from the profile), and pg-cron makes the same
+  stable-catalog-shape assumption. Revisit only if a real profile hits it:
+  the fix shape is a column-presence probe degrading to filter-only capture
+  with a diagnostic.
+- **User DDL referencing operational queue tables can order before the
+  replay.** A user view/FK on `pgmq.q_<name>` has its dependency edge pruned
+  when `resolveView` projects the `managedBy` table out, and intent replay
+  sorts late (weight 90), so a from-empty apply can attempt the view before
+  `pgmq.create()`. Referencing pgmq's operational tables in own DDL is
+  discouraged upstream; before this PR the same desired state was strictly
+  worse (no replay existed at all — the table never appeared); the
+  declarative path converges through the loader's retry rounds and the
+  plan/apply path fails LOUDLY via the proof, never silently. The clean fix
+  (remap pruned dependency edges onto the intent fact before projection) is
+  planner/resolveView machinery — deferred as its own design piece (the
+  desired-side `intent-unsupported` plan() gate, originally bucketed with
+  it, shipped in-PR after the round-2 P1).
+- **Partitioned-queue interplay with `DROP EXTENSION pgmq`.** A partitioned
+  queue emits no intent fact, so a desired state that removes pgmq relies on
+  member-cascade to take the operational tables with it. Partitioned queues
+  are already explicitly unmanaged (`intent-unsupported`); their removal
+  semantics belong to the same follow-up that makes them replayable
+  (part_config-sourced intervals, above), not to this PR.
+Also fixed after the round-3 triage:
+
+- **Partitioned→regular transition of the same queue name (Codex round 3) —
+  now FIXED.** Source has a partitioned queue `X` (skipped, source-side
+  diagnostic), desired declares a regular queue `X` (fact). The plan emitted
+  `pgmq.create('X')`, which no-ops against the existing registration (pgmq's
+  create is `IF NOT EXISTS`), so apply/proof failed to converge — loudly, via
+  the proof backstop, but with a confusing fingerprint mismatch instead of a
+  plan-time error. Originally declined because an early rejection needed
+  source-side diagnostics to carry the queue key plus a diagnostic × opposite-
+  side join in `plan()`. That machinery was then built anyway to
+  COLLISION-SCOPE the desired-side gate (which was too strict — it blocked any
+  diff whose desired state merely contained a partitioned queue), so the
+  mirror-image direction came free: the same key-carrying context and the same
+  `FactBase.has` probe, run the other way round. Both directions now throw at
+  plan time naming the ext/intentKind/key and which side holds the unreplayable
+  form. The residual corner (making partitioned queues replayable via
+  part_config-sourced intervals) is still the follow-up above.
+
+Round 4 (final round — loop capped per the automated-review policy):
+
+- **Changeset overclaimed the raw profile's safety (Codex round 4) — FIXED.**
+  The release note said "a `raw` or custom profile never plans `DROP TABLE`"
+  against the operational tables, but `rawProfile` is `handlers: []` and never
+  invokes the handler, so under `--profile raw` a source-to-empty diff still
+  treats `pgmq.q_*`/`a_*` as ordinary managed tables. Reworded to scope the
+  guarantee to profiles that compose the handler.
+- **The `INTENT_UNSUPPORTED` collision gate probes PRE-filter fact bases
+  (Codex round 4) — declined, recorded.** `plan()` checks
+  `rawSource.has(id)` / `rawDesired.has(id)` before `buildChangeSet` applies
+  policy or baseline projection, so a profile that composes `pgmqHandler`
+  while simultaneously policy-filtering its intent facts would be over-blocked
+  even though the filtered diff would produce no action. Declined because the
+  configuration is contrived (a user wanting queues unmanaged simply omits the
+  opt-in handler), the failure direction is fail-safe (planning refuses with a
+  clear message naming the queue; no wrong DDL is emitted), and the placement
+  mirrors the pre-existing `INTENT_UNKEYED` gate directly above it. If a real
+  profile ever hits the over-block, the fix shape is to move the probe onto
+  the kept-delta / managed views, mirroring the `USER_MAPPING_UNREADABLE`
+  gate's zero-over-block approach lower in the same function.
+

@@ -56,7 +56,13 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // 8 → 9: the source-witnessed role scan probes `source.has({ kind: "role",
   // name })` for each reference `roleReferencesOf` (rules/helpers.ts) returns —
   // 1 deliberate literal; the per-kind reference knowledge lives in the rules.
-  "plan.ts": 9,
+  // 9 → 10: the collision-scoped INTENT_UNSUPPORTED gate rebuilds the would-be
+  // intent id from a diagnostic's context to probe the opposite side's fact
+  // base, which needs the kind literal once (`unsupportedIntentId`). Not
+  // object-kind KNOWLEDGE — extensionIntent has no rules here, and the error
+  // rendering deliberately reads the context instead of re-narrowing the id so
+  // the literal stays confined to that one constructor.
+  "plan.ts": 10,
   // preamble.ts classifies actions into "routine-family or not" for the
   // cosmetic check_function_bodies compaction; the routine kinds themselves
   // come from core ROUTINE_KINDS, leaving only the two extension literals.

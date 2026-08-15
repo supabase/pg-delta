@@ -20,6 +20,7 @@ export type {
   HandlerContext,
 } from "../../extract/handler.ts";
 export { pgPartmanHandler } from "./pg-partman.ts";
+export { pgmqHandler } from "./pgmq.ts";
 export {
   makePgCronHandler,
   type PgCronHandlerConfig,

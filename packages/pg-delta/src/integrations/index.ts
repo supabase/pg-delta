@@ -24,6 +24,7 @@ export {
   makePgCronHandler,
   type PgCronHandlerConfig,
   pgCronHandler,
+  pgmqHandler,
   pgPartmanHandler,
 } from "../policy/extensions/index.ts";
 export {
