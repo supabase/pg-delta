@@ -126,6 +126,42 @@ describe("planSchemaFiles same-database identity bypass", () => {
       await shadow.drop();
     }
   }, 120_000);
+
+  test("the bypass also exempts the isolated-shadow lineage guard for the exact-identity match", async () => {
+    const db = await createTestDb("same_identity_isolated_bypass");
+    try {
+      const result = await planSchemaFiles(db.pool, db.pool, FILES, {
+        profile: rawProfile,
+        scope: "database",
+        allowSameDatabaseIdentity: true,
+        isolatedShadow: true,
+      });
+      expect(result.plan.deltas.length).toBeGreaterThan(0);
+    } finally {
+      await db.drop();
+    }
+  }, 120_000);
+
+  test("the bypass does NOT exempt a same-lineage sibling database from the isolated-shadow lineage guard", async () => {
+    const target = await createTestDb("same_identity_sibling_t");
+    const shadow = await createTestDb("same_identity_sibling_s");
+    try {
+      const error = await captureError(
+        planSchemaFiles(target.pool, shadow.pool, FILES, {
+          profile: rawProfile,
+          scope: "database",
+          allowSameDatabaseIdentity: true,
+          isolatedShadow: true,
+        }),
+      );
+      expect((error as Error).message).toMatch(
+        /isolated shadow requires a different PostgreSQL lineage/i,
+      );
+    } finally {
+      await target.drop();
+      await shadow.drop();
+    }
+  }, 120_000);
 });
 
 describe("schema apply --allow-same-database-identity", () => {
@@ -185,6 +221,30 @@ describe("schema apply --allow-same-database-identity", () => {
       ).toBe(true);
     } finally {
       (process.stderr as { write: unknown }).write = originalWrite;
+      await target.drop();
+    }
+  }, 120_000);
+
+  test("proceeds with --isolated-shadow when the flag is passed and shadow is a cloned target", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("same_identity_cli_isolated");
+    try {
+      const dir = sqlDir(
+        "same-identity-isolated",
+        "CREATE SCHEMA cloned_shadow;",
+      );
+      await cmdSchemaApply([
+        "--dir",
+        dir,
+        "--shadow",
+        aliasUri(target.uri),
+        "--target",
+        target.uri,
+        "--isolated-shadow",
+        "--allow-same-database-identity",
+        "--dry-run",
+      ]);
+    } finally {
       await target.drop();
     }
   }, 120_000);
