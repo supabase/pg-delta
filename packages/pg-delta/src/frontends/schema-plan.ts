@@ -286,6 +286,22 @@ export interface PlanSchemaFilesOptions {
   allowPreExistingRows?: boolean;
   /** Make the shadow load's DML observation fatal again (default: warning). */
   strictDataStatements?: boolean;
+  /** Proceed when the shadow and the target observe the SAME database identity
+   *  (system identifier + database OID) instead of refusing. Physical clones —
+   *  a warm shadow cache restored from a PGDATA snapshot of the target cluster —
+   *  inherit both, so a genuinely separate shadow server is indistinguishable
+   *  from the target here. Off by default; when it is on and the identities do
+   *  match, the bypass is reported through {@link PlanSchemaFilesOptions.onWarning}.
+   *  A no-op when the identities differ.
+   *
+   *  For that same exact-identity match, this also exempts the `isolatedShadow`
+   *  / cluster-scope PostgreSQL lineage containment check below — a physical
+   *  clone shares the target's lineage by construction, so the lineage guard
+   *  would otherwise reject the very case this option exists to allow. It does
+   *  NOT exempt a same-lineage sibling database (same system identifier,
+   *  different database OID); that case still fails `isSameDatabase()` and the
+   *  lineage guard still refuses it. */
+  allowSameDatabaseIdentity?: boolean;
   /** Statement-reorder assist. Default: true. */
   reorder?: boolean;
   /** Soft warnings (reorder fallback, ADP caveat, …). */
@@ -382,17 +398,37 @@ export async function planSchemaFiles(
     shadowPool,
     "planSchemaFiles shadow safety",
   );
-  if (isSameDatabase(targetIdentity, shadowIdentity)) {
-    throw new SchemaFrontendError(
-      `planSchemaFiles: shadow and target are the same observed database (${targetIdentity.database}); refusing to load declarative SQL`,
+  const sameDatabaseIdentity = isSameDatabase(targetIdentity, shadowIdentity);
+  if (sameDatabaseIdentity) {
+    if (options.allowSameDatabaseIdentity !== true) {
+      throw new SchemaFrontendError(
+        `planSchemaFiles: shadow and target are the same observed database (${targetIdentity.database}); refusing to load declarative SQL. ` +
+          `A physically cloned shadow (e.g. a warm shadow cache restored from a PGDATA snapshot of the target cluster) inherits the target's ` +
+          `system identifier and database OIDs and reports as the same database here; if the shadow is known to be a separate server, ` +
+          `pass allowSameDatabaseIdentity: true to bypass this check`,
+      );
+    }
+    options.onWarning?.(
+      `shadow and target report the same database identity (system identifier + database OID) for "${targetIdentity.database}". ` +
+        `This is expected for a physically restored/cloned shadow; the same-database safety guard was explicitly bypassed ` +
+        `(allowSameDatabaseIdentity / --allow-same-database-identity), and the lineage containment checks below were exempted ` +
+        `for this exact-identity match too. If the shadow is NOT a separate server, declarative SQL is being loaded into the target itself.`,
     );
   }
+  // The bypass attests "my shadow is a physical clone of the target" — it exempts
+  // lineage containment ONLY for that exact-identity match, never for a same-lineage
+  // sibling database (same systemIdentifier, different databaseOid), which is a
+  // genuinely different database on the same cluster and must still be refused.
+  const trustedCloneBypass =
+    options.allowSameDatabaseIdentity === true && sameDatabaseIdentity;
   if (
     options.isolatedShadow === true &&
-    isSamePostgresLineage(targetIdentity, shadowIdentity)
+    isSamePostgresLineage(targetIdentity, shadowIdentity) &&
+    !trustedCloneBypass
   ) {
     throw new SchemaFrontendError(
-      "planSchemaFiles: an isolated shadow requires a different PostgreSQL lineage; the supplied shadow shares the target lineage",
+      "planSchemaFiles: an isolated shadow requires a different PostgreSQL lineage; the supplied shadow shares the target lineage " +
+        "(same-lineage sibling databases are not covered by allowSameDatabaseIdentity)",
     );
   }
 

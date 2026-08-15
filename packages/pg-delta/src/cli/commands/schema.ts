@@ -709,6 +709,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       "allow-data-loss": { type: "boolean" },
       "trusted-local-host": { type: "multi" },
       "allow-remote-shadow": { type: "boolean" },
+      "allow-same-database-identity": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
@@ -716,7 +717,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         `${err.message}\nUsage: pgdelta schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
           `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--strict-data-statements] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow] [--allow-data-loss] ` +
-          `[--trusted-local-host <hostname>]... [--allow-remote-shadow]\n` +
+          `[--trusted-local-host <hostname>]... [--allow-remote-shadow] [--allow-same-database-identity]\n` +
           `  [--dry-run] (print the portable apply script to stdout; apply nothing; see pgdelta --help for execution requirements) [--verbose] (stream per-statement progress to stderr) [--out-plan <plan.json>] (write the plan artifact)\n` +
           `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.`,
       );
@@ -927,25 +928,43 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     if (shadowFlag !== undefined) {
       const { targetIdentity, shadowIdentity } =
         await observeExplicitShadowIdentities(tgt.pool, shadow.pool);
-      if (isSameDatabase(targetIdentity, shadowIdentity)) {
+      const sameDatabaseIdentity = isSameDatabase(
+        targetIdentity,
+        shadowIdentity,
+      );
+      if (sameDatabaseIdentity && !flags["allow-same-database-identity"]) {
         throw new UsageError(
-          `schema apply: shadow and target are the same observed database (${targetIdentity.database}); refusing to load declarative SQL`,
+          `schema apply: shadow and target are the same observed database (${targetIdentity.database}); refusing to load declarative SQL. ` +
+            `A physically cloned shadow (e.g. a warm shadow cache restored from a PGDATA snapshot of the target cluster) inherits the ` +
+            `target's system identifier and database OIDs and reports as the same database here; if the shadow is known to be a separate ` +
+            `server, pass --allow-same-database-identity to bypass this check`,
         );
       }
+      // The flag attests "my shadow is a physical clone of the target" — it exempts
+      // lineage containment ONLY for that exact-identity match, never for a
+      // same-lineage sibling database (same system identifier, different database
+      // OID), which is a genuinely different database on the same cluster and must
+      // still be refused.
+      const trustedCloneBypass =
+        flags["allow-same-database-identity"] === true && sameDatabaseIdentity;
       if (
         scope === "cluster" &&
-        isSamePostgresLineage(targetIdentity, shadowIdentity)
+        isSamePostgresLineage(targetIdentity, shadowIdentity) &&
+        !trustedCloneBypass
       ) {
         throw new UsageError(
-          "schema apply: --scope cluster requires a shadow from a different PostgreSQL lineage; the supplied shadow shares the target lineage",
+          "schema apply: --scope cluster requires a shadow from a different PostgreSQL lineage; the supplied shadow shares the target lineage " +
+            "(same-lineage sibling databases are not covered by --allow-same-database-identity)",
         );
       }
       if (
         flags["isolated-shadow"] &&
-        isSamePostgresLineage(targetIdentity, shadowIdentity)
+        isSamePostgresLineage(targetIdentity, shadowIdentity) &&
+        !trustedCloneBypass
       ) {
         throw new UsageError(
-          "schema apply: an isolated shadow (--isolated-shadow) requires a different PostgreSQL lineage; the supplied shadow shares the target lineage",
+          "schema apply: an isolated shadow (--isolated-shadow) requires a different PostgreSQL lineage; the supplied shadow shares the target lineage " +
+            "(same-lineage sibling databases are not covered by --allow-same-database-identity)",
         );
       }
     }
@@ -977,6 +996,10 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       redactSecrets,
       skipClusterDdl: flags["skip-cluster-ddl"] === true,
       isolatedShadow: flags["isolated-shadow"] === true,
+      // Threaded through so the library guard does not re-refuse what the CLI
+      // guard was told to allow; the bypass WARNING is emitted there (onWarning
+      // below prints it) rather than twice from both layers.
+      allowSameDatabaseIdentity: flags["allow-same-database-identity"] === true,
       seedAssumedSchemas: coLocated !== undefined,
       renames,
       ...(acceptRenames.length > 0 ? { acceptRenames } : {}),

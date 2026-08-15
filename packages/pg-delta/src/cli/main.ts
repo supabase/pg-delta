@@ -81,6 +81,7 @@ Commands:
                  [--renames auto|prompt|off] [--force] [--allow-data-loss]
                  [--scope database|cluster] [--isolated-shadow] [--strict-data-statements]
                  [--trusted-local-host <hostname>]... [--allow-remote-shadow]
+                 [--allow-same-database-identity]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
                  [--dry-run] [--verbose] [--out-plan <plan.json>]
   schema lint    --dir <dir>
@@ -130,6 +131,12 @@ Notes:
     the same endpoint and identity rules via --allow-remote-shadow. Clone and
     explicit-shadow URLs must stay pinned to one database and physical lineage;
     multi-cluster transaction/load-balancing endpoints are unsupported.
+    --allow-same-database-identity (schema apply): proceed when an explicit
+    --shadow observes the SAME database identity as the target. A physically
+    restored shadow (warm shadow cache rehydrated from a PGDATA snapshot of the
+    target cluster) inherits the target's system identifier and database OIDs,
+    so it is indistinguishable from the target here; supply this only when the
+    shadow is known to be a separate server. Bypassing is reported as a WARNING.
     apply/schema apply refuse actions marked
     dataLoss:"destructive" unless --allow-data-loss is supplied; --force only
     skips the source fingerprint gate and never implies data-loss approval.
@@ -202,6 +209,7 @@ Subcommands:
                  [--renames auto|prompt|off] [--force] [--allow-data-loss]
                  [--scope database|cluster] [--isolated-shadow] [--strict-data-statements]
                  [--trusted-local-host <hostname>]... [--allow-remote-shadow]
+                 [--allow-same-database-identity]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
                  [--dry-run] [--verbose] [--out-plan <plan.json>]
   schema lint    --dir <dir>
