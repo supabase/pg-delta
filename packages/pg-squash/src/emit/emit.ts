@@ -10,30 +10,48 @@ export type ManifestEntry = {
   source: SourceRef;
 };
 
+export type EmitOptions = {
+  /**
+   * Wrap packed txn segments in BEGIN/COMMIT. Off by default: the apply
+   * runner already wraps each output file. Opt in when the SQL must be
+   * self-contained (psql without a per-file wrapper).
+   */
+  wrapTransactions?: boolean;
+};
+
 const pad = (n: number): string => n.toString().padStart(4, "0");
 
 const ensureTerm = (sql: string): string =>
   sql.trimEnd().endsWith(";") ? sql.trim() : `${sql.trim()};`;
 
-const provenanceLines = (files: string[]): string =>
-  [...new Set(files)].map((file) => `-- pg-squash: from ${file}`).join("\n");
+const authoredTxn = (statements: readonly SquashStatement[]): boolean =>
+  statements.some(
+    (stmt) =>
+      stmt.txn === "begin" || stmt.txn === "commit" || stmt.txn === "rollback",
+  );
 
-const sourcesInOrder = (statements: SquashStatement[]): string[] => {
-  const seen = new Set<string>();
-  const files: string[] = [];
+const emitStatements = (statements: readonly SquashStatement[]): string => {
+  const lines: string[] = [];
+  let prevFile: string | undefined;
   for (const stmt of statements) {
-    if (!seen.has(stmt.source.file)) {
-      seen.add(stmt.source.file);
-      files.push(stmt.source.file);
+    if (prevFile !== stmt.source.file) {
+      lines.push(`-- pg-squash: from ${stmt.source.file}`);
+      prevFile = stmt.source.file;
     }
+    lines.push(ensureTerm(stmt.text));
   }
-  return files;
+  return `${lines.join("\n")}\n`;
 };
 
-const emitTxn = (statements: SquashStatement[]): string => {
-  const header = provenanceLines(sourcesInOrder(statements));
-  const body = statements.map((s) => ensureTerm(s.text)).join("\n");
-  return `${header}\nBEGIN;\n${body}\nCOMMIT;\n`;
+const emitTxn = (
+  statements: SquashStatement[],
+  wrapTransactions: boolean,
+): string => {
+  const body = emitStatements(statements).trimEnd();
+  if (wrapTransactions && !authoredTxn(statements)) {
+    return `BEGIN;\n${body}\nCOMMIT;\n`;
+  }
+  return `${body}\n`;
 };
 
 const emitBarrier = (stmt: SquashStatement): string => {
@@ -52,14 +70,16 @@ const emitOpaque = (file: string, sql: string): string => {
 
 export const emit = (
   segments: Segment[],
+  options: EmitOptions = {},
 ): { files: { name: string; sql: string }[]; manifest: ManifestEntry[] } => {
   const files: { name: string; sql: string }[] = [];
   const manifest: ManifestEntry[] = [];
+  const wrap = options.wrapTransactions === true;
 
   segments.forEach((segment, i) => {
     const name = `${pad(i + 1)}_squashed.sql`;
     if (segment.type === "txn") {
-      files.push({ name, sql: emitTxn(segment.statements) });
+      files.push({ name, sql: emitTxn(segment.statements, wrap) });
       segment.statements.forEach((stmt, statementIndex) => {
         manifest.push({
           outputFile: name,

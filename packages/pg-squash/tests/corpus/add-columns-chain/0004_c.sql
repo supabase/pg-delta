@@ -1,0 +1,1 @@
+ALTER TABLE acc_t ADD COLUMN c boolean NOT NULL DEFAULT false;

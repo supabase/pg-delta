@@ -12,10 +12,40 @@ describe("planSquash", () => {
     expect(planned.refused).toBe(false);
     expect(planned.files).toHaveLength(1);
     expect(planned.files[0]?.name).toBe("0001_squashed.sql");
-    expect(planned.files[0]?.sql).toContain("BEGIN;");
+    expect(planned.files[0]?.sql).not.toContain("BEGIN;");
+    expect(planned.files[0]?.sql).not.toContain("COMMIT;");
+    expect(planned.files[0]?.sql).toContain("-- pg-squash: from 0001_a.sql");
     expect(planned.files[0]?.sql).toContain("CREATE TABLE a");
+    expect(planned.files[0]?.sql).toContain("-- pg-squash: from 0003_c.sql");
     expect(planned.files[0]?.sql).toContain("CREATE TABLE c");
+  });
+
+  test("wrapTransactions injects BEGIN/COMMIT around packed files", async () => {
+    const planned = await planSquash(
+      [
+        { name: "0001_a.sql", sql: "CREATE TABLE a (id int);" },
+        { name: "0002_b.sql", sql: "CREATE TABLE b (id int);" },
+      ],
+      17,
+      { wrapTransactions: true },
+    );
+    expect(planned.files[0]?.sql.startsWith("BEGIN;")).toBe(true);
     expect(planned.files[0]?.sql).toContain("COMMIT;");
+  });
+
+  test("preserves authored BEGIN/COMMIT instead of dropping them", async () => {
+    const planned = await planSquash(
+      [
+        {
+          name: "0001_txn.sql",
+          sql: "BEGIN;\nCREATE TABLE boxed (id int);\nCOMMIT;",
+        },
+      ],
+      17,
+    );
+    expect(planned.files[0]?.sql).toContain("BEGIN;");
+    expect(planned.files[0]?.sql).toContain("COMMIT;");
+    expect(planned.files[0]?.sql).toContain("CREATE TABLE boxed");
   });
 
   test("keeps CREATE INDEX CONCURRENTLY in its own barrier file", async () => {

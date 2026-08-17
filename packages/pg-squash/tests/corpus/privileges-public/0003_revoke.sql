@@ -1,0 +1,1 @@
+REVOKE INSERT ON priv_notes FROM PUBLIC;

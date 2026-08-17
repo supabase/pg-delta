@@ -1,0 +1,2 @@
+CREATE TABLE drv_t (id int PRIMARY KEY, a int NOT NULL, b int NOT NULL);
+INSERT INTO drv_t VALUES (1, 10, 20);

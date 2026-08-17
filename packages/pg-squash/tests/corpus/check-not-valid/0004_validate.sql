@@ -1,0 +1,1 @@
+ALTER TABLE cnv_accounts VALIDATE CONSTRAINT cnv_accounts_balance_nonneg;

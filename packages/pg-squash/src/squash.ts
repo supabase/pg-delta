@@ -21,6 +21,12 @@ export type SquashOptions = {
   pgVersion?: number;
   /** Skip the second original replay used for the volatility mask. */
   skipVolatilityMask?: boolean;
+  /**
+   * Emit BEGIN/COMMIT around packed files. Off by default; the apply
+   * runner already wraps each output file. Authored BEGIN/COMMIT are
+   * always preserved.
+   */
+  wrapTransactions?: boolean;
 };
 
 const emptyProof = (): EquivalenceProof => ({
@@ -51,10 +57,13 @@ export const squash = async (
   const maxAttempts = Math.max(8, chain.length * 2);
   const diagnostics: Diagnostic[] = [];
 
-  let planned = await planSquash(chain, pgMajor, {
+  const planOptions = {
     splitBefore,
     forceBarrier,
-  });
+    wrapTransactions: options.wrapTransactions,
+  };
+
+  let planned = await planSquash(chain, pgMajor, planOptions);
   diagnostics.push(...planned.diagnostics);
   if (planned.refused) {
     return {
@@ -121,10 +130,7 @@ export const squash = async (
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       if (attempt > 0) {
         await recycleCandidate();
-        planned = await planSquash(chain, pgMajor, {
-          splitBefore,
-          forceBarrier,
-        });
+        planned = await planSquash(chain, pgMajor, planOptions);
         diagnostics.push(...planned.diagnostics);
       }
 

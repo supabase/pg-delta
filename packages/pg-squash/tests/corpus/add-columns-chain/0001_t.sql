@@ -1,0 +1,1 @@
+CREATE TABLE acc_t (id int PRIMARY KEY);

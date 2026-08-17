@@ -17,6 +17,7 @@ export type PlanSquashResult = {
 type PlanSquashOptions = {
   splitBefore?: ReadonlySet<string>;
   forceBarrier?: ReadonlySet<string>;
+  wrapTransactions?: boolean;
 };
 
 export const statementKey = (file: string, statementIndex: number): string =>
@@ -103,7 +104,7 @@ const packWithSplits = (
       item.stmt.source.file,
       item.stmt.source.statementIndex,
     );
-    if (splitBefore.has(key)) {
+    if (splitBefore.has(key) && item.floorId === null) {
       flush();
     }
     if (item.isBarrier) {
@@ -150,7 +151,9 @@ export const planSquash = async (
     statementKeys,
   } = packWithSplits(packed.items, options.splitBefore ?? new Set());
   diagnostics.push(...packDiag);
-  const emitted = emit(segments);
+  const emitted = emit(segments, {
+    wrapTransactions: options.wrapTransactions,
+  });
   return {
     files: emitted.files,
     manifest: emitted.manifest,

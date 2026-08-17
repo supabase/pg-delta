@@ -5,7 +5,7 @@ const PSQL_META = /(?:^|\n)\s*\\[a-zA-Z?]/;
 
 /**
  * Split a migration file the way replay executes it: keep BEGIN/COMMIT
- * (unlike ingest, which drops them as grouping floors). Unparsable COPY
+ * so authored transaction control is replayed verbatim. Unparsable COPY
  * FROM stdin / psql meta-command files run as a single query.
  */
 export const splitReplayStatements = async (

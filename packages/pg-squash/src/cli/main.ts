@@ -7,10 +7,14 @@ import { openClusterHandle } from "../shadow/index.ts";
 import { squash } from "../squash.ts";
 import type { ClusterHandle } from "../model/index.ts";
 
-const USAGE = `pgsquash squash <migrations-dir> --out <dir> [--cluster <pg-url>] [--baseline <db>] [--image <docker-image>]
+const USAGE = `pgsquash squash <migrations-dir> --out <dir> [--cluster <pg-url>] [--baseline <db>] [--image <docker-image>] [--wrap-transactions]
 
 Compress an ordered migration chain into the minimum number of transactions
 and write a proven equivalent chain to --out.
+
+By default output is verbatim user SQL plus per-statement provenance
+comments. Pass --wrap-transactions to wrap packed files in BEGIN/COMMIT
+(needed only when applying without a per-file transaction runner).
 
 The library never boots Docker. The CLI may start a throwaway Postgres
 container when --cluster is omitted (requires testcontainers + Docker).
@@ -29,12 +33,14 @@ const parseArgs = (
   cluster?: string;
   baseline: string;
   image: string;
+  wrapTransactions: boolean;
 } => {
   const positionals: string[] = [];
   let out: string | undefined;
   let cluster: string | undefined;
   let baseline = "template0";
   let image = process.env["PGDELTA_TEST_IMAGE"] ?? "postgres:17-alpine";
+  let wrapTransactions = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === undefined) continue;
@@ -58,6 +64,10 @@ const parseArgs = (
       i += 1;
       continue;
     }
+    if (arg === "--wrap-transactions") {
+      wrapTransactions = true;
+      continue;
+    }
     if (arg === "--help" || arg === "-h") {
       console.log(USAGE);
       process.exit(0);
@@ -72,7 +82,7 @@ const parseArgs = (
   if (positionals[0] !== "squash") return fail(USAGE, 2);
   if (dir === undefined) return fail(USAGE, 2);
   if (outDir === undefined) return fail(USAGE, 2);
-  return { dir, out: outDir, cluster, baseline, image };
+  return { dir, out: outDir, cluster, baseline, image, wrapTransactions };
 };
 
 const handleFromUrl = async (
@@ -143,6 +153,7 @@ const main = async (): Promise<void> => {
     const result = await squash(chain, {
       cluster: opened.handle,
       baselineDatabase: args.baseline,
+      wrapTransactions: args.wrapTransactions,
     });
     await mkdir(args.out, { recursive: true });
     for (const file of result.files) {

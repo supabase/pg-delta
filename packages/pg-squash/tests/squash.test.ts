@@ -44,6 +44,7 @@ describe("corpus: squash proof loop", () => {
     expect(names).toContain("search-path-leak");
     expect(names).toContain("concurrent-index");
     expect(names).toContain("now-backfill");
+    expect(names.length).toBeGreaterThanOrEqual(28);
   });
 
   test("proves each corpus scenario equivalent", async () => {
@@ -89,7 +90,7 @@ describe("corpus: squash proof loop", () => {
         }
       }
     });
-  }, 240_000);
+  }, 360_000);
 
   test("100-file synthetic chain squashes to 1 file and proves", async () => {
     const chain = Array.from({ length: 100 }, (_, i) => ({

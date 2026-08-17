@@ -1,0 +1,1 @@
+ALTER TABLE act_t ALTER COLUMN n TYPE bigint;

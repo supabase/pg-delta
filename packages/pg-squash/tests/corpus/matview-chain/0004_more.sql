@@ -1,0 +1,2 @@
+INSERT INTO mv_sales VALUES (4, 'B', 4);
+REFRESH MATERIALIZED VIEW mv_sales_sum;

@@ -36,11 +36,18 @@ The library never boots Docker. Pass a `ClusterHandle` from `openClusterHandle`.
 ```bash
 pgsquash squash ./supabase/migrations --out ./squashed
 pgsquash squash ./supabase/migrations --out ./squashed --cluster postgres://user:pass@host:5432/postgres
+pgsquash squash ./supabase/migrations --out ./squashed --wrap-transactions
 ```
 
 Without `--cluster`, the CLI starts a throwaway Postgres container (Docker +
-testcontainers). Output is one `NNNN_squashed.sql` file per transaction,
-plus `manifest.json`, `proof.json`, and `README.md`.
+testcontainers). Output is one `NNNN_squashed.sql` file per packed
+transaction (the apply runner still wraps each file), plus `manifest.json`,
+`proof.json`, and `README.md`.
+
+Default SQL is verbatim user statements with a `-- pg-squash: from <file>`
+comment at each source-file run — no injected `BEGIN`/`COMMIT`. Authored
+transaction control is preserved. `--wrap-transactions` wraps packed files
+for clients that do not wrap per file.
 
 ## Design
 

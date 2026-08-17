@@ -1,0 +1,2 @@
+GRANT SELECT ON priv_notes TO PUBLIC;
+GRANT INSERT ON priv_notes TO PUBLIC;

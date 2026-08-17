@@ -152,11 +152,24 @@ export const splitSqlFile = async (
         ],
       };
     }
+    const charOffset = stmt.id.sourceOffset ?? 0;
+    const next: SquashStatement = {
+      text: stmt.sql,
+      source: {
+        file,
+        statementIndex: stmt.id.statementIndex,
+        bytes: byteRangeFor(sql, charOffset, stmt.sql),
+      },
+      ...(txn !== undefined ? { txn } : {}),
+    };
+
     if (txn !== undefined && GROUPING_TXN.has(txn)) {
       if (txn === "begin") {
         if (floorStart === null) floorStart = statements.length;
+        statements.push(next);
         continue;
       }
+      statements.push(next);
       if (floorStart !== null) {
         floors.push({ start: floorStart, end: statements.length });
         floorStart = null;
@@ -164,15 +177,7 @@ export const splitSqlFile = async (
       continue;
     }
 
-    const charOffset = stmt.id.sourceOffset ?? 0;
-    statements.push({
-      text: stmt.sql,
-      source: {
-        file,
-        statementIndex: stmt.id.statementIndex,
-        bytes: byteRangeFor(sql, charOffset, stmt.sql),
-      },
-    });
+    statements.push(next);
   }
 
   if (floorStart !== null) {

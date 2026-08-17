@@ -22,7 +22,7 @@ describe("splitSqlFile", () => {
     expect(result.statements[0]?.source.bytes.end).toBeGreaterThan(sql.length);
   });
 
-  test("drops explicit BEGIN/COMMIT and records an atomicity floor", async () => {
+  test("keeps explicit BEGIN/COMMIT and records an atomicity floor", async () => {
     const sql = `
 BEGIN;
 CREATE TABLE t (id int);
@@ -34,11 +34,15 @@ CREATE INDEX t_id ON t (id);
     expect(result.kind).toBe("statements");
     if (result.kind !== "statements") return;
     expect(result.statements.map((s) => s.text)).toEqual([
+      "BEGIN;",
       "CREATE TABLE t (id int);",
       "INSERT INTO t VALUES (1);",
+      "COMMIT;",
       "CREATE INDEX t_id ON t (id);",
     ]);
-    expect(result.floors).toEqual([{ start: 0, end: 2 }]);
+    expect(result.statements[0]?.txn).toBe("begin");
+    expect(result.statements[3]?.txn).toBe("commit");
+    expect(result.floors).toEqual([{ start: 0, end: 4 }]);
   });
 
   test("carries SAVEPOINT files as opaque units", async () => {
