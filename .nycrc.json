@@ -1,5 +1,9 @@
 {
-  "include": ["packages/pg-delta/src/**/*.ts", "packages/pg-topo/src/**/*.ts"],
+  "include": [
+    "packages/pg-delta/src/**/*.ts",
+    "packages/pg-topo/src/**/*.ts",
+    "packages/pg-squash/src/**/*.ts"
+  ],
   "exclude": ["**/*.test.ts", "**/*.base.ts", "**/debug-visualization.ts"],
   "report-dir": ".coverage-artifacts",
   "temp-dir": ".nyc_output",

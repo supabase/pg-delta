@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/index.ts",
+    "src/**/*.test.ts",
+    "tests/**/*.ts",
+    "scripts/**/*.ts"
+  ],
+  "project": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"],
+  "ignoreBinaries": ["oxfmt", "oxlint"],
+  "ignoreDependencies": ["@supabase/bun-istanbul-coverage"],
+  "rules": {
+    "exports": "warn",
+    "types": "warn",
+    "enumMembers": "warn",
+    "classMembers": "warn",
+    "duplicates": "warn"
+  }
+}

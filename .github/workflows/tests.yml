@@ -38,6 +38,8 @@ jobs:
       pg-delta-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-delta-package-json }}
       pg-topo: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo }}
       pg-topo-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo-package-json }}
+      pg-squash: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-squash }}
+      pg-squash-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-squash-package-json }}
       root: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.root }}
       # 'true' only when the PR is authored by the changesets release bot AND
       # every changed file is in the release-PR whitelist (CHANGELOGs,
@@ -125,6 +127,9 @@ jobs:
       - name: Check types (pg-topo)
         if: needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
         run: bun run --filter '@supabase/pg-topo' check-types
+      - name: Check types (pg-squash)
+        if: needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.root == 'true'
+        run: bun run --filter '@supabase/pg-squash' check-types
 
   format-and-lint:
     if: >-
@@ -168,6 +173,9 @@ jobs:
       - name: Knip (pg-topo)
         if: needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
         run: bun run --filter '@supabase/pg-topo' knip
+      - name: Knip (pg-squash)
+        if: needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.root == 'true'
+        run: bun run --filter '@supabase/pg-squash' knip
 
   pg-delta-unit:
     if: >-
@@ -389,6 +397,48 @@ jobs:
           retention-days: 1
           include-hidden-files: true
 
+  pg-squash-unit:
+    if: >-
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
+      (needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.root == 'true')
+    needs: detect-changes
+    name: "pg-squash: Unit tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Run unit tests
+        working-directory: packages/pg-squash
+        run: bun test src/
+
+  pg-squash-corpus:
+    if: >-
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
+      (needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.root == 'true')
+    needs: detect-changes
+    name: "pg-squash: Corpus (PG ${{ matrix.postgres_version }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres_version: ["17"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Corpus proof loop
+        working-directory: packages/pg-squash
+        env:
+          PGDELTA_TEST_IMAGE: postgres:${{ matrix.postgres_version }}-alpine
+        run: bun test tests/squash.test.ts
+
   coverage:
     if: >-
       !cancelled() &&
@@ -493,6 +543,8 @@ jobs:
       - pg-delta-integration-pg15-compat
       - pg-delta-integration-pg17-compat
       - pg-topo-tests
+      - pg-squash-unit
+      - pg-squash-corpus
       - deno2-library-e2e
     if: always() && !cancelled() && needs.detect-changes.outputs.is-release-pr != 'true'
     name: Release preview
@@ -505,4 +557,4 @@ jobs:
       - name: Build all packages
         run: bun run build
       - name: Release preview
-        run: bunx pkg-pr-new publish ./packages/pg-delta ./packages/pg-topo
+        run: bunx pkg-pr-new publish ./packages/pg-delta ./packages/pg-topo ./packages/pg-squash

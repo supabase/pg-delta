@@ -8,6 +8,7 @@ Monorepo for Supabase PostgreSQL tooling.
 |---------|-------------|-----|
 | [`@supabase/pg-delta`](./packages/pg-delta) | PostgreSQL schema diff and migration tool | [![npm](https://img.shields.io/npm/v/@supabase/pg-delta)](https://www.npmjs.com/package/@supabase/pg-delta) |
 | [`@supabase/pg-topo`](./packages/pg-topo) | Topological sorting for SQL DDL statements | [![npm](https://img.shields.io/npm/v/@supabase/pg-topo)](https://www.npmjs.com/package/@supabase/pg-topo) |
+| [`@supabase/pg-squash`](./packages/pg-squash) | Compress a migration chain with a proof of equivalence | [![npm](https://img.shields.io/npm/v/@supabase/pg-squash)](https://www.npmjs.com/package/@supabase/pg-squash) |
 
 ## Documentation
 
@@ -43,6 +44,7 @@ bun run build           # Build all packages
 bun run test            # Test all packages
 bun run test:pg-delta   # Test pg-delta only
 bun run test:pg-topo    # Test pg-topo only
+bun run test:pg-squash  # Test pg-squash only
 bun run coverage        # Test coverage report (all packages)
 bun run check-types     # Type check all packages
 bun run format-and-lint # Format and lint all code
@@ -76,6 +78,11 @@ bun run test tests/     # Integration tests only (requires Docker)
 # pg-topo
 cd packages/pg-topo
 bun run test            # All tests (requires Docker)
+
+# pg-squash
+cd packages/pg-squash
+bun run test            # Unit tests (no Docker)
+bun run test:corpus     # Corpus (Docker, once the engine lands)
 ```
 
 ### Releasing
