@@ -1,8 +1,8 @@
 ---
-"@supabase/pg-delta": minor
+"@supabase/pg-delta": major
 ---
 
-Flatten the default declarative-export tree.
+**Breaking:** flatten the default declarative-export tree.
 
 `schema export` now writes one directory **per schema at the root** of the
 output directory and puts the cluster-level files under `_cluster/`:
