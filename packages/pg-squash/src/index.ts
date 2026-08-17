@@ -18,6 +18,21 @@ export { ingestChain, readChain, splitSqlFile } from "./ingest/index.ts";
 export type { IngestedFile, TxnFloor } from "./ingest/index.ts";
 export { pack } from "./pack/index.ts";
 export type { PackItem } from "./pack/index.ts";
+export { planSquash, statementKey } from "./plan.ts";
+export type { PlanSquashResult } from "./plan.ts";
+export {
+  captureProofState,
+  compareProofStates,
+  applyVolatilityMask,
+} from "./prove/index.ts";
+export type {
+  CapturedState,
+  EquivalenceProof,
+  TableCoverage,
+  TableProof,
+} from "./prove/index.ts";
+export { squash } from "./squash.ts";
+export type { SquashOptions } from "./squash.ts";
 export {
   isNonTransactional,
   replayChain,

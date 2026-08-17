@@ -118,6 +118,10 @@ jobs:
         if: needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.root == 'true'
         working-directory: packages/pg-topo
         run: bun run build
+      - name: Build @supabase/pg-delta (provides .d.ts for pg-squash)
+        if: needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.root == 'true'
+        working-directory: packages/pg-delta
+        run: bun run build
       - name: Check types (pg-delta)
         # pg-delta imports @supabase/pg-topo at runtime, so a pg-topo change
         # (e.g. an exported-type or ordering-contract change) must re-run
@@ -128,7 +132,7 @@ jobs:
         if: needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
         run: bun run --filter '@supabase/pg-topo' check-types
       - name: Check types (pg-squash)
-        if: needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
+        if: needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true'
         run: bun run --filter '@supabase/pg-squash' check-types
 
   format-and-lint:
@@ -149,6 +153,9 @@ jobs:
       # build the check-types job requires.
       - name: Build @supabase/pg-topo (provides .d.ts for oxlint-tsgolint)
         working-directory: packages/pg-topo
+        run: bun run build
+      - name: Build @supabase/pg-delta (provides .d.ts for pg-squash oxlint)
+        working-directory: packages/pg-delta
         run: bun run build
       - name: Format and lint
         run: bun run format-and-lint

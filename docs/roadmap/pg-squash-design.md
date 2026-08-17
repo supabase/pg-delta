@@ -1,6 +1,6 @@
 # pg-squash — migration-chain compression with proof of equivalence
 
-Status: **design approved, implementation contract locked, not started**.
+Status: **v1 implemented** (`packages/pg-squash`). Repair, volatility mask, CLI, and PG 17 corpus are in tree. M2 leftovers: pg-delta-corpus property harness, fresh-cluster-per-replay fallback, PG 14–18 CI matrix.
 Supersedes the "Migration squash / repair" backlog sketch
 (`docs/roadmap/backlog.md`, CLI-1597/1598) — that item imagined a pg-delta
 command; this design makes it a standalone package so pg-delta keeps its

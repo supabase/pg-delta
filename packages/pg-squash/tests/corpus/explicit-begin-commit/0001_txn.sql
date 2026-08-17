@@ -1,0 +1,4 @@
+BEGIN;
+CREATE TABLE boxed (id int PRIMARY KEY);
+INSERT INTO boxed (id) VALUES (1);
+COMMIT;

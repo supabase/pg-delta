@@ -8,6 +8,8 @@
     "src/emit/index.ts",
     "src/shadow/index.ts",
     "src/replay/index.ts",
+    "src/prove/index.ts",
+    "src/cli/main.ts",
     "src/**/*.test.ts",
     "tests/**/*.ts",
     "scripts/**/*.ts"
@@ -16,7 +18,8 @@
   "ignoreBinaries": ["oxfmt", "oxlint"],
   "ignoreDependencies": [
     "@supabase/bun-istanbul-coverage",
-    "@supabase/pg-topo"
+    "@supabase/pg-topo",
+    "@supabase/pg-delta"
   ],
   "rules": {
     "exports": "warn",

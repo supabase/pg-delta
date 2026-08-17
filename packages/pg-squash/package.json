@@ -17,6 +17,9 @@
     "url": "https://github.com/supabase/pg-toolbelt.git",
     "directory": "packages/pg-squash"
   },
+  "bin": {
+    "pgsquash": "./dist/cli/main.js"
+  },
   "files": [
     "dist",
     "src"
@@ -33,7 +36,7 @@
     }
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node --format esm --external pg --external @supabase/pg-topo && tsc --project tsconfig.node.json --emitDeclarationOnly --outDir dist",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --external pg --external @supabase/pg-topo --external @supabase/pg-delta && bun build src/cli/main.ts --outfile dist/cli/main.js --target node --format esm --external pg --external @supabase/pg-topo --external @supabase/pg-delta --external testcontainers && tsc --project tsconfig.node.json --emitDeclarationOnly --outDir dist",
     "test": "bun scripts/run-tests.ts src/",
     "test:corpus": "bun scripts/run-tests.ts tests/",
     "check-types": "tsc --noEmit",
@@ -42,6 +45,7 @@
     "knip": "knip"
   },
   "dependencies": {
+    "@supabase/pg-delta": "workspace:*",
     "@supabase/pg-topo": "workspace:*",
     "pg": "^8.17.2"
   },
