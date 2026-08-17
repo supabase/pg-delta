@@ -37,8 +37,8 @@ describe("export: grouped layout (v1 parity)", () => {
         (f) => f.name,
       );
 
-      const viewAt = names.indexOf("schemas/app/views/v.sql");
-      const fnAt = names.indexOf("schemas/app/functions/f.sql");
+      const viewAt = names.indexOf("app/views/v.sql");
+      const fnAt = names.indexOf("app/functions/f.sql");
       expect(viewAt).toBeGreaterThanOrEqual(0);
       expect(fnAt).toBeGreaterThanOrEqual(0);
       expect(viewAt).toBeLessThan(fnAt);
@@ -58,9 +58,7 @@ describe("export: grouped layout (v1 parity)", () => {
       `);
       const fb = (await extract(src.pool)).factBase;
       const files = exportSqlFiles(fb, { layout: "grouped" });
-      const tableFile = files.find(
-        (f) => f.name === "schemas/app/tables/t.sql",
-      );
+      const tableFile = files.find((f) => f.name === "app/tables/t.sql");
       expect(tableFile).toBeDefined();
       const sql = tableFile?.sql ?? "";
       expect(sql).toContain("CREATE TABLE");
@@ -93,11 +91,11 @@ describe("export: grouped layout (v1 parity)", () => {
       }).map((f) => f.name);
 
       // both auth_* tables consolidate under the auth group…
-      expect(names).toContain("schemas/app/auth/tables.sql");
-      expect(names).not.toContain("schemas/app/tables/auth_users.sql");
-      expect(names).not.toContain("schemas/app/tables/auth_sessions.sql");
+      expect(names).toContain("app/auth/tables.sql");
+      expect(names).not.toContain("app/tables/auth_users.sql");
+      expect(names).not.toContain("app/tables/auth_sessions.sql");
       // …the non-matching table keeps its own per-object file
-      expect(names).toContain("schemas/app/tables/billing_invoices.sql");
+      expect(names).toContain("app/tables/billing_invoices.sql");
     } finally {
       await src.drop();
     }
@@ -118,9 +116,9 @@ describe("export: grouped layout (v1 parity)", () => {
         grouping: { flatSchemas: ["ext"] },
       });
       const names = files.map((f) => f.name);
-      expect(names).toContain("schemas/ext/tables.sql");
-      expect(names).not.toContain("schemas/ext/tables/a.sql");
-      const flat = files.find((f) => f.name === "schemas/ext/tables.sql");
+      expect(names).toContain("ext/tables.sql");
+      expect(names).not.toContain("ext/tables/a.sql");
+      const flat = files.find((f) => f.name === "ext/tables.sql");
       expect(flat?.sql).toContain('"ext"."a"');
       expect(flat?.sql).toContain('"ext"."b"');
     } finally {
@@ -144,12 +142,39 @@ describe("export: grouped layout (v1 parity)", () => {
 
       // the child does NOT get its own file (the by-object contract); it lands
       // in the parent's file
-      expect(names).not.toContain("schemas/app/tables/measurements_2024.sql");
+      expect(names).not.toContain("app/tables/measurements_2024.sql");
       const parentFile = files.find(
-        (f) => f.name === "schemas/app/tables/measurements.sql",
+        (f) => f.name === "app/tables/measurements.sql",
       );
       expect(parentFile?.sql).toContain("measurements_2024");
       expect(parentFile?.sql).toContain("PARTITION OF");
+    } finally {
+      await src.drop();
+    }
+  }, 60_000);
+
+  test('pathStyle "nested" keeps the historical grouped paths', async () => {
+    const cluster = await sharedCluster();
+    const src = await cluster.createDb("expgrp_nested");
+    try {
+      await src.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.auth_users (id integer PRIMARY KEY);
+        CREATE TABLE app.billing_invoices (id integer PRIMARY KEY);
+      `);
+      const fb = (await extract(src.pool)).factBase;
+      const names = exportSqlFiles(fb, {
+        layout: "grouped",
+        pathStyle: "nested",
+        grouping: {
+          mode: "subdirectory",
+          groupPatterns: [{ pattern: "^auth_", name: "auth" }],
+        },
+      }).map((f) => f.name);
+
+      expect(names).toContain("schemas/app/auth/tables.sql");
+      expect(names).toContain("schemas/app/tables/billing_invoices.sql");
+      expect(names.some((n) => n.startsWith("_cluster/"))).toBe(false);
     } finally {
       await src.drop();
     }
@@ -170,7 +195,7 @@ describe("export: grouped layout (v1 parity)", () => {
       `);
       const fb = (await extract(src.pool)).factBase;
       const grouped = exportSqlFiles(fb, { layout: "grouped" }).filter(
-        (f) => !f.name.startsWith("cluster/roles"),
+        (f) => !f.name.startsWith("_cluster/roles"),
       );
       const loaded = await loadSqlFiles(grouped, shadow.pool);
       expect(loaded.factBase.rootHash).toBe(fb.rootHash);

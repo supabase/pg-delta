@@ -38,7 +38,7 @@ describe("export: SQL formatting", () => {
       const fb = (await extract(src.pool)).factBase;
 
       const tableOf = (files: { name: string; sql: string }[]) =>
-        files.find((f) => f.name === "schemas/app/tables/users.sql")?.sql ?? "";
+        files.find((f) => f.name === "app/tables/users.sql")?.sql ?? "";
 
       // default: unformatted — the renderer emits upper-case DDL keywords
       const plain = tableOf(exportSqlFiles(fb));
@@ -67,7 +67,7 @@ describe("export: SQL formatting", () => {
       const defaultDir = join(mkdtempSync(join(tmpdir(), "expfmt-")), "d");
       await cmdSchemaExport(["--source", src.uri, "--out-dir", defaultDir]);
       const formatted = readFileSync(
-        join(defaultDir, "schemas/app/tables/users.sql"),
+        join(defaultDir, "app/tables/users.sql"),
         "utf8",
       );
       expect(formatted).toContain("create table");
@@ -81,10 +81,7 @@ describe("export: SQL formatting", () => {
         rawDir,
         "--no-format",
       ]);
-      const raw = readFileSync(
-        join(rawDir, "schemas/app/tables/users.sql"),
-        "utf8",
-      );
+      const raw = readFileSync(join(rawDir, "app/tables/users.sql"), "utf8");
       expect(raw).toContain("CREATE TABLE");
     } finally {
       await src.drop();
@@ -101,7 +98,7 @@ describe("export: SQL formatting", () => {
 
       const formatted = exportSqlFiles(fb, {
         format: { keywordCase: "upper", maxWidth: 80 },
-      }).filter((f) => !f.name.startsWith("cluster/roles"));
+      }).filter((f) => !f.name.startsWith("_cluster/roles"));
 
       const loaded = await loadSqlFiles(formatted, shadow.pool);
       expect(loaded.factBase.rootHash).toBe(fb.rootHash);

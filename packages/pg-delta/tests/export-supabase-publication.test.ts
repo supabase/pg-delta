@@ -66,7 +66,7 @@ describe("supabase profile: platform publication supabase_realtime (#370)", () =
     // the platform publication object is not ours to recreate ...
     expect(allSql).not.toMatch(/CREATE PUBLICATION "?supabase_realtime"?/i);
     // ... but the user's membership on it IS exported, filed with publications
-    const pubFile = files.find((f) => f.name === "cluster/publications.sql");
+    const pubFile = files.find((f) => f.name === "_cluster/publications.sql");
     expect(pubFile?.sql).toMatch(
       /ALTER PUBLICATION "supabase_realtime" ADD TABLE/,
     );

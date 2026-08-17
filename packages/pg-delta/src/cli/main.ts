@@ -26,6 +26,7 @@
  *   drift          --env <pg-url> --snapshot <file>
  *   snapshot       --source <pg-url> --out <file>
  *   schema export  --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
+ *                  [--path-style flat|nested]
  *   schema apply   --dir <dir> [--shadow <pg-url>] --target <pg-url>
  *                  [--renames auto|prompt|off] [--force]
  *                  [--accept-rename <from>=<to>] ... [--no-reorder]
@@ -74,6 +75,7 @@ Commands:
   drift          --env <pg-url> --snapshot <file>
   snapshot       --source <pg-url> --out <file>
   schema export  --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
+                 [--path-style flat|nested]   (flat: <schema>/…, _cluster/…)
                  [--format-options <json>]   (pretty-print SQL; any layout)
                  grouped adds: [--grouping-mode single-file|subdirectory]
                  [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
@@ -203,6 +205,7 @@ pgdelta schema <subcommand> [options]
 
 Subcommands:
   schema export  --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
+                 [--path-style flat|nested]   (flat: <schema>/…, _cluster/…)
                  [--format-options <json>]   (pretty-print SQL; any layout)
                  grouped adds: [--grouping-mode single-file|subdirectory]
                  [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]

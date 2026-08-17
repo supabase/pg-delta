@@ -5,13 +5,17 @@
  *
  * Two layouts:
  * - "by-object" (default): the human layout users know from the old
- *   engine's exporter — cluster/roles.sql, schemas/<s>/tables/<t>.sql, …
+ *   engine's exporter — _cluster/roles.sql, <schema>/tables/<t>.sql, …
  *   Files within a path are emitted in plan (dependency) order, but the
  *   loader's lexicographic discovery may need its bounded retry rounds for
  *   cross-file references. Fidelity is the gate: load(export(fb)) ≡ fb.
  * - "ordered": file names carry a zero-padded sequence prefix in plan
  *   order, so lexicographic discovery IS dependency order and the loader
  *   converges with zero deferred rounds (the stage-9 zero-round gate).
+ *
+ * Orthogonally, `pathStyle` decides the two ROOT segments every layout builds
+ * on ({@link clusterRoot} / {@link schemaRoot}) — "flat" (default) or the
+ * historical "nested". Nothing below the root differs between the styles.
  */
 import { createHash } from "node:crypto";
 import { buildFactBase, type FactBase } from "../core/fact.ts";
@@ -46,8 +50,26 @@ export interface ExportGrouping {
   autoGroupPartitions?: boolean;
 }
 
+/**
+ * Where the two ROOT segments of an export tree live. Orthogonal to `layout`
+ * (every layout composes with both styles), and everything BELOW the root is
+ * identical either way.
+ *
+ * - `"flat"` (default): schema directories sit at the export root
+ *   (`app/tables/t.sql`) and cluster-level files under `_cluster/`
+ *   (`_cluster/roles.sql`). One level less nesting in the tree users read,
+ *   diff, and review.
+ * - `"nested"`: the historical `schemas/app/tables/t.sql` + `cluster/roles.sql`
+ *   tree, kept as a back-compat escape hatch for callers whose tooling pins
+ *   those paths.
+ */
+export type ExportPathStyle = "flat" | "nested";
+
 export interface ExportOptions {
   layout?: "by-object" | "ordered" | "grouped";
+  /** Root-segment layout of the emitted paths (default: `"flat"`).
+   *  See {@link ExportPathStyle}. */
+  pathStyle?: ExportPathStyle;
   /** Grouping rules for the "grouped" layout; ignored by other layouts. */
   grouping?: ExportGrouping;
   /** Pretty-print each file's SQL with the formatter (frontends/sql-format).
@@ -263,18 +285,19 @@ function scopeRank(id: StableId): number {
   }
 }
 
+/** Cluster-level file names, RELATIVE to {@link clusterRoot}. */
 const CLUSTER_FILES: Record<string, string> = {
-  role: "cluster/roles.sql",
-  membership: "cluster/roles.sql",
-  defaultPrivilege: "cluster/roles.sql",
-  fdw: "cluster/foreign_data_wrappers.sql",
-  server: "cluster/foreign_data_wrappers.sql",
-  userMapping: "cluster/foreign_data_wrappers.sql",
-  publication: "cluster/publications.sql",
-  publicationRel: "cluster/publications.sql",
-  publicationSchema: "cluster/publications.sql",
-  subscription: "cluster/subscriptions.sql",
-  eventTrigger: "cluster/event_triggers.sql",
+  role: "roles.sql",
+  membership: "roles.sql",
+  defaultPrivilege: "roles.sql",
+  fdw: "foreign_data_wrappers.sql",
+  server: "foreign_data_wrappers.sql",
+  userMapping: "foreign_data_wrappers.sql",
+  publication: "publications.sql",
+  publicationRel: "publications.sql",
+  publicationSchema: "publications.sql",
+  subscription: "subscriptions.sql",
+  eventTrigger: "event_triggers.sql",
 };
 
 const SCHEMA_DIRS: Record<string, string> = {
@@ -335,11 +358,66 @@ function clampSegment(segment: string): string {
   return `${segment.slice(0, MAX_SEGMENT_LENGTH - 17)}-${hash.slice(0, 16)}`;
 }
 
+/**
+ * Root-level directory names the export tree owns under the `"flat"` style,
+ * where SCHEMA directories are root-level too and could otherwise claim one:
+ *
+ * - `_cluster` holds the cluster-level files this module emits (roles,
+ *   publications, extensions, …);
+ * - `_custom` is the reserved hand-authored-SQL directory (custom-dir.ts):
+ *   the exporter must never write into it (the CLI turns a collision into a
+ *   hard error) and the pruner never scans it, so a schema claiming it would
+ *   make the export unwritable. Kept as a literal rather than an import so the
+ *   pure path layer stays free of the fs-touching module; `_custom` is not
+ *   reserved under `"nested"`, where the `schemas/` wrapper separates the two
+ *   namespaces (export-path-style.test.ts pins that the two names agree).
+ *
+ * Matching is case-INSENSITIVE (entries are lower-case; compare via
+ * `toLowerCase()`), because the hazard is a case-insensitive filesystem: on
+ * APFS/NTFS `_CUSTOM/schema.sql` IS `_custom/schema.sql`. The case-collision
+ * fold cannot cover that one — it only sees paths the export itself emits, and
+ * the export emits nothing under `_custom/`, so a schema landing there
+ * collides with HAND-AUTHORED SQL that no exported path can be compared
+ * against (Codex review, PR #430). Escaping every case variant keeps the two
+ * namespaces disjoint by construction, and is cleaner for `_cluster` too: the
+ * schema gets its own directory instead of sharing the folded one.
+ */
+export const RESERVED_ROOT_SEGMENTS: ReadonlySet<string> = new Set([
+  "_cluster",
+  "_custom",
+]);
+
+/** Root directory of the cluster-level files, for a path style. */
+function clusterRoot(style: ExportPathStyle): string {
+  return style === "flat" ? "_cluster" : "cluster";
+}
+
+/**
+ * Root directory of a SCHEMA's files, for a path style. Under `"flat"` a
+ * schema whose encoded segment case-insensitively equals a
+ * {@link RESERVED_ROOT_SEGMENTS} name percent-encodes its leading underscore
+ * (`_cluster` → `%5Fcluster`, `_CUSTOM` → `%5FCUSTOM`), so it can never claim
+ * — or case-fold into — a directory the export tree owns. The rest of the
+ * segment keeps its original spelling, so distinct case variants stay distinct
+ * objects. `%` itself is escaped by `encodeURIComponent`, so no other
+ * identifier can ever encode to the escaped spelling — the escape is
+ * injective. Other underscore-prefixed schemas (`_foo`) are untouched.
+ */
+function schemaRoot(style: ExportPathStyle, schema: string): string {
+  const segment = seg(schema);
+  if (style === "nested") return `schemas/${segment}`;
+  return RESERVED_ROOT_SEGMENTS.has(segment.toLowerCase())
+    ? `%5F${segment.slice(1)}`
+    : segment;
+}
+
 /** Precomputed routing context threaded through {@link pathFor}: the cyclic-FK
  *  split set, the extension-member map, the index→relation parent map, the
  *  relation-kind map, and the concurrent-index exception set. Built once per
  *  export. */
 interface PathContext {
+  /** Root-segment style of every path built here ({@link ExportPathStyle}). */
+  readonly pathStyle: ExportPathStyle;
   /** Encoded ids of cycle-participating FK constraints (→ `.fk.sql`). */
   readonly cyclicFks: ReadonlySet<string>;
   /** Encoded extension-member object id → owning extension name. Satellites
@@ -689,6 +767,7 @@ function mergeDependencyCycles(
 function pathFor(id: StableId, ctx: PathContext): string {
   const target = fileTarget(id);
   const kind = target.kind;
+  const cluster = clusterRoot(ctx.pathStyle);
   // A satellite (acl/comment, unwrapped by fileTarget) whose target is an
   // EXTENSION MEMBER files into the owning extension's file, next to its
   // CREATE EXTENSION. Member objects themselves never yield actions
@@ -697,7 +776,7 @@ function pathFor(id: StableId, ctx: PathContext): string {
   // the state stays fully managed, only its file placement changes.
   const memberExtension = ctx.memberExt.get(encodeId(target));
   if (memberExtension !== undefined) {
-    return `cluster/extensions/${seg(memberExtension)}.sql`;
+    return `${cluster}/extensions/${seg(memberExtension)}.sql`;
   }
   // A schema-scoped ALTER DEFAULT PRIVILEGES depends on its schema, so it must
   // NOT share the atomic cluster/roles.sql file with CREATE ROLE: with reorder
@@ -708,16 +787,17 @@ function pathFor(id: StableId, ctx: PathContext): string {
   if (kind === "defaultPrivilege") {
     const schema = (target as { schema: string | null }).schema;
     if (schema !== null) {
-      return `schemas/${seg(schema)}/default_privileges.sql`;
+      return `${schemaRoot(ctx.pathStyle, schema)}/default_privileges.sql`;
     }
   }
   const clusterFile = CLUSTER_FILES[kind];
-  if (clusterFile !== undefined) return clusterFile;
+  if (clusterFile !== undefined) return `${cluster}/${clusterFile}`;
   if (kind === "extension") {
-    return `cluster/extensions/${seg((target as { name: string }).name)}.sql`;
+    return `${cluster}/extensions/${seg((target as { name: string }).name)}.sql`;
   }
   if (kind === "schema") {
-    return `schemas/${seg((target as { name: string }).name)}/schema.sql`;
+    const name = (target as { name: string }).name;
+    return `${schemaRoot(ctx.pathStyle, name)}/schema.sql`;
   }
   if (TABLE_SCOPED.has(kind)) {
     const t = target as { schema: string; table: string };
@@ -731,14 +811,14 @@ function pathFor(id: StableId, ctx: PathContext): string {
     // stay INLINE for readability — the loader's bounded retry orders their
     // files. `cyclicFks` is precomputed by {@link cyclicForeignKeys}.
     if (target.kind === "constraint" && ctx.cyclicFks.has(encodeId(target))) {
-      return `schemas/${seg(t.schema)}/tables/${seg(t.table)}.fk.sql`;
+      return `${schemaRoot(ctx.pathStyle, t.schema)}/tables/${seg(t.table)}.fk.sql`;
     }
     // The `table` field of a TABLE_SCOPED id names a RELATION, not necessarily
     // a table: an INSTEAD OF trigger / rule / comment can target a view or a
     // materialized view — file those with their actual relation.
     const relationDir =
       ctx.relationDir.get(nameKey(t.schema, t.table)) ?? "tables";
-    return `schemas/${seg(t.schema)}/${relationDir}/${seg(t.table)}.sql`;
+    return `${schemaRoot(ctx.pathStyle, t.schema)}/${relationDir}/${seg(t.table)}.sql`;
   }
   if (kind === "index") {
     const t = target as { schema: string; name: string };
@@ -748,17 +828,18 @@ function pathFor(id: StableId, ctx: PathContext): string {
     // (only rendered under the opt-in `concurrentIndexes` param): it is
     // non-transactional and must stay ALONE in its file (loader contract).
     const parent = ctx.indexParent.get(encodeId(target));
+    const root = schemaRoot(ctx.pathStyle, t.schema);
     if (parent !== undefined && !ctx.concurrentIndexes.has(encodeId(target))) {
-      return `schemas/${seg(t.schema)}/${parent.dir}/${seg(parent.name)}.sql`;
+      return `${root}/${parent.dir}/${seg(parent.name)}.sql`;
     }
-    return `schemas/${seg(t.schema)}/indexes/${seg(t.name)}.sql`;
+    return `${root}/indexes/${seg(t.name)}.sql`;
   }
   const dir = SCHEMA_DIRS[kind];
   if (dir !== undefined) {
     const t = target as { schema: string; name: string };
-    return `schemas/${seg(t.schema)}/${dir}/${seg(t.name)}.sql`;
+    return `${schemaRoot(ctx.pathStyle, t.schema)}/${dir}/${seg(t.name)}.sql`;
   }
-  return "cluster/misc.sql";
+  return `${cluster}/misc.sql`;
 }
 
 export function exportSqlFiles(
@@ -766,6 +847,7 @@ export function exportSqlFiles(
   options: ExportOptions = {},
 ): SqlFile[] {
   const layout = options.layout ?? "by-object";
+  const pathStyle = options.pathStyle ?? "flat";
   // Render against a PRISTINE baseline, not absolute emptiness, so the export
   // reflects what a real target already has:
   //   - schema "public" always exists, so seed its EXISTENCE (a CREATE SCHEMA
@@ -832,6 +914,7 @@ export function exportSqlFiles(
   // relation-kind map (satellites on views), and the concurrent-index
   // exception set (must stay alone in their file).
   const pathContext: PathContext = {
+    pathStyle,
     cyclicFks,
     memberExt: extensionMembersByEncoded(fb),
     indexParent: indexParentsByEncoded(fb),
@@ -851,11 +934,10 @@ export function exportSqlFiles(
   }
 
   // Each action's file path, in plan order (shared by both layouts below).
+  const miscPath = `${clusterRoot(pathStyle)}/misc.sql`;
   const actionPaths = rendered.actions.map((action) => {
     const subject = subjectOf(action);
-    return subject === undefined
-      ? "cluster/misc.sql"
-      : pathFor(subject, pathContext);
+    return subject === undefined ? miscPath : pathFor(subject, pathContext);
   });
 
   if (layout === "ordered") {
@@ -989,6 +1071,9 @@ function exportGrouped(
     return categoryOf(id);
   };
 
+  const style = pathContext.pathStyle;
+  const extensionsPrefix = `${clusterRoot(style)}/extensions/`;
+
   const groupedPath = (id: StableId): string => {
     const base = pathFor(id, pathContext);
     // Cycle-participating FKs keep their sibling `<table>.fk.sql` path in EVERY
@@ -1001,7 +1086,7 @@ function exportGrouped(
     // Satellites routed to an extension's file stay there: their TARGET has a
     // schema (e.g. a pgcrypto function in `public`), so the flat/pattern
     // regrouping below would otherwise pull them back into `schemas/<s>/…`.
-    if (base.startsWith("cluster/extensions/")) return base;
+    if (base.startsWith(extensionsPrefix)) return base;
     // a CONCURRENTLY index (or one with no resolvable parent) keeps its own
     // indexes/<name>.sql file — flat regrouping would fold the
     // non-transactional statement into an atomic multi-statement file.
@@ -1011,19 +1096,18 @@ function exportGrouped(
     if (schema === undefined) return base;
 
     const category = categoryFor(id);
+    const root = schemaRoot(style, schema);
 
     // flat schema: collapse to one file per category (schema.sql stays put)
     if (flatSet.has(schema)) {
-      return category === "schema"
-        ? base
-        : `schemas/${seg(schema)}/${category}.sql`;
+      return category === "schema" ? base : `${root}/${category}.sql`;
     }
 
     // partition child → its parent table's file (co-locate with the parent)
     if (autoGroupPartitions) {
       const parent = partitionParentName(id, fb);
       if (parent !== undefined) {
-        return `schemas/${seg(schema)}/tables/${seg(parent)}.sql`;
+        return `${root}/tables/${seg(parent)}.sql`;
       }
     }
 
@@ -1032,8 +1116,8 @@ function exportGrouped(
       for (const p of patterns) {
         if (p.regex.test(objectName)) {
           return mode === "single-file"
-            ? `schemas/${seg(schema)}/${category}/${seg(p.name)}.sql`
-            : `schemas/${seg(schema)}/${seg(p.name)}/${category}.sql`;
+            ? `${root}/${category}/${seg(p.name)}.sql`
+            : `${root}/${seg(p.name)}/${category}.sql`;
         }
       }
     }
@@ -1049,7 +1133,9 @@ function exportGrouped(
   // computed on the final grouped paths.
   const actionPaths = actions.map((action) => {
     const subject = subjectOf(action);
-    return subject === undefined ? "cluster/misc.sql" : groupedPath(subject);
+    return subject === undefined
+      ? `${clusterRoot(style)}/misc.sql`
+      : groupedPath(subject);
   });
   const folds = foldCaseCollidingPaths(actionPaths, options.onWarning);
   const foldedPaths = actionPaths.map((p) => folds.get(p) ?? p);

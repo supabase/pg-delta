@@ -52,7 +52,7 @@ describe("supabase profile — cluster-scope export excludes platform role plumb
       scope: "cluster",
     });
     const rolesSql =
-      result.files.find((f) => f.name === "cluster/roles.sql")?.sql ?? "";
+      result.files.find((f) => f.name === "_cluster/roles.sql")?.sql ?? "";
 
     // Platform plumbing must be invisible (issue #371's four statements).
     expect(rolesSql).not.toContain("supabase_privileged_role");

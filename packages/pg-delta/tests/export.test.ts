@@ -45,7 +45,7 @@ describe("stage 9: declarative export", () => {
       const fb = (await extract(source.pool)).factBase;
 
       const byObject = exportSqlFiles(fb).filter(
-        (f) => !f.name.startsWith("cluster/roles"),
+        (f) => !f.name.startsWith("_cluster/roles"),
       );
       const ordered = exportSqlFiles(fb, { layout: "ordered" }).filter(
         (f) => !f.name.includes("cluster_roles"),
@@ -76,13 +76,46 @@ describe("stage 9: declarative export", () => {
       `);
       const fb = (await extract(source.pool)).factBase;
       const names = exportSqlFiles(fb).map((f) => f.name);
-      expect(names).toContain("cluster/roles.sql");
-      expect(names).toContain("schemas/app/schema.sql");
-      expect(names).toContain("schemas/app/tables/t.sql");
-      expect(names).toContain("schemas/app/views/v.sql");
-      expect(names).toContain("schemas/app/functions/f.sql");
+      expect(names).toContain("_cluster/roles.sql");
+      expect(names).toContain("app/schema.sql");
+      expect(names).toContain("app/tables/t.sql");
+      expect(names).toContain("app/views/v.sql");
+      expect(names).toContain("app/functions/f.sql");
     } finally {
       await source.drop();
     }
   }, 60_000);
+
+  // The flat style puts schema directories at the export root, where
+  // `_cluster/` is reserved for the cluster-level files. A schema of that
+  // literal name escapes to `%5Fcluster/` — the fidelity gate must still hold
+  // through the escape (the loader is structure-agnostic, so this proves the
+  // escape loses nothing and the two trees never overwrite each other).
+  test("a schema named _cluster round-trips under the flat style", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("exp_reserved_src");
+    const shadow = await cluster.createDb("exp_reserved_shadow");
+    try {
+      await source.pool.query(`
+        CREATE SCHEMA "_cluster";
+        CREATE TABLE "_cluster".t (id integer PRIMARY KEY, body text);
+        CREATE VIEW "_cluster".v AS SELECT id FROM "_cluster".t;
+        COMMENT ON SCHEMA "_cluster" IS 'reserved-name schema';
+      `);
+      const fb = (await extract(source.pool)).factBase;
+      const files = exportSqlFiles(fb);
+      const names = files.map((f) => f.name);
+      expect(names).toContain("%5Fcluster/schema.sql");
+      expect(names).toContain("%5Fcluster/tables/t.sql");
+      expect(names).toContain("_cluster/roles.sql");
+
+      const loaded = await loadSqlFiles(
+        files.filter((f) => !f.name.startsWith("_cluster/roles")),
+        shadow.pool,
+      );
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+    } finally {
+      await Promise.all([source.drop(), shadow.drop()]);
+    }
+  }, 120_000);
 });

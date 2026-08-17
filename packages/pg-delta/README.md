@@ -115,6 +115,43 @@ reported** as `unmodeled_kind` diagnostics, never silently dropped.
 See [COVERAGE.md](./COVERAGE.md) for the authoritative map and the deliberate
 exclusions, and `_custom/` below for where that SQL lives.
 
+## Export tree layout
+
+`schema export` writes one directory per schema at the root of the output
+directory, plus a reserved `_cluster/` directory for the cluster-level objects
+that belong to no schema:
+
+```text
+schema/
+  _cluster/
+    roles.sql
+    publications.sql
+    extensions/pgcrypto.sql
+  app/
+    schema.sql
+    tables/users.sql          ← columns, defaults, constraints, indexes,
+    views/user_notes.sql         triggers and policies live with their relation
+    functions/add.sql
+```
+
+Two flags shape this tree, and they compose:
+
+- `--path-style flat|nested` — where the two **root** segments live. `flat` is
+  the default (shown above). `nested` reproduces the historical
+  `schemas/app/tables/users.sql` + `cluster/roles.sql` tree, for tooling that
+  pins those paths. Nothing below the root segment differs.
+  A schema named `_cluster` or `_custom` — the two reserved root directories —
+  or any case variant of one escapes its leading underscore under `flat`
+  (`%5Fcluster/`, `%5FCUSTOM/`), so it can never claim, or case-fold into, a
+  directory the export owns.
+- `--layout by-object|ordered|grouped` — how statements are distributed across
+  files: one file per object (default), numbered files in dependency order, or
+  the category-ordered "nice" export with opt-in grouping.
+
+The loader is structure-agnostic — `schema apply --dir` reads every `.sql`
+under the directory recursively — so the layout is purely a readability
+choice. `load(export(db)) ≡ db` holds for every combination.
+
 ## `_custom/` — the escape hatch inside an export
 
 `schema export` owns its output directory: it prunes what a previous export
@@ -126,7 +163,9 @@ schema/
   _custom/           ← yours; never written to, never pruned, never refused on
     README.md        ← scaffolded on export, documents this contract
     text-search.sql
-  schemas/…          ← regenerated on every export
+  _cluster/…         ← regenerated on every export (roles, publications, …)
+  public/…           ← one directory per schema
+  app/…
   .pgdelta-export.json
 ```
 
