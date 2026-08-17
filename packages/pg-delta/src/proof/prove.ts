@@ -213,7 +213,7 @@ export type UndeclaredDataDestruction =
   | UndeclaredTableDestruction
   | UndeclaredObjectDestruction;
 
-interface TableStat {
+export interface TableStat {
   rows: number;
   relfilenode: string;
   /** column signature (attname:atttypid, ordered) — content is only comparable
@@ -230,7 +230,9 @@ interface TableStat {
 const qte = (s: string): string => `"${s.replaceAll('"', '""')}"`;
 
 /** One round trip: every user table's relfilenode + exact row count. */
-async function tableStats(pool: Pool): Promise<Map<string, TableStat>> {
+export async function collectTableStats(
+  pool: Pool,
+): Promise<Map<string, TableStat>> {
   const rels = await pool.query<{
     schema: string;
     name: string;
@@ -808,7 +810,7 @@ export async function provePlan(
   let seedOutcomes: SeedOutcome[] | undefined;
   let preSeedStats: Map<string, TableStat> | undefined;
   if (options.autoSeed) {
-    preSeedStats = await tableStats(clonePool);
+    preSeedStats = await collectTableStats(clonePool);
     const empty = [...preSeedStats]
       .filter(
         ([t, s]) =>
@@ -818,7 +820,7 @@ export async function provePlan(
     seedOutcomes = await autoSeedEmptyTables(clonePool, empty);
   }
 
-  const postSeedStats = await tableStats(clonePool);
+  const postSeedStats = await collectTableStats(clonePool);
   // reconcile provisional seeds against `postSeedStats` — the single FINAL pre-apply
   // snapshot (taken after ALL seeding), so a row later suppressed/undone by a
   // trigger or rule (even cross-table) is downgraded to skipped("no_row").
@@ -920,7 +922,7 @@ export async function provePlan(
   // target the PROJECTED desired: the plan only applies kept deltas, so it
   // converges to `desired` minus the policy-filtered changes (review #2).
   const driftDeltas = diff(provenFb, target);
-  const after = await tableStats(clonePool);
+  const after = await collectTableStats(clonePool);
 
   const { dataViolations, rewriteViolations, coverage } = detectViolations(
     before,

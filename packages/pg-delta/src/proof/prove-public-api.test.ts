@@ -1,10 +1,12 @@
 import { describe, expect, expectTypeOf, test } from "bun:test";
 import {
+  collectTableStats,
   provePlan,
   type ProducedProofVerdict,
   type ProjectionAudit,
   type ProveOptions,
   type ProofVerdict,
+  type TableStat,
 } from "../index.ts";
 
 // ProofVerdict predates projection auditing. Existing consumers must remain
@@ -35,6 +37,17 @@ describe("proof public API compatibility", () => {
     expectTypeOf<Produced["strictAuditFailure"]>().toEqualTypeOf<
       "unavailable" | "suspicious" | undefined
     >();
+  });
+
+  test("collectTableStats and TableStat are available from the package root", () => {
+    expect(typeof collectTableStats).toBe("function");
+    expectTypeOf<TableStat>().toMatchTypeOf<{
+      rows: number;
+      relfilenode: string;
+      schemaSig: string;
+      content?: string;
+      seedable?: boolean;
+    }>();
   });
 
   test("ProveOptions is available from the package root", () => {

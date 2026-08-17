@@ -206,6 +206,10 @@ describe("public API surface", () => {
   // it gets `ERR_REQUIRE_ESM` on Node <22. We advertise no CJS entry at all, so
   // ESM-aware tooling resolves via `import`/`default` and CJS consumers must use
   // dynamic import (or Node >=22, which can `require()` ESM synchronously).
+  test("root re-exports collectTableStats", () => {
+    expect(typeof root.collectTableStats).toBe("function");
+  });
+
   test("no export entry advertises a `require` condition (ESM-only package)", () => {
     const pkgPath = fileURLToPath(new URL("../package.json", import.meta.url));
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
