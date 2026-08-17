@@ -42,9 +42,7 @@ const CASE_TWIN_SQL = `
 function forLoad(files: { name: string; sql: string }[]) {
   // cluster-global roles already exist in the shared cluster (same filter as
   // export-fidelity.test.ts).
-  // case-insensitive: a `_CLUSTER` schema can fold the reserved cluster
-  // directory to its own spelling (see the reserved-name suite below).
-  return files.filter((f) => !/cluster[_/]roles/i.test(f.name));
+  return files.filter((f) => !/cluster[_/]roles/.test(f.name));
 }
 
 // An FK chain that is ACYCLIC at table grain becomes a real cycle at FILE
@@ -156,18 +154,18 @@ describe("export: non-FK dependency chain through case twins stays loadable", ()
   }
 });
 
-// The flat path style reserves the ROOT segment `_cluster` for the
-// cluster-level files, and escapes a schema of that literal name
-// (`%5Fcluster/`). The reservation is case-SENSITIVE, so a schema named
-// `_CLUSTER` keeps its own spelling — and then case-twins the reserved
-// directory on APFS/NTFS. No new machinery handles that: the existing
-// case-collision fold owns it, contracting both roots to the
-// lexicographically smallest spelling (`_CLUSTER`, uppercase sorts first) and
-// reporting it through `onWarning`. The two trees share a DIRECTORY but never
-// a FILE (`schema.sql` / `tables/` vs `roles.sql` / `extensions/`), so nothing
-// is silently overwritten and the export still round-trips.
-describe("export: a _CLUSTER schema case-twins the reserved _cluster dir", () => {
-  test("folds to one spelling with a warning, and still round-trips", async () => {
+// The flat path style reserves the ROOT segments `_cluster` (its own
+// cluster-level files) and `_custom` (hand-authored SQL, frontends/custom-dir.ts)
+// and escapes a schema named after either — case-INSENSITIVELY, because the
+// hazard is a case-insensitive filesystem: `_CLUSTER/schema.sql` and
+// `_cluster/roles.sql` are one directory on APFS/NTFS. The case-collision fold
+// could contract the two roots for `_cluster`, but not for `_custom` (the
+// export emits no path under it, so there is no collision to detect — only
+// hand-authored SQL to silently overwrite), so the escape owns both
+// (Codex review, PR #430). Result: the schema gets its OWN directory,
+// disjoint from anything the export tree reserves.
+describe("export: a case-variant reserved-name schema escapes the reserved dir", () => {
+  test("escapes to %5F… keeping its spelling, and still round-trips", async () => {
     const cluster = await sharedCluster();
     const src = await cluster.createDb("reserved_twin_src");
     const shadow = await cluster.createDb("reserved_twin_shadow");
@@ -175,27 +173,34 @@ describe("export: a _CLUSTER schema case-twins the reserved _cluster dir", () =>
       await src.pool.query(`
         CREATE SCHEMA "_CLUSTER";
         CREATE TABLE "_CLUSTER".t (id integer PRIMARY KEY);
+        CREATE SCHEMA "_Custom";
+        CREATE TABLE "_Custom".t (id integer PRIMARY KEY);
       `);
       const fb = (await extract(src.pool)).factBase;
-      const warnings: string[] = [];
-      const files = exportSqlFiles(fb, {
-        onWarning: (m) => warnings.push(m),
-      });
+      const files = exportSqlFiles(fb);
       const names = files.map((f) => f.name);
 
       // (1) no two paths may be one physical file on APFS/NTFS
       expect(new Set(names.map((n) => n.toLowerCase())).size).toBe(
         names.length,
       );
-      // (2) both trees agree on ONE root spelling — the smallest present
-      expect(names).toContain("_CLUSTER/schema.sql");
-      expect(names).toContain("_CLUSTER/tables/t.sql");
-      expect(names).toContain("_CLUSTER/roles.sql");
-      expect(names.some((n) => n.startsWith("_cluster/"))).toBe(false);
-      // (3) the collision is reported, never silent
-      expect(warnings.join("\n")).toContain("_CLUSTER");
+      // (2) each schema escapes into its OWN directory, spelling preserved
+      expect(names).toContain("%5FCLUSTER/schema.sql");
+      expect(names).toContain("%5FCLUSTER/tables/t.sql");
+      expect(names).toContain("%5FCustom/schema.sql");
+      expect(names).toContain("%5FCustom/tables/t.sql");
+      // (3) the reserved roots stay disjoint from schema content under folding
+      const roots = names.map((n) => n.split("/")[0]?.toLowerCase());
+      expect(roots).not.toContain("_custom");
+      expect(new Set(roots).has("_cluster")).toBe(true);
+      for (const name of names) {
+        if (name.startsWith("_cluster/")) {
+          expect(name).not.toContain("/tables/");
+          expect(name).not.toBe("_cluster/schema.sql");
+        }
+      }
 
-      // (4) fidelity survives the fold
+      // (4) fidelity survives the escape
       const loaded = await loadSqlFiles(forLoad(files), shadow.pool);
       expect(loaded.factBase.rootHash).toBe(fb.rootHash);
     } finally {

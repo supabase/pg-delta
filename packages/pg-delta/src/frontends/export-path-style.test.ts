@@ -50,6 +50,29 @@ describe("export path style", () => {
     );
   });
 
+  test("the reservation is case-INSENSITIVE (APFS/NTFS fold one directory)", () => {
+    // `_CUSTOM/schema.sql` and `_custom/…` are ONE physical file on a
+    // case-insensitive filesystem, so an exact-case reservation puts exported
+    // schema content inside the reserved hand-authored directory: nothing
+    // detects it (no exported action path lives under `_custom/`, so the
+    // case-collision fold never sees a collision) and `writeExportFiles`
+    // classifies a hand-authored `_custom/schema.sql` as an UPDATE and
+    // overwrites it. Every case variant escapes instead, preserving its own
+    // spelling after the `%5F`.
+    // (`_CUSTOM` and `_Cluster` are not case twins of EACH OTHER, so this
+    // isolates the reservation from the separate case-collision fold.)
+    const flat = names(schemaFacts("_CUSTOM", "_Cluster"));
+    expect(flat).toContain("%5FCUSTOM/schema.sql");
+    expect(flat).toContain("%5FCluster/schema.sql");
+    expect(flat).toContain("%5FCluster/tables/t.sql");
+    // no emitted path may land in a reserved root under case folding
+    const roots = flat.map((n) => n.split("/")[0]?.toLowerCase());
+    expect(roots).not.toContain("_custom");
+    expect(roots).not.toContain("_cluster");
+    // each case variant keeps its own spelling → distinct objects stay distinct
+    expect(names(schemaFacts("_custom"))).toContain("%5Fcustom/schema.sql");
+  });
+
   test("nested reserves nothing — the schemas/ wrapper separates namespaces", () => {
     const nested = names(schemaFacts("_cluster", "_custom"), {
       pathStyle: "nested",

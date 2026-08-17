@@ -6,8 +6,9 @@
  *   --path-style flat|nested (any layout) — where the two ROOT segments live.
  *     flat (default): schema directories at the export root and cluster-level
  *       files under `_cluster/` — `app/tables/t.sql`, `_cluster/roles.sql`.
- *       A schema literally named `_cluster` / `_custom` (the two reserved root
- *       directories) escapes to `%5Fcluster/` / `%5Fcustom/`.
+ *       A schema named `_cluster` / `_custom` — the two reserved root
+ *       directories — or any CASE VARIANT of one escapes its leading
+ *       underscore: `%5Fcluster/`, `%5FCUSTOM/`.
  *     nested: the historical `schemas/app/tables/t.sql` + `cluster/roles.sql`
  *       tree, for callers whose tooling pins those paths.
  *
@@ -327,10 +328,17 @@ export function writeExportFiles(
     );
   }
   // Refuse BEFORE writing anything, like the unmanaged check: no layout emits a
-  // `_custom/…` path, so this is unreachable — but the reservation must be
-  // ENFORCED where files are written, not assumed, since writing there would
-  // silently overwrite hand-authored SQL the pruner is protecting.
-  const reserved = files.filter((file) => isCustomPath(file.name));
+  // `_custom/…` path (the flat style escapes a schema of that name — and of any
+  // CASE VARIANT of it — to `%5Fcustom/`), so this is unreachable — but the
+  // reservation must be ENFORCED where files are written, not assumed, since
+  // writing there would silently overwrite hand-authored SQL the pruner is
+  // protecting. Matched case-INSENSITIVELY here: on APFS/NTFS a `_CUSTOM/…`
+  // path resolves into the reserved directory just the same, and unlike the
+  // unmanaged check there is no exported path to collide with that would
+  // surface it (Codex review, PR #430).
+  const reserved = files.filter((file) =>
+    isCustomPath(file.name.toLowerCase()),
+  );
   if (reserved.length > 0) {
     throw new Error(
       `export: refusing to write into the reserved ${CUSTOM_DIR_NAME}/ directory:\n` +

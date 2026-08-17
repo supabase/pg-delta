@@ -372,9 +372,15 @@ function clampSegment(segment: string): string {
  *   reserved under `"nested"`, where the `schemas/` wrapper separates the two
  *   namespaces (export-path-style.test.ts pins that the two names agree).
  *
- * Matching is exact and case-SENSITIVE: `_CLUSTER` keeps its own spelling and
- * is handled downstream by the case-collision fold (export-case-collisions.ts),
- * which merges the twin roots into one spelling and reports it.
+ * Matching is case-INSENSITIVE (entries are lower-case; compare via
+ * `toLowerCase()`), because the hazard is a case-insensitive filesystem: on
+ * APFS/NTFS `_CUSTOM/schema.sql` IS `_custom/schema.sql`. The case-collision
+ * fold cannot cover that one — it only sees paths the export itself emits, and
+ * the export emits nothing under `_custom/`, so a schema landing there
+ * collides with HAND-AUTHORED SQL that no exported path can be compared
+ * against (Codex review, PR #430). Escaping every case variant keeps the two
+ * namespaces disjoint by construction, and is cleaner for `_cluster` too: the
+ * schema gets its own directory instead of sharing the folded one.
  */
 export const RESERVED_ROOT_SEGMENTS: ReadonlySet<string> = new Set([
   "_cluster",
@@ -388,17 +394,19 @@ function clusterRoot(style: ExportPathStyle): string {
 
 /**
  * Root directory of a SCHEMA's files, for a path style. Under `"flat"` a
- * schema whose encoded segment is exactly a {@link RESERVED_ROOT_SEGMENTS}
- * name percent-encodes its leading underscore (`_cluster` → `%5Fcluster`), so
- * it can never claim a directory the export tree owns. `%` itself is escaped
- * by `encodeURIComponent`, so no other identifier can ever encode to the
- * escaped spelling — the escape is injective. Other underscore-prefixed
- * schemas (`_foo`) are untouched.
+ * schema whose encoded segment case-insensitively equals a
+ * {@link RESERVED_ROOT_SEGMENTS} name percent-encodes its leading underscore
+ * (`_cluster` → `%5Fcluster`, `_CUSTOM` → `%5FCUSTOM`), so it can never claim
+ * — or case-fold into — a directory the export tree owns. The rest of the
+ * segment keeps its original spelling, so distinct case variants stay distinct
+ * objects. `%` itself is escaped by `encodeURIComponent`, so no other
+ * identifier can ever encode to the escaped spelling — the escape is
+ * injective. Other underscore-prefixed schemas (`_foo`) are untouched.
  */
 function schemaRoot(style: ExportPathStyle, schema: string): string {
   const segment = seg(schema);
   if (style === "nested") return `schemas/${segment}`;
-  return RESERVED_ROOT_SEGMENTS.has(segment)
+  return RESERVED_ROOT_SEGMENTS.has(segment.toLowerCase())
     ? `%5F${segment.slice(1)}`
     : segment;
 }

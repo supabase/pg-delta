@@ -140,10 +140,10 @@ Two flags shape this tree, and they compose:
   the default (shown above). `nested` reproduces the historical
   `schemas/app/tables/users.sql` + `cluster/roles.sql` tree, for tooling that
   pins those paths. Nothing below the root segment differs.
-  A schema literally named `_cluster` or `_custom` — the two reserved root
-  directories — escapes its leading underscore under `flat`
-  (`%5Fcluster/`, `%5Fcustom/`), so it can never claim a directory the export
-  owns.
+  A schema named `_cluster` or `_custom` — the two reserved root directories —
+  or any case variant of one escapes its leading underscore under `flat`
+  (`%5Fcluster/`, `%5FCUSTOM/`), so it can never claim, or case-fold into, a
+  directory the export owns.
 - `--layout by-object|ordered|grouped` — how statements are distributed across
   files: one file per object (default), numbered files in dependency order, or
   the category-ordered "nice" export with opt-in grouping.
