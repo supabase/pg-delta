@@ -17,6 +17,7 @@ body:
       options:
         - "@supabase/pg-delta"
         - "@supabase/pg-topo"
+        - "@supabase/pg-squash"
     validations:
       required: true
   - type: input

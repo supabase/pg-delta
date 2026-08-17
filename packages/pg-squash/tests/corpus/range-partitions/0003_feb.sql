@@ -1,0 +1,2 @@
+CREATE TABLE part_events_2020_02 PARTITION OF part_events
+  FOR VALUES FROM ('2020-02-01') TO ('2020-03-01');

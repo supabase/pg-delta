@@ -27,7 +27,7 @@ export type ParsedStatement = {
   annotations: AnnotationHints;
 };
 
-type ParseContentResult = {
+export type ParseContentResult = {
   statements: ParsedStatement[];
   diagnostics: Diagnostic[];
 };

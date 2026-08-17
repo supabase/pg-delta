@@ -1,0 +1,2 @@
+CREATE SCHEMA crm;
+CREATE SCHEMA billing;

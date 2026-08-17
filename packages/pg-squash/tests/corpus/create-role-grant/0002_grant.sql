@@ -1,0 +1,1 @@
+GRANT squash_corpus_app TO squash_corpus_reader;

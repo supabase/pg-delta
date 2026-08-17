@@ -83,10 +83,12 @@ export {
 
 // ── proof ────────────────────────────────────────────────────────────────────
 export {
+  collectTableStats,
   provePlan,
   type ProducedProofVerdict,
   type ProveOptions,
   type ProofVerdict,
+  type TableStat,
 } from "./proof/prove.ts";
 
 // ── frontends ────────────────────────────────────────────────────────────────

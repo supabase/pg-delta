@@ -1,5 +1,7 @@
 export { analyzeAndSort } from "./analyze-and-sort.ts";
 export { analyzeAndSortFromFiles } from "./from-files.ts";
+export { parseSqlContent } from "./ingest/parse.ts";
+export type { ParsedStatement, ParseContentResult } from "./ingest/parse.ts";
 export type {
   AnalyzeOptions,
   AnalyzeResult,

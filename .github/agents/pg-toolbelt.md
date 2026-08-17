@@ -20,6 +20,7 @@ Bun-based monorepo containing PostgreSQL tooling packages.
 
 - **packages/pg-delta** (`@supabase/pg-delta`): PostgreSQL schema-diff and migration engine (a clean-room rewrite; the CLI binary is `pgdelta`). It extracts two schemas into a normalized, content-addressed **fact base** using a live/shadow Postgres, diffs generically, emits an ordered DDL plan, and **proves** the plan converges (state + data preservation) on a clone. See `packages/pg-delta/README.md` and `docs/architecture/` for depth.
 - **packages/pg-topo** (`@supabase/pg-topo`): Topological sorting for SQL DDL statements. Pure library that accepts SQL content strings, extracts dependencies, and produces a deterministic execution order. Includes an optional filesystem adapter for discovering/reading `.sql` files. It is an **optional peer** of pg-delta (used only by the reorder-assist / `schema lint` frontends), never by the diffing core.
+- **packages/pg-squash** (`@supabase/pg-squash`): Compress an ordered migration chain into the minimum number of transactions, with a proof of equivalence. Lives above pg-topo (verbatim split) and pg-delta (extract / fingerprints) so those packages keep their isolation rules. See `docs/roadmap/pg-squash-design.md`.
 
 ## Quick Reference
 
@@ -33,6 +34,7 @@ bun run build
 # Test specific package
 bun run test:pg-delta          # pg-delta unit tests (bun test src/)
 bun run test:pg-topo
+bun run test:pg-squash
 
 # Type check / lint / knip (all packages)
 bun run check-types
@@ -43,6 +45,8 @@ bun run knip
 cd packages/pg-delta && bun test src/     # Unit tests (no Docker)
 cd packages/pg-delta && bun test tests/   # Integration tests (Docker required)
 cd packages/pg-topo && bun run test       # All tests (Docker required)
+cd packages/pg-squash && bun test src/    # Unit tests (no Docker)
+cd packages/pg-squash && bun test tests/  # Integration tests (Docker required)
 
 # Choose the Postgres image for pg-delta integration/corpus tests
 PGDELTA_TEST_IMAGE=postgres:17-alpine bun test tests/engine.test.ts
@@ -50,7 +54,7 @@ PGDELTA_TEST_IMAGE=postgres:17-alpine bun test tests/engine.test.ts
 
 ## Architecture
 
-- Both packages are runtime-agnostic: importable in Bun, Node.js, or Deno.
+- All three library packages are runtime-agnostic: importable in Bun, Node.js, or Deno.
 - Conditional exports: the `bun` condition serves TypeScript source directly; `import`/`require`/`default` serve compiled `dist/` JS (produced by `bun run build` — `tsc` with `rewriteRelativeImportExtensions`, so the `.ts` import specifiers become `.js` on emit). `dist/` is gitignored; consumers get it from the published tarball.
 - `pg-delta` uses the `pg` npm library for database connections (works in Bun via Node.js compat).
 - `pg-topo` is pure static analysis — no runtime database dependency in the library itself.
@@ -191,7 +195,7 @@ Common types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`.
 The `Lint Pull Request` CI check (see `.github/workflows/lint-pull-request.yml`) runs `amannn/action-semantic-pull-request` and will fail any PR whose title doesn't match this convention. Two common pitfalls to avoid:
 
 - **Auto-generated PR titles from external tools** (Claude Code web session launcher, GitHub's "compare" UI, the `gh` CLI default, etc.) routinely produce plain English like `Add integration tests for X` or `Update Y`. These will fail lint. Always verify the PR title before considering the PR opened — if it's not `<type>(<scope>): ...`, rename it (e.g. via `mcp__github__update_pull_request` with a new `title`). The first commit's subject is usually a good source since we write those in Conventional Commits already.
-- **`<scope>` should be the package name** (`pg-delta`, `pg-topo`) or a cross-cutting area (`ci`, `docs`, `release`) — not a feature name.
+- **`<scope>` should be the package name** (`pg-delta`, `pg-topo`, `pg-squash`) or a cross-cutting area (`ci`, `docs`, `release`) — not a feature name.
 - **Link the fixed issue(s) in the PR description.** When the PR resolves or addresses a tracked issue, include a GitHub closing keyword line in the description (for example `Closes #230`, `Fixes supabase/pg-toolbelt#230`, or `Refs #230` for partial work). This auto-closes the issue on merge and gives reviewers one click back to the bug report. If the work spans multiple issues, list them all (`Closes #230, Closes #231`).
 
 ## CI
@@ -202,8 +206,11 @@ The `Lint Pull Request` CI check (see `.github/workflows/lint-pull-request.yml`)
   - `pg-delta-corpus` — the proof loop (`tests/engine.test.ts`), matrix of **PG 14–18 × 10 shards** (`PGDELTA_TEST_IMAGE` + `PGDELTA_NEXT_SHARD`), each shard running scenarios with in-job concurrency (`PGDELTA_NEXT_CONCURRENCY=4`, matched to the 4-vCPU public-repo runners).
   - `pg-delta-integration` — everything except the corpus loop, matrix of **PG 14–18 × 5 file groups**. The wall-time-dominating files are pinned to groups 0/1 in the workflow's split script; all other files (including new ones) round-robin into groups 2/3/4. If a test file grows to dominate its group (check the job timings), move it to a pinned group.
   - `pg-delta-integration-pg15-compat` / `pg-delta-integration-pg17-compat` — stable status-check names (for branch protection) that aggregate the corpus + integration matrices.
+- pg-squash test jobs in `.github/workflows/tests.yml`:
+  - `pg-squash-unit` — `bun test src/`. Runs when pg-squash, pg-delta, or pg-topo change.
+  - `pg-squash-corpus` — `bun test tests/` (shadow/replay integration + corpus), PG 17-only until the engine is stable, then expand to 14–18. Same change filter as unit tests.
 - `check-types` and `format-and-lint` build `@supabase/pg-topo` first, because pg-delta type-checks its optional peer through pg-topo's gitignored `dist/*.d.ts`.
-- Changesets automate releases on merge to main; `release-preview` publishes a `pkg-pr-new` preview of both packages.
+- Changesets automate releases on merge to main; `release-preview` publishes a `pkg-pr-new` preview of pg-delta, pg-topo, and pg-squash.
 
 When changing shard count or PG versions, update all of these locations:
 

@@ -1,0 +1,65 @@
+{
+  "name": "@supabase/pg-squash",
+  "version": "1.0.0-alpha.0",
+  "description": "Compress an ordered PostgreSQL migration chain into the minimum number of transactions, with a proof of equivalence",
+  "keywords": [
+    "migrations",
+    "pg",
+    "postgres",
+    "squash"
+  ],
+  "homepage": "https://github.com/supabase/pg-toolbelt",
+  "bugs": "https://github.com/supabase/pg-toolbelt/issues",
+  "license": "MIT",
+  "author": "Supabase",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/supabase/pg-toolbelt.git",
+    "directory": "packages/pg-squash"
+  },
+  "bin": {
+    "pgsquash": "./dist/cli/main.js"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --external pg --external @supabase/pg-topo --external @supabase/pg-delta && bun build src/cli/main.ts --outfile dist/cli/main.js --target node --format esm --external pg --external @supabase/pg-topo --external @supabase/pg-delta --external testcontainers && tsc --project tsconfig.node.json --emitDeclarationOnly --outDir dist",
+    "test": "bun scripts/run-tests.ts src/",
+    "test:corpus": "bun scripts/run-tests.ts tests/",
+    "check-types": "tsc --noEmit",
+    "format-and-lint": "oxfmt --check . && oxlint --deny-warnings",
+    "format-and-lint:fix": "oxfmt . && oxlint --fix",
+    "knip": "knip"
+  },
+  "dependencies": {
+    "@supabase/pg-delta": "workspace:*",
+    "@supabase/pg-topo": "workspace:*",
+    "pg": "^8.17.2"
+  },
+  "devDependencies": {
+    "@supabase/bun-istanbul-coverage": "workspace:*",
+    "@types/bun": "^1.3.9",
+    "@types/pg": "^8.11.10",
+    "knip": "^5.75.2",
+    "typescript": "^5.9.3"
+  },
+  "optionalDependencies": {
+    "testcontainers": "^11.10.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

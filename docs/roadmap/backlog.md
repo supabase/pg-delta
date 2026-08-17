@@ -93,12 +93,13 @@ Supabase CLI. Remaining `pgdelta` CLI DX (an `--allow-hazards` gate and a
 GitLab Code-Quality JSON reporter) is optional and not a V1 RFC blocker.
 CLI-1459–1464.
 
-### 🟡 Migration squash / repair
-Collapse a chain of migration files into one consolidated migration, and emit it
-across multiple files respecting segment boundaries. Substrate exists
-(`loadSqlFiles`, `plan`, `segmentActions`, ordered export); build the `squash` /
-`repair` commands + multi-file output. CLI-1597, CLI-1598 (CLI-1424's
-public-only limitation doesn't exist here by construction).
+### 🟠 Migration squash / repair
+Collapse a chain of migration files into the minimum number of transactions,
+with a machine-checked proof of equivalence. This is a **standalone package**
+(`@supabase/pg-squash`, CLI `pgsquash`), not a pg-delta command — pg-delta
+keeps its no-parser rule and pg-topo stays an optional peer of pg-delta. Full
+design and implementation contract:
+[pg-squash-design.md](pg-squash-design.md). CLI-1597, CLI-1598.
 
 ### 🟡 Object-filtering flags
 Expose the policy DSL's filtering vocabulary as CLI flags (`--schema`,

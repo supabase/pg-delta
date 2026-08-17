@@ -23,6 +23,12 @@ outputs:
   pg-topo-package-json:
     description: Whether pg-topo package.json changed
     value: ${{ steps.filter.outputs.pg-topo-package-json }}
+  pg-squash:
+    description: Whether pg-squash changed
+    value: ${{ steps.filter.outputs.pg-squash }}
+  pg-squash-package-json:
+    description: Whether pg-squash package.json changed
+    value: ${{ steps.filter.outputs.pg-squash-package-json }}
   root:
     description: Whether root config changed
     value: ${{ steps.filter.outputs.root }}
@@ -50,6 +56,10 @@ runs:
             - 'packages/pg-topo/**'
           pg-topo-package-json:
             - 'packages/pg-topo/package.json'
+          pg-squash:
+            - 'packages/pg-squash/**'
+          pg-squash-package-json:
+            - 'packages/pg-squash/package.json'
           root:
             - 'package.json'
             - 'bunfig.toml'
@@ -81,6 +91,8 @@ runs:
             - "!packages/pg-delta/CHANGELOG.md"
             - "!packages/pg-topo/package.json"
             - "!packages/pg-topo/CHANGELOG.md"
+            - "!packages/pg-squash/package.json"
+            - "!packages/pg-squash/CHANGELOG.md"
 
     - id: release-pr-content
       shell: bash

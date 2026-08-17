@@ -15,6 +15,7 @@ body:
       options:
         - "@supabase/pg-delta"
         - "@supabase/pg-topo"
+        - "@supabase/pg-squash"
         - "Not sure / cross-cutting"
     validations:
       required: true

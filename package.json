@@ -14,6 +14,7 @@
     "test:contribution-gate": "bun test ./.github/scripts/contribution-gate.test.ts",
     "test:pg-delta": "bun run --filter '@supabase/pg-delta' test",
     "test:pg-topo": "bun run --filter '@supabase/pg-topo' test",
+    "test:pg-squash": "bun run --filter '@supabase/pg-squash' test",
     "verdaccio:start": "verdaccio --config ./verdaccio/config.yaml",
     "pg-delta:publish-local": "bun scripts/verdaccio-publish-pg-delta.ts",
     "version": "changeset version"
