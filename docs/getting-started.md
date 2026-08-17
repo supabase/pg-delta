@@ -179,6 +179,14 @@ Export the inverse — a live database back out to `.sql` files:
 
 ```bash
 pgdelta schema export --source "$SOURCE_URL" --out-dir ./schema
+# Writes one directory per schema at the root plus a reserved _cluster/ for
+# objects that belong to no schema:
+#   ./schema/_cluster/roles.sql
+#   ./schema/app/schema.sql
+#   ./schema/app/tables/users.sql
+# --path-style nested reproduces the historical schemas/app/tables/users.sql +
+# cluster/roles.sql tree (composes with every --layout).
+#
 # --layout by-object (default) groups by schema/kind; --layout ordered emits a
 # single load order with the load(export(db)) ≡ db guarantee
 #
@@ -221,7 +229,7 @@ has drifted (and prints the deltas) — handy in CI.
 | `prove` | Apply a plan to a clone and verify convergence + data preservation | `--plan` `--clone` `--desired-snapshot` `[--profile]` `[--strict-audit]` `[--audit-all]` `[--trusted-local-host]` `[--allow-remote-clone]` `[--allow-unverified-source-identity]` |
 | `snapshot` | Save a database's fact base to a file | `--source` `--out` `[--strict-coverage]` |
 | `drift` | Compare a live DB against a saved snapshot | `--env` `--snapshot` `[--strict-coverage]` |
-| `schema export` | Export a live DB to `.sql` files | `--source` `--out-dir` `[--layout]` `[--profile]` `[--strict-coverage]` |
+| `schema export` | Export a live DB to `.sql` files | `--source` `--out-dir` `[--layout]` `[--path-style]` `[--profile]` `[--strict-coverage]` |
 | `schema apply` | Load `.sql` files via a shadow DB and migrate a target | `--dir` `[--shadow]` `--target` `[--scope]` `[--isolated-shadow]` `[--renames]` `[--accept-rename]` `[--force]` `[--allow-data-loss]` `[--trusted-local-host]` `[--allow-remote-shadow]` `[--profile]` `[--restrict-to-applier]` `[--strict-coverage]` `[--dry-run]` `[--verbose]` `[--out-plan]` |
 
 Common flags, explained:

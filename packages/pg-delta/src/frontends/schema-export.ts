@@ -13,7 +13,11 @@ import {
 import { flattenPolicy } from "../policy/policy.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
 import type { ManagementScope } from "../policy/view.ts";
-import { exportSqlFiles, type ExportGrouping } from "./export-sql-files.ts";
+import {
+  exportSqlFiles,
+  type ExportGrouping,
+  type ExportPathStyle,
+} from "./export-sql-files.ts";
 import type { ExportManifest } from "./export-manifest.ts";
 import type { SqlFile } from "./load-sql-files.ts";
 import type { SqlFormatOptions } from "./sql-format/index.ts";
@@ -31,6 +35,10 @@ export interface BuildSchemaExportOptions {
   /** Extra resolveProfile options (restrictToApplier, baselineDir, …). */
   resolveOptions?: Omit<ResolveProfileOptions, "redactSecrets">;
   layout?: "by-object" | "ordered" | "grouped";
+  /** Root-segment style of the emitted paths. Default: `"flat"`
+   *  (`<schema>/tables/t.sql` + `_cluster/roles.sql`); `"nested"` reproduces
+   *  the historical `schemas/<schema>/…` + `cluster/…` tree. */
+  pathStyle?: ExportPathStyle;
   grouping?: ExportGrouping;
   /** Pretty-print options; omit for raw renderer output. */
   format?: SqlFormatOptions;
@@ -135,6 +143,9 @@ export async function buildSchemaExport(
 
   const files = exportSqlFiles(scopedView, {
     layout,
+    ...(options.pathStyle !== undefined
+      ? { pathStyle: options.pathStyle }
+      : {}),
     ...(options.grouping !== undefined ? { grouping: options.grouping } : {}),
     ...(options.format !== undefined ? { format: options.format } : {}),
     ...(assumedSchemas.length > 0 ? { assumedSchemas } : {}),

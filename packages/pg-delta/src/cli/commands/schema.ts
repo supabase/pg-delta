@@ -3,8 +3,16 @@
  *   Export the source database as SQL files written to disk.
  *   Maps to old `declarative-export`.
  *
+ *   --path-style flat|nested (any layout) — where the two ROOT segments live.
+ *     flat (default): schema directories at the export root and cluster-level
+ *       files under `_cluster/` — `app/tables/t.sql`, `_cluster/roles.sql`.
+ *       A schema literally named `_cluster` / `_custom` (the two reserved root
+ *       directories) escapes to `%5Fcluster/` / `%5Fcustom/`.
+ *     nested: the historical `schemas/app/tables/t.sql` + `cluster/roles.sql`
+ *       tree, for callers whose tooling pins those paths.
+ *
  *   Layouts:
- *     by-object (default) — the familiar tree (schemas/<s>/tables/<t>.sql, …),
+ *     by-object (default) — the familiar tree (<s>/tables/<t>.sql, …),
  *       files in dependency/plan order.
  *     ordered — numbered files in plan order; the loader converges in one pass.
  *     grouped — the old engine's "nice" export: files ordered by semantic
@@ -127,6 +135,7 @@ import { join, dirname, relative, resolve, sep } from "node:path";
 import type {
   ExportGrouping,
   ExportGroupingPattern,
+  ExportPathStyle,
 } from "../../frontends/export-sql-files.ts";
 import type { SqlFormatOptions } from "../../frontends/sql-format/index.ts";
 import {
@@ -394,6 +403,7 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       source: { type: "value", required: true },
       "out-dir": { type: "value", required: true },
       layout: { type: "value" },
+      "path-style": { type: "value" },
       profile: { type: "value" },
       "strict-coverage": { type: "boolean" },
       "unsafe-show-secrets": { type: "boolean" },
@@ -411,7 +421,8 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
     if (err instanceof UsageError) {
       throw new UsageError(
         `${err.message}\nUsage: pgdelta schema export --source <pg-url> --out-dir <dir> ` +
-          `[--layout by-object|ordered|grouped] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets] [--scope database|cluster] [--prune-unmanaged]\n` +
+          `[--layout by-object|ordered|grouped] [--path-style flat|nested] [--profile ${PROFILE_IDS}] [--strict-coverage] [--unsafe-show-secrets] [--scope database|cluster] [--prune-unmanaged]\n` +
+          `  [--path-style flat|nested] (flat, the default: <schema>/tables/t.sql + _cluster/roles.sql; nested: the historical schemas/<schema>/… + cluster/…)\n` +
           `  [--default-owner <role|none>] (which owner stays implicit; default: profile default or the database owner; "none" emits every OWNER TO)\n` +
           `  [--prune-unmanaged] (delete .sql files in --out-dir this export does not own; refuse otherwise)\n` +
           `  [--format-options '{"keywordCase":"upper","maxWidth":180}'] [--no-format]\n` +
@@ -447,6 +458,17 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       );
     }
     layout = v;
+  }
+  // Root-segment style, orthogonal to --layout: `flat` (default) puts schema
+  // directories at the export root with cluster files under `_cluster/`;
+  // `nested` reproduces the historical `schemas/<s>/…` + `cluster/…` tree.
+  let pathStyle: ExportPathStyle = "flat";
+  if (flags["path-style"] !== undefined) {
+    const v = flags["path-style"];
+    if (v !== "flat" && v !== "nested") {
+      throw new UsageError(`--path-style must be flat or nested (got: ${v})`);
+    }
+    pathStyle = v;
   }
 
   // Grouping options apply only to the grouped layout. Parse them up front so
@@ -538,6 +560,7 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       scope: exportScope,
       redactSecrets,
       layout,
+      pathStyle,
       ...(grouping !== undefined ? { grouping } : {}),
       ...(format !== undefined ? { format } : {}),
       ...(flags["default-owner"] === "none"
@@ -597,7 +620,7 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       );
     }
     process.stderr.write(
-      `Exported ${result.files.length} file(s) to ${outDir} (layout: ${layout}): ` +
+      `Exported ${result.files.length} file(s) to ${outDir} (layout: ${layout}, path style: ${pathStyle}): ` +
         `${created.length} created, ${updated.length} updated, ${unchanged.length} unchanged\n`,
     );
   } finally {

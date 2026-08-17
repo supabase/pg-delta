@@ -100,6 +100,7 @@ export {
 export {
   exportSqlFiles,
   type ExportOptions,
+  type ExportPathStyle,
 } from "./frontends/export-sql-files.ts";
 export { saveSnapshot, loadSnapshot } from "./frontends/snapshot-file.ts";
 export {

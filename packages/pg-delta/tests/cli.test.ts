@@ -852,7 +852,7 @@ describe("CLI: schema export", () => {
       const first = await runCli(args);
       expect(first.exitCode).toBe(0);
       expect(first.stderr).toMatch(
-        /Exported (\d+) file\(s\) to \S+ \(layout: by-object\): \1 created, 0 updated, 0 unchanged\n/,
+        /Exported (\d+) file\(s\) to \S+ \(layout: by-object, path style: flat\): \1 created, 0 updated, 0 unchanged\n/,
       );
       expect(first.stderr).not.toContain("Removed");
 
@@ -865,7 +865,7 @@ describe("CLI: schema export", () => {
       expect(re.exitCode).toBe(0);
       expect(re.stderr).toContain("Removed 1 stale .sql file(s)");
       expect(re.stderr).toMatch(
-        /Exported \d+ file\(s\) to \S+ \(layout: by-object\): 0 created, 1 updated, \d+ unchanged\n/,
+        /Exported \d+ file\(s\) to \S+ \(layout: by-object, path style: flat\): 0 created, 1 updated, \d+ unchanged\n/,
       );
     } finally {
       await source.drop();

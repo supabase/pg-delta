@@ -36,7 +36,10 @@
  */
 import { describe, expect, test } from "bun:test";
 import { extract } from "../src/extract/extract.ts";
-import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
+import {
+  exportSqlFiles,
+  type ExportOptions,
+} from "../src/frontends/export-sql-files.ts";
 import { sharedCluster } from "./containers.ts";
 
 describe("export: by-object file mapping (v2 contract)", () => {
@@ -361,10 +364,10 @@ describe("export: path style", () => {
         CREATE TABLE ext.b (id integer PRIMARY KEY);
       `);
       const fb = (await extract(src.pool)).factBase;
-      const opts = {
+      const opts: ExportOptions = {
         layout: "grouped",
         grouping: { flatSchemas: ["ext"] },
-      } as const;
+      };
       expect(exportSqlFiles(fb, opts).map((f) => f.name)).toContain(
         "ext/tables.sql",
       );

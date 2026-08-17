@@ -10,7 +10,11 @@ export {
   type LoadSqlFilesOptions,
 } from "./load-sql-files.ts";
 
-export { exportSqlFiles, type ExportOptions } from "./export-sql-files.ts";
+export {
+  exportSqlFiles,
+  type ExportOptions,
+  type ExportPathStyle,
+} from "./export-sql-files.ts";
 
 export { saveSnapshot, loadSnapshot } from "./snapshot-file.ts";
 
