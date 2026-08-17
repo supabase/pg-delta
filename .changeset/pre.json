@@ -76,6 +76,7 @@
     "fix-table-constraint-null-definition",
     "fix-trigger-column-numbers-diff-loop",
     "fix-trigger-quoted-name-formatting",
+    "flat-declarative-export-layout",
     "foreign-server-extension-subpartition-fixes",
     "fresh-geese-check",
     "grant-clause-boundary-wrap",
