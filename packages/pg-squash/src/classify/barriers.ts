@@ -8,8 +8,16 @@ const BARRIER_RULES: { name: string; re: RegExp }[] = [
     re: /^\s*create\s+(unique\s+)?index\s+concurrently\b/i,
   },
   {
+    name: "DROP INDEX CONCURRENTLY",
+    re: /^\s*drop\s+index\s+concurrently\b/i,
+  },
+  {
     name: "REINDEX CONCURRENTLY",
     re: /^\s*reindex\b[\s\S]*\bconcurrently\b/i,
+  },
+  {
+    name: "REFRESH MATERIALIZED VIEW CONCURRENTLY",
+    re: /^\s*refresh\s+materialized\s+view\s+concurrently\b/i,
   },
   { name: "VACUUM", re: /^\s*vacuum\b/i },
   { name: "ALTER SYSTEM", re: /^\s*alter\s+system\b/i },

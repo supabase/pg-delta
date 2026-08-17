@@ -408,7 +408,7 @@ jobs:
     if: >-
       needs.detect-changes.outputs.is-release-pr != 'true' &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      (needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.root == 'true')
+      (needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-squash: Unit tests"
     runs-on: ubuntu-latest
@@ -426,7 +426,7 @@ jobs:
     if: >-
       needs.detect-changes.outputs.is-release-pr != 'true' &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      (needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.root == 'true')
+      (needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-squash: Corpus (PG ${{ matrix.postgres_version }})"
     runs-on: ubuntu-latest

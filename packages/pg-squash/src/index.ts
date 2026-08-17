@@ -30,6 +30,7 @@ export type {
   EquivalenceProof,
   TableCoverage,
   TableProof,
+  TableProofInput,
 } from "./prove/index.ts";
 export { squash } from "./squash.ts";
 export type { SquashOptions } from "./squash.ts";
@@ -66,4 +67,5 @@ export type {
   LedgerSnapshot,
   LeasedDatabase,
   OpenClusterHandleOptions,
+  RoleAttributes,
 } from "./shadow/index.ts";

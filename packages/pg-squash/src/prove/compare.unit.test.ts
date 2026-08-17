@@ -30,6 +30,9 @@ const table = (
   rows,
   schemaSig: extras.schemaSig ?? "sig",
   ...(extras.content !== undefined ? { content: extras.content } : {}),
+  ...(extras.columnContent !== undefined
+    ? { columnContent: extras.columnContent }
+    : {}),
 });
 
 describe("compareProofStates", () => {
@@ -211,5 +214,25 @@ describe("compareProofStates", () => {
     );
     expect(proof.tables[0]?.coverage).toBe("count");
     expect(proof.equal).toBe(true);
+  });
+
+  test("stable column fingerprints reject a different squash", () => {
+    const original = captured({
+      tables: [
+        table("public", "t", 1, {
+          columnContent: { tenant: "null-fp" },
+        }),
+      ],
+    });
+    const candidate = captured({
+      tables: [
+        table("public", "t", 1, {
+          columnContent: { tenant: "acme-fp" },
+        }),
+      ],
+    });
+    const proof = compareProofStates(original, candidate);
+    expect(proof.tables[0]?.coverage).toBe("fingerprint");
+    expect(proof.equal).toBe(false);
   });
 });

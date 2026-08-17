@@ -1,5 +1,6 @@
 import type { ClusterHandle, Diagnostic, SquashResult } from "./model/index.ts";
 import { nextMidpointSplit, planSquash } from "./plan.ts";
+import type { ManifestEntry } from "./emit/index.ts";
 import {
   applyVolatilityMask,
   captureProofState,
@@ -8,12 +9,14 @@ import {
 import type { EquivalenceProof } from "./prove/index.ts";
 import { isNonTransactional, replayChain } from "./replay/index.ts";
 import type { ReplayFailure } from "./replay/index.ts";
+import { sourceKeyForReplayFailure } from "./repair.ts";
 import {
   createDatabasePool,
   diffLedger,
   revertLedger,
   snapshotLedger,
 } from "./shadow/index.ts";
+import type { LeasedDatabase } from "./shadow/index.ts";
 
 export type SquashOptions = {
   cluster: ClusterHandle;
@@ -42,6 +45,17 @@ const repairNote = (message: string): Diagnostic => ({
   message,
 });
 
+const revertLedgerRetry = async (
+  cluster: ClusterHandle,
+  before: Awaited<ReturnType<typeof snapshotLedger>>,
+): Promise<void> => {
+  try {
+    await revertLedger(cluster.admin, before);
+  } catch {
+    await revertLedger(cluster.admin, before);
+  }
+};
+
 /**
  * Happy-path squash with a repair loop: on candidate failure or proof
  * mismatch, insert a segment boundary and retry. Worst case degenerates
@@ -54,7 +68,6 @@ export const squash = async (
   const pgMajor = options.pgVersion ?? options.cluster.pgMajor;
   const splitBefore = new Set<string>();
   const forceBarrier = new Set<string>();
-  const maxAttempts = Math.max(8, chain.length * 2);
   const diagnostics: Diagnostic[] = [];
 
   const planOptions = {
@@ -74,17 +87,26 @@ export const squash = async (
     };
   }
 
+  const maxAttempts = Math.max(
+    8,
+    chain.length * 2,
+    planned.statementKeys.length * 2,
+  );
+
   const dbPool = createDatabasePool(options.cluster, {
     baselineDatabase: options.baselineDatabase,
     size: 3,
   });
-  const original = await dbPool.take();
-  let candidate = await dbPool.take();
+  let original: LeasedDatabase | undefined = await dbPool.take();
+  let candidate: LeasedDatabase | undefined = await dbPool.take();
   const before = await snapshotLedger(options.cluster.admin);
 
   const recycleCandidate = async (): Promise<void> => {
-    await dbPool.release(candidate).catch(() => {});
-    await revertLedger(options.cluster.admin, before).catch(() => {});
+    if (candidate !== undefined) {
+      await dbPool.release(candidate).catch(() => {});
+      candidate = undefined;
+    }
+    await revertLedgerRetry(options.cluster, before).catch(() => {});
     candidate = await dbPool.take();
   };
 
@@ -107,7 +129,9 @@ export const squash = async (
       await snapshotLedger(options.cluster.admin),
     );
     let originalState = await captureProofState(original.pool, originalLedger);
-    await revertLedger(options.cluster.admin, before);
+    await dbPool.release(original);
+    original = undefined;
+    await revertLedgerRetry(options.cluster, before);
 
     if (options.skipVolatilityMask !== true) {
       const prime = await dbPool.take();
@@ -123,7 +147,7 @@ export const squash = async (
         }
       } finally {
         await dbPool.release(prime).catch(() => {});
-        await revertLedger(options.cluster.admin, before).catch(() => {});
+        await revertLedgerRetry(options.cluster, before).catch(() => {});
       }
     }
 
@@ -133,11 +157,15 @@ export const squash = async (
         planned = await planSquash(chain, pgMajor, planOptions);
         diagnostics.push(...planned.diagnostics);
       }
+      if (candidate === undefined) {
+        candidate = await dbPool.take();
+      }
 
       const candidateReplay = await replayChain(candidate.pool, planned.files);
       if (!candidateReplay.ok) {
         const split = recordFailureSplit(
           planned.statementKeys,
+          planned.manifest,
           splitBefore,
           forceBarrier,
           candidateReplay.failure,
@@ -196,15 +224,20 @@ export const squash = async (
       diagnostics,
     };
   } finally {
-    await revertLedger(options.cluster.admin, before).catch(() => {});
-    await dbPool.release(original).catch(() => {});
-    await dbPool.release(candidate).catch(() => {});
+    if (original !== undefined) {
+      await dbPool.release(original).catch(() => {});
+    }
+    if (candidate !== undefined) {
+      await dbPool.release(candidate).catch(() => {});
+    }
     await dbPool.drain().catch(() => {});
+    await revertLedgerRetry(options.cluster, before).catch(() => {});
   }
 };
 
 const recordFailureSplit = (
   keys: readonly string[],
+  manifest: readonly ManifestEntry[],
   splitBefore: Set<string>,
   forceBarrier: Set<string>,
   failure: ReplayFailure,
@@ -213,11 +246,12 @@ const recordFailureSplit = (
     failure.nonTransactional ||
     isNonTransactional({ code: failure.sqlstate })
   ) {
-    const mid = nextMidpointSplit(keys, splitBefore) ?? keys[keys.length - 1];
-    if (mid !== undefined) {
-      forceBarrier.add(mid);
-      splitBefore.add(mid);
-      return `; isolated ${mid} as a runtime barrier`;
+    const sourceKey = sourceKeyForReplayFailure(failure, manifest);
+    const isolated = sourceKey ?? keys[keys.length - 1];
+    if (isolated !== undefined) {
+      forceBarrier.add(isolated);
+      splitBefore.add(isolated);
+      return `; isolated ${isolated} as a runtime barrier`;
     }
   }
   const mid = nextMidpointSplit(keys, splitBefore);

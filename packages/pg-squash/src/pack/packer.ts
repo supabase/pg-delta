@@ -10,11 +10,20 @@ export type PackItem =
     }
   | { type: "opaque"; file: string; sql: string };
 
+const statementKey = (file: string, statementIndex: number): string =>
+  `${file}:${String(statementIndex)}`;
+
 export const pack = (
   items: PackItem[],
-): { segments: Segment[]; diagnostics: Diagnostic[] } => {
+  splitBefore: ReadonlySet<string> = new Set(),
+): {
+  segments: Segment[];
+  diagnostics: Diagnostic[];
+  statementKeys: string[];
+} => {
   const segments: Segment[] = [];
   const diagnostics: Diagnostic[] = [];
+  const statementKeys: string[] = [];
   let current: SquashStatement[] = [];
 
   const flush = (): void => {
@@ -33,6 +42,13 @@ export const pack = (
       });
       continue;
     }
+    const key = statementKey(
+      item.stmt.source.file,
+      item.stmt.source.statementIndex,
+    );
+    if (splitBefore.has(key) && item.floorId === null) {
+      flush();
+    }
     if (item.isBarrier) {
       if (item.floorId !== null) {
         diagnostics.push({
@@ -42,14 +58,17 @@ export const pack = (
           source: item.stmt.source,
         });
         current.push(item.stmt);
+        statementKeys.push(key);
         continue;
       }
       flush();
       segments.push({ type: "barrier", statement: item.stmt });
+      statementKeys.push(key);
       continue;
     }
     current.push(item.stmt);
+    statementKeys.push(key);
   }
   flush();
-  return { segments, diagnostics };
+  return { segments, diagnostics, statementKeys };
 };

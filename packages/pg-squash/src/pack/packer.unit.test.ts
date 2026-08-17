@@ -90,6 +90,26 @@ describe("pack", () => {
     );
   });
 
+  test("splitBefore flushes a new txn before the named statement", () => {
+    const items: PackItem[] = [
+      {
+        type: "statement",
+        stmt: stmt("CREATE TABLE t (id int);"),
+        isBarrier: false,
+        floorId: null,
+      },
+      {
+        type: "statement",
+        stmt: stmt("CREATE INDEX t_id ON t (id);", "b.sql", 0),
+        isBarrier: false,
+        floorId: null,
+      },
+    ];
+    const { segments, statementKeys } = pack(items, new Set(["b.sql:0"]));
+    expect(segments).toHaveLength(2);
+    expect(statementKeys).toEqual(["a.sql:0", "b.sql:0"]);
+  });
+
   test("is minimal: N non-barrier statements squash to 1 segment", () => {
     const items: PackItem[] = Array.from({ length: 20 }, (_, i) => ({
       type: "statement" as const,

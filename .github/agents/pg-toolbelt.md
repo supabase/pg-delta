@@ -207,8 +207,8 @@ The `Lint Pull Request` CI check (see `.github/workflows/lint-pull-request.yml`)
   - `pg-delta-integration` — everything except the corpus loop, matrix of **PG 14–18 × 5 file groups**. The wall-time-dominating files are pinned to groups 0/1 in the workflow's split script; all other files (including new ones) round-robin into groups 2/3/4. If a test file grows to dominate its group (check the job timings), move it to a pinned group.
   - `pg-delta-integration-pg15-compat` / `pg-delta-integration-pg17-compat` — stable status-check names (for branch protection) that aggregate the corpus + integration matrices.
 - pg-squash test jobs in `.github/workflows/tests.yml`:
-  - `pg-squash-unit` — `bun test src/`.
-  - `pg-squash-corpus` — `bun test tests/` (shadow/replay integration + Wave 4 corpus), PG 17-only until the engine is stable, then expand to 14–18.
+  - `pg-squash-unit` — `bun test src/`. Runs when pg-squash, pg-delta, or pg-topo change.
+  - `pg-squash-corpus` — `bun test tests/` (shadow/replay integration + corpus), PG 17-only until the engine is stable, then expand to 14–18. Same change filter as unit tests.
 - `check-types` and `format-and-lint` build `@supabase/pg-topo` first, because pg-delta type-checks its optional peer through pg-topo's gitignored `dist/*.d.ts`.
 - Changesets automate releases on merge to main; `release-preview` publishes a `pkg-pr-new` preview of pg-delta, pg-topo, and pg-squash.
 

@@ -4,6 +4,7 @@ import type { LedgerSnapshot } from "./ledger.ts";
 
 const empty: LedgerSnapshot = {
   roles: ["postgres", "test"],
+  roleAttrs: [],
   memberships: [],
   settings: [],
 };
@@ -30,6 +31,7 @@ describe("diffLedger", () => {
   test("records membership and setting deltas", () => {
     const after: LedgerSnapshot = {
       roles: ["app", "postgres", "test"],
+      roleAttrs: [],
       memberships: [{ role: "app", member: "test", adminOption: false }],
       settings: [
         {

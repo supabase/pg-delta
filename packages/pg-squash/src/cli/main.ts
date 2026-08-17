@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Pool } from "pg";
 import { readChain } from "../ingest/index.ts";
 import { openClusterHandle } from "../shadow/index.ts";
 import { squash } from "../squash.ts";
 import type { ClusterHandle } from "../model/index.ts";
+import { publishSquashOutput } from "./publish.ts";
 
 const USAGE = `pgsquash squash <migrations-dir> --out <dir> [--cluster <pg-url>] [--baseline <db>] [--image <docker-image>] [--wrap-transactions]
 
@@ -155,28 +155,8 @@ const main = async (): Promise<void> => {
       baselineDatabase: args.baseline,
       wrapTransactions: args.wrapTransactions,
     });
-    await mkdir(args.out, { recursive: true });
-    for (const file of result.files) {
-      await writeFile(join(args.out, file.name), file.sql);
-    }
-    await writeFile(
-      join(args.out, "manifest.json"),
-      `${JSON.stringify(result.manifest, null, 2)}\n`,
-    );
-    await writeFile(
-      join(args.out, "proof.json"),
-      `${JSON.stringify(result.proof, null, 2)}\n`,
-    );
-    const proofEqual =
-      typeof result.proof === "object" &&
-      result.proof !== null &&
-      "equal" in result.proof &&
-      result.proof.equal === true;
-    await writeFile(
-      join(args.out, "README.md"),
-      `# Squashed migrations\n\n${String(chain.length)} input files → ${String(result.files.length)} output files.\nProof equal: ${String(proofEqual)}\n`,
-    );
-    if (!proofEqual) {
+    const published = await publishSquashOutput(args.out, chain.length, result);
+    if (!published.proofEqual) {
       fail(`squash proof failed; see ${join(args.out, "proof.json")}`, 1);
     }
     console.log(

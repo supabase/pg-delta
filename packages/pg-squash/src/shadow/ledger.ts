@@ -14,8 +14,21 @@ export type RoleSetting = {
   setconfig: string[];
 };
 
+export type RoleAttributes = {
+  name: string;
+  rolsuper: boolean;
+  rolcreatedb: boolean;
+  rolcreaterole: boolean;
+  rolcanlogin: boolean;
+  rolreplication: boolean;
+  rolbypassrls: boolean;
+  rolinherit: boolean;
+  rolconnlimit: number;
+};
+
 export type LedgerSnapshot = {
   roles: string[];
+  roleAttrs: RoleAttributes[];
   memberships: RoleMembership[];
   settings: RoleSetting[];
 };
@@ -97,8 +110,20 @@ export const diffLedger = (
 };
 
 export const snapshotLedger = async (admin: Pool): Promise<LedgerSnapshot> => {
-  const roles = await admin.query<{ rolname: string }>(
-    `SELECT rolname FROM pg_authid ORDER BY 1`,
+  const roles = await admin.query<{
+    rolname: string;
+    rolsuper: boolean;
+    rolcreatedb: boolean;
+    rolcreaterole: boolean;
+    rolcanlogin: boolean;
+    rolreplication: boolean;
+    rolbypassrls: boolean;
+    rolinherit: boolean;
+    rolconnlimit: number;
+  }>(
+    `SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolcanlogin,
+            rolreplication, rolbypassrls, rolinherit, rolconnlimit
+     FROM pg_authid ORDER BY 1`,
   );
   const memberships = await admin.query<{
     role: string;
@@ -126,6 +151,17 @@ export const snapshotLedger = async (admin: Pool): Promise<LedgerSnapshot> => {
 
   return {
     roles: roles.rows.map((r) => r.rolname),
+    roleAttrs: roles.rows.map((r) => ({
+      name: r.rolname,
+      rolsuper: r.rolsuper,
+      rolcreatedb: r.rolcreatedb,
+      rolcreaterole: r.rolcreaterole,
+      rolcanlogin: r.rolcanlogin,
+      rolreplication: r.rolreplication,
+      rolbypassrls: r.rolbypassrls,
+      rolinherit: r.rolinherit,
+      rolconnlimit: r.rolconnlimit,
+    })),
     memberships: memberships.rows.map((m) => ({
       role: m.role,
       member: m.member,
@@ -138,6 +174,28 @@ export const snapshotLedger = async (admin: Pool): Promise<LedgerSnapshot> => {
     })),
   };
 };
+
+const attrsSql = (attrs: RoleAttributes): string =>
+  [
+    attrs.rolsuper ? "SUPERUSER" : "NOSUPERUSER",
+    attrs.rolcreatedb ? "CREATEDB" : "NOCREATEDB",
+    attrs.rolcreaterole ? "CREATEROLE" : "NOCREATEROLE",
+    attrs.rolcanlogin ? "LOGIN" : "NOLOGIN",
+    attrs.rolreplication ? "REPLICATION" : "NOREPLICATION",
+    attrs.rolbypassrls ? "BYPASSRLS" : "NOBYPASSRLS",
+    attrs.rolinherit ? "INHERIT" : "NOINHERIT",
+    `CONNECTION LIMIT ${String(attrs.rolconnlimit)}`,
+  ].join(" ");
+
+const attrsEqual = (a: RoleAttributes, b: RoleAttributes): boolean =>
+  a.rolsuper === b.rolsuper &&
+  a.rolcreatedb === b.rolcreatedb &&
+  a.rolcreaterole === b.rolcreaterole &&
+  a.rolcanlogin === b.rolcanlogin &&
+  a.rolreplication === b.rolreplication &&
+  a.rolbypassrls === b.rolbypassrls &&
+  a.rolinherit === b.rolinherit &&
+  a.rolconnlimit === b.rolconnlimit;
 
 const GUC_KEY = /^[A-Za-z_][A-Za-z0-9_.]*$/;
 
@@ -226,6 +284,18 @@ export const revertLedger = async (
 
   const now = await snapshotLedger(admin);
   const remainingRoles = new Set(now.roles);
+  const wantAttrs = new Map(before.roleAttrs.map((a) => [a.name, a]));
+  for (const current of now.roleAttrs) {
+    if (current.name === currentUser || current.name.startsWith("pg_")) {
+      continue;
+    }
+    const want = wantAttrs.get(current.name);
+    if (want === undefined || attrsEqual(want, current)) continue;
+    await trySql(
+      `ALTER ROLE ${qid(current.name)} WITH ${attrsSql(want)}`,
+      `restore attributes for ${current.name}`,
+    );
+  }
   const settingsByTarget = new Map<string, RoleSetting>();
   for (const setting of before.settings) {
     if (!remainingRoles.has(setting.role)) continue;

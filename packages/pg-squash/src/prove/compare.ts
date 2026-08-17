@@ -12,6 +12,8 @@ export type TableProofInput = {
   rows: number;
   schemaSig: string;
   content?: string;
+  /** Per-column fingerprints. Used when the whole-row digest is volatile. */
+  columnContent?: Record<string, string>;
 };
 
 export type TableProof = {
@@ -94,6 +96,36 @@ const compareTable = (
       },
       ok: true,
     };
+  }
+  const origCols = original.columnContent;
+  if (
+    origCols !== undefined &&
+    original.rows > 0 &&
+    candidate.rows > 0 &&
+    original.schemaSig === candidate.schemaSig
+  ) {
+    const colKeys = Object.keys(origCols).sort((a, b) => a.localeCompare(b));
+    if (colKeys.length > 0) {
+      const candCols = candidate.columnContent;
+      const originalContent = JSON.stringify(
+        Object.fromEntries(colKeys.map((k) => [k, origCols[k]])),
+      );
+      const candidateContent = JSON.stringify(
+        Object.fromEntries(colKeys.map((k) => [k, candCols?.[k]])),
+      );
+      return {
+        proof: {
+          schema,
+          name,
+          coverage: "fingerprint",
+          originalRows: original.rows,
+          candidateRows: candidate.rows,
+          originalContent,
+          candidateContent,
+        },
+        ok: originalContent === candidateContent,
+      };
+    }
   }
   const canFingerprint =
     original.rows > 0 &&

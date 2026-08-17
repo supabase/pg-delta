@@ -44,7 +44,7 @@ describe("corpus: squash proof loop", () => {
     expect(names).toContain("search-path-leak");
     expect(names).toContain("concurrent-index");
     expect(names).toContain("now-backfill");
-    expect(names.length).toBeGreaterThanOrEqual(28);
+    expect(names.length).toBeGreaterThanOrEqual(32);
   });
 
   test("proves each corpus scenario equivalent", async () => {
@@ -61,8 +61,11 @@ describe("corpus: squash proof loop", () => {
       "create-then-drop": 1,
       "search-path-leak": 2,
       "concurrent-index": 2,
+      "concurrent-drop": 2,
+      "refresh-mv-concurrent": 2,
       "now-backfill": 1,
     };
+    const needsMask = new Set(["now-backfill", "tenant-guc-now"]);
     await withLedgerLock(async () => {
       for (const name of names) {
         const chain = await readChain(join(corpusRoot, name));
@@ -70,7 +73,7 @@ describe("corpus: squash proof loop", () => {
         const result = await squash(chain, {
           cluster: handle,
           baselineDatabase: "template0",
-          skipVolatilityMask: name !== "now-backfill",
+          skipVolatilityMask: !needsMask.has(name),
         });
         expect(isProof(result.proof)).toBe(true);
         if (!isProof(result.proof)) return;
@@ -82,7 +85,7 @@ describe("corpus: squash proof loop", () => {
         if (want !== undefined) {
           expect(result.files.length, name).toBe(want);
         }
-        if (name === "search-path-leak") {
+        if (name === "search-path-leak" || name === "tenant-guc-now") {
           expect(
             result.diagnostics.some((d) => d.code === "repair-split"),
             name,

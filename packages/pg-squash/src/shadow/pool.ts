@@ -32,6 +32,7 @@ export const createDatabasePool = (
   const idle: LeasedDatabase[] = [];
   let closed = false;
   let replenishInflight = 0;
+  const replenishJobs = new Set<Promise<void>>();
 
   const clone = async (): Promise<LeasedDatabase> => {
     const name = uniqueDatabaseName("wp");
@@ -48,7 +49,7 @@ export const createDatabasePool = (
   const replenish = (): void => {
     while (!closed && idle.length + replenishInflight < size) {
       replenishInflight += 1;
-      void (async () => {
+      const job = (async () => {
         try {
           const db = await clone();
           replenishInflight -= 1;
@@ -61,6 +62,10 @@ export const createDatabasePool = (
           replenishInflight -= 1;
         }
       })();
+      replenishJobs.add(job);
+      void job.finally(() => {
+        replenishJobs.delete(job);
+      });
     }
   };
 
@@ -81,6 +86,7 @@ export const createDatabasePool = (
     },
     async drain() {
       closed = true;
+      await Promise.all(replenishJobs);
       const leftover = idle.splice(0);
       await Promise.all(leftover.map((db) => releaseDb(db)));
     },

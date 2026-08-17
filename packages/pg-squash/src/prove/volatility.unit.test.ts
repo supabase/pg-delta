@@ -37,4 +37,38 @@ describe("applyVolatilityMask", () => {
     expect(masked.tables[0]?.content).toBeUndefined();
     expect(masked.tables[0]?.rows).toBe(1);
   });
+
+  test("keeps stable columns when the whole-row digest is volatile", () => {
+    const first: CapturedState = {
+      rootHash: "h",
+      ledger: emptyLedger(),
+      tables: [
+        {
+          schema: "public",
+          name: "t",
+          rows: 1,
+          schemaSig: "sig",
+          content: "row-a",
+          columnContent: { tenant: "t0", ts: "1" },
+        },
+      ],
+    };
+    const second: CapturedState = {
+      rootHash: "h",
+      ledger: emptyLedger(),
+      tables: [
+        {
+          schema: "public",
+          name: "t",
+          rows: 1,
+          schemaSig: "sig",
+          content: "row-b",
+          columnContent: { tenant: "t0", ts: "2" },
+        },
+      ],
+    };
+    const masked = applyVolatilityMask(first, second);
+    expect(masked.tables[0]?.content).toBeUndefined();
+    expect(masked.tables[0]?.columnContent).toEqual({ tenant: "t0" });
+  });
 });

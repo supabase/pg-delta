@@ -50,6 +50,10 @@ describe("isPipelineIncompatible", () => {
         "CREATE UNIQUE INDEX CONCURRENTLY t_id ON t (id);",
       ),
     ).toBe(true);
+    expect(isPipelineIncompatible("DROP INDEX CONCURRENTLY t_id;")).toBe(true);
+    expect(
+      isPipelineIncompatible("REFRESH MATERIALIZED VIEW CONCURRENTLY mv;"),
+    ).toBe(true);
     expect(isPipelineIncompatible("REINDEX TABLE CONCURRENTLY t;")).toBe(true);
     expect(isPipelineIncompatible("VACUUM ANALYZE t;")).toBe(true);
     expect(isPipelineIncompatible("CLUSTER t;")).toBe(true);

@@ -9,6 +9,13 @@ describe("classifyStatement", () => {
     );
     expect(c.isBarrier).toBe(true);
     expect(c.barrierName).toBe("CREATE INDEX CONCURRENTLY");
+    expect(
+      classifyStatement("DROP INDEX CONCURRENTLY t_id;", 17).isBarrier,
+    ).toBe(true);
+    expect(
+      classifyStatement("REFRESH MATERIALIZED VIEW CONCURRENTLY mv;", 17)
+        .isBarrier,
+    ).toBe(true);
   });
 
   test("marks VACUUM, CLUSTER, REINDEX CONCURRENTLY as barriers", () => {

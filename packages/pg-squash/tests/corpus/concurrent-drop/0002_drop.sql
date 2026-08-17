@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY squash_cd_id;

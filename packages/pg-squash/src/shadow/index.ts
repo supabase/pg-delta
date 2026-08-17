@@ -18,6 +18,7 @@ export {
 export type {
   LedgerDiff,
   LedgerSnapshot,
+  RoleAttributes,
   RoleMembership,
   RoleSetting,
 } from "./ledger.ts";

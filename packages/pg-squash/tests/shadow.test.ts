@@ -98,6 +98,22 @@ describe("shadow cluster", () => {
     });
   });
 
+  test("restores ALTER ROLE flags on existing roles", async () => {
+    await withLedgerLock(async () => {
+      const role = uniqueRoleName();
+      await handle.admin.query(`CREATE ROLE ${qid(role)} NOLOGIN NOCREATEDB`);
+      const before = await snapshotLedger(handle.admin);
+      await handle.admin.query(`ALTER ROLE ${qid(role)} CREATEDB`);
+      await revertLedger(handle.admin, before);
+      const flags = await handle.admin.query<{ rolcreatedb: boolean }>(
+        `SELECT rolcreatedb FROM pg_authid WHERE rolname = $1`,
+        [role],
+      );
+      expect(flags.rows[0]?.rolcreatedb).toBe(false);
+      await handle.admin.query(`DROP ROLE ${qid(role)}`);
+    });
+  });
+
   test("restores a checkpoint clone and ledger together", async () => {
     await withLedgerLock(async () => {
       const lease = await pool.take();

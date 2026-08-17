@@ -3,7 +3,10 @@ const PG_DELTA_NO_TRANSACTION = "-- pg-delta: transaction=false";
 
 const CREATE_INDEX_CONCURRENTLY =
   /^CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY(?:\s|$)/u;
+const DROP_INDEX_CONCURRENTLY = /^DROP\s+INDEX\s+CONCURRENTLY(?:\s|$)/u;
 const REINDEX_CONCURRENTLY = /^REINDEX(?:\s|\().*\sCONCURRENTLY(?:\s|$)/u;
+const REFRESH_MV_CONCURRENTLY =
+  /^REFRESH\s+MATERIALIZED\s+VIEW\s+CONCURRENTLY(?:\s|$)/u;
 const VACUUM = /^VACUUM(?:\s|\(|$)/u;
 const ALTER_SYSTEM = /^ALTER\s+SYSTEM(?:\s|$)/u;
 const CLUSTER = /^CLUSTER(?:\s|$)/u;
@@ -45,7 +48,9 @@ export const isPipelineIncompatible = (sql: string): boolean => {
   const upper = statementHead(sql);
   return (
     CREATE_INDEX_CONCURRENTLY.test(upper) ||
+    DROP_INDEX_CONCURRENTLY.test(upper) ||
     REINDEX_CONCURRENTLY.test(upper) ||
+    REFRESH_MV_CONCURRENTLY.test(upper) ||
     VACUUM.test(upper) ||
     ALTER_SYSTEM.test(upper) ||
     CLUSTER.test(upper)
