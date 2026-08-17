@@ -180,14 +180,12 @@ describe("exportSqlFiles merges case-colliding paths into one file", () => {
       const files = exportSqlFiles(buildFactBase(facts, []), options);
       expectCaseInsensitivelyUnique(names(files));
       // both twins' DDL lands in ONE shared file at the canonical member path
-      const merged = files.find(
-        (f) => f.name === "schemas/public/tables/Users.sql",
-      );
+      const merged = files.find((f) => f.name === "public/tables/Users.sql");
       expect(merged?.sql).toContain(`"Users"`);
       expect(merged?.sql).toContain(`"users"`);
-      expect(names(files)).not.toContain("schemas/public/tables/users.sql");
+      expect(names(files)).not.toContain("public/tables/users.sql");
       // bystander untouched
-      expect(names(files)).toContain("schemas/public/tables/orders.sql");
+      expect(names(files)).toContain("public/tables/orders.sql");
     });
   }
 
@@ -216,7 +214,7 @@ describe("exportSqlFiles merges case-colliding paths into one file", () => {
     ];
     const files = exportSqlFiles(buildFactBase(dotted, []));
     const table = files.find((f) => f.name.includes("Foo"));
-    expect(table?.name).toBe("schemas/public/tables/Foo%2Efk.sql");
+    expect(table?.name).toBe("public/tables/Foo%2Efk.sql");
     // no spoofed split-file header on an ordinary table file
     expect(table?.sql).not.toContain("reference cycle");
   });

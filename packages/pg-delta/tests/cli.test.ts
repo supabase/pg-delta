@@ -733,7 +733,7 @@ describe("CLI: schema export --scope", () => {
           ])
         ).exitCode,
       ).toBe(0);
-      expect(existsSync(join(dbDir, "cluster/roles.sql"))).toBe(false);
+      expect(existsSync(join(dbDir, "_cluster/roles.sql"))).toBe(false);
       expect(scopeOf(dbDir)).toBe("database");
 
       // cluster scope keeps roles.
@@ -752,7 +752,7 @@ describe("CLI: schema export --scope", () => {
           ])
         ).exitCode,
       ).toBe(0);
-      expect(existsSync(join(clDir, "cluster/roles.sql"))).toBe(true);
+      expect(existsSync(join(clDir, "_cluster/roles.sql"))).toBe(true);
       expect(scopeOf(clDir)).toBe("cluster");
     } finally {
       await source.drop();
@@ -784,9 +784,7 @@ describe("CLI: schema export", () => {
 
       // verify expected file exists
       const { existsSync } = await import("node:fs");
-      expect(existsSync(join(outDir, "schemas/clitest/tables/items.sql"))).toBe(
-        true,
-      );
+      expect(existsSync(join(outDir, "clitest/tables/items.sql"))).toBe(true);
     } finally {
       await source.drop();
     }
@@ -814,7 +812,7 @@ describe("CLI: schema export", () => {
 
       expect((await runCli(args)).exitCode).toBe(0);
       const { existsSync } = await import("node:fs");
-      const goneFile = join(outDir, "schemas/clitest/tables/gone.sql");
+      const goneFile = join(outDir, "clitest/tables/gone.sql");
       expect(existsSync(goneFile)).toBe(true);
 
       // drop the object and re-export into the SAME dir.
@@ -825,9 +823,7 @@ describe("CLI: schema export", () => {
       // RED before the fix: the loop only overwrote new paths, so gone.sql
       // lingered and `schema apply --dir` would reload the dropped table.
       expect(existsSync(goneFile)).toBe(false);
-      expect(existsSync(join(outDir, "schemas/clitest/tables/items.sql"))).toBe(
-        true,
-      );
+      expect(existsSync(join(outDir, "clitest/tables/items.sql"))).toBe(true);
     } finally {
       await source.drop();
     }
@@ -1283,9 +1279,7 @@ describe("CLI: schema profile-awareness", () => {
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toContain("Exported");
       const { existsSync } = await import("node:fs");
-      expect(existsSync(join(outDir, "schemas/clitest/tables/items.sql"))).toBe(
-        true,
-      );
+      expect(existsSync(join(outDir, "clitest/tables/items.sql"))).toBe(true);
     } finally {
       await source.drop();
     }
@@ -2062,13 +2056,10 @@ describe("CLI: schema export --layout grouped", () => {
       expect(result.stderr).toContain("layout: grouped");
       // auth_users consolidated under the auth group; the other table keeps its file
       expect(
-        readFileSync(join(outDir, "schemas/app/auth/tables.sql"), "utf8"),
+        readFileSync(join(outDir, "app/auth/tables.sql"), "utf8"),
       ).toContain("auth_users");
       expect(
-        readFileSync(
-          join(outDir, "schemas/app/tables/billing_invoices.sql"),
-          "utf8",
-        ),
+        readFileSync(join(outDir, "app/tables/billing_invoices.sql"), "utf8"),
       ).toContain("billing_invoices");
     } finally {
       await source.drop();
@@ -2112,10 +2103,7 @@ describe("CLI: schema export --layout grouped", () => {
         '{"keywordCase":"lower"}',
       ]);
       expect(result.exitCode).toBe(0);
-      const sql = readFileSync(
-        join(outDir, "schemas/app/tables/t.sql"),
-        "utf8",
-      );
+      const sql = readFileSync(join(outDir, "app/tables/t.sql"), "utf8");
       expect(sql).toContain("create table");
       expect(sql).not.toContain("CREATE TABLE");
     } finally {

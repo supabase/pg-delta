@@ -66,14 +66,11 @@ describe("profile-declared baseline (end-to-end)", () => {
       // the export contains the user schema and NOT the baselined platform schema
       const manifest = readExportManifest(outDir);
       expect(manifest?.baselineDigest).toBeDefined();
-      const appFile = readFileSync(
-        join(outDir, "schemas/app/schema.sql"),
-        "utf8",
-      );
+      const appFile = readFileSync(join(outDir, "app/schema.sql"), "utf8");
       // the CLI formats by default (lowercase keywords)
       expect(appFile).toContain(`create schema "app"`);
       expect(() =>
-        readFileSync(join(outDir, "schemas/plat/schema.sql"), "utf8"),
+        readFileSync(join(outDir, "plat/schema.sql"), "utf8"),
       ).toThrow(); // plat was subtracted by the baseline → no file
 
       // 4. a profile whose baseline digest differs → apply fails loud. Build a

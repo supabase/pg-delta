@@ -57,14 +57,14 @@ describe("schema-scoped ADP export routing", () => {
   for (const layout of ["by-object", "grouped"] as const) {
     test(`schema-scoped ADP is split out of the role file (${layout})`, () => {
       const name = fileOf(layout, "IN SCHEMA");
-      expect(name).not.toBe("cluster/roles.sql");
-      expect(name.startsWith("schemas/app/")).toBe(true);
+      expect(name).not.toBe("_cluster/roles.sql");
+      expect(name.startsWith("app/")).toBe(true);
     });
 
     test(`a global ADP stays in the role file (${layout})`, () => {
       // the FUNCTIONS (objtype f) ADP has no schema — keep it with the roles
       const name = fileOf(layout, "ON FUNCTIONS");
-      expect(name).toBe("cluster/roles.sql");
+      expect(name).toBe("_cluster/roles.sql");
     });
   }
 });

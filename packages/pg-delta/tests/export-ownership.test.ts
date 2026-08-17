@@ -47,9 +47,9 @@ async function runCli(args: string[]): Promise<SpawnResult> {
 const readManifest = (dir: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(dir, ".pgdelta-export.json"), "utf8"));
 const readTable = (dir: string, table: string): string =>
-  readFileSync(join(dir, `schemas/public/tables/${table}.sql`), "utf8");
+  readFileSync(join(dir, `public/tables/${table}.sql`), "utf8");
 const readTableIn = (dir: string, schema: string, table: string): string =>
-  readFileSync(join(dir, `schemas/${schema}/tables/${table}.sql`), "utf8");
+  readFileSync(join(dir, `${schema}/tables/${table}.sql`), "utf8");
 
 const dbs: TestDb[] = [];
 afterAll(async () => {

@@ -42,7 +42,9 @@ const CASE_TWIN_SQL = `
 function forLoad(files: { name: string; sql: string }[]) {
   // cluster-global roles already exist in the shared cluster (same filter as
   // export-fidelity.test.ts).
-  return files.filter((f) => !/cluster[_/]roles/.test(f.name));
+  // case-insensitive: a `_CLUSTER` schema can fold the reserved cluster
+  // directory to its own spelling (see the reserved-name suite below).
+  return files.filter((f) => !/cluster[_/]roles/i.test(f.name));
 }
 
 // An FK chain that is ACYCLIC at table grain becomes a real cycle at FILE
@@ -154,6 +156,54 @@ describe("export: non-FK dependency chain through case twins stays loadable", ()
   }
 });
 
+// The flat path style reserves the ROOT segment `_cluster` for the
+// cluster-level files, and escapes a schema of that literal name
+// (`%5Fcluster/`). The reservation is case-SENSITIVE, so a schema named
+// `_CLUSTER` keeps its own spelling — and then case-twins the reserved
+// directory on APFS/NTFS. No new machinery handles that: the existing
+// case-collision fold owns it, contracting both roots to the
+// lexicographically smallest spelling (`_CLUSTER`, uppercase sorts first) and
+// reporting it through `onWarning`. The two trees share a DIRECTORY but never
+// a FILE (`schema.sql` / `tables/` vs `roles.sql` / `extensions/`), so nothing
+// is silently overwritten and the export still round-trips.
+describe("export: a _CLUSTER schema case-twins the reserved _cluster dir", () => {
+  test("folds to one spelling with a warning, and still round-trips", async () => {
+    const cluster = await sharedCluster();
+    const src = await cluster.createDb("reserved_twin_src");
+    const shadow = await cluster.createDb("reserved_twin_shadow");
+    try {
+      await src.pool.query(`
+        CREATE SCHEMA "_CLUSTER";
+        CREATE TABLE "_CLUSTER".t (id integer PRIMARY KEY);
+      `);
+      const fb = (await extract(src.pool)).factBase;
+      const warnings: string[] = [];
+      const files = exportSqlFiles(fb, {
+        onWarning: (m) => warnings.push(m),
+      });
+      const names = files.map((f) => f.name);
+
+      // (1) no two paths may be one physical file on APFS/NTFS
+      expect(new Set(names.map((n) => n.toLowerCase())).size).toBe(
+        names.length,
+      );
+      // (2) both trees agree on ONE root spelling — the smallest present
+      expect(names).toContain("_CLUSTER/schema.sql");
+      expect(names).toContain("_CLUSTER/tables/t.sql");
+      expect(names).toContain("_CLUSTER/roles.sql");
+      expect(names.some((n) => n.startsWith("_cluster/"))).toBe(false);
+      // (3) the collision is reported, never silent
+      expect(warnings.join("\n")).toContain("_CLUSTER");
+
+      // (4) fidelity survives the fold
+      const loaded = await loadSqlFiles(forLoad(files), shadow.pool);
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+    } finally {
+      await Promise.all([src.drop(), shadow.drop()]);
+    }
+  }, 120_000);
+});
+
 describe("export: case-twin objects survive case-insensitive filesystems", () => {
   for (const layout of LAYOUTS) {
     test(`paths are case-insensitively unique and round-trip (${layout})`, async () => {
@@ -178,7 +228,7 @@ describe("export: case-twin objects survive case-insensitive filesystems", () =>
         // ordered layout instead keeps them apart via its sequence prefix)
         if (layout !== "ordered") {
           const merged = files.find(
-            (f) => f.name === "schemas/public/tables/Users.sql",
+            (f) => f.name === "public/tables/Users.sql",
           );
           expect(merged?.sql).toContain(`"Users"`);
           expect(merged?.sql).toContain(`"users"`);

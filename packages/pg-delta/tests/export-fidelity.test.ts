@@ -232,9 +232,7 @@ describe("export: round-trip fidelity (all layouts)", () => {
       `);
       const fb = (await extract(src.pool)).factBase;
       const files = forLoad(exportSqlFiles(fb));
-      const orders = files.find(
-        (f) => f.name === "schemas/f/tables/orders.sql",
-      )?.sql;
+      const orders = files.find((f) => f.name === "f/tables/orders.sql")?.sql;
       expect(orders).toBeDefined();
       // all four validated constraints inline, names preserved
       expect(orders).toContain(`CONSTRAINT "orders_pk" PRIMARY KEY`);
@@ -273,7 +271,7 @@ describe("export: round-trip fidelity (all layouts)", () => {
         }),
       );
       const extFile = files.find(
-        (f) => f.name === "cluster/extensions/pgcrypto.sql",
+        (f) => f.name === "_cluster/extensions/pgcrypto.sql",
       );
       expect(extFile?.sql).toContain("gen_salt");
       // no member ACL leaks back into a public functions file (the public
