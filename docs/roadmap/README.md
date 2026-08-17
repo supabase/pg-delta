@@ -23,6 +23,9 @@ performance, then DX.
   (`schema pull / diff / generate / apply / push`). V1 work packages have
   shipped (#414, #416, #418–#421, #423); remaining items are WP5 (not V1)
   and WP6 (deferred).
+- **[pg-squash-design.md](pg-squash-design.md)** — standalone `@supabase/pg-squash`
+  package: compress a migration chain into the minimum number of transactions
+  with a proof of equivalence. Design approved; implementation not started.
 
 ## How the engine got here
 
