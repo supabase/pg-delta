@@ -6,6 +6,8 @@
     "src/classify/index.ts",
     "src/pack/index.ts",
     "src/emit/index.ts",
+    "src/shadow/index.ts",
+    "src/replay/index.ts",
     "src/**/*.test.ts",
     "tests/**/*.ts",
     "scripts/**/*.ts"

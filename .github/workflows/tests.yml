@@ -433,11 +433,11 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
-      - name: Corpus proof loop
+      - name: Integration and corpus
         working-directory: packages/pg-squash
         env:
           PGDELTA_TEST_IMAGE: postgres:${{ matrix.postgres_version }}-alpine
-        run: bun test tests/squash.test.ts
+        run: bun test tests/
 
   coverage:
     if: >-

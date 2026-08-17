@@ -4,8 +4,8 @@ Compress an ordered chain of PostgreSQL migration files into the minimum
 number of transactions, with a machine-checked proof that the squashed output
 is equivalent to the original chain.
 
-> **Status:** scaffold only. The public type contract is frozen; the engine is
-> not implemented yet. See
+> **Status:** frontend pipeline and shadow/replay substrate are in place; the
+> public `squash()` orchestrator lands in Wave 4. See
 > [`docs/roadmap/pg-squash-design.md`](../../docs/roadmap/pg-squash-design.md).
 
 ## Install

@@ -46,6 +46,7 @@ cd packages/pg-delta && bun test src/     # Unit tests (no Docker)
 cd packages/pg-delta && bun test tests/   # Integration tests (Docker required)
 cd packages/pg-topo && bun run test       # All tests (Docker required)
 cd packages/pg-squash && bun test src/    # Unit tests (no Docker)
+cd packages/pg-squash && bun test tests/  # Integration tests (Docker required)
 
 # Choose the Postgres image for pg-delta integration/corpus tests
 PGDELTA_TEST_IMAGE=postgres:17-alpine bun test tests/engine.test.ts
@@ -207,7 +208,7 @@ The `Lint Pull Request` CI check (see `.github/workflows/lint-pull-request.yml`)
   - `pg-delta-integration-pg15-compat` / `pg-delta-integration-pg17-compat` — stable status-check names (for branch protection) that aggregate the corpus + integration matrices.
 - pg-squash test jobs in `.github/workflows/tests.yml`:
   - `pg-squash-unit` — `bun test src/`.
-  - `pg-squash-corpus` — `bun test tests/squash.test.ts`, PG 17-only until the engine is stable, then expand to 14–18.
+  - `pg-squash-corpus` — `bun test tests/` (shadow/replay integration + Wave 4 corpus), PG 17-only until the engine is stable, then expand to 14–18.
 - `check-types` and `format-and-lint` build `@supabase/pg-topo` first, because pg-delta type-checks its optional peer through pg-topo's gitignored `dist/*.d.ts`.
 - Changesets automate releases on merge to main; `release-preview` publishes a `pkg-pr-new` preview of pg-delta, pg-topo, and pg-squash.
 
