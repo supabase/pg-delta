@@ -25,6 +25,7 @@ export const pack = (
   const diagnostics: Diagnostic[] = [];
   const statementKeys: string[] = [];
   let current: SquashStatement[] = [];
+  let openFloor: number | null = null;
 
   const flush = (): void => {
     if (current.length === 0) return;
@@ -40,13 +41,15 @@ export const pack = (
         file: item.file,
         sql: item.sql,
       });
+      openFloor = null;
       continue;
     }
     const key = statementKey(
       item.stmt.source.file,
       item.stmt.source.statementIndex,
     );
-    if (splitBefore.has(key) && item.floorId === null) {
+    const atFloorStart = item.floorId !== null && item.floorId !== openFloor;
+    if (splitBefore.has(key) && (item.floorId === null || atFloorStart)) {
       flush();
     }
     if (item.isBarrier) {
@@ -59,15 +62,18 @@ export const pack = (
         });
         current.push(item.stmt);
         statementKeys.push(key);
+        openFloor = item.floorId;
         continue;
       }
       flush();
       segments.push({ type: "barrier", statement: item.stmt });
       statementKeys.push(key);
+      openFloor = item.floorId;
       continue;
     }
     current.push(item.stmt);
     statementKeys.push(key);
+    openFloor = item.floorId;
   }
   flush();
   return { segments, diagnostics, statementKeys };

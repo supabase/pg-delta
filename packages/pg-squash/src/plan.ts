@@ -1,4 +1,4 @@
-import { classifyStatement } from "./classify/index.ts";
+import { classifyStatement, refusedReasonInSql } from "./classify/index.ts";
 import { emit } from "./emit/index.ts";
 import type { ManifestEntry } from "./emit/index.ts";
 import { ingestChain } from "./ingest/index.ts";
@@ -47,6 +47,14 @@ const toPackItems = (
   let refused = false;
   for (const file of files) {
     if (file.kind === "opaque") {
+      const reason = refusedReasonInSql(file.sql);
+      if (reason !== undefined) {
+        refused = true;
+        diagnostics.push({
+          code: "refused-statement",
+          message: `${file.file}: ${reason}`,
+        });
+      }
       items.push({ type: "opaque", file: file.file, sql: file.sql });
       continue;
     }

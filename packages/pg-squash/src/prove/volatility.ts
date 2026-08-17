@@ -8,6 +8,10 @@ const withoutContent = (table: TableProofInput): TableProofInput => ({
   name: table.name,
   rows: table.rows,
   schemaSig: table.schemaSig,
+  ...(table.columnNames !== undefined
+    ? { columnNames: table.columnNames }
+    : {}),
+  ...(table.rowCells !== undefined ? { rowCells: table.rowCells } : {}),
 });
 
 const stableColumns = (

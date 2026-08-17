@@ -65,7 +65,11 @@ describe("corpus: squash proof loop", () => {
       "refresh-mv-concurrent": 2,
       "now-backfill": 1,
     };
-    const needsMask = new Set(["now-backfill", "tenant-guc-now"]);
+    const needsMask = new Set([
+      "now-backfill",
+      "tenant-guc-now",
+      "guc-pair-swap",
+    ]);
     await withLedgerLock(async () => {
       for (const name of names) {
         const chain = await readChain(join(corpusRoot, name));
@@ -85,7 +89,11 @@ describe("corpus: squash proof loop", () => {
         if (want !== undefined) {
           expect(result.files.length, name).toBe(want);
         }
-        if (name === "search-path-leak" || name === "tenant-guc-now") {
+        if (
+          name === "search-path-leak" ||
+          name === "tenant-guc-now" ||
+          name === "guc-pair-swap"
+        ) {
           expect(
             result.diagnostics.some((d) => d.code === "repair-split"),
             name,

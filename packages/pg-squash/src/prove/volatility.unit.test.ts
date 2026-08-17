@@ -50,6 +50,8 @@ describe("applyVolatilityMask", () => {
           schemaSig: "sig",
           content: "row-a",
           columnContent: { tenant: "t0", ts: "1" },
+          columnNames: ["tenant", "ts"],
+          rowCells: [["acme", "t0"]],
         },
       ],
     };
@@ -64,11 +66,14 @@ describe("applyVolatilityMask", () => {
           schemaSig: "sig",
           content: "row-b",
           columnContent: { tenant: "t0", ts: "2" },
+          columnNames: ["tenant", "ts"],
+          rowCells: [["acme", "t1"]],
         },
       ],
     };
     const masked = applyVolatilityMask(first, second);
     expect(masked.tables[0]?.content).toBeUndefined();
     expect(masked.tables[0]?.columnContent).toEqual({ tenant: "t0" });
+    expect(masked.tables[0]?.rowCells).toEqual([["acme", "t0"]]);
   });
 });

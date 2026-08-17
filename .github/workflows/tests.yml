@@ -119,7 +119,7 @@ jobs:
         working-directory: packages/pg-topo
         run: bun run build
       - name: Build @supabase/pg-delta (provides .d.ts for pg-squash)
-        if: needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.root == 'true'
+        if: needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true'
         working-directory: packages/pg-delta
         run: bun run build
       - name: Check types (pg-delta)

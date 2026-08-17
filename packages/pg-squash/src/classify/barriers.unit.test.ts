@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { classifyStatement } from "./index.ts";
+import { classifyStatement, refusedReasonInSql } from "./index.ts";
 
 describe("classifyStatement", () => {
   test("marks CREATE INDEX CONCURRENTLY as a barrier", () => {
@@ -49,6 +49,15 @@ describe("classifyStatement", () => {
     expect(classifyStatement("CREATE TABLE t (id int);", 17).refused).toBe(
       false,
     );
+  });
+
+  test("finds refused statements after SAVEPOINT in opaque files", () => {
+    expect(
+      refusedReasonInSql(
+        "BEGIN; SAVEPOINT s; COMMIT; ALTER SYSTEM SET work_mem = '16MB';",
+      ),
+    ).toBe("ALTER SYSTEM");
+    expect(refusedReasonInSql("BEGIN; SAVEPOINT s; COMMIT;")).toBeUndefined();
   });
 
   test("hints cluster-scope for roles and membership GRANTs, not privilege GRANTs", () => {

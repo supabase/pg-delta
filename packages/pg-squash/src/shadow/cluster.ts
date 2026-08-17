@@ -9,6 +9,22 @@ export type OpenClusterHandleOptions = {
   poolMax?: number;
 };
 
+/**
+ * Admin backends must not sit on `baselineDatabase`: Postgres refuses
+ * `CREATE DATABASE … TEMPLATE t` while other sessions are connected to `t`.
+ */
+export const maintenanceConnectionString = (
+  connectionString: string,
+  baselineDatabase: string,
+): string => {
+  const parsed = new URL(connectionString);
+  const current =
+    decodeURIComponent(parsed.pathname.replace(/^\/+/, "")) || "postgres";
+  if (current !== baselineDatabase) return connectionString;
+  parsed.pathname = `/${baselineDatabase === "postgres" ? "template1" : "postgres"}`;
+  return parsed.toString();
+};
+
 const probePgMajor = async (admin: Pool): Promise<number> => {
   const res = await admin.query<{ v: number }>(
     `SELECT current_setting('server_version_num')::int AS v`,

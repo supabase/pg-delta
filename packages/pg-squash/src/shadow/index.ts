@@ -1,4 +1,4 @@
-export { openClusterHandle } from "./cluster.ts";
+export { maintenanceConnectionString, openClusterHandle } from "./cluster.ts";
 export type { OpenClusterHandleOptions } from "./cluster.ts";
 export {
   checkpointLease,

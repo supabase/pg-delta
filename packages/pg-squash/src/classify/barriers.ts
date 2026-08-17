@@ -100,3 +100,13 @@ export const classifyStatement = (
     ...(refusal !== undefined ? { refuseReason: refusal.name } : {}),
   };
 };
+
+/** Scan every semicolon-delimited chunk so opaque files cannot skip refusals. */
+export const refusedReasonInSql = (sql: string): string | undefined => {
+  const masked = maskSql(sql);
+  for (const part of masked.split(";")) {
+    const hit = REFUSAL_RULES.find((r) => r.re.test(part));
+    if (hit !== undefined) return hit.name;
+  }
+  return undefined;
+};

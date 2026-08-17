@@ -33,6 +33,10 @@ const table = (
   ...(extras.columnContent !== undefined
     ? { columnContent: extras.columnContent }
     : {}),
+  ...(extras.columnNames !== undefined
+    ? { columnNames: extras.columnNames }
+    : {}),
+  ...(extras.rowCells !== undefined ? { rowCells: extras.rowCells } : {}),
 });
 
 describe("compareProofStates", () => {
@@ -234,5 +238,57 @@ describe("compareProofStates", () => {
     const proof = compareProofStates(original, candidate);
     expect(proof.tables[0]?.coverage).toBe("fingerprint");
     expect(proof.equal).toBe(false);
+  });
+
+  test("whole-row fingerprints beat matching per-column multisets", () => {
+    const proof = compareProofStates(
+      captured({
+        tables: [
+          table("public", "t", 2, {
+            content: "rows-12",
+            columnContent: { a: "same", b: "same" },
+          }),
+        ],
+      }),
+      captured({
+        tables: [
+          table("public", "t", 2, {
+            content: "rows-21",
+            columnContent: { a: "same", b: "same" },
+          }),
+        ],
+      }),
+    );
+    expect(proof.tables[0]?.coverage).toBe("fingerprint");
+    expect(proof.equal).toBe(false);
+  });
+
+  test("remaining stable columns are compared as row tuples", () => {
+    const original = captured({
+      tables: [
+        table("public", "t", 2, {
+          columnContent: { a: "ab", b: "ab" },
+          columnNames: ["a", "b", "ts"],
+          rowCells: [
+            ["1", "1", "t0"],
+            ["2", "2", "t1"],
+          ],
+        }),
+      ],
+    });
+    const swapped = captured({
+      tables: [
+        table("public", "t", 2, {
+          columnContent: { a: "ab", b: "ab" },
+          columnNames: ["a", "b", "ts"],
+          rowCells: [
+            ["1", "2", "t2"],
+            ["2", "1", "t3"],
+          ],
+        }),
+      ],
+    });
+    expect(compareProofStates(original, swapped).equal).toBe(false);
+    expect(compareProofStates(original, original).equal).toBe(true);
   });
 });

@@ -1391,3 +1391,53 @@ two are real but out of this PR's partman scope; recorded here.
   deregister path. A faithful one-shot transition needs the same in-place
   ALTER hook / planner transition gate as the `p_default_table` corner, so it
   lands with that machinery, not piecemeal here.
+
+### PR #432 (`pg-squash`) review triage
+
+Codex round 3 on the squash engine. Round-1/2 holes (atomic `--out`, ledger
+revert order, 25001 isolation, per-column mask, `drain()`) were already
+fixed. This round fixed remaining reachable defects in the same PR; the
+items below are deferred on purpose.
+
+- **Deferred — sequence `last_value` is not part of the squash proof.**
+  pg-delta `extract()` models sequence *definitions*, not runtime
+  `setval`/`nextval` state. Capturing `pg_sequences.last_value` would expand
+  the proof beyond the stated `extract()` + table stats + ledger contract.
+  A GUC leak that only changes a sequence cursor is therefore unproven today
+  (loud only if a later table insert reads it). Revisit if squash needs a
+  runtime-state appendix.
+
+- **Deferred — concurrent `squash()` on one `ClusterHandle`.** The public
+  API does not promise overlapping runs against a shared cluster; corpus
+  tests already serialize with `withLedgerLock`. An advisory lock inside
+  `squash()` would be a later hardening pass.
+
+- **Deferred — `--wrap-transactions` does not wrap opaque files.** Opaque
+  SAVEPOINT-without-BEGIN files rely on the apply runner's per-file wrap.
+  The flag exists for psql users; wrapping opaque SQL that already contains
+  `BEGIN` would nest. Low-probability; document if a consumer hits it.
+
+- **Deferred — repair splits are conservative, not globally minimal.** The
+  happy path is greedy-minimal; the repair loop only adds boundaries. A
+  prune pass after the first green proof is an optimizer, not a correctness
+  fix.
+
+- **Deferred — `SquashResult.proof` / `.manifest` stay `unknown`.** Frozen
+  `model/` types avoid `model` → `prove`/`emit` imports. Consumers already
+  import `EquivalenceProof` / `ManifestEntry` separately.
+
+- **Deferred — FORCE RLS + CREATEDB without BYPASSRLS.** Capture tries
+  `SET row_security = off` (superuser / BYPASSRLS). A CREATEDB-only admin
+  still cannot see FORCE RLS tables; Docker default and typical `--cluster`
+  roles are superuser. Needs a BYPASSRLS proof role if non-super `--cluster`
+  becomes a supported production path.
+
+- **Deferred — CodeQL polynomial regex on `COPY FROM stdin` detection.**
+  Input is local migration files the user asked to squash, not untrusted
+  network data.
+
+- **Observed, not this PR — PG 16 seclabel image-build flake.** CI
+  `security-label-proof` / dummy-seclabel Dockerfile failed to build on
+  PG 16 only (`Failed to build image`); other versions passed. Unrelated to
+  pg-squash.
+

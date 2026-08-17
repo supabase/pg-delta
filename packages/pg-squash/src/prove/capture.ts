@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { collectTableStats, extract } from "@supabase/pg-delta";
 import type { Pool } from "pg";
 import { qid } from "../shadow/index.ts";
@@ -23,11 +24,28 @@ const parseRelKey = (
 const relKey = (schema: string, name: string): string =>
   JSON.stringify([schema, name]);
 
-const collectColumnContent = async (
+const md5 = (parts: string[]): string =>
+  createHash("md5").update(parts.join("\n")).digest("hex");
+
+const tryDisableRowSecurity = async (pool: Pool): Promise<void> => {
+  try {
+    await pool.query("SET row_security = off");
+  } catch {
+    // CREATEDB without BYPASSRLS cannot disable RLS; continue.
+  }
+};
+
+type ColumnRows = {
+  columnNames: string[];
+  rowCells: string[][];
+  columnContent: Record<string, string>;
+};
+
+const collectColumnRows = async (
   pool: Pool,
   tables: { schema: string; name: string; rows: number }[],
-): Promise<Map<string, Record<string, string>>> => {
-  const result = new Map<string, Record<string, string>>();
+): Promise<Map<string, ColumnRows>> => {
+  const result = new Map<string, ColumnRows>();
   const nonempty = tables.filter((t) => t.rows > 0);
   if (nonempty.length === 0) return result;
 
@@ -59,24 +77,34 @@ const collectColumnContent = async (
     const attnames = grouped.get(key);
     if (attnames === undefined || attnames.length === 0) continue;
     const rel = `${qid(table.schema)}.${qid(table.name)}`;
-    const selects = attnames.map((attname, i) => {
-      const att = qid(attname);
-      return `(SELECT md5(coalesce(string_agg(x, E'\\n'), '')) FROM (SELECT COALESCE(${att}::text, '') AS x FROM ${rel} ORDER BY 1) q) AS f${String(i)}`;
-    });
-    const fp = await pool.query<Record<string, unknown>>(
-      `SELECT ${selects.join(", ")}`,
+    const selects = attnames.map(
+      (attname) => `COALESCE(${qid(attname)}::text, '') AS ${qid(attname)}`,
     );
-    const row = fp.rows[0];
-    if (row === undefined) continue;
+    const rows = await pool.query<Record<string, unknown>>(
+      `SELECT ${selects.join(", ")} FROM ${rel}`,
+    );
+    const rowCells: string[][] = [];
+    const perColumn: string[][] = attnames.map(() => []);
+    for (const row of rows.rows) {
+      const cells: string[] = [];
+      attnames.forEach((attname, i) => {
+        const value = row[attname];
+        const text = typeof value === "string" ? value : "";
+        cells.push(text);
+        perColumn[i]?.push(text);
+      });
+      rowCells.push(cells);
+    }
     const columnContent: Record<string, string> = {};
     attnames.forEach((attname, i) => {
-      const value = row[`f${String(i)}`];
-      if (typeof value === "string") {
-        columnContent[attname] = value;
-      }
+      const values = perColumn[i];
+      if (values === undefined) return;
+      columnContent[attname] = md5(
+        [...values].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+      );
     });
     if (Object.keys(columnContent).length > 0) {
-      result.set(key, columnContent);
+      result.set(key, { columnNames: attnames, rowCells, columnContent });
     }
   }
   return result;
@@ -91,6 +119,7 @@ export const captureProofState = async (
   ledger: LedgerDiff,
   options?: { extractConcurrency?: number },
 ): Promise<CapturedState> => {
+  await tryDisableRowSecurity(pool);
   const extracted = await extract(
     pool,
     options?.extractConcurrency !== undefined
@@ -110,12 +139,13 @@ export const captureProofState = async (
       ...(stat.content !== undefined ? { content: stat.content } : {}),
     });
   }
-  const columns = await collectColumnContent(pool, tables);
+  const columns = await collectColumnRows(pool, tables);
   for (const table of tables) {
-    const columnContent = columns.get(relKey(table.schema, table.name));
-    if (columnContent !== undefined) {
-      table.columnContent = columnContent;
-    }
+    const extra = columns.get(relKey(table.schema, table.name));
+    if (extra === undefined) continue;
+    table.columnContent = extra.columnContent;
+    table.columnNames = extra.columnNames;
+    table.rowCells = extra.rowCells;
   }
   tables.sort(
     (a, b) => a.schema.localeCompare(b.schema) || a.name.localeCompare(b.name),

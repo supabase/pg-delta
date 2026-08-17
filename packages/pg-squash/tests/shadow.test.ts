@@ -106,7 +106,7 @@ describe("shadow cluster", () => {
       await handle.admin.query(`ALTER ROLE ${qid(role)} CREATEDB`);
       await revertLedger(handle.admin, before);
       const flags = await handle.admin.query<{ rolcreatedb: boolean }>(
-        `SELECT rolcreatedb FROM pg_authid WHERE rolname = $1`,
+        `SELECT rolcreatedb FROM pg_roles WHERE rolname = $1`,
         [role],
       );
       expect(flags.rows[0]?.rolcreatedb).toBe(false);

@@ -74,6 +74,22 @@ describe("planSquash", () => {
     ).toBe(true);
   });
 
+  test("refuses ALTER SYSTEM inside an opaque SAVEPOINT file", async () => {
+    const planned = await planSquash(
+      [
+        {
+          name: "0001_opaque.sql",
+          sql: "BEGIN;\nSAVEPOINT s;\nCOMMIT;\nALTER SYSTEM SET work_mem = '16MB';",
+        },
+      ],
+      17,
+    );
+    expect(planned.refused).toBe(true);
+    expect(
+      planned.diagnostics.some((d) => d.code === "refused-statement"),
+    ).toBe(true);
+  });
+
   test("100 CREATE TABLE files pack to 1 output file", async () => {
     const chain = Array.from({ length: 100 }, (_, i) => ({
       name: `${String(i + 1).padStart(4, "0")}_t.sql`,

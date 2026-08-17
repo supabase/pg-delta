@@ -121,7 +121,7 @@ export const splitSqlFile = async (
   }
 
   const parsed = await parseSqlContent(sql, file);
-  if (parsed.statements.length === 0 && parsed.diagnostics.length > 0) {
+  if (parsed.diagnostics.length > 0) {
     return {
       result: { kind: "opaque", file, sql },
       diagnostics: parsed.diagnostics.map((d) => ({

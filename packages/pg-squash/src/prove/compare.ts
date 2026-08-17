@@ -14,6 +14,10 @@ export type TableProofInput = {
   content?: string;
   /** Per-column fingerprints. Used when the whole-row digest is volatile. */
   columnContent?: Record<string, string>;
+  /** Attnum-ordered column names aligned with `rowCells`. */
+  columnNames?: string[];
+  /** Per-row cell text, aligned with `columnNames`. */
+  rowCells?: string[][];
 };
 
 export type TableProof = {
@@ -61,6 +65,29 @@ const canonLedger = (ledger: LedgerDiff): string =>
     removedSettings: [...ledger.removedSettings].map(settingCanon).sort(),
   });
 
+/** Fingerprint remaining stable columns as row tuples, not independent multisets. */
+const rowTupleDigest = (
+  table: TableProofInput,
+  keys: readonly string[],
+): string | undefined => {
+  const names = table.columnNames;
+  const cells = table.rowCells;
+  if (names === undefined || cells === undefined) return undefined;
+  const idxs = keys
+    .map((key) => names.indexOf(key))
+    .filter((index) => index >= 0);
+  if (idxs.length === 0) return undefined;
+  const tuples = cells.map((row) => idxs.map((i) => row[i] ?? "").join("\0"));
+  tuples.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return tuples.join("\n");
+};
+
+const independentColumnDigest = (
+  columns: Record<string, string> | undefined,
+  keys: readonly string[],
+): string =>
+  JSON.stringify(Object.fromEntries(keys.map((k) => [k, columns?.[k]])));
+
 const compareTable = (
   original: TableProofInput | undefined,
   candidate: TableProofInput | undefined,
@@ -97,36 +124,6 @@ const compareTable = (
       ok: true,
     };
   }
-  const origCols = original.columnContent;
-  if (
-    origCols !== undefined &&
-    original.rows > 0 &&
-    candidate.rows > 0 &&
-    original.schemaSig === candidate.schemaSig
-  ) {
-    const colKeys = Object.keys(origCols).sort((a, b) => a.localeCompare(b));
-    if (colKeys.length > 0) {
-      const candCols = candidate.columnContent;
-      const originalContent = JSON.stringify(
-        Object.fromEntries(colKeys.map((k) => [k, origCols[k]])),
-      );
-      const candidateContent = JSON.stringify(
-        Object.fromEntries(colKeys.map((k) => [k, candCols?.[k]])),
-      );
-      return {
-        proof: {
-          schema,
-          name,
-          coverage: "fingerprint",
-          originalRows: original.rows,
-          candidateRows: candidate.rows,
-          originalContent,
-          candidateContent,
-        },
-        ok: originalContent === candidateContent,
-      };
-    }
-  }
   const canFingerprint =
     original.rows > 0 &&
     candidate.rows > 0 &&
@@ -146,6 +143,35 @@ const compareTable = (
       },
       ok: original.content === candidate.content,
     };
+  }
+  const origCols = original.columnContent;
+  if (
+    origCols !== undefined &&
+    original.rows > 0 &&
+    candidate.rows > 0 &&
+    original.schemaSig === candidate.schemaSig
+  ) {
+    const colKeys = Object.keys(origCols).sort((a, b) => a.localeCompare(b));
+    if (colKeys.length > 0) {
+      const originalContent =
+        rowTupleDigest(original, colKeys) ??
+        independentColumnDigest(origCols, colKeys);
+      const candidateContent =
+        rowTupleDigest(candidate, colKeys) ??
+        independentColumnDigest(candidate.columnContent, colKeys);
+      return {
+        proof: {
+          schema,
+          name,
+          coverage: "fingerprint",
+          originalRows: original.rows,
+          candidateRows: candidate.rows,
+          originalContent,
+          candidateContent,
+        },
+        ok: originalContent === candidateContent,
+      };
+    }
   }
   return {
     proof: {

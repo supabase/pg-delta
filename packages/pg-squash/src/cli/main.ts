@@ -2,7 +2,10 @@
 import { join } from "node:path";
 import { Pool } from "pg";
 import { readChain } from "../ingest/index.ts";
-import { openClusterHandle } from "../shadow/index.ts";
+import {
+  maintenanceConnectionString,
+  openClusterHandle,
+} from "../shadow/index.ts";
 import { squash } from "../squash.ts";
 import type { ClusterHandle } from "../model/index.ts";
 import { publishSquashOutput } from "./publish.ts";
@@ -87,11 +90,15 @@ const parseArgs = (
 
 const handleFromUrl = async (
   url: string,
+  baseline: string,
 ): Promise<{
   handle: ClusterHandle;
   close: () => Promise<void>;
 }> => {
-  const admin = new Pool({ connectionString: url, max: 3 });
+  const admin = new Pool({
+    connectionString: maintenanceConnectionString(url, baseline),
+    max: 3,
+  });
   admin.on("error", () => {});
   const connectionStringFor = (database: string): string => {
     const parsed = new URL(url);
@@ -109,6 +116,7 @@ const handleFromUrl = async (
 
 const handleFromDocker = async (
   image: string,
+  baseline: string,
 ): Promise<{ handle: ClusterHandle; close: () => Promise<void> }> => {
   const { GenericContainer, Wait } = await import("testcontainers");
   const container = await new GenericContainer(image)
@@ -124,7 +132,7 @@ const handleFromDocker = async (
     )
     .start();
   const url = `postgres://test:test@${container.getHost()}:${container.getMappedPort(5432)}/postgres`;
-  const opened = await handleFromUrl(url);
+  const opened = await handleFromUrl(url, baseline);
   return {
     handle: opened.handle,
     close: async () => {
@@ -142,12 +150,13 @@ const main = async (): Promise<void> => {
   }
   const opened =
     args.cluster !== undefined
-      ? await handleFromUrl(args.cluster)
-      : await handleFromDocker(args.image).catch((error: unknown) =>
-          fail(
-            `--cluster is required (${error instanceof Error ? error.message : String(error)})`,
-            2,
-          ),
+      ? await handleFromUrl(args.cluster, args.baseline)
+      : await handleFromDocker(args.image, args.baseline).catch(
+          (error: unknown) =>
+            fail(
+              `--cluster is required when a throwaway Postgres container cannot start (${error instanceof Error ? error.message : String(error)}). Install the optional testcontainers dependency, or pass --cluster.`,
+              2,
+            ),
         );
   try {
     const result = await squash(chain, {

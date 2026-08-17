@@ -16,6 +16,9 @@ export const splitReplayStatements = async (
     return [sql];
   }
   const parsed = await parseSqlContent(sql, file);
+  if (parsed.diagnostics.length > 0) {
+    return [sql];
+  }
   if (parsed.statements.length === 0) {
     return sql.trim().length === 0 ? [] : [sql];
   }

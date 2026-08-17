@@ -110,6 +110,7 @@ export const diffLedger = (
 };
 
 export const snapshotLedger = async (admin: Pool): Promise<LedgerSnapshot> => {
+  // `pg_roles` is the CREATEDB-readable catalog; `pg_authid` is superuser-only.
   const roles = await admin.query<{
     rolname: string;
     rolsuper: boolean;
@@ -123,7 +124,7 @@ export const snapshotLedger = async (admin: Pool): Promise<LedgerSnapshot> => {
   }>(
     `SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolcanlogin,
             rolreplication, rolbypassrls, rolinherit, rolconnlimit
-     FROM pg_authid ORDER BY 1`,
+     FROM pg_roles ORDER BY 1`,
   );
   const memberships = await admin.query<{
     role: string;
@@ -132,8 +133,8 @@ export const snapshotLedger = async (admin: Pool): Promise<LedgerSnapshot> => {
   }>(`
     SELECT r.rolname AS role, m.rolname AS member, am.admin_option
     FROM pg_auth_members am
-    JOIN pg_authid r ON r.oid = am.roleid
-    JOIN pg_authid m ON m.oid = am.member
+    JOIN pg_roles r ON r.oid = am.roleid
+    JOIN pg_roles m ON m.oid = am.member
     ORDER BY 1, 2, 3`);
   const settings = await admin.query<{
     database: string | null;
@@ -145,7 +146,7 @@ export const snapshotLedger = async (admin: Pool): Promise<LedgerSnapshot> => {
       r.rolname AS role,
       s.setconfig
     FROM pg_db_role_setting s
-    JOIN pg_authid r ON r.oid = s.setrole
+    JOIN pg_roles r ON r.oid = s.setrole
     LEFT JOIN pg_database d ON d.oid = s.setdatabase
     ORDER BY 1, 2`);
 
