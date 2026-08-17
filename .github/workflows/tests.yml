@@ -115,7 +115,7 @@ jobs:
       # `types` field (dist/*.d.ts), which is gitignored and not produced by
       # install. Build it so the sql-order reorder assist type-checks.
       - name: Build @supabase/pg-topo (provides .d.ts for the type check)
-        if: needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
+        if: needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.root == 'true'
         working-directory: packages/pg-topo
         run: bun run build
       - name: Check types (pg-delta)
@@ -128,7 +128,7 @@ jobs:
         if: needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
         run: bun run --filter '@supabase/pg-topo' check-types
       - name: Check types (pg-squash)
-        if: needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.root == 'true'
+        if: needs.detect-changes.outputs.pg-squash == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
         run: bun run --filter '@supabase/pg-squash' check-types
 
   format-and-lint:

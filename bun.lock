@@ -63,6 +63,7 @@
       "name": "@supabase/pg-squash",
       "version": "1.0.0-alpha.0",
       "dependencies": {
+        "@supabase/pg-topo": "workspace:*",
         "pg": "^8.17.2",
       },
       "devDependencies": {

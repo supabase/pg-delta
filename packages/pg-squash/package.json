@@ -33,7 +33,7 @@
     }
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node --format esm --external pg && tsc --project tsconfig.node.json --emitDeclarationOnly --outDir dist",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --external pg --external @supabase/pg-topo && tsc --project tsconfig.node.json --emitDeclarationOnly --outDir dist",
     "test": "bun scripts/run-tests.ts src/",
     "test:corpus": "bun scripts/run-tests.ts tests/",
     "check-types": "tsc --noEmit",
@@ -42,6 +42,7 @@
     "knip": "knip"
   },
   "dependencies": {
+    "@supabase/pg-topo": "workspace:*",
     "pg": "^8.17.2"
   },
   "devDependencies": {
