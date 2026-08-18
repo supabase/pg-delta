@@ -7,8 +7,9 @@
  * without booting the Supabase stack.
  */
 import { describe, expect, test } from "bun:test";
-import { getSupabaseBaseInitSql } from "./supabase-base-init.ts";
+import { SUPABASE_USER_POLICY_SURFACES } from "../src/policy/supabase.ts";
 import { SUPABASE_BARE_MAJOR } from "./containers.ts";
+import { getSupabaseBaseInitSql } from "./supabase-base-init.ts";
 
 describe(`supabase base-init fixture (pg${SUPABASE_BARE_MAJOR})`, () => {
   test("is committed, non-empty, and carries the preamble + generated header", async () => {
@@ -71,5 +72,18 @@ describe(`supabase base-init fixture (pg${SUPABASE_BARE_MAJOR})`, () => {
     expect(sql).toContain(
       'REVOKE ALL ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) FROM PUBLIC',
     );
+  });
+
+  test("creates the user-policy surfaces with no platform CREATE POLICY", async () => {
+    const sql = await getSupabaseBaseInitSql();
+    for (const { schema, table } of SUPABASE_USER_POLICY_SURFACES) {
+      expect(sql).toContain(`CREATE TABLE "${schema}"."${table}"`);
+      expect(sql).not.toMatch(
+        new RegExp(
+          `CREATE POLICY[\\s\\S]{0,400}ON "${schema}"\\."${table}"`,
+          "i",
+        ),
+      );
+    }
   });
 });
