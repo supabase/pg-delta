@@ -62,8 +62,8 @@ export function exitIfBlocking(
   if (options.strictCoverage && coverageGaps.length > 0) {
     process.stderr.write(
       `\nRefusing to ${action}: --strict-coverage is set and ${coverageGaps.length} ` +
-        `object(s) cannot be faithfully managed by this engine (unmodeled kinds / ` +
-        `unmodeled drift / unresolved security labels — see above). ` +
+        `object(s) cannot be faithfully managed by this engine ` +
+        `(${[...STRICT_COVERAGE_CODES].join(", ")} — see above). ` +
         `Drop them, or rerun without --strict-coverage to proceed with them unmanaged.\n`,
     );
   } else {
