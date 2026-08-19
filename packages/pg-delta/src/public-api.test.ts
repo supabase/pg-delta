@@ -71,6 +71,7 @@ describe("public API surface", () => {
     // building blocks for custom profiles + the safety helpers the docs name
     expect(typeof integrations.probeApplierCapability).toBe("function");
     expect(integrations.pgPartmanHandler.extension).toBe("pg_partman");
+    expect(integrations.vaultHandler.extension).toBe("supabase_vault");
     expect(Array.isArray(integrations.SUPABASE_EXTENSION_HANDLERS)).toBe(true);
     expect(integrations.SUPABASE_EXTENSION_HANDLERS).toContain(
       integrations.pgPartmanHandler,

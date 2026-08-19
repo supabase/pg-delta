@@ -26,6 +26,7 @@ export {
   pgCronHandler,
   pgmqHandler,
   pgPartmanHandler,
+  vaultHandler,
 } from "../policy/extensions/index.ts";
 export {
   type ApplierCapability,

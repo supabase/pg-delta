@@ -41,12 +41,13 @@ function mockPool(opts: {
 }
 
 describe("resolveProfile", () => {
-  test("rawProfile composes an unrestricted, handler-free view", async () => {
+  test("rawProfile composes an unrestricted, policy-free view", async () => {
     const ctx = await resolveProfile(mockPool({}), rawProfile);
     expect(ctx.id).toBe("raw");
     expect(ctx.planOptions.policy).toBeUndefined();
     expect(ctx.planOptions.capability).toBeUndefined();
     expect(ctx.planOptions.baseline).toBeUndefined();
+    expect(ctx.handlers.map((h) => h.extension)).toEqual(["supabase_vault"]);
     expect(typeof ctx.proveOptions.reextract).toBe("function");
     expect(typeof ctx.applyOptions.reextract).toBe("function");
   });
@@ -54,6 +55,9 @@ describe("resolveProfile", () => {
   test("supabaseProfile carries the Supabase policy into all three bundles", async () => {
     const ctx = await resolveProfile(mockPool({}), supabaseProfile);
     expect(ctx.id).toBe("supabase");
+    expect(ctx.handlers.map((h) => h.extension)).not.toContain(
+      "supabase_vault",
+    );
     expect(ctx.planOptions.policy).toBe(supabasePolicy);
     expect(ctx.proveOptions.policy).toBe(supabasePolicy);
     // baseline is unset on the v1 Supabase policy → resolves cleanly to none

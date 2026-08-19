@@ -1079,11 +1079,13 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     // the two, so it gets its own label — and it gates like the other coverage
     // gaps under --strict-coverage.
     printDiagnostics(planned.driftDiagnostics, { label: "drift" });
+    printDiagnostics(planned.plan.diagnostics ?? [], { label: "plan" });
     exitIfBlocking(
       [
         ...planned.loadDiagnostics,
         ...planned.targetDiagnostics,
         ...planned.driftDiagnostics,
+        ...(planned.plan.diagnostics ?? []),
       ],
       {
         strictCoverage: flags["strict-coverage"],

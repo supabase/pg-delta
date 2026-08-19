@@ -18,6 +18,7 @@ import {
   type ProjectionAudit,
 } from "../policy/reconstruct.ts";
 import type { ManagementScope } from "../policy/view.ts";
+import { vaultPresenceDiagnostics } from "../policy/extensions/vault.ts";
 import { emitActions } from "./phases/action-emitter.ts";
 import { finalizeActions } from "./phases/action-graph.ts";
 import { needsCheckFunctionBodiesOff } from "./preamble.ts";
@@ -197,6 +198,10 @@ export interface Plan {
   acceptedRenames?: Array<{ from: StableId; to: StableId }>;
   actions: Action[];
   safetyReport: SafetyReport;
+  /** Plan-time diagnostics that are not extraction-time (e.g. `vault_presence`).
+   *  Omitted when empty so corpus / direct-library artifacts stay byte-identical.
+   *  Not part of planId — reporting metadata, not approved run content. */
+  diagnostics?: Diagnostic[];
 }
 
 export interface PlanOptions {
@@ -748,6 +753,8 @@ export function plan(
     rulesForId,
   });
 
+  const vaultDiags = vaultPresenceDiagnostics(desired, finalActions);
+
   return stampPlanId({
     formatVersion: 1,
     engineVersion: ENGINE_VERSION,
@@ -807,5 +814,9 @@ export function plan(
       : {}),
     actions: finalActions,
     safetyReport,
+    // CREATE/DROP EXTENSION supabase_vault is generic; the warning is that
+    // secret values/keys are not schema state. Omitted when empty so corpus
+    // artifacts stay byte-identical. Not hashed into planId.
+    ...(vaultDiags.length > 0 ? { diagnostics: vaultDiags } : {}),
   });
 }

@@ -32,6 +32,7 @@ import {
 } from "../policy/baseline.ts";
 import { probeApplierCapability } from "../policy/capability.ts";
 import { flattenPolicy, type Policy } from "../policy/policy.ts";
+import { vaultHandler } from "../policy/extensions/vault.ts";
 
 /** Static, declarative profile: the handlers and policy that define a managed
  *  view. Pure data — no live connection. Compose your own, or use the presets
@@ -273,9 +274,11 @@ export async function resolveProfile(
   };
 }
 
-/** The identity profile: no handlers, no policy — the raw view a generic user
- *  or a test sees. The default when no integration is selected. */
+/** The identity profile: no policy, and only the vault shadow-precheck
+ *  handler (presence is generic; the handler emits no facts). Default when
+ *  no integration is selected. Vault is *not* added to the supabase
+ *  profile — it is platform-filtered there. */
 export const rawProfile: IntegrationProfile = {
   id: "raw",
-  handlers: [],
+  handlers: [vaultHandler],
 };

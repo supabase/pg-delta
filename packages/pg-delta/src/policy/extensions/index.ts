@@ -26,3 +26,4 @@ export {
   type PgCronHandlerConfig,
   pgCronHandler,
 } from "./pg-cron.ts";
+export { vaultHandler } from "./vault.ts";

@@ -91,7 +91,7 @@ Commands:
 Notes:
   --profile: raw | supabase, OR a path to a custom profile .json file
     (a value containing "/" or ending in ".json" is loaded from disk). The
-    file is { "id": ..., "handlers": ["pg_partman", "pg_cron", "pgmq"],
+    file is { "id": ..., "handlers": ["pg_partman", "pg_cron", "pgmq", "supabase_vault"],
     "policy"?: {…},
     "baseline"?: "./middleware-base.json" }, referencing bundled handlers by
     name. Available on plan / diff / drift / snapshot / apply / prove /

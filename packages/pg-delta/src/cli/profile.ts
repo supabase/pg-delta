@@ -17,6 +17,7 @@ import {
   pgmqHandler,
   pgPartmanHandler,
   rawProfile,
+  vaultHandler,
   type ResolvedProfile,
   type ResolveProfileOptions,
   resolveProfile,
@@ -67,6 +68,7 @@ const HANDLER_FACTORY_BY_NAME = new Map<
           : {},
       ),
   ],
+  [vaultHandler.extension, () => vaultHandler],
 ]);
 
 /** A `--profile` value is a path (load from disk) rather than a built-in id when
