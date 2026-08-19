@@ -187,7 +187,11 @@ function describeFileFailure(sql: string, error: unknown): string {
  * This is literal masking, not dependency parsing — it does not violate the
  * parser-free / "Postgres is the elaborator" principle.
  */
-function maskLiteralsAndComments(sql: string): string {
+function maskLiteralsAndComments(
+  sql: string,
+  opts: { quotedIdentifiers?: "blank" | "keep" } = {},
+): string {
+  const keepQuotedIdentifiers = opts.quotedIdentifiers === "keep";
   const out: string[] = [];
   let i = 0;
   const n = sql.length;
@@ -231,14 +235,20 @@ function maskLiteralsAndComments(sql: string): string {
     // double-quoted identifier ("" is an escaped quote)
     if (c === '"') {
       i++;
-      while (i < n) {
-        if (sql[i] === '"' && sql[i + 1] === '"') i += 2;
-        else if (sql[i] === '"') {
-          i++;
-          break;
-        } else i++;
-      }
       out.push(" ");
+      while (i < n) {
+        if (sql[i] === '"' && sql[i + 1] === '"') {
+          if (keepQuotedIdentifiers) out.push('"');
+          i += 2;
+        } else if (sql[i] === '"') {
+          i++;
+          out.push(" ");
+          break;
+        } else {
+          if (keepQuotedIdentifiers) out.push(sql[i] as string);
+          i++;
+        }
+      }
       continue;
     }
     // dollar-quoted string: $tag$ ... $tag$ (tag may be empty)
@@ -376,12 +386,16 @@ export function findDefaultPrivilegeStatements(sql: string): string[] {
 /** The (literal-masked, trimmed) statements in `sql` for which `predicate` is
  *  true. The generic form behind the other scanners — used by the extension
  *  shadow precheck to find a handler's DDL/intent statements without a SQL
- *  grammar (same literal/comment mask, so keywords inside strings are ignored). */
+ *  grammar (same literal/comment mask, so keywords inside strings are ignored).
+ *  Quoted identifiers keep their inner text (`"supabase_vault"` →
+ *  ` supabase_vault `) so a precheck can still recognize dump-style
+ *  `CREATE EXTENSION IF NOT EXISTS "name"`; comments and string literals stay
+ *  blanked. */
 export function findMatchingStatements(
   sql: string,
   predicate: (maskedStatement: string) => boolean,
 ): string[] {
-  return maskLiteralsAndComments(sql)
+  return maskLiteralsAndComments(sql, { quotedIdentifiers: "keep" })
     .split(";")
     .map((s) => s.trim())
     .filter((s) => s !== "" && predicate(s));

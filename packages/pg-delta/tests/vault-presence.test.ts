@@ -153,4 +153,39 @@ describe("vault shadow precheck (alpine)", () => {
       await target.drop();
     }
   }, 90_000);
+
+  test("quoted CREATE EXTENSION supabase_vault (dump form) fails early on alpine", async () => {
+    // ElatoAI / feedbase / grida emit this quoted form. The precheck must
+    // still match after findMatchingStatements blanks string literals.
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("vaultguard_quoted_tgt");
+    const work = mkdtempSync(join(tmpdir(), "pgdelta-vaultguard-q-"));
+    try {
+      const dir = join(work, "schema");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "01_vault.sql"),
+        `CREATE EXTENSION IF NOT EXISTS "supabase_vault" WITH SCHEMA "vault";\n`,
+      );
+
+      let err: unknown;
+      try {
+        await cmdSchemaApply([
+          "--dir",
+          dir,
+          "--target",
+          target.uri,
+          "--renames",
+          "off",
+        ]);
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toMatch(/supabase_vault statements/);
+      expect((err as Error).message).toMatch(/does not ship supabase_vault/);
+    } finally {
+      await target.drop();
+    }
+  }, 90_000);
 });

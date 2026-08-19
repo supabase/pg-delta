@@ -107,6 +107,20 @@ describe("vault presence plan diagnostics", () => {
     expect(diags[0]!.message).toMatch(/vault\.secrets/);
   });
 
+  test("a depends-edge onto the extension itself (normalized proc/type) still warns", () => {
+    // extract/dependencies.ts COALESCE(extm.id, proc/typ.id) folds a
+    // pg_proc/pg_type member endpoint to extension:supabase_vault. A user
+    // column typed with a vault type, or a function depending on a vault
+    // proc, therefore lands here — not on the member id.
+    const source = buildFactBase([f(publicSchema)], []);
+    const desired = buildFactBase(
+      [f(publicSchema), vaultFact, f(vaultSecrets), f(decrypted), userFnFact],
+      [...memberEdges(), { from: userFn, to: vaultExt, kind: "depends" }],
+    );
+    const diags = plan(source, desired).diagnostics ?? [];
+    expect(diags.some((d) => d.code === VAULT_PRESENCE)).toBe(true);
+  });
+
   test("a depends-edge onto a member COLUMN (closure descendant) still warns", () => {
     const secretCol: StableId = {
       kind: "column",

@@ -5,6 +5,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { buildFactBase } from "../../core/fact.ts";
+import { findMatchingStatements } from "../../frontends/load-sql-files.ts";
 import { vaultHandler } from "./vault.ts";
 
 describe("vaultHandler", () => {
@@ -42,6 +43,30 @@ describe("vaultHandler", () => {
     expect(precheck.matchesStatement("select app.create_secret('x')")).toBe(
       false,
     );
+  });
+
+  test("findMatchingStatements still sees quoted vault identifiers after masking", () => {
+    // Real dumps (ElatoAI, feedbase, grida) emit
+    // `CREATE EXTENSION IF NOT EXISTS "supabase_vault"`. The scanner blanks
+    // comments/strings so a literal cannot false-match, but must preserve
+    // enough of a quoted identifier for the precheck to recognize these forms.
+    const precheck = vaultHandler.shadowPrecheck!;
+    const match = (sql: string) =>
+      findMatchingStatements(sql, (s) => precheck.matchesStatement(s));
+
+    expect(
+      match(
+        `CREATE EXTENSION IF NOT EXISTS "supabase_vault" WITH SCHEMA "vault";`,
+      ),
+    ).toHaveLength(1);
+    expect(match(`SELECT "vault"."create_secret"('x','y');`)).toHaveLength(1);
+    expect(match(`SELECT "vault"."update_secret"('id','v');`)).toHaveLength(1);
+    expect(
+      match(
+        `CREATE EXTENSION IF NOT EXISTS "hstore" WITH SCHEMA "extensions";`,
+      ),
+    ).toHaveLength(0);
+    expect(match(`SELECT 'vault.create_secret(';`)).toHaveLength(0);
   });
 
   test("capable() is false when pg_available_extensions lacks supabase_vault", async () => {

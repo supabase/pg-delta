@@ -33,8 +33,12 @@ desired)` library terms, case 2/3 is `plan(no-vault, has-vault)` and case 4 is
 Catalog-structural only — **the engine never reads `vault.secrets`** (or
 pgsodium keys). Vault is in use when the fact base that *has* the extension
 contains a **kept** (non-reference-only, non-member) fact with a `depends` edge
-onto a `supabase_vault` member or a member's non-satellite descendant: a user
-view over `vault.decrypted_secrets`, a column of a vault type, and so on.
+onto a `supabase_vault` member, a member's non-satellite descendant, **or the
+extension itself**: extract folds `pg_proc` / `pg_type` member endpoints to
+`extension:supabase_vault` (`COALESCE(extm.id, …)`), so a column typed with a
+vault type or a function depending on a vault proc lands on the extension id.
+A user view over `vault.decrypted_secrets` still targets the view member
+(`pg_class` is not folded).
 
 A `LANGUAGE sql` function that selects from a vault view often records **no**
 `pg_depend` when `check_function_bodies` is off (the Supabase image default),
@@ -51,7 +55,9 @@ because `vault.secrets` is a table member.
 (no `intentKinds`, `capture()` returns nothing). Its `shadowPrecheck`:
 
 - `matchesStatement` — masked `vault.create_secret(` / `vault.update_secret(`
-  and `CREATE EXTENSION supabase_vault`
+  and `CREATE EXTENSION supabase_vault` (quoted dump forms included:
+  `findMatchingStatements` keeps identifier text so
+  `CREATE EXTENSION IF NOT EXISTS "supabase_vault"` still matches)
 - `capable()` — `pg_available_extensions` contains `supabase_vault`; otherwise
   an actionable reason: use a Supabase image or remove vault statements
 

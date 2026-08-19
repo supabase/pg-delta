@@ -16,7 +16,8 @@
  * The engine never reads `vault.secrets` (or pgsodium keys). "Vault in use"
  * is a best-effort catalog-structural signal: a kept fact with a `depends`
  * edge onto a `supabase_vault` member (or a member's non-satellite
- * descendant — a column of `vault.decrypted_secrets`, a vault type, …).
+ * descendant), or onto the extension itself — extract folds vault
+ * `pg_proc` / `pg_type` endpoints to `extension:supabase_vault`.
  * A LANGUAGE sql function that selects from a vault view often records
  * *no* pg_depend when `check_function_bodies` is off (Supabase default),
  * so the signal is typically a user view or typed column. If no edge
@@ -48,6 +49,7 @@ const DROP_EXTENSION_SQL_RE = /DROP EXTENSION "supabase_vault"/;
  */
 function vaultIsInUse(fb: FactBase): boolean {
   if (!fb.has(vaultId)) return false;
+  const vaultKey = encodeId(vaultId);
   const memberKeys = new Set<string>();
   for (const [key, exts] of extensionMemberClosure(fb)) {
     if (
@@ -58,10 +60,13 @@ function vaultIsInUse(fb: FactBase): boolean {
       memberKeys.add(key);
     }
   }
-  if (memberKeys.size === 0) return false;
   for (const edge of fb.edges) {
     if (edge.kind !== "depends") continue;
-    if (!memberKeys.has(encodeId(edge.to))) continue;
+    const toKey = encodeId(edge.to);
+    // extract/dependencies.ts COALESCE(extm.id, proc/typ.id) folds a vault
+    // function or type endpoint to extension:supabase_vault, so a kept
+    // depends-edge may target the extension itself rather than a member.
+    if (toKey !== vaultKey && !memberKeys.has(toKey)) continue;
     if (memberKeys.has(encodeId(edge.from))) continue;
     if (fb.isReferenceOnly(edge.from)) continue;
     if (!fb.has(edge.from)) continue;
