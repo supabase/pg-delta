@@ -1461,3 +1461,15 @@ in the wild:
   replace converges with its dataLoss hazard surfaced at plan approval. If a
   "plan-bound decision inputs" channel lands (previous entry), snapshot-side
   authentication of those inputs belongs to the same machinery.
+
+## PR #434 review triage — extension precheck identifier case
+
+- **Deferred — preserve quoted-identifier case in extension shadow prechecks.**
+  `findMatchingStatements` keeps quoted identifier text but discards the quote
+  delimiters, so case-sensitive user objects such as
+  `"Vault"."create_secret"()` or `"Cron"."schedule"()` become indistinguishable
+  from the lowercase extension APIs and can trigger a false capability refusal.
+  The case requires exact homographs and is unusual enough not to expand PR
+  #434. A shared fix must retain quote delimiters for every shadow precheck,
+  accept exact lowercase quoted API names, and keep PostgreSQL's case-folding
+  behavior for unquoted names.
