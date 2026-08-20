@@ -47,6 +47,7 @@ describe("HAZARD_KIND_ORDER", () => {
       "unmodeled_kind",
       "unmodeled_drift",
       "unresolved_security_label",
+      "vault_presence",
     ]);
   });
 
@@ -137,6 +138,7 @@ describe("actionHazards", () => {
       "unmodeled_kind",
       "unmodeled_drift",
       "unresolved_security_label",
+      "vault_presence",
     ];
     expect(kinds.some((kind) => coverage.includes(kind))).toBe(false);
   });

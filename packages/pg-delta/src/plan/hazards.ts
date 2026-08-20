@@ -22,7 +22,8 @@ export type HazardKind =
   | "access_exclusive_lock"
   | "unmodeled_kind"
   | "unmodeled_drift"
-  | "unresolved_security_label";
+  | "unresolved_security_label"
+  | "vault_presence";
 
 /** Stable display order for unions / reports. Frozen so a caller cannot
  *  mutate the module singleton that sortKinds() reads. */
@@ -34,6 +35,7 @@ export const HAZARD_KIND_ORDER: readonly HazardKind[] = Object.freeze([
   "unmodeled_kind",
   "unmodeled_drift",
   "unresolved_security_label",
+  "vault_presence",
 ]);
 
 /** Coverage-diagnostic codes, duplicated locally as HazardKind literals
@@ -42,6 +44,7 @@ const COVERAGE_KINDS = new Set<HazardKind>([
   "unmodeled_kind",
   "unmodeled_drift",
   "unresolved_security_label",
+  "vault_presence",
 ]);
 
 export interface ActionHazard {
