@@ -123,19 +123,56 @@ function renderFileSql(
   return `${statements.map((s) => `${s};`).join("\n\n")}\n`;
 }
 
+function ownedTableOfSequence(
+  fb: FactBase,
+  sequence: StableId,
+): StableId | undefined {
+  if (sequence.kind !== "sequence") return undefined;
+  const ownedBy = fb.get(sequence)?.payload["ownedBy"] as
+    | { schema?: string; table?: string }
+    | null
+    | undefined;
+  if (ownedBy?.schema == null || ownedBy.table == null) return undefined;
+  return { kind: "table", schema: ownedBy.schema, name: ownedBy.table };
+}
+
 /**
  * File-placement subject. OWNED BY is a sequence follow-up whose first
  * consume is the sequence (so it would otherwise land in sequences/), but
  * it must sit with the owning table so the file-atomic loader can apply
- * CREATE SEQUENCE before CREATE TABLE … nextval.
+ * CREATE SEQUENCE before CREATE TABLE … nextval. Sequence OWNER TO follows
+ * the table too: PostgreSQL requires matching owners at OWNED BY time.
  */
-function subjectOf(action: Action): StableId | undefined {
+function subjectOf(action: Action, fb: FactBase): StableId | undefined {
   const column = action.consumes.find((id) => id.kind === "column");
   const sequence =
     action.produces.find((id) => id.kind === "sequence") ??
     action.consumes.find((id) => id.kind === "sequence");
   if (column !== undefined && sequence !== undefined) return column;
+  if (sequence !== undefined && /\bOWNER\s+TO\b/i.test(action.sql)) {
+    const table = ownedTableOfSequence(fb, sequence);
+    if (table !== undefined) return table;
+  }
   return action.produces[0] ?? action.consumes[0];
+}
+
+/** After OWNED BY, ALTER SEQUENCE OWNER TO must follow ALTER TABLE OWNER TO
+ *  (or the owners diverge and PostgreSQL rejects the owned sequence). */
+function placeOwnedSequenceOwner(statements: string[]): string[] {
+  const isSeqOwner = (s: string): boolean =>
+    /^\s*ALTER\s+SEQUENCE\b/i.test(s) && /\bOWNER\s+TO\b/i.test(s);
+  const seqOwner = statements.filter(isSeqOwner);
+  if (seqOwner.length === 0) return statements;
+  const rest = statements.filter((s) => !isSeqOwner(s));
+  const tableOwnerAt = rest.findLastIndex(
+    (s) => /^\s*ALTER\s+TABLE\b/i.test(s) && /\bOWNER\s+TO\b/i.test(s),
+  );
+  if (tableOwnerAt === -1) return [...rest, ...seqOwner];
+  return [
+    ...rest.slice(0, tableOwnerAt + 1),
+    ...seqOwner,
+    ...rest.slice(tableOwnerAt + 1),
+  ];
 }
 
 /** Satellite facts (comment/acl) file with their target. */
@@ -946,7 +983,7 @@ export function exportSqlFiles(
   // Each action's file path, in plan order (shared by both layouts below).
   const miscPath = `${clusterRoot(pathStyle)}/misc.sql`;
   const actionPaths = rendered.actions.map((action) => {
-    const subject = subjectOf(action);
+    const subject = subjectOf(action, fb);
     return subject === undefined ? miscPath : pathFor(subject, pathContext);
   });
 
@@ -971,7 +1008,7 @@ export function exportSqlFiles(
       name: clampFileName(
         `${String(index).padStart(4, "0")}_${run.path.replaceAll("/", "_")}`,
       ),
-      sql: renderFileSql(run.statements, options.format),
+      sql: renderFileSql(placeOwnedSequenceOwner(run.statements), options.format),
     }));
   }
 
@@ -1011,7 +1048,7 @@ export function exportSqlFiles(
     name: path,
     sql:
       (path.endsWith(".fk.sql") ? FK_SPLIT_HEADER : "") +
-      renderFileSql(entry.statements, options.format),
+      renderFileSql(placeOwnedSequenceOwner(entry.statements), options.format),
   }));
 }
 
@@ -1142,7 +1179,7 @@ function exportGrouped(
   // layout (issue #365) — regrouping cannot re-split them because the fold is
   // computed on the final grouped paths.
   const actionPaths = actions.map((action) => {
-    const subject = subjectOf(action);
+    const subject = subjectOf(action, fb);
     return subject === undefined
       ? `${clusterRoot(style)}/misc.sql`
       : groupedPath(subject);
@@ -1163,7 +1200,7 @@ function exportGrouped(
   );
   const files = new Map<string, GroupedFile>();
   actions.forEach((action, at) => {
-    const subject = subjectOf(action);
+    const subject = subjectOf(action, fb);
     const folded = foldedPaths[at]!;
     const path = cycleMerges.get(folded) ?? folded;
     const category = subject === undefined ? "misc" : categoryFor(subject);
@@ -1196,7 +1233,7 @@ function exportGrouped(
       name: path,
       sql:
         (path.endsWith(".fk.sql") ? FK_SPLIT_HEADER : "") +
-        renderFileSql(statements, options.format),
+        renderFileSql(placeOwnedSequenceOwner(statements), options.format),
     };
   });
 }

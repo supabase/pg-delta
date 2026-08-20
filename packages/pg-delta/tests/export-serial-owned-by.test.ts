@@ -34,6 +34,7 @@ describe("export: serial OWNED BY files with the table", () => {
       expect(seq!.sql).toMatch(/CREATE SEQUENCE/i);
       expect(seq!.sql).not.toMatch(/OWNED BY/i);
       expect(seq!.sql).toMatch(/GRANT USAGE/i);
+      expect(seq!.sql).not.toMatch(/OWNER TO/i);
       expect(table!.sql).toMatch(/CREATE TABLE/i);
       expect(table!.sql).toMatch(/OWNED BY/i);
       expect(table!.sql).not.toMatch(/GRANT USAGE ON SEQUENCE/i);
@@ -42,6 +43,48 @@ describe("export: serial OWNED BY files with the table", () => {
       expect(loaded.factBase.rootHash).toBe(fb.rootHash);
     } finally {
       await Promise.all([source.drop(), shadow.drop()]);
+    }
+  }, 120_000);
+
+  test("non-default owner: sequence OWNER TO files with the table after table OWNER TO", async () => {
+    const cluster = await sharedCluster();
+    const role = `ser_own_${crypto.randomUUID().slice(0, 8)}`;
+    const source = await cluster.createDb("ser_own_src");
+    const shadow = await cluster.createDb("ser_own_shadow");
+    try {
+      await source.pool.query(`CREATE ROLE "${role}" NOLOGIN`);
+      await source.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.pages (
+          id bigserial PRIMARY KEY,
+          path text NOT NULL
+        );
+        ALTER TABLE app.pages OWNER TO "${role}";
+      `);
+      const fb = (await extract(source.pool)).factBase;
+      const files = exportSqlFiles(fb).filter(
+        (f) => !f.name.startsWith("_cluster/roles"),
+      );
+      const seq = files.find((f) => f.name.includes("/sequences/"));
+      const table = files.find((f) => f.name === "app/tables/pages.sql");
+      expect(seq).toBeDefined();
+      expect(table).toBeDefined();
+      expect(seq!.sql).toMatch(/CREATE SEQUENCE/i);
+      expect(seq!.sql).not.toMatch(/OWNED BY/i);
+      expect(seq!.sql).not.toMatch(/OWNER TO/i);
+      expect(table!.sql).toMatch(/OWNED BY/i);
+      expect(table!.sql).toMatch(/ALTER TABLE[\s\S]*OWNER TO/i);
+      expect(table!.sql).toMatch(/ALTER SEQUENCE[\s\S]*OWNER TO/i);
+      const tableOwnerAt = table!.sql.search(/ALTER TABLE[\s\S]*OWNER TO/i);
+      const seqOwnerAt = table!.sql.search(/ALTER SEQUENCE[\s\S]*OWNER TO/i);
+      expect(tableOwnerAt).toBeGreaterThan(-1);
+      expect(seqOwnerAt).toBeGreaterThan(tableOwnerAt);
+
+      const loaded = await loadSqlFiles(files, shadow.pool);
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+    } finally {
+      await Promise.all([source.drop(), shadow.drop()]);
+      await cluster.adminPool.query(`DROP ROLE IF EXISTS "${role}"`);
     }
   }, 120_000);
 
