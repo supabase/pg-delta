@@ -13,6 +13,7 @@ import type { Diagnostic } from "../src/core/diagnostic.ts";
 import { extract } from "../src/extract/extract.ts";
 import { rawProfile, resolveProfile } from "../src/integrations/profile.ts";
 import { supabaseProfile } from "../src/integrations/supabase.ts";
+import { supabasePolicy } from "../src/policy/supabase.ts";
 import { classifyPlanHazards } from "../src/plan/hazards.ts";
 import { createTestDb } from "./containers.ts";
 
@@ -107,6 +108,18 @@ describe.skipIf(PG_MAJOR < 15)(
         });
         const viaRawProfile = await rawProfileResolved.extract(db.pool);
         expect(parameterAcl(viaRawProfile.diagnostics)).toBeDefined();
+
+        const inherited = await resolveProfile(
+          db.pool,
+          {
+            id: "custom",
+            handlers: supabaseProfile.handlers,
+            policy: { id: "custom", extends: [supabasePolicy] },
+          },
+          { skipBaseline: true },
+        );
+        const viaInherited = await inherited.extract(db.pool);
+        expect(parameterAcl(viaInherited.diagnostics)).toBeUndefined();
       } finally {
         await revokePlatformParameterAcls(db.pool).catch(() => {});
         for (const name of created) {
