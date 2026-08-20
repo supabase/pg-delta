@@ -112,6 +112,46 @@ describe("relocatable is version-derived metadata, never a diffable attribute", 
     expect(sqls).not.toContain(`ALTER EXTENSION "wrappers" SET SCHEMA "b"`);
   });
 
+  test("a schema move ACROSS a relocatable flip routes to replace — source-side flag governs SET SCHEMA", () => {
+    // The ALTER executes against the SOURCE database, whose installed version
+    // is non-relocatable and rejects SET SCHEMA at apply time (`extension does
+    // not support SET SCHEMA`) — the desired side's relocatable=true says
+    // nothing about the statement's legality. Version churn is excluded from
+    // the diff, so nothing upgrades the extension before the ALTER runs.
+    const a: StableId = { kind: "schema", name: "a" };
+    const b: StableId = { kind: "schema", name: "b" };
+    const source = buildFactBase(
+      [f(a), f(b), { id: wrappers, payload: extensionPayload("a", false) }],
+      [],
+    );
+    const desired = buildFactBase(
+      [f(a), f(b), { id: wrappers, payload: extensionPayload("b", true) }],
+      [],
+    );
+    const sqls = plan(source, desired).actions.map((action) => action.sql);
+    expect(sqls).toContain(`DROP EXTENSION "wrappers"`);
+    expect(sqls).toContain(`CREATE EXTENSION "wrappers" SCHEMA "b"`);
+    expect(sqls).not.toContain(`ALTER EXTENSION "wrappers" SET SCHEMA "b"`);
+  });
+
+  test("the mirror flip (relocatable source, non-relocatable desired) stays a replace", () => {
+    // Pins the deliberate conservatism: the desired-side read keeps routing to
+    // replace even though the source-installed version would accept SET SCHEMA.
+    const a: StableId = { kind: "schema", name: "a" };
+    const b: StableId = { kind: "schema", name: "b" };
+    const source = buildFactBase(
+      [f(a), f(b), { id: wrappers, payload: extensionPayload("a", true) }],
+      [],
+    );
+    const desired = buildFactBase(
+      [f(a), f(b), { id: wrappers, payload: extensionPayload("b", false) }],
+      [],
+    );
+    const sqls = plan(source, desired).actions.map((action) => action.sql);
+    expect(sqls).toContain(`DROP EXTENSION "wrappers"`);
+    expect(sqls).not.toContain(`ALTER EXTENSION "wrappers" SET SCHEMA "b"`);
+  });
+
   test("a schema move of a RELOCATABLE extension still alters in place", () => {
     const a: StableId = { kind: "schema", name: "a" };
     const b: StableId = { kind: "schema", name: "b" };
