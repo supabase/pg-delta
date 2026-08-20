@@ -1445,3 +1445,19 @@ in the wild:
   "plan-bound preconditions" channel (per-kind checks in apply are
   architecture-hostile); if that machinery ever lands, extension
   relocatability is its first customer.
+
+- **Deferred — `_relocatable` in a snapshot is outside the digest (round 2,
+  same family).** The snapshot digest folds `rootHash`, which excludes all
+  `_`-prefixed metadata by the hash.ts contract — so an edited or corrupted
+  `_relocatable` (like `_position` or `_configGucs` before it) passes
+  `deserializeSnapshot()`. The digest is an integrity guard against
+  ACCIDENTAL corruption, not authentication: it is stored in the same file,
+  so a deliberate editor can recompute it regardless of what it covers.
+  There is also nothing to independently validate against at decode time —
+  the flag is control-file state of a database the snapshot may have
+  outlived — and re-hashing it reintroduces CLI-2219. Blast radius of a
+  wrong value is the same as the plan-to-apply drift entry above: a stale
+  ALTER … SET SCHEMA is rejected loudly by Postgres, and an unnecessary
+  replace converges with its dataLoss hazard surfaced at plan approval. If a
+  "plan-bound decision inputs" channel lands (previous entry), snapshot-side
+  authentication of those inputs belongs to the same machinery.
