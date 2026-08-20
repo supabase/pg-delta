@@ -1,5 +1,43 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.43
+
+### Minor Changes
+
+- d54f79c: Refuse a PostGIS schema relocation instead of planning `DROP EXTENSION postgis`.
+
+  PostGIS is non-relocatable (`extrelocatable = false`). When source and desired
+  disagree on its schema, the generic rule would replace it — `DROP EXTENSION`
+  cascades over every geometry/geography column and `spatial_ref_sys`. The plan
+  now fails with an actionable error naming both schemas and asking the
+  declaration to match the installed location. An explicit `DROP EXTENSION
+postgis` (extension absent on the desired side) is unchanged.
+
+- 1bf1b2b: feat(pg-delta): keep user RLS policies on storage/realtime surfaces through the supabase filter
+
+  RLS policies on `storage.objects`, `storage.buckets`, and `realtime.messages` were marked reference-only by the managed-schema exclude (assumed schema + Rule 4) and silently dropped from diffs and declarative exports. The supabase profile now includes policies on those surfaces — the platform seeds none, so any policy present is user-authored. `auth` policies and other managed-schema tables stay excluded.
+
+- d54f79c: Encode the supabase_vault presence-only contract (CLI-1434).
+
+  The generic path already plans CREATE/DROP EXTENSION supabase_vault. This
+  adds a raw-profile shadow precheck so alpine shadows fail early on
+  `vault.create_secret` / `CREATE EXTENSION supabase_vault`, and a plan-time
+  `vault_presence` warning when vault is in use (catalog dependents, never
+  secret rows) or is being dropped. The warning is exposed through the public
+  hazard classifier and blocks only under `--strict-coverage`. The supabase
+  profile still filters vault as platform state.
+
+### Patch Changes
+
+- 93a5350: Fix the guardrail-3 plan failure (`rule table: kind 'extension' has no rule for attribute 'relocatable'`) when the two sides of a diff hold the same extension at versions whose control files disagree on `relocatable` (e.g. `wrappers`, which flipped relocatability across its release history). `relocatable` is a control-file property of the installed extension version — not settable by any DDL — so it now rides on the extension fact as non-hashed metadata (`_relocatable`), excluded from the diff/hash surface for the same reason `version` is, while staying readable at plan time for the schema rule's replace-vs-alter decision. That plan-time check now also consults the source-side fact: the ALTER executes against the source database, so a schema move across a relocatable flip routes to drop + recreate instead of an `ALTER EXTENSION … SET SCHEMA` the live database would reject.
+
+  Note: extension fact content hashes change with this release. Re-capture any stored snapshots and baselines from earlier versions before using them with this release — a legacy snapshot diffed against a fresh extract fails `plan()` with the guardrail-3 error above for every extension it carries (and reports false `.relocatable` drift in `pgdelta drift`), a legacy baseline silently stops subtracting extension facts, and a plan between two legacy snapshots loses the non-relocatable replace route for extension schema moves.
+
+- 2318f97: Declarative export now files `ALTER SEQUENCE … OWNED BY` with the owning table instead of the sequence file, so a file-atomic shadow load can create the sequence before `CREATE TABLE … nextval`.
+- bc72ae5: `loadSqlFiles` / `planSchemaFiles` now fall back to per-statement apply when a file cannot commit atomically (`statementFallback` defaults to on). Pass `false` to restore whole-file rollback. `LoadResult.splitFiles` names files demoted this load.
+- bd6e75b: The supabase profile now drops the platform `log_min_messages` parameter ACL grants (`supabase_admin` SET/ALTER SYSTEM, `supabase_realtime_admin` SET) from `unmodeled_kind` coverage. User parameter ACLs are still reported. Raw extract is unchanged.
+- d54f79c: Recognize dump-style quoted `CREATE EXTENSION "supabase_vault"` in the raw-profile shadow precheck, and treat a `depends` edge onto the extension itself as vault-in-use (extract folds vault proc/type members to the extension id).
+
 ## 1.0.0-alpha.42
 
 ### Major Changes
