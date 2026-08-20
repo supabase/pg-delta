@@ -142,8 +142,10 @@ retries after other files land; this is not an intra-file reorder.
 `LoadResult.splitFiles` names files demoted this load. Pass
 `{ statementFallback: false }` to restore
 whole-file rollback and whole-file retry. Files that contain session-setting
-statements (`SET search_path`, `SET ROLE`, `SET LOCAL`, …) are never split,
-because those settings would otherwise expire after the prefix commit.
+statements (`SET search_path`, `SET ROLE`, any `SET LOCAL`, …) or
+`ALTER DEFAULT PRIVILEGES` are never split, because those settings would
+otherwise expire after the prefix commit or apply to objects created by
+sibling files.
 
 ## Known gaps
 

@@ -218,6 +218,74 @@ describe("loadSqlFiles — statementFallback", () => {
     }
   }, 60_000);
 
+  test("any SET LOCAL keeps the file atomic, including unrelated GUCs", async () => {
+    const shadow = await createTestDb("sf_setlocal_guc");
+    try {
+      const result = await loadSqlFiles(
+        [
+          {
+            name: "1_a.sql",
+            sql: `
+              SET LOCAL statement_timeout TO 0;
+              CREATE TABLE public.a (id integer PRIMARY KEY);
+              CREATE VIEW public.va AS SELECT id FROM public.b;
+            `,
+          },
+          {
+            name: "2_b.sql",
+            sql: `CREATE TABLE public.b (id integer PRIMARY KEY);`,
+          },
+        ],
+        shadow.pool,
+      );
+      expect(
+        result.factBase.has({ kind: "table", schema: "public", name: "a" }),
+      ).toBe(true);
+      expect(result.splitFiles).toEqual([]);
+    } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+
+  test("ALTER DEFAULT PRIVILEGES files stay file-atomic so sibling tables miss the grant", async () => {
+    const shadow = await createTestDb("sf_adp");
+    try {
+      const result = await loadSqlFiles(
+        [
+          {
+            name: "1_adp.sql",
+            sql: `
+              ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT SELECT ON TABLES TO PUBLIC;
+              CREATE VIEW app.va AS SELECT id FROM app.b;
+            `,
+          },
+          {
+            name: "2_tables.sql",
+            sql: `
+              CREATE SCHEMA app;
+              CREATE TABLE app.t (id integer PRIMARY KEY);
+              CREATE TABLE app.b (id integer PRIMARY KEY);
+            `,
+          },
+        ],
+        shadow.pool,
+      );
+      expect(
+        result.factBase.has({ kind: "table", schema: "app", name: "t" }),
+      ).toBe(true);
+      expect(result.splitFiles).toEqual([]);
+      expect(
+        result.factBase.has({
+          kind: "acl",
+          target: { kind: "table", schema: "app", name: "t" },
+          grantee: "PUBLIC",
+        }),
+      ).toBe(false);
+    } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+
   test("session-setting files stay file-atomic so SET LOCAL still scopes later DDL", async () => {
     const shadow = await createTestDb("sf_setlocal");
     try {

@@ -341,13 +341,12 @@ export function findTransactionControl(sql: string): string[] {
   return found;
 }
 
-/** Statement-leading session-setting forms that change object resolution or
- *  ownership for every statement that follows them on the same session:
- *  `SET search_path` (where unqualified names resolve), `SET ROLE` /
- *  `SET SESSION AUTHORIZATION` (who owns created objects), and the matching
- *  RESETs. `SET LOCAL`/`SET SESSION` modifiers are tolerated. Unrelated GUCs
- *  (e.g. `SET statement_timeout`) are NOT flagged — they don't affect the
- *  extracted schema. */
+/** Statement-leading session-setting forms that must stay file-atomic:
+ *  `SET search_path` / `SET SCHEMA` (where unqualified names resolve),
+ *  `SET ROLE` / `SET SESSION AUTHORIZATION` (who owns created objects),
+ *  the matching RESETs, and any `SET LOCAL` (dies at COMMIT, so a prefix
+ *  commit would drop it before later statements). Session-level unrelated
+ *  GUCs (e.g. `SET statement_timeout`) are not flagged. */
 const SESSION_SETTING_RULES: ReadonlyArray<{ re: RegExp; label: string }> = [
   {
     re: /^set\s+(?:session\s+|local\s+)?search_path\b/i,
@@ -367,6 +366,7 @@ const SESSION_SETTING_RULES: ReadonlyArray<{ re: RegExp; label: string }> = [
     re: /^reset\s+(?:role|search_path|session\s+authorization|all)\b/i,
     label: "RESET session setting",
   },
+  { re: /^set\s+local\b/i, label: "SET LOCAL" },
 ];
 
 /**
@@ -945,9 +945,12 @@ export async function loadSqlFiles(
           // SET LOCAL / SET search_path / SET ROLE apply to the rest of the
           // file only inside the atomic transaction. Per-statement replay
           // would commit them alone and change where later DDL lands.
+          // ALTER DEFAULT PRIVILEGES is the same: committing it early would
+          // grant later objects created by sibling files.
           if (
             statementFallback &&
-            findSessionSettingStatements(file.sql).length === 0
+            findSessionSettingStatements(file.sql).length === 0 &&
+            findDefaultPrivilegeStatements(file.sql).length === 0
           ) {
             const split = await applyStatementFallback(client, file.sql);
             if (split.status === "done") {

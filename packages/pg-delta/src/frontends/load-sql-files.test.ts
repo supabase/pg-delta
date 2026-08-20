@@ -216,6 +216,9 @@ describe("findSessionSettingStatements — detects search_path / role barriers",
     expect(
       findSessionSettingStatements(`SET statement_timeout = '5s';`),
     ).toEqual([]);
+    expect(
+      findSessionSettingStatements(`SET LOCAL statement_timeout = 0;`),
+    ).toContain("SET LOCAL");
     // keyword in a literal or comment is ignored
     expect(
       findSessionSettingStatements(
