@@ -1426,3 +1426,22 @@ in the wild:
   `_relocatable`, so a non-relocatable extension's schema move loses the
   replace route and plans `ALTER … SET SCHEMA` (rejected loudly by Postgres
   at apply; `prove` also fails it pre-mutation).
+
+### PR #435 review triage (Codex)
+
+- **Deferred — a relocatability flip BETWEEN plan and apply is invisible to
+  the fingerprint gate.** With `_relocatable` outside the hashed surface, an
+  out-of-band `ALTER EXTENSION UPDATE` in the plan→apply window whose new
+  version changes nothing catalog-visible except relocatability no longer
+  moves `physicalSource.rootHash`, so the apply gate accepts the stale plan.
+  This is the same trade the engine already makes for `version` itself (never
+  hashed, by design): an update that changes any member definition still
+  moves the fingerprint and is caught. The residual failure modes are loud or
+  pre-approved — a stale `ALTER … SET SCHEMA` is rejected by Postgres and
+  aborts the apply (re-plan resolves it), and executing the plan's
+  DROP+CREATE against a now-relocatable extension still converges and only
+  carries the dataLoss hazard the operator already accepted at plan time.
+  Revalidating planner decision inputs at apply would need a general
+  "plan-bound preconditions" channel (per-kind checks in apply are
+  architecture-hostile); if that machinery ever lands, extension
+  relocatability is its first customer.
