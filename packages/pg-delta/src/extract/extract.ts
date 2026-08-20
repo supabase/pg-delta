@@ -455,8 +455,12 @@ async function extractOnClient(
   // which does not exist on 14, so it cannot be sent speculatively alongside the
   // probe that reveals the version. It is overlapped with worker setup below, so
   // it costs one RTT for the whole extraction, not one per connection.
-  const settingJitOff = client
-    .query(jitOffSql(ctx.pgMajor))
+  //
+  // Sent through the timeout-aware runner, not the raw client: this round trip
+  // runs under the caller's statement_timeout like every other, so a budget
+  // that fires HERE must surface as the same ExtractionTimeoutError (via the
+  // rethrow below), never as the raw 57014 pg error.
+  const settingJitOff = q(jitOffSql(ctx.pgMajor))
     // deliberately non-rejecting: a rejection here must not leave half-built
     // workers unreleased in the Promise.all below
     .then(
