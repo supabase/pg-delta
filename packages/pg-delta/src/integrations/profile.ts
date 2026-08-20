@@ -31,6 +31,7 @@ import {
   resolveBaseline,
 } from "../policy/baseline.ts";
 import { probeApplierCapability } from "../policy/capability.ts";
+import { filterSupabasePlatformParameterAclDiagnostics } from "../policy/parameter-acl.ts";
 import { flattenPolicy, type Policy } from "../policy/policy.ts";
 
 /** Static, declarative profile: the handlers and policy that define a managed
@@ -214,10 +215,20 @@ export async function resolveProfile(
   // separately (planOptions.baselineMeta + ResolvedProfile.baseline).
   const baseline = loaded?.factBase;
 
-  const profileExtract = (
+  const profileExtract = async (
     p: Pool,
     extractOptions: ExtractOptions = {},
-  ): Promise<ExtractResult> => extract(p, { ...extractOptions, handlers });
+  ): Promise<ExtractResult> => {
+    const result = await extract(p, { ...extractOptions, handlers });
+    if (profile.id !== "supabase" && policy?.id !== "supabase") return result;
+    return {
+      ...result,
+      diagnostics: await filterSupabasePlatformParameterAclDiagnostics(
+        p,
+        result.diagnostics,
+      ),
+    };
+  };
 
   // fold the handlers' intent replay rules (pg_cron jobs, …) into a resolver
   // index. Only `plan()` needs it (prove never re-plans; apply only replays
