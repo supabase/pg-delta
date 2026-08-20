@@ -54,7 +54,7 @@ scope**, and that does not change. The unit captured is **intent** — the
 | pgmq | the set of queues; each queue's type (standard / unlogged / partitioned) + partition settings | queue messages (`q_*` rows), archive (`a_*` rows), visibility/read counters |
 | pg_cron | the set of jobs: `jobname`, `schedule`, `command`, `database`, `username`, `active` | `cron.job_run_details` (run history) |
 | pg_partman | `part_config` reduced to its **intent columns** (control, partition type/interval, premake, retention, template, automatic_maintenance, …) + `part_config_sub` | which children currently exist, `last_partition`, rows inside partitions |
-| supabase_vault | **presence only** (extension enabled?) | `vault.secrets` — never read (CLI-1434) |
+| supabase_vault | **presence only** (extension enabled?) — see [vault.md](./vault.md) | `vault.secrets` — never read (CLI-1434) |
 
 Three consequences, load-bearing for the rest of the design:
 

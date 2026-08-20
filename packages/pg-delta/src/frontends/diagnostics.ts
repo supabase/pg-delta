@@ -24,11 +24,16 @@ import type { Diagnostic } from "../core/diagnostic.ts";
  *   - `unresolved_security_label`: a valid SECURITY LABEL on an unsupported
  *     object (language / database / large object / tablespace) — it cannot
  *     resolve to a managed id, so the label would be silently missing.
+ *   - `vault_presence`: CREATE/DROP EXTENSION supabase_vault when vault is
+ *     in use (or is being dropped). Secret values and keys are not schema
+ *     state; strict mode refuses rather than ship a plan that silently
+ *     omits them.
  */
 export const STRICT_COVERAGE_CODES: ReadonlySet<string> = new Set([
   "unmodeled_kind",
   "unmodeled_drift",
   "unresolved_security_label",
+  "vault_presence",
 ]);
 
 /**

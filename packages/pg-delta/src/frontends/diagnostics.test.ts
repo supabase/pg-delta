@@ -22,6 +22,11 @@ const drift: Diagnostic = {
   severity: "warning",
   message: "1 unmodeled cast in the shadow but not on the target",
 };
+const vaultPresence: Diagnostic = {
+  code: "vault_presence",
+  severity: "warning",
+  message: "vault secrets are not migrated",
+};
 const err: Diagnostic = { code: "boom", severity: "error", message: "fatal" };
 
 describe("hasBlockingDiagnostics", () => {
@@ -53,6 +58,13 @@ describe("hasBlockingDiagnostics", () => {
     expect(hasBlockingDiagnostics([drift], { strictCoverage: true })).toBe(
       true,
     );
+  });
+
+  test("vault_presence blocks ONLY in strict-coverage mode", () => {
+    expect(hasBlockingDiagnostics([vaultPresence])).toBe(false);
+    expect(
+      hasBlockingDiagnostics([vaultPresence], { strictCoverage: true }),
+    ).toBe(true);
   });
 
   test("info/warning diagnostics do not block in the default mode", () => {

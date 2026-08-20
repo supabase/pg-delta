@@ -179,6 +179,11 @@ export async function cmdPlan(args: string[]): Promise<void> {
       desiredResult.factBase,
       planOptions,
     );
+    printDiagnostics(thePlan.diagnostics ?? [], { label: "plan" });
+    exitIfBlocking(thePlan.diagnostics ?? [], {
+      strictCoverage: flags["strict-coverage"],
+      action: "plan",
+    });
     // Credential-free origin stamp: prove uses this only to reject the most
     // dangerous endpoint mixup (`--clone` accidentally receives SOURCE_URL).
     thePlan.source.endpointHash = connectionEndpointHash(sourceUrl);

@@ -73,6 +73,15 @@ export const INTENT_UNSUPPORTED = "intent-unsupported";
  *  without a cross-layer import. */
 export const USER_MAPPING_UNREADABLE = "user-mapping-unreadable";
 
+/** Diagnostic code for a supabase_vault presence transition the engine can
+ *  plan structurally (CREATE / DROP EXTENSION) but cannot carry secret
+ *  *values or keys* across. Emitted at plan time as a warning: the plan
+ *  still proceeds, and `STRICT_COVERAGE_CODES` (`vault_presence`) is the
+ *  only escalation knob. Shared here so the emitter
+ *  (`vaultPresenceDiagnostics`) and the coverage gate agree on the string
+ *  without a cross-layer import. */
+export const VAULT_PRESENCE = "vault_presence";
+
 /** Thrown by public API stubs for not-yet-implemented stages (stage 0). */
 export class NotImplementedError extends Error {
   constructor(feature: string) {

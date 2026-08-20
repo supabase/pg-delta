@@ -22,6 +22,12 @@ export function schemaCreateSql(
     : `${base} AUTHORIZATION ${qid(ownerRole)}`;
 }
 
+/** Extensions whose replace-for-relocation is never acceptable: dropping them
+ *  cascades over user data columns (postgis: geometry/geography everywhere).
+ *  Not generalized beyond this named set — PostGIS is the one extension where
+ *  a "converging" drop+create nukes spatial data and still looks successful. */
+const NEVER_REPLACE_FOR_RELOCATION = new Set(["postgis"]);
+
 export const schemaRules: Record<string, KindRules> = {
   schema: {
     weight: 1,
@@ -108,11 +114,26 @@ export const schemaRules: Record<string, KindRules> = {
         }),
         // A non-relocatable extension rejects SET SCHEMA, so relocating it must
         // be a drop + recreate in the new schema (its create rule emits the
-        // `SCHEMA <s>` clause). The relocatable flag is extracted per extension
-        // as NON-SEMANTIC metadata (`_relocatable` — version-derived, never
-        // diffed; see extract/schemas.ts::extensionPayload) and read here at
-        // plan time only.
-        replaceWhen: (_from, _to, fact) => p(fact, "_relocatable") === false,
+        // `SCHEMA <s>` clause). The `_relocatable` flag is version-derived,
+        // non-semantic metadata read only for this plan-time decision.
+        //
+        // Some of those rebuilds are never acceptable: dropping postgis
+        // cascades over every geometry/geography column and spatial_ref_sys.
+        // Refuse before replaceWhen would classify the fact as a replace —
+        // a genuine DROP EXTENSION (extension absent on the desired side)
+        // never reaches this predicate.
+        replaceWhen: (from, to, fact) => {
+          const name = (fact.id as { name: string }).name;
+          if (NEVER_REPLACE_FOR_RELOCATION.has(name)) {
+            const fromSchema = str(from);
+            const toSchema = str(to);
+            throw new Error(
+              `plan: extension "${name}" cannot be relocated from schema "${fromSchema}" to "${toSchema}" after install. ` +
+                `PostGIS cannot be relocated after install — align the schema declaration to the installed location ("${fromSchema}") instead.`,
+            );
+          }
+          return p(fact, "_relocatable") === false;
+        },
       },
     },
   },
