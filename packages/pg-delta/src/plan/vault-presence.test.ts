@@ -35,7 +35,7 @@ const f = (id: StableId, payload: Fact["payload"] = {}): Fact => ({
   payload,
 });
 
-const vaultFact = f(vaultExt, { schema: "vault", relocatable: false });
+const vaultFact = f(vaultExt, { schema: "vault", _relocatable: false });
 const userFnFact = f(userFn, {
   def: "CREATE FUNCTION public.use_secret() RETURNS text LANGUAGE sql AS $$ SELECT 1 $$",
 });

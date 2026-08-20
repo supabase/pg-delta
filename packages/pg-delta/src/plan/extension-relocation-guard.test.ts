@@ -34,7 +34,7 @@ describe("postgis non-relocation guard", () => {
   test("schema delta on postgis throws rather than planning a drop+create replace", () => {
     const postgis: StableId = { kind: "extension", name: "postgis" };
     const { source, desired } = bases(
-      f(postgis, { schema: "public", relocatable: false }),
+      f(postgis, { schema: "public", _relocatable: false }),
     );
     expect(() => plan(source, desired)).toThrow(
       /extension "postgis" cannot be relocated from schema "public" to "extensions"/,
@@ -50,7 +50,7 @@ describe("postgis non-relocation guard", () => {
   test("a non-guarded non-relocatable extension still plans a replace", () => {
     const other: StableId = { kind: "extension", name: "foo" };
     const { source, desired } = bases(
-      f(other, { schema: "public", relocatable: false }),
+      f(other, { schema: "public", _relocatable: false }),
     );
     const sqls = plan(source, desired).actions.map((a) => a.sql);
     expect(sqls.some((s) => /DROP EXTENSION "foo"/.test(s))).toBe(true);
@@ -60,7 +60,7 @@ describe("postgis non-relocation guard", () => {
   test("a genuine DROP EXTENSION postgis still plans — the guard is relocation-only", () => {
     const postgis: StableId = { kind: "extension", name: "postgis" };
     const source = buildFactBase(
-      [f(publicSchema), f(postgis, { schema: "public", relocatable: false })],
+      [f(publicSchema), f(postgis, { schema: "public", _relocatable: false })],
       [],
     );
     const desired = buildFactBase([f(publicSchema)], []);
