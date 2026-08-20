@@ -109,11 +109,18 @@ async function withRejectedStatement<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const origConnect = pool.connect.bind(pool);
+  // Patched clients go BACK into the pool when extract() releases them, so the
+  // patch must be undone on exit or a later checkout of the same client would
+  // still inject errors into an unrelated test.
+  const patched = new Map<pg.PoolClient, unknown>();
   (pool as { connect: unknown }).connect = async (...args: unknown[]) => {
     const client = await (
       origConnect as (...a: unknown[]) => Promise<pg.PoolClient>
     )(...args);
     const origQuery = client.query.bind(client) as (...a: unknown[]) => unknown;
+    if (!patched.has(client)) {
+      patched.set(client, (client as { query: unknown }).query);
+    }
     (client as { query: unknown }).query = (...qa: unknown[]) => {
       const sql = typeof qa[0] === "string" ? qa[0] : String(qa[0]);
       if (pattern.test(sql)) {
@@ -127,6 +134,9 @@ async function withRejectedStatement<T>(
     return await fn();
   } finally {
     (pool as { connect: unknown }).connect = origConnect;
+    for (const [client, query] of patched) {
+      (client as { query: unknown }).query = query;
+    }
   }
 }
 
