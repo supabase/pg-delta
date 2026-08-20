@@ -149,7 +149,11 @@ function subjectOf(action: Action, fb: FactBase): StableId | undefined {
     action.produces.find((id) => id.kind === "sequence") ??
     action.consumes.find((id) => id.kind === "sequence");
   if (column !== undefined && sequence !== undefined) return column;
-  if (sequence !== undefined && /\bOWNER\s+TO\b/i.test(action.sql)) {
+  if (
+    sequence !== undefined &&
+    /^\s*ALTER\s+SEQUENCE\b/i.test(action.sql) &&
+    /\bOWNER\s+TO\b/i.test(action.sql)
+  ) {
     const table = ownedTableOfSequence(fb, sequence);
     if (table !== undefined) return table;
   }
@@ -167,7 +171,7 @@ function placeOwnedSequenceOwner(statements: string[]): string[] {
   const tableOwnerAt = rest.findLastIndex(
     (s) => /^\s*ALTER\s+TABLE\b/i.test(s) && /\bOWNER\s+TO\b/i.test(s),
   );
-  if (tableOwnerAt === -1) return [...rest, ...seqOwner];
+  if (tableOwnerAt === -1) return statements;
   return [
     ...rest.slice(0, tableOwnerAt + 1),
     ...seqOwner,
