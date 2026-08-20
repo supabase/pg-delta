@@ -132,6 +132,19 @@ the rebuild initially did not, which regressed `sslmode=require` connections.
   pass through untouched (legacy forced `ssl: false`), so node-postgres
   defaults — including `PGSSLMODE` env handling — keep applying.
 
+## `loadSqlFiles` statement fallback (default on)
+
+`loadSqlFiles` and `planSchemaFiles` now keep a file's already-accepted
+statements when the rest cannot apply in the same transaction (the old
+`CREATE SEQUENCE` + `OWNED BY` vs `CREATE TABLE … nextval` split, mixed
+`ALTER PUBLICATION … ADD TABLE`). Authored order is unchanged — the remainder
+retries after other files land; this is not an intra-file reorder.
+`LoadResult.splitFiles` names files demoted this load. Pass
+`{ statementFallback: false }` to restore
+whole-file rollback and whole-file retry. Files that contain session-setting
+statements (`SET search_path`, `SET ROLE`, `SET LOCAL`, …) are never split,
+because those settings would otherwise expire after the prefix commit.
+
 ## Known gaps
 
 Object kinds the new engine does not model — casts, operators, text-search

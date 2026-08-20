@@ -221,9 +221,17 @@ stamped on plan and export artifacts and reconciled at apply/prove, so
 ## Statement reordering assist (opt-in)
 
 `loadSqlFiles` is parser-free: it sequences whole *files* into the shadow, so it
-tolerates cross-file disorder but cannot reorder statements *within* a file. The
-opt-in reordering assist splits files into one-statement units and topologically
-pre-sorts them via [`@supabase/pg-topo`](https://www.npmjs.com/package/@supabase/pg-topo).
+tolerates cross-file disorder. It never permutes statements inside a file.
+When a file cannot commit atomically, `statementFallback` (default on) keeps
+the prefix Postgres already accepted and retries the **remaining** statements
+in authored order after other files have progressed — it does not sort the
+file. Pass `false` for whole-file rollback. Files that contain session-setting
+statements (`SET search_path`, `SET ROLE`, …) stay file-atomic so `SET LOCAL`
+cannot expire between statements.
+
+The opt-in reordering assist is what actually reorders within a file: it
+splits files into one-statement units and topologically pre-sorts them via
+[`@supabase/pg-topo`](https://www.npmjs.com/package/@supabase/pg-topo).
 
 - **Subpath:** `@supabase/pg-delta/sql-order` exposes `orderForShadow(files)` /
   `analyzeForShadow(files)`, `canReorder()`, and the typed

@@ -2,7 +2,10 @@
  * Stage 7: the shadow-DB frontend — SQL files → fact base
  * (target-architecture §3.2). Parser-free by design:
  * - ordering: bounded retry rounds at FILE granularity against the shadow
- *   (fail-safe — errors surface before anything is extracted)
+ *   (fail-safe — errors surface before anything is extracted). When a file
+ *   cannot commit atomically, `statementFallback` (default on) keeps the
+ *   prefix Postgres accepted and retries only the remaining statements.
+ *   Pass `{ statementFallback: false }` for whole-file rollback + retry.
  * - body validation: routines re-validated with checks ON after loading
  * - shared-object isolation: pg_roles + pg_auth_members snapshot before/after;
  *   leakage fails in "databaseScratch" mode (skipped in "isolatedCluster" mode)
@@ -150,6 +153,48 @@ async function applyFile(client: PoolClient, sql: string): Promise<void> {
       return;
     }
     throw error;
+  }
+}
+
+function joinStatements(stmts: string[]): string {
+  return stmts
+    .map((s) => {
+      const t = s.trim();
+      // Semicolon on its own line so a trailing `--` comment cannot swallow it.
+      return /;\s*$/.test(t) ? t : `${t}\n;`;
+    })
+    .join("\n\n");
+}
+
+/**
+ * After a whole-file apply rolled back, replay statements one at a time so
+ * the prefix that Postgres accepts stays committed and only the rest is
+ * queued. Policy {@link ShadowLoadError}s still abort immediately.
+ */
+async function applyStatementFallback(
+  client: PoolClient,
+  sql: string,
+): Promise<
+  | { status: "done" }
+  | { status: "prefix"; remainder: string; error: unknown }
+  | { status: "none" }
+> {
+  const stmts = splitSqlStatements(sql);
+  if (stmts.length <= 1) return { status: "none" };
+  let i = 0;
+  try {
+    for (; i < stmts.length; i++) {
+      await applyFile(client, joinStatements([stmts[i]!]));
+    }
+    return { status: "done" };
+  } catch (error) {
+    if (error instanceof ShadowLoadError) throw error;
+    if (i === 0) return { status: "none" };
+    return {
+      status: "prefix",
+      remainder: joinStatements(stmts.slice(i)),
+      error,
+    };
   }
 }
 
@@ -471,6 +516,10 @@ export interface LoadResult {
    *  observation. Empty unless `allowPreExistingRows` is in effect (it defaults
    *  to true in `"isolatedCluster"` mode). */
   preExistingPopulatedTables: string[];
+  /** Files that could not commit atomically and were demoted to per-statement
+   *  apply this load. Empty when `statementFallback` is off or every file
+   *  committed as a unit. */
+  splitFiles: string[];
 }
 
 export class ShadowLoadError extends Error {
@@ -674,6 +723,13 @@ export interface LoadSqlFilesOptions {
    *  CLI adapter must pass `true` so declarative DML is rejected rather than
    *  warned. */
   strictDataStatements?: boolean;
+  /** After a file-atomic apply fails with a Postgres error, replay statements
+   *  one at a time and retry only the remainder (default `true`). `false`
+   *  restores whole-file rollback + whole-file retry. Policy
+   *  {@link ShadowLoadError}s are never split. Files with session-setting
+   *  statements (`SET search_path`, `SET ROLE`, `SET LOCAL`, …) stay
+   *  file-atomic so those settings cannot expire between statements. */
+  statementFallback?: boolean;
 }
 
 export async function loadSqlFiles(
@@ -693,6 +749,7 @@ export async function loadSqlFiles(
   const maxRounds = options.maxRounds ?? Math.max(files.length + 1, 25);
   const mode = options.mode ?? "databaseScratch";
   const extractShadow = options.extract ?? extract;
+  const statementFallback = options.statementFallback ?? true;
 
   // the shadow must be empty — verify by observation. Schemas the caller
   // pre-seeded (Phase 2b assumed schemas) are exempt: they were deliberately
@@ -818,6 +875,7 @@ export async function loadSqlFiles(
   // a file whose error never changes is a genuine missing dependency (or cycle),
   // not something more rounds will resolve.
   const failStreak = new Map<string, { message: string; count: number }>();
+  const splitFiles = new Set<string>();
   let bootstrapMembershipStrip: {
     roles: ReadonlySet<string>;
     member: string;
@@ -871,9 +929,12 @@ export async function loadSqlFiles(
       rounds++;
       const failures: Array<{ file: SqlFile; message: string }> = [];
       const next: SqlFile[] = [];
+      let progressed = false;
       for (const file of pending) {
         try {
           await applyFile(client, file.sql);
+          progressed = true;
+          failStreak.delete(file.name);
         } catch (error) {
           // A ShadowLoadError from applyFile is a deterministic policy refusal
           // (mixed non-transactional file, or a non-allowlisted non-transactional
@@ -881,6 +942,41 @@ export async function loadSqlFiles(
           // surface it immediately with its own message instead of deferring it
           // until the round budget or a "stuck" round wraps it.
           if (error instanceof ShadowLoadError) throw error;
+          // SET LOCAL / SET search_path / SET ROLE apply to the rest of the
+          // file only inside the atomic transaction. Per-statement replay
+          // would commit them alone and change where later DDL lands.
+          if (
+            statementFallback &&
+            findSessionSettingStatements(file.sql).length === 0
+          ) {
+            const split = await applyStatementFallback(client, file.sql);
+            if (split.status === "done") {
+              progressed = true;
+              splitFiles.add(file.name);
+              failStreak.delete(file.name);
+              continue;
+            }
+            if (split.status === "prefix") {
+              progressed = true;
+              splitFiles.add(file.name);
+              const remainder: SqlFile = {
+                name: file.name,
+                sql: split.remainder,
+              };
+              const message = describeFileFailure(remainder.sql, split.error);
+              const prev = failStreak.get(file.name);
+              failStreak.set(file.name, {
+                message,
+                count:
+                  prev !== undefined && prev.message === message
+                    ? prev.count + 1
+                    : 1,
+              });
+              failures.push({ file: remainder, message });
+              next.push(remainder);
+              continue;
+            }
+          }
           const message = describeFileFailure(file.sql, error);
           const prev = failStreak.get(file.name);
           failStreak.set(file.name, {
@@ -894,7 +990,7 @@ export async function loadSqlFiles(
           next.push(file);
         }
       }
-      if (next.length === pending.length) {
+      if (!progressed) {
         // no progress: stuck — inspect for mutual-FK situation, then fail loud
         const mutualFkHint = detectMutualFk(failures)
           ? " Tip: if two tables reference each other with inline REFERENCES clauses, split one foreign key into a separate ALTER TABLE … ADD CONSTRAINT statement."
@@ -1267,6 +1363,7 @@ export async function loadSqlFiles(
     ],
     rounds,
     preExistingPopulatedTables,
+    splitFiles: [...splitFiles].sort(),
   };
 }
 
