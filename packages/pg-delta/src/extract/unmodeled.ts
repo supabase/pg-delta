@@ -369,19 +369,31 @@ export async function detectUnmodeledKinds(
   const diagnostics: Diagnostic[] = [];
   for (const row of rows) {
     if (row.count <= 0) continue;
-    const samples = row.samples ?? [];
-    const more = row.count > samples.length ? ", …" : "";
-    diagnostics.push({
-      code: "unmodeled_kind",
-      severity: "warning",
-      message:
-        `${row.count} unmodeled "${row.kind}" object${row.count === 1 ? "" : "s"} ` +
-        `not managed by this engine (e.g. ${samples.join(", ")}${more}) — ` +
-        `v1 detects but does not model this kind; ${remediationFor(row.kind)}`,
-      context: { kind: row.kind, count: row.count, samples },
-    });
+    diagnostics.push(
+      unmodeledKindDiagnostic(row.kind, row.count, row.samples ?? []),
+    );
   }
   return diagnostics;
+}
+
+/** Shared `unmodeled_kind` shape so coverage filters can rewrite samples
+ *  without re-templating the message. */
+export function unmodeledKindDiagnostic(
+  kind: string,
+  count: number,
+  samples: readonly string[],
+): Diagnostic {
+  const shown = samples.slice(0, 5);
+  const more = count > shown.length ? ", …" : "";
+  return {
+    code: "unmodeled_kind",
+    severity: "warning",
+    message:
+      `${count} unmodeled "${kind}" object${count === 1 ? "" : "s"} ` +
+      `not managed by this engine (e.g. ${shown.join(", ")}${more}) — ` +
+      `v1 detects but does not model this kind; ${remediationFor(kind)}`,
+    context: { kind, count, samples: shown },
+  };
 }
 
 /**

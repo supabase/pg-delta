@@ -31,8 +31,20 @@ import {
   resolveBaseline,
 } from "../policy/baseline.ts";
 import { probeApplierCapability } from "../policy/capability.ts";
+import { filterSupabasePlatformParameterAclDiagnostics } from "../policy/parameter-acl.ts";
 import { flattenPolicy, type Policy } from "../policy/policy.ts";
 import { vaultHandler } from "../policy/extensions/vault.ts";
+
+function policyOrAncestorHasId(
+  policy: Policy | undefined,
+  id: string,
+): boolean {
+  if (policy === undefined) return false;
+  if (policy.id === id) return true;
+  return (policy.extends ?? []).some((parent) =>
+    policyOrAncestorHasId(parent, id),
+  );
+}
 
 /** Static, declarative profile: the handlers and policy that define a managed
  *  view. Pure data — no live connection. Compose your own, or use the presets
@@ -215,10 +227,25 @@ export async function resolveProfile(
   // separately (planOptions.baselineMeta + ResolvedProfile.baseline).
   const baseline = loaded?.factBase;
 
-  const profileExtract = (
+  const profileExtract = async (
     p: Pool,
     extractOptions: ExtractOptions = {},
-  ): Promise<ExtractResult> => extract(p, { ...extractOptions, handlers });
+  ): Promise<ExtractResult> => {
+    const result = await extract(p, { ...extractOptions, handlers });
+    if (
+      profile.id !== "supabase" &&
+      !policyOrAncestorHasId(policy, "supabase")
+    ) {
+      return result;
+    }
+    return {
+      ...result,
+      diagnostics: await filterSupabasePlatformParameterAclDiagnostics(
+        p,
+        result.diagnostics,
+      ),
+    };
+  };
 
   // fold the handlers' intent replay rules (pg_cron jobs, …) into a resolver
   // index. Only `plan()` needs it (prove never re-plans; apply only replays
