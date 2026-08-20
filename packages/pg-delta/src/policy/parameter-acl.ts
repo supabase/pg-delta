@@ -68,9 +68,9 @@ async function fetchParameterAclGrants(
       `SELECT DISTINCT pa.parname AS name,
               COALESCE(grantee.rolname, 'PUBLIC') AS grantee,
               acl.privilege_type AS privilege
-         FROM pg_parameter_acl pa
-         CROSS JOIN LATERAL aclexplode(pa.paracl) acl
-         LEFT JOIN pg_roles grantee ON grantee.oid = acl.grantee
+         FROM pg_catalog.pg_parameter_acl pa
+         CROSS JOIN LATERAL pg_catalog.aclexplode(pa.paracl) acl
+         LEFT JOIN pg_catalog.pg_roles grantee ON grantee.oid = acl.grantee
         ORDER BY pa.parname, grantee, privilege`,
     );
     return rows;

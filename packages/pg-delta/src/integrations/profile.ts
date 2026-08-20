@@ -34,6 +34,17 @@ import { probeApplierCapability } from "../policy/capability.ts";
 import { filterSupabasePlatformParameterAclDiagnostics } from "../policy/parameter-acl.ts";
 import { flattenPolicy, type Policy } from "../policy/policy.ts";
 
+function policyOrAncestorHasId(
+  policy: Policy | undefined,
+  id: string,
+): boolean {
+  if (policy === undefined) return false;
+  if (policy.id === id) return true;
+  return (policy.extends ?? []).some((parent) =>
+    policyOrAncestorHasId(parent, id),
+  );
+}
+
 /** Static, declarative profile: the handlers and policy that define a managed
  *  view. Pure data — no live connection. Compose your own, or use the presets
  *  (`supabaseProfile`, `rawProfile`). */
@@ -220,7 +231,9 @@ export async function resolveProfile(
     extractOptions: ExtractOptions = {},
   ): Promise<ExtractResult> => {
     const result = await extract(p, { ...extractOptions, handlers });
-    if (profile.id !== "supabase" && policy?.id !== "supabase") return result;
+    if (profile.id !== "supabase" && !policyOrAncestorHasId(policy, "supabase")) {
+      return result;
+    }
     return {
       ...result,
       diagnostics: await filterSupabasePlatformParameterAclDiagnostics(
