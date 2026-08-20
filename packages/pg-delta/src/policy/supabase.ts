@@ -178,6 +178,18 @@ const SUPABASE_SYSTEM_PUBLICATIONS = [
   "supabase_realtime_messages_publication",
 ] as const;
 
+/** Managed-schema tables whose RLS policies are user intent, not platform state.
+ *  The platform seeds none on these surfaces (pinned by the full-stack fixture
+ *  in `tests/supabase-base-init.test.ts` and by the pristine guard in
+ *  `tests/supabase-managed-policies.test.ts` after `applySupabaseBaseInit`);
+ *  any policy present is user-authored. Policies have no owner — do not
+ *  inspect `usingExpr`. */
+export const SUPABASE_USER_POLICY_SURFACES = [
+  { schema: "storage", table: "objects" },
+  { schema: "storage", table: "buckets" },
+  { schema: "realtime", table: "messages" },
+] as const;
+
 // ---------------------------------------------------------------------------
 // The Supabase policy
 // ---------------------------------------------------------------------------
@@ -393,6 +405,34 @@ export const supabasePolicy: Policy = {
         ],
       },
       action: "include",
+    },
+
+    // User RLS on an explicit allowlist of managed-schema tables. Policies
+    // have no owner, so the discriminator is the surface, not provenance.
+    // MUST precede Rule 4 (first-match-wins): a policy's id.schema is the
+    // table schema, so Rule 4 would otherwise exclude it. Because that
+    // schema is also assumed, the exclusion is reference-only — the policy
+    // stays in the view but never diffs or exports. Rule 10 does not match
+    // kind:"policy" (satellites only); placement vs Rule 10 is not the game.
+    {
+      match: {
+        all: [
+          { kind: "policy" },
+          {
+            any: SUPABASE_USER_POLICY_SURFACES.map((s) => ({
+              all: [
+                { schema: s.schema },
+                { idField: { field: "table", glob: s.table } },
+              ],
+            })),
+          },
+        ],
+      },
+      action: "include",
+      audit: {
+        reasonCode: "supabase.user-policy-surface",
+        classification: "acknowledged",
+      },
     },
 
     // -------------------------------------------------------------------------
