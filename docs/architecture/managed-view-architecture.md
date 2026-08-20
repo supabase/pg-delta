@@ -106,6 +106,12 @@ kind that honours a `SCHEMA` clause.)
 
 *Principle: a serialize param that describes the object is a missing fact field.*
 
+*(Since superseded in two details: the `SCHEMA` clause is now derived from the
+target schema's PRESENCE at plan time — see the extension create rule and its
+da8ce04 regression note — and `extrelocatable` rides on the fact as non-hashed
+`_relocatable` metadata (it is a property of the installed version, i.e. version
+churn — CLI-2219), read only by the replace-vs-alter decision for schema moves.)*
+
 ### 3. Applier capability becomes a probed fact; the view is capability-restricted
 
 This is the irreducible residue, and the genuinely new idea. `skipAuthorization`'s

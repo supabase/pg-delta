@@ -10,9 +10,10 @@ import {
 } from "./scope.ts";
 
 /**
- * The extension fact payload. Single source of truth for its shape, shared
- * with the planner unit tests so a hand-built fact can never drift from what
- * extraction actually produces. `_relocatable` (pg_extension.extrelocatable)
+ * The extension fact payload as extraction produces it. Tests that exercise
+ * this exact shape should build it through here rather than hand-rolling the
+ * literal (scenarios needing extra keys — an `owner`, a `_schemaIsMember` —
+ * still compose their own). `_relocatable` (pg_extension.extrelocatable)
  * is NON-SEMANTIC METADATA (the `_` prefix — see hash.ts): a control-file
  * property of the INSTALLED VERSION, not user-manageable state, so it is
  * excluded from the diff/hash surface for the same reason `version` is —

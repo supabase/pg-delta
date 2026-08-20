@@ -535,16 +535,22 @@ export async function seclabelCluster(): Promise<Cluster> {
  * IDENTICAL object, so two databases holding the two versions differ in
  * nothing but pg_extension.extversion/extrelocatable. The fixture directory
  * (tests/fixtures/reloc-probe-extension) is copied at container start into
- * the stock `postgres:*-alpine` sharedir — the same path the dummy-seclabel
- * image build targets; no image build or compilation needed. Used by
+ * the image's sharedir — no image build or compilation needed. Used by
  * tests/extension-relocatable.test.ts.
  */
 let relocProbeShared: Promise<Cluster> | null = null;
 export async function relocProbeCluster(): Promise<Cluster> {
+  // Alpine images (the CI matrix, and the dummy-seclabel build target) keep
+  // the sharedir under /usr/local; Debian-family images (`postgres:<major>`
+  // without `-alpine`, a documented PGDELTA_TEST_IMAGE knob) under
+  // /usr/share/postgresql/<major>.
+  const extensionDir = PG_IMAGE.includes("alpine")
+    ? "/usr/local/share/postgresql/extension"
+    : `/usr/share/postgresql/${LEG_PG_MAJOR}/extension`;
   relocProbeShared ??= startCluster([
     {
       source: join(import.meta.dir, "fixtures", "reloc-probe-extension"),
-      target: "/usr/local/share/postgresql/extension",
+      target: extensionDir,
     },
   ]);
   return relocProbeShared;
