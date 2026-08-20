@@ -36,7 +36,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import pg from "pg";
-import { extract } from "../src/extract/extract.ts";
+import { extract, ExtractionTimeoutError } from "../src/extract/extract.ts";
 import { createTestDb, sharedCluster, type TestDb } from "./containers.ts";
 
 // Synchronous, derived from the same env var containers.ts keys the container
@@ -95,15 +95,17 @@ async function withQueryLog<T>(
 }
 
 /** Wrap the next-checked-out client so any query whose text matches `pattern`
- *  rejects with a synthetic Postgres permission-denied error (SQLSTATE 42501)
- *  instead of reaching the database — every other statement passes through
- *  untouched. Used to simulate a REVOKEd SET privilege: real PostgreSQL
- *  cannot reproduce that condition for `jit` (see the module comment), so this
- *  exercises the real failure SHAPE — a rejected statement inside the
- *  extraction transaction — directly. */
+ *  rejects with the synthetic Postgres error `makeError` builds instead of
+ *  reaching the database — every other statement passes through untouched.
+ *  Used to simulate error conditions real PostgreSQL cannot reproduce on
+ *  demand for `jit` (a REVOKEd SET privilege — see the module comment) or
+ *  cannot reproduce deterministically (a statement_timeout firing on exactly
+ *  this statement), so the tests exercise the real failure SHAPE — a rejected
+ *  statement inside the extraction transaction — directly. */
 async function withRejectedStatement<T>(
   pool: pg.Pool,
   pattern: RegExp,
+  makeError: () => Error,
   fn: () => Promise<T>,
 ): Promise<T> {
   const origConnect = pool.connect.bind(pool);
@@ -115,11 +117,7 @@ async function withRejectedStatement<T>(
     (client as { query: unknown }).query = (...qa: unknown[]) => {
       const sql = typeof qa[0] === "string" ? qa[0] : String(qa[0]);
       if (pattern.test(sql)) {
-        const error = new Error(
-          'permission denied to set parameter "jit"',
-        ) as Error & { code: string };
-        error.code = "42501";
-        return Promise.reject(error);
+        return Promise.reject(makeError());
       }
       return origQuery(...qa);
     };
@@ -130,6 +128,16 @@ async function withRejectedStatement<T>(
   } finally {
     (pool as { connect: unknown }).connect = origConnect;
   }
+}
+
+/** Synthetic SQLSTATE builder: the message/shape node-pg produces for a server
+ *  error with that code, minus the server round trip. */
+function pgError(message: string, code: string): () => Error {
+  return () => {
+    const error = new Error(message) as Error & { code: string };
+    error.code = code;
+    return error;
+  };
 }
 
 /** The exact jit-disable statement text for the running cluster's major
@@ -172,13 +180,45 @@ describe.skipIf(PG_MAJOR < 15)(
       // comment), and this synthetic interception would fail there too,
       // which is expected and not a regression.
       const pattern = /^SET LOCAL jit = off$/i;
-      const result = await withRejectedStatement(db.pool, pattern, () =>
-        extract(db.pool),
+      const result = await withRejectedStatement(
+        db.pool,
+        pattern,
+        pgError('permission denied to set parameter "jit"', "42501"),
+        () => extract(db.pool),
       );
       expect(result.factBase.facts().length).toBeGreaterThan(0);
     }, 60_000);
   },
 );
+
+describe("extract: a statement_timeout firing on the jit-disable statement", () => {
+  test("surfaces as ExtractionTimeoutError, never as the raw 57014 pg error", async () => {
+    // The coordinator's jit-disable is its own round trip (see extract.ts) and
+    // runs INSIDE the transaction whose opening batch set the caller's
+    // statement_timeout — so a tight budget can fire on exactly this
+    // statement. Every other extraction query goes through the timeout-aware
+    // runner that maps SQLSTATE 57014 to ExtractionTimeoutError; this pins
+    // that the jit-disable round trip gets the identical mapping. A real
+    // timeout cannot be aimed at this statement deterministically (which query
+    // a 1ms budget cancels first is a race — the CI flake that motivated this
+    // test), so the 57014 rejection is injected at the client seam instead.
+    let err: unknown;
+    try {
+      await withRejectedStatement(
+        db.pool,
+        jitOffPattern(),
+        pgError("canceling statement due to statement timeout", "57014"),
+        () => extract(db.pool, { statementTimeoutMs: 60_000 }),
+      );
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ExtractionTimeoutError);
+    const timeout = err as ExtractionTimeoutError;
+    expect(timeout.timeoutMs).toBe(60_000);
+    expect(timeout.queryLabel.length).toBeGreaterThan(0);
+  }, 60_000);
+});
 
 describe.skipIf(PG_MAJOR < 15)(
   "extract: jit disable as a plain non-superuser (has_parameter_privilege is false by default)",
