@@ -1008,7 +1008,10 @@ export function exportSqlFiles(
       name: clampFileName(
         `${String(index).padStart(4, "0")}_${run.path.replaceAll("/", "_")}`,
       ),
-      sql: renderFileSql(placeOwnedSequenceOwner(run.statements), options.format),
+      sql: renderFileSql(
+        placeOwnedSequenceOwner(run.statements),
+        options.format,
+      ),
     }));
   }
 
