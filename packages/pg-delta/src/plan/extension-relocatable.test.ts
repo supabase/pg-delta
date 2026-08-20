@@ -9,7 +9,9 @@
  */
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
+import { contentHash } from "../core/hash.ts";
 import type { StableId } from "../core/stable-id.ts";
+import { extensionPayload } from "../extract/schemas.ts";
 import { plan } from "./plan.ts";
 
 const publicSchema: StableId = { kind: "schema", name: "public" };
@@ -55,5 +57,73 @@ describe("extension SCHEMA clause derived from schema presence", () => {
     );
     expect(schemaAt).toBeGreaterThanOrEqual(0);
     expect(extAt).toBeGreaterThan(schemaAt);
+  });
+});
+
+describe("relocatable is version-derived metadata, never a diffable attribute", () => {
+  // CLI-2219: `relocatable` is a pure function of the installed extension
+  // VERSION (its control file) — not settable by any DDL. Since `version` is
+  // deliberately excluded from the payload, a relocatable flip across versions
+  // (wrappers did this) is version churn leaking back in through a side door:
+  // the differ emitted a `set relocatable` delta no attribute rule covers, and
+  // plan() threw guardrail 3 (a hard 500 on the mgmt-api branch diff).
+  const wrappers: StableId = { kind: "extension", name: "wrappers" };
+
+  test("a relocatable flip alone (same schema) plans to zero actions, not guardrail 3", () => {
+    const source = buildFactBase(
+      [
+        f(publicSchema),
+        { id: wrappers, payload: extensionPayload("public", false) },
+      ],
+      [],
+    );
+    const desired = buildFactBase(
+      [
+        f(publicSchema),
+        { id: wrappers, payload: extensionPayload("public", true) },
+      ],
+      [],
+    );
+    expect(plan(source, desired).actions).toEqual([]);
+  });
+
+  test("the two control-file variants are content-hash equal (no diff, no drift)", () => {
+    expect(contentHash(extensionPayload("public", false))).toBe(
+      contentHash(extensionPayload("public", true)),
+    );
+  });
+
+  test("a schema move of a NON-relocatable extension still routes to replace", () => {
+    // guards the plan-time read the flag exists for: replaceWhen must keep
+    // seeing it after it leaves the diffable surface.
+    const a: StableId = { kind: "schema", name: "a" };
+    const b: StableId = { kind: "schema", name: "b" };
+    const source = buildFactBase(
+      [f(a), f(b), { id: wrappers, payload: extensionPayload("a", false) }],
+      [],
+    );
+    const desired = buildFactBase(
+      [f(a), f(b), { id: wrappers, payload: extensionPayload("b", false) }],
+      [],
+    );
+    const sqls = plan(source, desired).actions.map((action) => action.sql);
+    expect(sqls).toContain(`DROP EXTENSION "wrappers"`);
+    expect(sqls).toContain(`CREATE EXTENSION "wrappers" SCHEMA "b"`);
+    expect(sqls).not.toContain(`ALTER EXTENSION "wrappers" SET SCHEMA "b"`);
+  });
+
+  test("a schema move of a RELOCATABLE extension still alters in place", () => {
+    const a: StableId = { kind: "schema", name: "a" };
+    const b: StableId = { kind: "schema", name: "b" };
+    const source = buildFactBase(
+      [f(a), f(b), { id: wrappers, payload: extensionPayload("a", true) }],
+      [],
+    );
+    const desired = buildFactBase(
+      [f(a), f(b), { id: wrappers, payload: extensionPayload("b", true) }],
+      [],
+    );
+    const sqls = plan(source, desired).actions.map((action) => action.sql);
+    expect(sqls).toContain(`ALTER EXTENSION "wrappers" SET SCHEMA "b"`);
   });
 });

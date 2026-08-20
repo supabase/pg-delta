@@ -21,6 +21,7 @@ import {
   Wait,
   type StartedTestContainer,
 } from "testcontainers";
+import { join } from "node:path";
 import pg from "pg";
 
 const PG_IMAGE = process.env["PGDELTA_TEST_IMAGE"] ?? "postgres:17-alpine";
@@ -206,13 +207,19 @@ export class Cluster {
   }
 }
 
-async function startCluster(): Promise<Cluster> {
+async function startCluster(
+  /** Host directories copied into the container at start (extracted before the
+   *  entrypoint runs, merging into the target) — e.g. a fixture extension's
+   *  control/script files into the sharedir (`relocProbeCluster`). */
+  directoriesToCopy: Array<{ source: string; target: string }> = [],
+): Promise<Cluster> {
   const container = await new GenericContainer(PG_IMAGE)
     .withEnvironment({
       POSTGRES_USER: "test",
       POSTGRES_PASSWORD: "test",
       POSTGRES_DB: "postgres",
     })
+    .withCopyDirectoriesToContainer(directoriesToCopy)
     .withCommand([
       "postgres",
       "-c",
@@ -521,6 +528,29 @@ export async function seclabelCluster(): Promise<Cluster> {
 }
 
 /**
+ * A stock cluster carrying `pgdelta_reloc_probe`: a SQL-only test extension
+ * with two installable versions whose control files DISAGREE on `relocatable`
+ * (1.0 → false; 2.0 → true via the secondary control file) — the wrappers
+ * release history in miniature (CLI-2219). Both version scripts install the
+ * IDENTICAL object, so two databases holding the two versions differ in
+ * nothing but pg_extension.extversion/extrelocatable. The fixture directory
+ * (tests/fixtures/reloc-probe-extension) is copied at container start into
+ * the stock `postgres:*-alpine` sharedir — the same path the dummy-seclabel
+ * image build targets; no image build or compilation needed. Used by
+ * tests/extension-relocatable.test.ts.
+ */
+let relocProbeShared: Promise<Cluster> | null = null;
+export async function relocProbeCluster(): Promise<Cluster> {
+  relocProbeShared ??= startCluster([
+    {
+      source: join(import.meta.dir, "fixtures", "reloc-probe-extension"),
+      target: "/usr/local/share/postgresql/extension",
+    },
+  ]);
+  return relocProbeShared;
+}
+
+/**
  * Stop every started singleton cluster and reset the singletons so a later call
  * re-starts fresh. The `withDb`-style test teardown only drops databases, never
  * the shared containers; standalone scripts (e.g. the dogfood suite) call this
@@ -528,13 +558,17 @@ export async function seclabelCluster(): Promise<Cluster> {
  * death — this is the clean in-process path.
  */
 export async function stopAllClusters(): Promise<void> {
-  const pending = [shared, supabaseShared, seclabelShared].filter(
-    (p): p is Promise<Cluster> => p !== null,
-  );
+  const pending = [
+    shared,
+    supabaseShared,
+    seclabelShared,
+    relocProbeShared,
+  ].filter((p): p is Promise<Cluster> => p !== null);
   const pairPending = isolatedPair;
   shared = null;
   supabaseShared = null;
   seclabelShared = null;
+  relocProbeShared = null;
   isolatedPair = null;
 
   const clusters = (

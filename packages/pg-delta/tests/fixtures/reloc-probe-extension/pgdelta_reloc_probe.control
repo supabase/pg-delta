@@ -1,0 +1,3 @@
+comment = 'pg-delta test: relocatable flips across versions (CLI-2219)'
+default_version = '1.0'
+relocatable = false

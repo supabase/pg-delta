@@ -1,4 +1,5 @@
 /** Schemas and extensions. */
+import type { Payload } from "../core/hash.ts";
 import type { StableId } from "../core/stable-id.ts";
 import {
   aclJsonMemberAware,
@@ -7,6 +8,21 @@ import {
   parseAcl,
   USER_SCHEMA_FILTER,
 } from "./scope.ts";
+
+/**
+ * The extension fact payload. Single source of truth for its shape, shared
+ * with the planner unit tests so a hand-built fact can never drift from what
+ * extraction actually produces. `relocatable` (pg_extension.extrelocatable)
+ * is a control-file property of the INSTALLED VERSION — carried for the
+ * schema rule's plan-time `replaceWhen` read (a non-relocatable extension
+ * relocates by drop + recreate, never SET SCHEMA).
+ */
+export function extensionPayload(
+  schema: string,
+  relocatable: boolean,
+): Payload {
+  return { schema, relocatable };
+}
 
 // ── schemas ──────────────────────────────────────────────────────────────
 const SCHEMAS_SQL = `
@@ -57,10 +73,10 @@ export const schemasAndExtensionsFamily: CatalogFamily = {
       pushWithMeta(
         {
           id: { kind: "extension", name: String(row["name"]) },
-          payload: {
-            schema: String(row["schema"]),
-            relocatable: Boolean(row["relocatable"]),
-          },
+          payload: extensionPayload(
+            String(row["schema"]),
+            Boolean(row["relocatable"]),
+          ),
         },
         row,
       );

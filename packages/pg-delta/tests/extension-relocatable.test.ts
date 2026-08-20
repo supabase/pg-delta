@@ -9,6 +9,12 @@
  *     relocatable=false and roundtrips with a BARE CREATE — proving the
  *     skipSchema hack removal is safe: the plan applies to a clone that has no
  *     pgmq schema beforehand, so the create needs no schema dependency.
+ *  C. (CLI-2219) the SAME extension installed at two versions whose control
+ *     files disagree on `relocatable` diffs to an EMPTY plan — relocatable is
+ *     version-derived metadata, and version churn is excluded from the diff by
+ *     design. A SQL-only two-version extension is injected into a stock
+ *     container at start (control + script files only, no compilation) — see
+ *     containers.ts::relocProbeCluster.
  *
  * Docker required.
  */
@@ -16,7 +22,12 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
 import { provePlan } from "../src/proof/prove.ts";
-import { sharedCluster, supabaseCluster, type TestDb } from "./containers.ts";
+import {
+  relocProbeCluster,
+  sharedCluster,
+  supabaseCluster,
+  type TestDb,
+} from "./containers.ts";
 
 const dbs: TestDb[] = [];
 afterAll(async () => {
@@ -82,6 +93,45 @@ describe("extension SCHEMA clause derived from relocatable (e2e)", () => {
     // missing-requirement guard would throw at plan time; that it plans and
     // proves clean is the proof of the bare path.
     const thePlan = plan(srcState.factBase, dstState.factBase);
+    const clone = await src.clone();
+    dbs.push(clone);
+    const verdict = await provePlan(thePlan, clone.pool, dstState.factBase);
+    expect(verdict.applyError).toBeUndefined();
+    expect(verdict.driftDeltas).toEqual([]);
+    expect(verdict.ok).toBe(true);
+  }, 240_000);
+
+  test("a relocatable flip across extension versions diffs to an empty, convergent plan (CLI-2219)", async () => {
+    // `relocProbeCluster` carries the two-version `pgdelta_reloc_probe`
+    // extension whose control files disagree on `relocatable` — the wrappers
+    // release history in miniature (see containers.ts for the fixture).
+    const cluster = await relocProbeCluster();
+    const src = await cluster.createDb("ext_reloc_flip_src");
+    const dst = await cluster.createDb("ext_reloc_flip_dst");
+    dbs.push(src, dst);
+    await src.pool.query(`CREATE EXTENSION pgdelta_reloc_probe VERSION '1.0'`);
+    await dst.pool.query(`CREATE EXTENSION pgdelta_reloc_probe VERSION '2.0'`);
+
+    // fixture guard: the two sides genuinely disagree on extrelocatable
+    const reloc = async (db: TestDb) =>
+      (
+        await db.pool.query(
+          `SELECT extrelocatable FROM pg_extension WHERE extname = 'pgdelta_reloc_probe'`,
+        )
+      ).rows[0].extrelocatable as boolean;
+    expect(await reloc(src)).toBe(false);
+    expect(await reloc(dst)).toBe(true);
+
+    const srcState = await extract(src.pool);
+    const dstState = await extract(dst.pool);
+
+    // RED (guardrail 3): `set relocatable` had no attribute rule, so plan()
+    // threw here — the production 500 on the mgmt-api branch diff. GREEN:
+    // relocatable is non-hashed metadata, the diff is empty, and the proof
+    // converges without touching the extension.
+    const thePlan = plan(srcState.factBase, dstState.factBase);
+    expect(thePlan.actions).toEqual([]);
+
     const clone = await src.clone();
     dbs.push(clone);
     const verdict = await provePlan(thePlan, clone.pool, dstState.factBase);
