@@ -36,7 +36,10 @@ const postgresRoleId: StableId = { kind: "role", name: "postgres" };
 function wrapperWorld(): { facts: Fact[]; edges: DependencyEdge[] } {
   const facts: Fact[] = [
     { id: postgresRoleId, payload: {} },
-    { id: wrappersExtId, payload: { schema: "extensions", relocatable: true } },
+    {
+      id: wrappersExtId,
+      payload: { schema: "extensions", _relocatable: true },
+    },
     {
       id: wasmFdwId,
       payload: {

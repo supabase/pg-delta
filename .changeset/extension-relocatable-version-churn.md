@@ -1,0 +1,7 @@
+---
+"@supabase/pg-delta": patch
+---
+
+Fix the guardrail-3 plan failure (`rule table: kind 'extension' has no rule for attribute 'relocatable'`) when the two sides of a diff hold the same extension at versions whose control files disagree on `relocatable` (e.g. `wrappers`, which flipped relocatability across its release history). `relocatable` is a control-file property of the installed extension version — not settable by any DDL — so it now rides on the extension fact as non-hashed metadata (`_relocatable`), excluded from the diff/hash surface for the same reason `version` is, while staying readable at plan time for the schema rule's replace-vs-alter decision. That plan-time check now also consults the source-side fact: the ALTER executes against the source database, so a schema move across a relocatable flip routes to drop + recreate instead of an `ALTER EXTENSION … SET SCHEMA` the live database would reject.
+
+Note: extension fact content hashes change with this release. Re-capture any stored snapshots and baselines from earlier versions before using them with this release — a legacy snapshot diffed against a fresh extract fails `plan()` with the guardrail-3 error above for every extension it carries (and reports false `.relocatable` drift in `pgdelta drift`), a legacy baseline silently stops subtracting extension facts, and a plan between two legacy snapshots loses the non-relocatable replace route for extension schema moves.

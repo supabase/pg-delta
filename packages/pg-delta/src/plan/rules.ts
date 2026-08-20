@@ -101,8 +101,11 @@ export type AttributeRule =
       /** When a specific transition has no in-place ALTER grammar, route the
        *  WHOLE fact to replace (drop + recreate) instead of emitting `alter` —
        *  e.g. unsetting a foreign server VERSION, or SET SCHEMA on a
-       *  non-relocatable extension. Evaluated during replacement classification;
-       *  the fact is then dropped + recreated (its `alter` never runs). */
+       *  non-relocatable extension. Evaluated during replacement classification
+       *  against the SOURCE-side and DESIRED-side fact and OR-ed (the alter
+       *  executes on the source database, so either endpoint's state may
+       *  invalidate it); the fact is then dropped + recreated (its `alter`
+       *  never runs). */
       replaceWhen?: (
         from: PayloadValue,
         to: PayloadValue,

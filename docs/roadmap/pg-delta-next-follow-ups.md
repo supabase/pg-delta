@@ -1391,3 +1391,73 @@ two are real but out of this PR's partman scope; recorded here.
   deregister path. A faithful one-shot transition needs the same in-place
   ALTER hook / planner transition gate as the `p_default_table` corner, so it
   lands with that machinery, not piecemeal here.
+
+## CLI-2219 cross-review triage — legacy-artifact detection after the `_relocatable` rename
+
+The CLI-2219 fix moved `relocatable` out of the extension fact's hashed
+payload (now `_relocatable` metadata). Cross-review confirmed three legacy-
+artifact symptoms, all deferred per the established alpha re-capture posture
+(precedent: the ENGINE_VERSION 0.2.0 search_path change invalidated every
+fact hash with only a "regenerate your artifacts" note; snapshots carry no
+engine-version stamp and FORMAT_VERSION describes the document shape, which
+is unchanged). All three are documented in the release's changeset note;
+none is silent data corruption — but none points the user at re-capture
+either, which is the gap to close if pre-fix artifacts turn out to persist
+in the wild:
+
+- **Legacy snapshot vs fresh extract** — `plan()` throws the (now
+  misleading) guardrail-3 `no rule for attribute 'relocatable'` error for
+  every extension the snapshot carries; `pgdelta drift` reports false
+  `.relocatable` drift. A decode-time key migration in `snapshot.ts` is
+  feasible but must run AFTER digest verification (migrating first changes
+  the recomputed rootHash and rejects the file as corrupt) and would be the
+  first kind-aware code in the deliberately kind-free core — do it only if a
+  consumer that persists v1 snapshots and cannot cheaply re-capture shows up
+  (the mgmt-api incident path extracts both sides live).
+- **Legacy baseline** — `subtractBaseline` matches on content hash, so a
+  pre-fix baseline silently stops subtracting every extension fact (they
+  leak back into exports/plans with no diagnostic). No baselines are shipped
+  in-repo (the supabase policy's `baseline:` is commented out), so exposure
+  is user-supplied only. A fail-loud guard in the same family as the
+  documented `redactSecrets`-mismatch check (e.g. flag a baseline whose
+  extension facts carry hashed keys the current extractor never emits) would
+  convert this to an actionable error.
+- **Two legacy snapshots planned against each other** — both sides lack
+  `_relocatable`, so a non-relocatable extension's schema move loses the
+  replace route and plans `ALTER … SET SCHEMA` (rejected loudly by Postgres
+  at apply; `prove` also fails it pre-mutation).
+
+### PR #435 review triage (Codex)
+
+- **Deferred — a relocatability flip BETWEEN plan and apply is invisible to
+  the fingerprint gate.** With `_relocatable` outside the hashed surface, an
+  out-of-band `ALTER EXTENSION UPDATE` in the plan→apply window whose new
+  version changes nothing catalog-visible except relocatability no longer
+  moves `physicalSource.rootHash`, so the apply gate accepts the stale plan.
+  This is the same trade the engine already makes for `version` itself (never
+  hashed, by design): an update that changes any member definition still
+  moves the fingerprint and is caught. The residual failure modes are loud or
+  pre-approved — a stale `ALTER … SET SCHEMA` is rejected by Postgres and
+  aborts the apply (re-plan resolves it), and executing the plan's
+  DROP+CREATE against a now-relocatable extension still converges and only
+  carries the dataLoss hazard the operator already accepted at plan time.
+  Revalidating planner decision inputs at apply would need a general
+  "plan-bound preconditions" channel (per-kind checks in apply are
+  architecture-hostile); if that machinery ever lands, extension
+  relocatability is its first customer.
+
+- **Deferred — `_relocatable` in a snapshot is outside the digest (round 2,
+  same family).** The snapshot digest folds `rootHash`, which excludes all
+  `_`-prefixed metadata by the hash.ts contract — so an edited or corrupted
+  `_relocatable` (like `_position` or `_configGucs` before it) passes
+  `deserializeSnapshot()`. The digest is an integrity guard against
+  ACCIDENTAL corruption, not authentication: it is stored in the same file,
+  so a deliberate editor can recompute it regardless of what it covers.
+  There is also nothing to independently validate against at decode time —
+  the flag is control-file state of a database the snapshot may have
+  outlived — and re-hashing it reintroduces CLI-2219. Blast radius of a
+  wrong value is the same as the plan-to-apply drift entry above: a stale
+  ALTER … SET SCHEMA is rejected loudly by Postgres, and an unnecessary
+  replace converges with its dataLoss hazard surfaced at plan approval. If a
+  "plan-bound decision inputs" channel lands (previous entry), snapshot-side
+  authentication of those inputs belongs to the same machinery.

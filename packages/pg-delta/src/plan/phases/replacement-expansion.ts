@@ -65,8 +65,19 @@ export function expandReplacements(
         continue;
       }
       // a transition with no in-place ALTER grammar routes the whole fact to
-      // replace (drop + recreate) — its `alter` is never rendered.
-      if (attrRule.replaceWhen?.(s.from, s.to, fact)) {
+      // replace (drop + recreate) — its `alter` is never rendered. Evaluated
+      // against BOTH endpoint facts: the alter executes on the SOURCE database,
+      // so source-side state governs its legality (a non-relocatable installed
+      // extension version rejects SET SCHEMA even when the desired version is
+      // relocatable), while the desired-side read stays as the conservative
+      // end-state check. Replace always converges, so OR-ing can only widen
+      // the replace set — never emit an illegal alter.
+      const sourceFact = source.get(s.id);
+      if (
+        attrRule.replaceWhen?.(s.from, s.to, fact) ||
+        (sourceFact !== undefined &&
+          attrRule.replaceWhen?.(s.from, s.to, sourceFact))
+      ) {
         replaceIds.add(key);
         continue;
       }

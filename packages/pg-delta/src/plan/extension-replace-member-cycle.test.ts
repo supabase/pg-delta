@@ -51,7 +51,7 @@ const pgNetBase = (
     [
       f(publicSchema),
       f(extensionsSchema),
-      f(pgNet, { schema: extSchema, relocatable: false }),
+      f(pgNet, { schema: extSchema, _relocatable: false }),
       f(netSchema),
       {
         id: httpGet,

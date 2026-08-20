@@ -1,4 +1,5 @@
 /** Schemas and extensions. */
+import type { Payload } from "../core/hash.ts";
 import type { StableId } from "../core/stable-id.ts";
 import {
   aclJsonMemberAware,
@@ -7,6 +8,27 @@ import {
   parseAcl,
   USER_SCHEMA_FILTER,
 } from "./scope.ts";
+
+/**
+ * The extension fact payload as extraction produces it. Tests that exercise
+ * this exact shape should build it through here rather than hand-rolling the
+ * literal (scenarios needing extra keys — an `owner`, a `_schemaIsMember` —
+ * still compose their own). `_relocatable` (pg_extension.extrelocatable)
+ * is NON-SEMANTIC METADATA (the `_` prefix — see hash.ts): a control-file
+ * property of the INSTALLED VERSION, not user-manageable state, so it is
+ * excluded from the diff/hash surface for the same reason `version` is —
+ * otherwise an extension whose control files flip relocatability across
+ * versions (wrappers did) produces a `set` delta no rule can converge, and
+ * plan() throws guardrail 3 (CLI-2219). It rides along for the schema rule's
+ * plan-time `replaceWhen` read only (a non-relocatable extension relocates by
+ * drop + recreate, never SET SCHEMA).
+ */
+export function extensionPayload(
+  schema: string,
+  relocatable: boolean,
+): Payload {
+  return { schema, _relocatable: relocatable };
+}
 
 // ── schemas ──────────────────────────────────────────────────────────────
 const SCHEMAS_SQL = `
@@ -57,10 +79,10 @@ export const schemasAndExtensionsFamily: CatalogFamily = {
       pushWithMeta(
         {
           id: { kind: "extension", name: String(row["name"]) },
-          payload: {
-            schema: String(row["schema"]),
-            relocatable: Boolean(row["relocatable"]),
-          },
+          payload: extensionPayload(
+            String(row["schema"]),
+            Boolean(row["relocatable"]),
+          ),
         },
         row,
       );

@@ -477,7 +477,10 @@ rounds before being trimmed back). Rules of engagement:
   `docs/roadmap/pg-delta-next-follow-ups.md` (see the per-PR triage sections
   there, e.g. "PR #368 review triage"). Reply to the bot thread with a link to
   that section — never silently ignore a finding, and never fix it just to
-  make the thread go away.
+  make the thread go away. **When a finding is dismissed/deferred, the reply
+  must say so explicitly AND the review thread must be resolved** — a deferral
+  reply that leaves the thread open reads as unfinished work to reviewers and
+  keeps the PR's open-thread count wrong.
 - **Escalate.** When the loop stops being productive, say so on the PR and
   hand it to a human reviewer with a summary of what was fixed vs deferred.
 
