@@ -87,6 +87,10 @@ describe("vault presence plan diagnostics", () => {
     expect(diags[0]!.message).toMatch(/management API/);
     expect(hasBlockingDiagnostics(diags)).toBe(false);
     expect(hasBlockingDiagnostics(diags, { strictCoverage: true })).toBe(true);
+    expect(classifyPlanHazards(thePlan, diags)).toMatchObject({
+      coverage: [VAULT_PRESENCE],
+      kinds: [VAULT_PRESENCE],
+    });
   });
 
   test("case 4: DROP EXTENSION supabase_vault is destructive and warns", () => {
