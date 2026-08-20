@@ -304,6 +304,9 @@ export interface PlanSchemaFilesOptions {
   allowSameDatabaseIdentity?: boolean;
   /** Statement-reorder assist. Default: true. */
   reorder?: boolean;
+  /** Forwarded to {@link loadSqlFiles}. Default: true (per-statement fallback
+   *  after a file-atomic failure). `false` restores whole-file rollback. */
+  statementFallback?: boolean;
   /** Soft warnings (reorder fallback, ADP caveat, …). */
   onWarning?: (message: string) => void;
   /** Optional rewrite of a ShadowLoadError after reorder (CLI attaches file:line). */
@@ -670,6 +673,9 @@ export async function planSchemaFiles(
         : {}),
       ...(options.isolatedShadow === true
         ? { mode: "isolatedCluster" as const }
+        : {}),
+      ...(options.statementFallback !== undefined
+        ? { statementFallback: options.statementFallback }
         : {}),
     });
   } catch (error) {

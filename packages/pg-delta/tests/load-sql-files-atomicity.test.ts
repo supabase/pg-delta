@@ -32,6 +32,8 @@ describe("loadSqlFiles — per-file transactional apply", () => {
           },
         ],
         shadow.pool,
+        // whole-file rollback: a must not leak from the failed first attempt
+        { statementFallback: false },
       );
       expect(result.rounds).toBeGreaterThan(1);
       expect(
