@@ -123,8 +123,18 @@ function renderFileSql(
   return `${statements.map((s) => `${s};`).join("\n\n")}\n`;
 }
 
-/** The subject deciding an action's file: produced fact, else consumed. */
+/**
+ * File-placement subject. OWNED BY is a sequence follow-up whose first
+ * consume is the sequence (so it would otherwise land in sequences/), but
+ * it must sit with the owning table so the file-atomic loader can apply
+ * CREATE SEQUENCE before CREATE TABLE … nextval.
+ */
 function subjectOf(action: Action): StableId | undefined {
+  const column = action.consumes.find((id) => id.kind === "column");
+  const sequence =
+    action.produces.find((id) => id.kind === "sequence") ??
+    action.consumes.find((id) => id.kind === "sequence");
+  if (column !== undefined && sequence !== undefined) return column;
   return action.produces[0] ?? action.consumes[0];
 }
 

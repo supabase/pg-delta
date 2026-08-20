@@ -43,6 +43,7 @@ describe("export: identity backing-sequence name fidelity", () => {
       const fb = (await extract(src.pool)).factBase;
 
       const files = forLoad(exportSqlFiles(fb));
+      expect(files.some((f) => f.name.includes("/sequences/"))).toBe(false);
       const all = files.map((f) => f.sql).join("\n");
       // the renamed sequence name must be reproduced explicitly
       expect(all.toLowerCase()).toContain("sequence name");
@@ -69,6 +70,7 @@ describe("export: identity backing-sequence name fidelity", () => {
       const fb = (await extract(src.pool)).factBase;
 
       const files = forLoad(exportSqlFiles(fb));
+      expect(files.some((f) => f.name.includes("/sequences/"))).toBe(false);
       const all = files.map((f) => f.sql).join("\n");
       // default `<table>_<column>_seq` name → export stays minimal
       expect(all.toLowerCase()).not.toContain("sequence name");
