@@ -98,7 +98,7 @@ describe("conditional check_function_bodies preamble", () => {
   test("creating an extension keeps check_function_bodies = off", () => {
     const ext: Fact = {
       id: { kind: "extension", name: "pgmq" },
-      payload: { schema: "pgmq", relocatable: false },
+      payload: { schema: "pgmq", _relocatable: false },
     };
     const thePlan = plan(base([]), base([ext]));
     expect(preambleNames(thePlan)).toEqual([

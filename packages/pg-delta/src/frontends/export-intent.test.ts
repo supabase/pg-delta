@@ -23,7 +23,7 @@ const jobId: StableId = {
 const fb = buildFactBase(
   [
     { id: { kind: "schema", name: "public" }, payload: {} },
-    { id: pgCron, payload: { schema: "pg_catalog", relocatable: false } },
+    { id: pgCron, payload: { schema: "pg_catalog", _relocatable: false } },
     {
       id: jobId,
       payload: {

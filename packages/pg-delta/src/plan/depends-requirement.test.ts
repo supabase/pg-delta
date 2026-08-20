@@ -42,7 +42,7 @@ describe("plan() — dependency-edge requirement invariant (P0-1)", () => {
     const desired = buildFactBase(
       [
         f(publicSchema),
-        f(hstore, publicSchema, { schema: "public", relocatable: true }),
+        f(hstore, publicSchema, { schema: "public", _relocatable: true }),
         f(table, publicSchema, { persistence: "p" }),
         f(column, table, { type: "hstore", notNull: false }),
       ],
@@ -77,7 +77,7 @@ describe("plan() — dependency-edge requirement invariant (P0-1)", () => {
     const desired = buildFactBase(
       [
         f(publicSchema),
-        f(hstore, publicSchema, { schema: "public", relocatable: true }),
+        f(hstore, publicSchema, { schema: "public", _relocatable: true }),
         f(table, publicSchema, { persistence: "p" }),
         f(column, table, { type: "hstore", notNull: false }),
       ],

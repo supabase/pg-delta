@@ -41,7 +41,7 @@ function relocatableOf(
   const ext = state.factBase
     .facts()
     .find((f) => f.id.kind === "extension" && f.id.name === name);
-  return ext?.payload["relocatable"];
+  return ext?.payload["_relocatable"];
 }
 
 describe("extension SCHEMA clause derived from relocatable (e2e)", () => {

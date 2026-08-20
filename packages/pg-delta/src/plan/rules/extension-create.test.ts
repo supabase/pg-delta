@@ -59,7 +59,7 @@ describe("CREATE EXTENSION schema clause (presence-based)", () => {
     // but physically present on the target → the clause is valid + needed.
     expect(
       createSql(
-        { schema: "extensions", relocatable: false },
+        { schema: "extensions", _relocatable: false },
         view([sch("extensions")], [sch("extensions")]),
         view([sch("extensions")], [sch("extensions")]),
       ),
@@ -69,7 +69,7 @@ describe("CREATE EXTENSION schema clause (presence-based)", () => {
   test("relocatable ext into a present schema → SCHEMA (citext, unchanged)", () => {
     expect(
       createSql(
-        { schema: "extensions", relocatable: true },
+        { schema: "extensions", _relocatable: true },
         view([sch("extensions")], [sch("extensions")]),
       ),
     ).toBe(`CREATE EXTENSION "x" SCHEMA "extensions"`);
@@ -80,7 +80,7 @@ describe("CREATE EXTENSION schema clause (presence-based)", () => {
     // the `consumes` edge orders CREATE SCHEMA first. Absent from the target.
     expect(
       createSql(
-        { schema: "app", relocatable: false },
+        { schema: "app", _relocatable: false },
         EMPTY,
         view([sch("app")], []),
       ),
@@ -92,7 +92,7 @@ describe("CREATE EXTENSION schema clause (presence-based)", () => {
     // apply because pgmq does not exist until CREATE EXTENSION creates it.
     expect(
       createSql(
-        { schema: "pgmq", relocatable: false, _schemaIsMember: false },
+        { schema: "pgmq", _relocatable: false, _schemaIsMember: false },
         EMPTY,
         view([sch("pgmq")], [sch("pgmq")]),
       ),
@@ -104,7 +104,7 @@ describe("CREATE EXTENSION schema clause (presence-based)", () => {
     // requirement guard (pg_catalog is not a fact and not assumed).
     expect(
       createSql(
-        { schema: "pg_catalog", relocatable: false, _schemaIsMember: false },
+        { schema: "pg_catalog", _relocatable: false, _schemaIsMember: false },
         EMPTY,
         EMPTY,
       ),

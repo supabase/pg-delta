@@ -12,16 +12,21 @@ import {
 /**
  * The extension fact payload. Single source of truth for its shape, shared
  * with the planner unit tests so a hand-built fact can never drift from what
- * extraction actually produces. `relocatable` (pg_extension.extrelocatable)
- * is a control-file property of the INSTALLED VERSION — carried for the
- * schema rule's plan-time `replaceWhen` read (a non-relocatable extension
- * relocates by drop + recreate, never SET SCHEMA).
+ * extraction actually produces. `_relocatable` (pg_extension.extrelocatable)
+ * is NON-SEMANTIC METADATA (the `_` prefix — see hash.ts): a control-file
+ * property of the INSTALLED VERSION, not user-manageable state, so it is
+ * excluded from the diff/hash surface for the same reason `version` is —
+ * otherwise an extension whose control files flip relocatability across
+ * versions (wrappers did) produces a `set` delta no rule can converge, and
+ * plan() throws guardrail 3 (CLI-2219). It rides along for the schema rule's
+ * plan-time `replaceWhen` read only (a non-relocatable extension relocates by
+ * drop + recreate, never SET SCHEMA).
  */
 export function extensionPayload(
   schema: string,
   relocatable: boolean,
 ): Payload {
-  return { schema, relocatable };
+  return { schema, _relocatable: relocatable };
 }
 
 // ── schemas ──────────────────────────────────────────────────────────────

@@ -27,7 +27,7 @@ describe("extension SCHEMA clause derived from schema presence", () => {
     // desired adds pgmq (installs its own `pgmq` schema). The `pgmq` schema is
     // NOT a fact and is NOT produced by the plan → the extension must create it.
     const desired = buildFactBase(
-      [f(publicSchema), f(pgmq, { schema: "pgmq", relocatable: false })],
+      [f(publicSchema), f(pgmq, { schema: "pgmq", _relocatable: false })],
       [],
     );
     // bare CREATE, no schema requirement, exactly one action (no guard throw).
@@ -46,7 +46,7 @@ describe("extension SCHEMA clause derived from schema presence", () => {
       [
         f(publicSchema),
         f(app),
-        f(hstore, { schema: "app", relocatable: true }),
+        f(hstore, { schema: "app", _relocatable: true }),
       ],
       [],
     );

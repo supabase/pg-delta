@@ -63,7 +63,7 @@ const job = (key: string): StableId => ({
 /** pg_cron present on both sides (never diffed) so the depends edge is valid. */
 const baseFacts: Fact[] = [
   f(publicSchema),
-  f(pgCron, publicSchema, { schema: "pg_catalog", relocatable: false }),
+  f(pgCron, publicSchema, { schema: "pg_catalog", _relocatable: false }),
 ];
 
 const jobFact = (key: string, schedule: string): Fact =>

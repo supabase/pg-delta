@@ -15,7 +15,7 @@ import { supabasePolicy } from "./supabase.ts";
 
 const ext = (name: string, schema: string): Fact => ({
   id: { kind: "extension", name },
-  payload: { schema, relocatable: false },
+  payload: { schema, _relocatable: false },
 });
 const pgGraphql: StableId = { kind: "extension", name: "pg_graphql" };
 const pgTrgm: StableId = { kind: "extension", name: "pg_trgm" };

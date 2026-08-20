@@ -75,7 +75,7 @@ describe("resolveView — fact-level scope projection", () => {
       ],
     };
     const fb = buildFactBase(
-      [f(role("sys")), f(ext("pgmq"), { owner: "sys", relocatable: false })],
+      [f(role("sys")), f(ext("pgmq"), { owner: "sys", _relocatable: false })],
       [],
     );
     const view = resolveView(fb, policy);
