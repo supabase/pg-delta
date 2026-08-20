@@ -231,7 +231,10 @@ export async function resolveProfile(
     extractOptions: ExtractOptions = {},
   ): Promise<ExtractResult> => {
     const result = await extract(p, { ...extractOptions, handlers });
-    if (profile.id !== "supabase" && !policyOrAncestorHasId(policy, "supabase")) {
+    if (
+      profile.id !== "supabase" &&
+      !policyOrAncestorHasId(policy, "supabase")
+    ) {
       return result;
     }
     return {
