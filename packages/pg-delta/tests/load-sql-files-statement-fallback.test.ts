@@ -253,6 +253,10 @@ describe("loadSqlFiles — statementFallback", () => {
       const result = await loadSqlFiles(
         [
           {
+            name: "0_schema.sql",
+            sql: `CREATE SCHEMA app;`,
+          },
+          {
             name: "1_adp.sql",
             sql: `
               ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT SELECT ON TABLES TO PUBLIC;
@@ -262,7 +266,6 @@ describe("loadSqlFiles — statementFallback", () => {
           {
             name: "2_tables.sql",
             sql: `
-              CREATE SCHEMA app;
               CREATE TABLE app.t (id integer PRIMARY KEY);
               CREATE TABLE app.b (id integer PRIMARY KEY);
             `,
