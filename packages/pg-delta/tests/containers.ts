@@ -464,21 +464,48 @@ const ALPINE_TAG_FOR_PG_MAJOR: Record<number, string> = {
   18: "3.23",
 };
 
+/** The dummy_seclabel image build reaches three networks (the Docker registry
+ *  for the base images, the Alpine CDN for `apk add`, raw.githubusercontent.com
+ *  for the module source), and any of them flakes transiently on shared CI
+ *  egress — observed as testcontainers' bare "Failed to build image" taking
+ *  four security-label test files down in one CI run. Retry with backoff;
+ *  Docker's layer cache makes a retry resume from the last good layer. */
+async function buildSeclabelImage(major: number) {
+  const delaysMs = [0, 5_000, 15_000];
+  let lastError: unknown;
+  for (const delayMs of delaysMs) {
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    try {
+      return await GenericContainer.fromDockerfile(
+        import.meta.dir,
+        "dummy-seclabel.Dockerfile",
+      )
+        .withBuildArgs({
+          PG_MAJOR: String(major),
+          PG_BRANCH: `REL_${major}_STABLE`,
+          ALPINE_TAG: ALPINE_TAG_FOR_PG_MAJOR[major] ?? "3.23",
+        })
+        .withCache(true)
+        .build(`pg-delta-next-seclabel:${major}`, { deleteOnExit: false });
+    } catch (error) {
+      lastError = error;
+      console.error(
+        `dummy_seclabel image build failed (attempt ${delaysMs.indexOf(delayMs) + 1}/${delaysMs.length}): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  throw lastError;
+}
+
 async function startSeclabelCluster(): Promise<Cluster> {
   const major = SECLABEL_PG_MAJOR;
   // build-or-reuse the dummy_seclabel image (Docker layer cache makes repeat
   // runs cheap; the first build compiles the module from PG source)
-  const built = await GenericContainer.fromDockerfile(
-    import.meta.dir,
-    "dummy-seclabel.Dockerfile",
-  )
-    .withBuildArgs({
-      PG_MAJOR: String(major),
-      PG_BRANCH: `REL_${major}_STABLE`,
-      ALPINE_TAG: ALPINE_TAG_FOR_PG_MAJOR[major] ?? "3.23",
-    })
-    .withCache(true)
-    .build(`pg-delta-next-seclabel:${major}`, { deleteOnExit: false });
+  const built = await buildSeclabelImage(major);
   const container = await built
     .withEnvironment({
       POSTGRES_USER: "test",
@@ -516,7 +543,14 @@ async function startSeclabelCluster(): Promise<Cluster> {
 
 let seclabelShared: Promise<Cluster> | null = null;
 export async function seclabelCluster(): Promise<Cluster> {
-  seclabelShared ??= startSeclabelCluster();
+  // Never cache a REJECTED start: the singleton exists to share one healthy
+  // cluster, and memoizing a transient failure (image build flake, slow
+  // startup) would instantly fail every later seclabel test in the process
+  // instead of letting the next caller try again.
+  seclabelShared ??= startSeclabelCluster().catch((error: unknown) => {
+    seclabelShared = null;
+    throw error;
+  });
   return seclabelShared;
 }
 
