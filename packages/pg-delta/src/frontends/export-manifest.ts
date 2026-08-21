@@ -169,6 +169,7 @@ export function applyManifestLoadOrder<T extends { name: string }>(
   const seen = new Set<string>();
   const ordered: T[] = [];
   for (const path of loadOrder) {
+    if (seen.has(path)) continue;
     const file = byName.get(path);
     if (file !== undefined) {
       ordered.push(file);

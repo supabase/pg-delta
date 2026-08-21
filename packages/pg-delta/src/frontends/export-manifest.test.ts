@@ -115,6 +115,17 @@ describe("export manifest", () => {
     expect(applyManifestLoadOrder(files).map((f) => f.name)).toEqual(
       files.map((f) => f.name),
     );
+    expect(
+      applyManifestLoadOrder(files, [
+        "public/tables/t.sql",
+        "public/tables/t.sql",
+        "_cluster/publications.sql",
+      ]).map((f) => f.name),
+    ).toEqual([
+      "public/tables/t.sql",
+      "_cluster/publications.sql",
+      "extra.sql",
+    ]);
   });
 
   test("drops a wrong-typed files field (non-array or non-string members)", () => {

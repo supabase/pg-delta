@@ -1095,6 +1095,7 @@ export async function loadSqlFiles(
           await applyPreamble(client);
           reconnected = true;
           pending = next;
+          maxRounds = Math.max(maxRounds, rounds + pending.length + 1);
           continue;
         }
         if (
@@ -1105,7 +1106,7 @@ export async function loadSqlFiles(
           failuresBeforeReorder = failures;
           fileKindTried = true;
           pending = await options.reorderFilesByKind(next);
-          maxRounds = Math.max(maxRounds, pending.length + 1);
+          maxRounds = Math.max(maxRounds, rounds + pending.length + 1);
           continue;
         }
         if (
@@ -1137,7 +1138,7 @@ export async function loadSqlFiles(
             });
           }
           pending = split;
-          maxRounds = Math.max(maxRounds, pending.length + 1);
+          maxRounds = Math.max(maxRounds, rounds + pending.length + 1);
           continue;
         }
         const mutualFkHint = detectMutualFk(failures)
