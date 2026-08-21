@@ -50,6 +50,11 @@ export interface ExportManifest {
    *  authored) and refused rather than silently deleted. FIELD ABSENT → a
    *  pre-feature or hand-authored dir: every existing `.sql` is unmanaged. */
   files?: string[];
+  /** Emission order from `exportSqlFiles` (plan `firstAt`), POSIX paths.
+   *  Shadow load uses this as the default file order. Absent on older
+   *  manifests — callers fall back to lexicographic collect order. Distinct
+   *  from {@link files}, which is a sorted ownership set. */
+  loadOrder?: string[];
 }
 
 export function writeExportManifest(
@@ -61,6 +66,7 @@ export function writeExportManifest(
     baselineDigest?: string;
     defaultOwner?: string | null;
     files?: string[];
+    loadOrder?: string[];
   },
 ): void {
   const path = join(dir, EXPORT_MANIFEST_FILE);
@@ -133,5 +139,46 @@ export function readExportManifest(dir: string): ExportManifest | undefined {
   if (Array.isArray(files) && files.every((f) => typeof f === "string")) {
     manifest.files = files as string[];
   }
+  const loadOrder = doc["loadOrder"];
+  if (
+    Array.isArray(loadOrder) &&
+    loadOrder.every((f) => typeof f === "string")
+  ) {
+    manifest.loadOrder = loadOrder as string[];
+  }
   return manifest;
+}
+
+function posixRelName(name: string): string {
+  return name.split(/[\\/]/).join("/");
+}
+
+/**
+ * Reorder `files` to `loadOrder`. Unknown paths keep their relative order
+ * after the recorded prefix. Missing `loadOrder` leaves the array unchanged
+ * (in-memory export emission, or lex from `collectSqlFiles`).
+ */
+export function applyManifestLoadOrder<T extends { name: string }>(
+  files: readonly T[],
+  loadOrder?: readonly string[],
+): T[] {
+  if (loadOrder === undefined || loadOrder.length === 0) {
+    return [...files];
+  }
+  const byName = new Map(files.map((f) => [posixRelName(f.name), f]));
+  const seen = new Set<string>();
+  const ordered: T[] = [];
+  for (const path of loadOrder) {
+    const file = byName.get(path);
+    if (file !== undefined) {
+      ordered.push(file);
+      seen.add(path);
+    }
+  }
+  for (const file of files) {
+    if (!seen.has(posixRelName(file.name))) {
+      ordered.push(file);
+    }
+  }
+  return ordered;
 }

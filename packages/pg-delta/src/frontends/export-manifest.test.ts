@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  applyManifestLoadOrder,
   EXPORT_MANIFEST_FILE,
   readExportManifest,
   writeExportManifest,
@@ -82,6 +83,38 @@ describe("export manifest", () => {
       scope: "database",
       files,
     });
+  });
+
+  test("round-trips loadOrder (emission order, not sorted)", () => {
+    const loadOrder = ["schemas/app/tables/t.sql", "_cluster/publications.sql"];
+    writeExportManifest(dir, {
+      redactSecrets: true,
+      scope: "database",
+      files: ["_cluster/publications.sql", "schemas/app/tables/t.sql"],
+      loadOrder,
+    });
+    expect(readExportManifest(dir)?.loadOrder).toEqual(loadOrder);
+  });
+
+  test("applyManifestLoadOrder uses loadOrder then leftover names in caller order", () => {
+    const files = [
+      { name: "_cluster/publications.sql", sql: "-- pub" },
+      { name: "public/tables/t.sql", sql: "-- t" },
+      { name: "extra.sql", sql: "-- extra" },
+    ];
+    expect(
+      applyManifestLoadOrder(files, [
+        "public/tables/t.sql",
+        "_cluster/publications.sql",
+      ]).map((f) => f.name),
+    ).toEqual([
+      "public/tables/t.sql",
+      "_cluster/publications.sql",
+      "extra.sql",
+    ]);
+    expect(applyManifestLoadOrder(files).map((f) => f.name)).toEqual(
+      files.map((f) => f.name),
+    );
   });
 
   test("drops a wrong-typed files field (non-array or non-string members)", () => {

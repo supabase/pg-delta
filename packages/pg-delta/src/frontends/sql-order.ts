@@ -17,10 +17,9 @@
  *   the WASM parser; only calling into this subpath does.
  *
  * Structural guarantees (D4):
- * - exactly one statement per output `SqlFile`, so the existing `loadSqlFiles`
- *   becomes statement-granular with zero core change;
- * - a zero-padded ordinal `name` prefix (`0007__schema/users.sql`) so the
- *   loader's per-round lexicographic `name` sort reproduces topo order;
+ * - exactly one statement per output `SqlFile`;
+ * - a zero-padded ordinal `name` prefix (`0007__schema/users.sql`) so a
+ *   caller that lex-sorts by name keeps topo order;
  * - every input statement preserved **exactly once** — including statements
  *   pg-topo classes as `UNKNOWN` and statements trapped in a cycle (pg-topo's
  *   `ordered` is a total order, so cycle members arrive at a best-effort
@@ -30,6 +29,7 @@
  */
 import type { AnalyzeOptions, ObjectRef, StatementId } from "@supabase/pg-topo";
 import type { SqlFile } from "./load-sql-files.ts";
+import { splitSqlStatements } from "./sql-format/format-utils.ts";
 
 /** Provenance back to the authored source, so a caller can render
  *  `schema/users.sql:line:col` after stripping the ordinal name prefix. */
@@ -237,10 +237,8 @@ export async function analyzeForShadow(
     };
   };
 
-  // zero-pad ordinals to a fixed width so lexicographic name sort == topo order
-  // even past 9 / 99 statements (the loader re-sorts `pending` by name each
-  // round). `ordered` is already a total order (pg-topo never drops a statement,
-  // including UNKNOWN classes and cycle members), so this is a 1:1 remap.
+  // zero-pad ordinals so a caller that lex-sorts by name keeps topo order
+  // past 9 / 99 statements. `ordered` is already a total order.
   const width = String(Math.max(ordered.length - 1, 0)).length;
   const orderedFiles: OrderedSqlFile[] = ordered.map((node, index) => {
     const provenance = toProvenance(node.id);
@@ -324,4 +322,110 @@ export async function orderForShadow(
 function parseInputIndex(filePath: string): number | null {
   const match = /^<input:(\d+)>$/.exec(filePath);
   return match ? Number.parseInt(match[1] as string, 10) : null;
+}
+
+/** pg-topo classes that need relations to exist (and can poison a session). */
+export const LATE_KIND_CLASSES: ReadonlySet<string> = new Set([
+  "CREATE_POLICY",
+  "ALTER_PUBLICATION",
+  "CREATE_SUBSCRIPTION",
+  "ALTER_SUBSCRIPTION",
+]);
+
+export function isLateKindClass(statementClass: string | undefined): boolean {
+  return statementClass !== undefined && LATE_KIND_CLASSES.has(statementClass);
+}
+
+/** Within the late band, policies before publication/subscription DDL. */
+function lateKindRank(statementClass: string | undefined): number {
+  if (!isLateKindClass(statementClass)) return 0;
+  if (statementClass === "CREATE_POLICY") return 1;
+  return 2;
+}
+
+export function classesByFileFromAnalyzed(
+  analyzed: ShadowOrderResult,
+): Map<string, string[]> {
+  const byFile = new Map<string, string[]>();
+  for (const file of analyzed.files) {
+    const path = file.provenance.filePath;
+    const list = byFile.get(path) ?? [];
+    if (file.statementClass !== undefined) {
+      list.push(file.statementClass);
+    }
+    byFile.set(path, list);
+  }
+  return byFile;
+}
+
+function filenameLateHint(name: string): boolean {
+  const base = (name.split(/[\\/]/).pop() ?? "").toLowerCase();
+  return base === "publications.sql" || base === "subscriptions.sql";
+}
+
+function fileIsLate(
+  name: string,
+  classesByFile: ReadonlyMap<string, readonly string[]>,
+  filenameFallback: boolean,
+): boolean {
+  const classes = classesByFile.get(name) ?? [];
+  const classified = classes.filter((c) => c !== "UNKNOWN");
+  if (classified.length > 0) {
+    return classified.every((c) => isLateKindClass(c));
+  }
+  return filenameFallback && filenameLateHint(name);
+}
+
+/** Stable two-band sort: late-kind-only files last. */
+export function preorderFilesByKind(
+  files: SqlFile[],
+  classesByFile: ReadonlyMap<string, readonly string[]>,
+  options: { filenameFallback?: boolean } = {},
+): SqlFile[] {
+  const filenameFallback = options.filenameFallback === true;
+  return files
+    .map((file, index) => ({ file, index }))
+    .sort((a, b) => {
+      const lateA = fileIsLate(a.file.name, classesByFile, filenameFallback);
+      const lateB = fileIsLate(b.file.name, classesByFile, filenameFallback);
+      if (lateA !== lateB) {
+        return lateA ? 1 : -1;
+      }
+      return a.index - b.index;
+    })
+    .map((entry) => entry.file);
+}
+
+function normalizeSql(sql: string): string {
+  return sql.replace(/\s+/g, " ").trim().replace(/;$/, "");
+}
+
+/** Split one file (or a fallback remainder) into statement units, late-kind last. */
+export function splitAndReorderFile(
+  file: SqlFile,
+  analyzed: ShadowOrderResult,
+): SqlFile[] {
+  const remainderStmts = splitSqlStatements(file.sql);
+  const remainderUnits = new Set(
+    remainderStmts.map((stmt) => normalizeSql(stmt)),
+  );
+  const stmts = analyzed.files
+    .filter((f) => f.provenance.filePath === file.name)
+    .filter((f) => remainderUnits.has(normalizeSql(f.sql)))
+    .sort((a, b) => a.provenance.statementIndex - b.provenance.statementIndex);
+  if (stmts.length === 0 || stmts.length !== remainderStmts.length) {
+    return [file];
+  }
+  const ordered = [...stmts].sort((a, b) => {
+    const rankA = lateKindRank(a.statementClass);
+    const rankB = lateKindRank(b.statementClass);
+    if (rankA !== rankB) {
+      return rankA - rankB;
+    }
+    return a.provenance.statementIndex - b.provenance.statementIndex;
+  });
+  return ordered.map((stmt) => ({
+    name: `${file.name}#${stmt.provenance.statementIndex}`,
+    sql: stmt.sql,
+  }));
 }

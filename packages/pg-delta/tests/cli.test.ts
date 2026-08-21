@@ -1415,7 +1415,7 @@ describe("CLI: schema apply reorder safety", () => {
 
       // RED before the fix: the bad file is dropped, the shadow builds from the
       // good file only, and apply exits 0 — silently ignoring 02_bad.sql.
-      expect(res.stderr).toContain("reorder assist disabled");
+      expect(res.stderr).toMatch(/pg-topo could not parse/i);
       expect(res.exitCode).not.toBe(0);
     } finally {
       await Promise.all([shadow.drop(), target.drop()]);
@@ -1453,9 +1453,7 @@ describe("CLI: schema apply reorder safety", () => {
       ]);
 
       expect(res.exitCode).toBe(0);
-      // ADP present → reorder disabled, raw load, and the caveat is surfaced (no
-      // silent limitation): objects relying on ADP-implicit grants may miss them.
-      expect(res.stderr).toContain("reorder assist disabled");
+      expect(res.stderr).not.toContain("reorder assist disabled");
       expect(res.stderr).toMatch(
         /raw loading may apply ALTER DEFAULT PRIVILEGES AFTER objects/i,
       );
@@ -1538,8 +1536,7 @@ describe("CLI: schema apply reorder safety", () => {
       expect({ code: res.exitCode, stderr: res.stderr }).toMatchObject({
         code: 0,
       });
-      expect(res.stderr).toContain("reorder assist disabled");
-      expect(res.stderr).toContain("session-setting");
+      expect(res.stderr).not.toContain("reorder assist disabled");
       expect(res.stderr).not.toContain("Reordered into");
 
       const { rows } = await target.pool.query<{ n: number }>(

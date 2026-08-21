@@ -92,6 +92,7 @@ describe("writeExportFiles", () => {
       redactSecrets: true,
       profile: "raw",
       files: [],
+      loadOrder: [],
     });
   });
 
@@ -112,6 +113,11 @@ describe("writeExportFiles", () => {
       "cluster/roles.sql",
       "schemas/app/a.sql",
       "schemas/app/b.sql",
+    ]);
+    expect(readExportManifest(target)?.loadOrder).toEqual([
+      "schemas/app/b.sql",
+      "schemas/app/a.sql",
+      "cluster/roles.sql",
     ]);
   });
 

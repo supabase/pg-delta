@@ -34,16 +34,19 @@ import {
   findClusterDdlStatements,
   findDefaultPrivilegeStatements,
   findMatchingStatements,
-  findSessionSettingStatements,
   loadSqlFiles,
   ShadowLoadError,
   stripClusterDdl,
   type SqlFile,
 } from "./load-sql-files.ts";
+import { applyManifestLoadOrder } from "./export-manifest.ts";
 import { deriveAssumedSchemaSeed } from "./seed-assumed-schemas.ts";
 import {
   analyzeForShadow,
+  classesByFileFromAnalyzed,
+  preorderFilesByKind,
   ReorderUnavailableError,
+  splitAndReorderFile,
   type OrderedSqlFile,
   type ShadowLoadCycle,
 } from "./sql-order.ts";
@@ -302,8 +305,13 @@ export interface PlanSchemaFilesOptions {
    *  different database OID); that case still fails `isSameDatabase()` and the
    *  lineage guard still refuses it. */
   allowSameDatabaseIdentity?: boolean;
-  /** Statement-reorder assist. Default: true. */
+  /** After default order (and reconnect) stick, allow file-kind then
+   *  statement-kind. Default true. Same switch as {@link reorder}. */
+  reorderOnFailure?: boolean;
+  /** Statement-reorder assist. Default: true. Alias of {@link reorderOnFailure}. */
   reorder?: boolean;
+  /** Forwarded to {@link loadSqlFiles}. Default: reconnect-on-stuck. */
+  connectionReuse?: "keep" | "reconnect-on-stuck";
   /** Forwarded to {@link loadSqlFiles}. Default: true (per-statement fallback
    *  after a file-atomic failure). `false` restores whole-file rollback. */
   statementFallback?: boolean;
@@ -583,12 +591,13 @@ export async function planSchemaFiles(
     }
   }
 
-  const reorder = options.reorder !== false;
+  const reorderOnFailure =
+    options.reorderOnFailure !== false && options.reorder !== false;
   let orderedFiles: OrderedSqlFile[] | null = null;
   let cycles: ShadowLoadCycle[] = [];
-  let loadInput: SqlFile[] = files;
-  if (reorder) {
-    let analyzed: Awaited<ReturnType<typeof analyzeForShadow>> | null = null;
+  const loadInput = applyManifestLoadOrder(files, options.manifest?.loadOrder);
+  let analyzed: Awaited<ReturnType<typeof analyzeForShadow>> | null = null;
+  if (reorderOnFailure) {
     try {
       analyzed = await analyzeForShadow(files);
     } catch (err) {
@@ -598,67 +607,34 @@ export async function planSchemaFiles(
       );
     }
     if (analyzed !== null) {
+      orderedFiles = analyzed.files;
+      cycles = analyzed.cycles;
       const parseErrors = analyzed.diagnostics.filter(
         (d) => d.code === "PARSE_ERROR" || d.code === "DISCOVERY_ERROR",
       );
-      const sessionSettingFiles = files.filter(
-        (f) => findSessionSettingStatements(f.sql).length > 0,
-      );
-      const defaultPrivFiles =
-        options.manifest === undefined
-          ? files.filter(
-              (f) => findDefaultPrivilegeStatements(f.sql).length > 0,
-            )
-          : [];
-
-      if (
-        parseErrors.length > 0 ||
-        sessionSettingFiles.length > 0 ||
-        defaultPrivFiles.length > 0
-      ) {
-        const reasons: string[] = [];
-        if (parseErrors.length > 0) {
-          reasons.push(
-            `pg-topo could not parse ${parseErrors.length} input(s) — reordering would silently drop them`,
-          );
-        }
-        if (sessionSettingFiles.length > 0) {
-          reasons.push(
-            `session-setting statements in ${sessionSettingFiles
-              .map((f) => f.name)
-              .join(", ")} must not be reordered`,
-          );
-        }
-        if (defaultPrivFiles.length > 0) {
-          reasons.push(
-            `ALTER DEFAULT PRIVILEGES in ${defaultPrivFiles
-              .map((f) => f.name)
-              .join(", ")} must not be reordered past the objects it scopes`,
-          );
-        }
+      if (parseErrors.length > 0) {
         options.onWarning?.(
-          `reorder assist disabled — ${reasons.join("; ")}. Loading files raw at file granularity.`,
+          `pg-topo could not parse ${parseErrors.length} input(s) — file-kind escalate will use filename hints when a file has no class.`,
         );
-      } else {
-        orderedFiles = analyzed.files;
-        cycles = analyzed.cycles;
-        loadInput = analyzed.files;
       }
     }
   }
 
-  if (orderedFiles === null) {
-    const adpFiles = files.filter(
-      (f) => findDefaultPrivilegeStatements(f.sql).length > 0,
+  const adpFiles = files.filter(
+    (f) => findDefaultPrivilegeStatements(f.sql).length > 0,
+  );
+  if (adpFiles.length > 0) {
+    options.onWarning?.(
+      "raw loading may apply ALTER DEFAULT PRIVILEGES AFTER objects created in the same load, so objects relying on ADP-implicit default grants may not receive them. Grant those privileges explicitly (as schema export does).",
     );
-    if (adpFiles.length > 0) {
-      options.onWarning?.(
-        "raw loading may apply ALTER DEFAULT PRIVILEGES AFTER objects created in the same load, so objects relying on ADP-implicit default grants may not receive them. Grant those privileges explicitly (as schema export does).",
-      );
-    }
   }
 
   const originalSqlByName = new Map(files.map((f) => [f.name, f.sql]));
+  const filenameFallback =
+    analyzed !== null &&
+    analyzed.diagnostics.some(
+      (d) => d.code === "PARSE_ERROR" || d.code === "DISCOVERY_ERROR",
+    );
 
   let loadResult;
   try {
@@ -676,6 +652,25 @@ export async function planSchemaFiles(
         : {}),
       ...(options.statementFallback !== undefined
         ? { statementFallback: options.statementFallback }
+        : {}),
+      reorderOnFailure,
+      ...(options.connectionReuse !== undefined
+        ? { connectionReuse: options.connectionReuse }
+        : {}),
+      ...(options.onWarning !== undefined
+        ? { onWarning: options.onWarning }
+        : {}),
+      ...(analyzed !== null
+        ? {
+            reorderFilesByKind: (pending: SqlFile[]) =>
+              preorderFilesByKind(
+                pending,
+                classesByFileFromAnalyzed(analyzed),
+                { filenameFallback },
+              ),
+            splitFileByKind: (file: SqlFile) =>
+              splitAndReorderFile(file, analyzed),
+          }
         : {}),
     });
   } catch (error) {
