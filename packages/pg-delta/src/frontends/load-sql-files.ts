@@ -764,20 +764,18 @@ function resolveReorderOnFailure(options: LoadSqlFilesOptions): boolean {
   return true;
 }
 
-function formatLoadFailures(
+function formatLoadFileNames(
   failures: Array<{ file: SqlFile; message: string }>,
 ): string {
-  return failures.map((f) => `${f.file.name}: ${f.message}`).join("; ");
+  return [...new Set(failures.map((f) => f.file.name))].join(", ");
 }
 
 function sessionPollutionMessage(
   stuck: Array<{ file: SqlFile; message: string }>,
-  earlier: Array<{ file: SqlFile; message: string }>,
 ): string {
   return (
     `A new connection unblocked a stuck same-connection shadow load (session pollution). ` +
-    `Stuck pending files: ${formatLoadFailures(stuck)}. ` +
-    `Earlier failures on the poisoned connection (likely polluter, especially ALTER PUBLICATION): ${formatLoadFailures(earlier)}. ` +
+    `Stuck pending files: ${formatLoadFileNames(stuck)}. ` +
     `Please open an issue at https://github.com/supabase/postgres/issues with the failed ALTER PUBLICATION and the follow-on CREATE POLICY / owner error.`
   );
 }
@@ -788,7 +786,7 @@ function reorderOnFailureMessage(
 ): string {
   return (
     `The default file order stuck, so the loader reordered on failure (${kind}). ` +
-    `Stuck files: ${formatLoadFailures(stuck)}. ` +
+    `Stuck files: ${formatLoadFileNames(stuck)}. ` +
     `You can permanently fix this by putting tables and extensions before policy-only and ALTER PUBLICATION files ` +
     `(or by setting loadOrder on .pgdelta-export.json to that emission order) so the default order succeeds next time.`
   );
@@ -1180,10 +1178,7 @@ export async function loadSqlFiles(
     }
 
     if (reconnectUnblocked) {
-      const message = sessionPollutionMessage(
-        failuresBeforeReconnect,
-        failuresBeforeReconnect,
-      );
+      const message = sessionPollutionMessage(failuresBeforeReconnect);
       stageDiagnostics.push({
         code: "session_pollution",
         severity: "warning",
