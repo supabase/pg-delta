@@ -60,8 +60,12 @@ describe("public API surface", () => {
     // Supabase CLI adapter contract without flipping the library default.
     const options = {
       strictDataStatements: true,
+      connectionReuse: "reconnect-on-stuck",
+      reorderOnFailure: true,
     } satisfies LoadSqlFilesOptions;
     expect(options.strictDataStatements).toBe(true);
+    expect(options.connectionReuse).toBe("reconnect-on-stuck");
+    expect(options.reorderOnFailure).toBe(true);
   });
 
   test("the integrations subpath exposes the full profile surface", () => {

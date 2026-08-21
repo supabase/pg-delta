@@ -744,6 +744,56 @@ export interface LoadSqlFilesOptions {
    *  statements (`SET search_path`, `SET ROLE`, `SET LOCAL`, …) stay
    *  file-atomic so those settings cannot expire between statements. */
   statementFallback?: boolean;
+  /** Default `"reconnect-on-stuck"`. `"keep"` never opens a second connection. */
+  connectionReuse?: "keep" | "reconnect-on-stuck";
+  /** After default order (and reconnect) stick, allow file-kind then
+   *  statement-kind. Default true. */
+  reorderOnFailure?: boolean;
+  /** Same gate as {@link reorderOnFailure} (`false` opts out of escalate). */
+  reorder?: boolean;
+  onWarning?: (message: string) => void;
+  /** Assist: sort whole files by kind (stage 3). Loader does not parse SQL. */
+  reorderFilesByKind?: (files: SqlFile[]) => SqlFile[] | Promise<SqlFile[]>;
+  /** Assist: split one file into kind-ordered statement units (stage 4). */
+  splitFileByKind?: (file: SqlFile) => SqlFile[] | Promise<SqlFile[]>;
+}
+
+/** `reorderOnFailure` wins when both aliases are set. Default true. */
+export function resolveReorderOnFailure(options: {
+  reorderOnFailure?: boolean;
+  reorder?: boolean;
+}): boolean {
+  if (options.reorderOnFailure !== undefined) return options.reorderOnFailure;
+  if (options.reorder !== undefined) return options.reorder;
+  return true;
+}
+
+function formatLoadFileNames(
+  failures: Array<{ file: SqlFile; message: string }>,
+): string {
+  return [...new Set(failures.map((f) => f.file.name))].join(", ");
+}
+
+function sessionPollutionMessage(
+  stuck: Array<{ file: SqlFile; message: string }>,
+): string {
+  return (
+    `A new connection unblocked a stuck same-connection shadow load (session pollution). ` +
+    `Stuck pending files: ${formatLoadFileNames(stuck)}. ` +
+    `Please open an issue at https://github.com/supabase/postgres/issues with the failed ALTER PUBLICATION and the follow-on CREATE POLICY / owner error.`
+  );
+}
+
+function reorderOnFailureMessage(
+  kind: "file-kind" | "statement-kind",
+  stuck: Array<{ file: SqlFile; message: string }>,
+): string {
+  return (
+    `The default file order stuck, so the loader reordered on failure (${kind}). ` +
+    `Stuck files: ${formatLoadFileNames(stuck)}. ` +
+    `You can permanently fix this by putting tables and extensions before policy-only and ALTER PUBLICATION files ` +
+    `(or by setting loadOrder on .pgdelta-export.json to that emission order) so the default order succeeds next time.`
+  );
 }
 
 export async function loadSqlFiles(
@@ -760,10 +810,12 @@ export async function loadSqlFiles(
   // backstop for non-deterministic SQL, NOT a depth limit — it must scale with
   // the file count (floor 25 preserves the small-schema default). A fixed 25
   // used to wrongly fail any chain deeper than 25 that was still making progress.
-  const maxRounds = options.maxRounds ?? Math.max(files.length + 1, 25);
+  let maxRounds = options.maxRounds ?? Math.max(files.length + 1, 25);
   const mode = options.mode ?? "databaseScratch";
   const extractShadow = options.extract ?? extract;
   const statementFallback = options.statementFallback ?? true;
+  const connectionReuse = options.connectionReuse ?? "reconnect-on-stuck";
+  const reorderOnFailure = resolveReorderOnFailure(options);
 
   // the shadow must be empty — verify by observation. Schemas the caller
   // pre-seeded (Phase 2b assumed schemas) are exempt: they were deliberately
@@ -873,14 +925,15 @@ export async function loadSqlFiles(
           ORDER BY 1, 2`)
       : null;
 
-  // bounded retry rounds at file granularity (fail-safe ordering)
-  let pending = [...files].sort((a, b) => (a.name < b.name ? -1 : 1));
+  // Caller array order is the default (export loadOrder or lex collect).
+  let pending = [...files];
   let rounds = 0;
   // body-validation warnings for SEEDED-schema routines (populated below,
   // outside the try/finally so the final result can merge them in).
   let seededBodyWarnings: Diagnostic[] = [];
   // non-fatal `data_statement` observations (same lifetime rationale).
   let dataStatementWarnings: Diagnostic[] = [];
+  let stageDiagnostics: Diagnostic[] = [];
   // the most recent round's per-file failures, retained so a budget-exhaustion
   // error can report WHY each still-pending file failed (review P1 #2).
   let lastFailures: Array<{ file: SqlFile; message: string }> = [];
@@ -894,9 +947,38 @@ export async function loadSqlFiles(
     roles: ReadonlySet<string>;
     member: string;
   } | null = null;
-  const client = await shadow.connect();
+  let reconnected = false;
+  let reconnectUnblocked = false;
+  let fileKindTried = false;
+  let statementKindTried = false;
+  let failuresBeforeReconnect: Array<{ file: SqlFile; message: string }> = [];
+  let failuresBeforeReorder: Array<{ file: SqlFile; message: string }> = [];
+  let client: PoolClient = await shadow.connect();
+  let clientOpen = true;
+  const releaseClient = async (discard = false): Promise<void> => {
+    if (!clientOpen) return;
+    clientOpen = false;
+    await client.query(`RESET ROLE`).catch(() => {});
+    await client.query(`RESET SESSION AUTHORIZATION`).catch(() => {});
+    await client.query(`RESET check_function_bodies`).catch(() => {});
+    if (discard) {
+      client.release(new Error("discard poisoned shadow-load session"));
+    } else {
+      client.release();
+    }
+  };
+  const applyPreamble = async (c: PoolClient): Promise<void> => {
+    await c.query(`SET check_function_bodies = off`);
+    try {
+      await c.query(
+        `SELECT set_config('createrole_self_grant', 'set, inherit', false)`,
+      );
+    } catch {
+      /* PG < 16 or GUC unavailable */
+    }
+  };
   try {
-    await client.query(`SET check_function_bodies = off`);
+    await applyPreamble(client);
     // PG 16+: CREATE ROLE no longer auto-grants the creator membership in the
     // new role. Supabase's non-superuser `postgres` (CREATEROLE) then fails
     // `CREATE SCHEMA … AUTHORIZATION new_role` with "must be able to SET ROLE"
@@ -1008,28 +1090,116 @@ export async function loadSqlFiles(
         }
       }
       if (!progressed) {
-        // no progress: stuck — inspect for mutual-FK situation, then fail loud
+        lastFailures = failures;
+        if (connectionReuse === "reconnect-on-stuck" && !reconnected) {
+          failuresBeforeReconnect = failures;
+          await releaseClient(true);
+          client = await shadow.connect();
+          clientOpen = true;
+          await applyPreamble(client);
+          reconnected = true;
+          pending = next;
+          maxRounds = Math.max(maxRounds, rounds + pending.length + 1);
+          continue;
+        }
+        if (
+          reorderOnFailure &&
+          !fileKindTried &&
+          options.reorderFilesByKind !== undefined
+        ) {
+          failuresBeforeReorder = failures;
+          fileKindTried = true;
+          pending = await options.reorderFilesByKind(next);
+          maxRounds = Math.max(maxRounds, rounds + pending.length + 1);
+          continue;
+        }
+        if (
+          reorderOnFailure &&
+          !statementKindTried &&
+          options.splitFileByKind !== undefined
+        ) {
+          if (failuresBeforeReorder.length === 0) {
+            failuresBeforeReorder = failures;
+          }
+          statementKindTried = true;
+          const split: SqlFile[] = [];
+          for (const file of next) {
+            if (
+              findSessionSettingStatements(file.sql).length > 0 ||
+              findDefaultPrivilegeStatements(file.sql).length > 0
+            ) {
+              split.push(file);
+              continue;
+            }
+            const units = await options.splitFileByKind(file);
+            if (units.length <= 1) {
+              split.push(units[0] ?? file);
+              continue;
+            }
+            split.push({
+              name: file.name,
+              sql: joinStatements(units.map((unit) => unit.sql)),
+            });
+          }
+          pending = split;
+          maxRounds = Math.max(maxRounds, rounds + pending.length + 1);
+          continue;
+        }
         const mutualFkHint = detectMutualFk(failures)
           ? " Tip: if two tables reference each other with inline REFERENCES clauses, split one foreign key into a separate ALTER TABLE … ADD CONSTRAINT statement."
           : "";
+        const details: Diagnostic[] = failures.map((f) => {
+          const streak = failStreak.get(f.file.name);
+          const streakNote =
+            streak !== undefined && streak.count > 1
+              ? ` (failed identically in ${streak.count} round(s) — likely a genuine missing dependency, not ordering)`
+              : "";
+          return {
+            code: "stuck_statement",
+            severity: "error" as const,
+            message: `${f.file.name}: ${f.message}${streakNote}`,
+          };
+        });
+        if (fileKindTried || statementKindTried) {
+          const kind = statementKindTried ? "statement-kind" : "file-kind";
+          const message = reorderOnFailureMessage(kind, failuresBeforeReorder);
+          details.push({
+            code: "reorder_on_failure",
+            severity: "warning",
+            message,
+          });
+          options.onWarning?.(message);
+        }
         throw new ShadowLoadError(
           `shadow load stuck after ${rounds} round(s): ${next.length} file(s) cannot apply${mutualFkHint}`,
-          failures.map((f) => {
-            const streak = failStreak.get(f.file.name);
-            const streakNote =
-              streak !== undefined && streak.count > 1
-                ? ` (failed identically in ${streak.count} round(s) — likely a genuine missing dependency, not ordering)`
-                : "";
-            return {
-              code: "stuck_statement",
-              severity: "error",
-              message: `${f.file.name}: ${f.message}${streakNote}`,
-            };
-          }),
+          details,
         );
+      }
+      if (reconnected && !fileKindTried && !statementKindTried) {
+        reconnectUnblocked = true;
       }
       lastFailures = failures;
       pending = next;
+    }
+
+    if (reconnectUnblocked) {
+      const message = sessionPollutionMessage(failuresBeforeReconnect);
+      stageDiagnostics.push({
+        code: "session_pollution",
+        severity: "warning",
+        message,
+      });
+      options.onWarning?.(message);
+    }
+    if (fileKindTried || statementKindTried) {
+      const kind = statementKindTried ? "statement-kind" : "file-kind";
+      const message = reorderOnFailureMessage(kind, failuresBeforeReorder);
+      stageDiagnostics.push({
+        code: "reorder_on_failure",
+        severity: "warning",
+        message,
+      });
+      options.onWarning?.(message);
     }
 
     // Capture createrole_self_grant bootstrap grants for post-extract stripping.
@@ -1325,7 +1495,7 @@ export async function loadSqlFiles(
     // on-success snapshot comparison above — survives an aborted load. Reverse it
     // BEFORE the finally releases the pooled client. `applyFile` ROLLBACKs on
     // failure, so `client` is in a clean transaction state here.
-    if (mode === "databaseScratch") {
+    if (mode === "databaseScratch" && clientOpen) {
       const restoreDiags = await restoreScratchClusterState(
         client,
         rolesBefore,
@@ -1337,11 +1507,7 @@ export async function loadSqlFiles(
     }
     throw err;
   } finally {
-    // restore the GUC even when load fails early (before the on-success reset
-    // at the body-validation step) — otherwise the pooled client returns with
-    // check_function_bodies still off (review P2).
-    await client.query(`RESET check_function_bodies`).catch(() => {});
-    client.release();
+    await releaseClient();
   }
 
   // provenance tag: mark the fact base as originating from SQL files. The
@@ -1377,6 +1543,7 @@ export async function loadSqlFiles(
       ...result.diagnostics,
       ...seededBodyWarnings,
       ...dataStatementWarnings,
+      ...stageDiagnostics,
     ],
     rounds,
     preExistingPopulatedTables,

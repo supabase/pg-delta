@@ -159,9 +159,11 @@ export async function buildSchemaExport(
   });
 
   const exportProfileId = ctx.planOptions.profile?.id;
+  const loadOrder = files.map((file) => file.name.split(/[\\/]/).join("/"));
   const manifest: SchemaExportResult["manifest"] = {
     redactSecrets,
     scope: exportScope,
+    loadOrder,
     ...(exportProfileId !== undefined ? { profile: exportProfileId } : {}),
     ...(ctx.baseline !== undefined
       ? { baselineDigest: ctx.baseline.digest }

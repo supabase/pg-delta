@@ -7,9 +7,9 @@
  * NEVER trusted for correctness — Postgres elaborates the shadow (principle P1)
  * — so the only hard guarantees it must keep are structural:
  *
- * - one statement per output `SqlFile`, fed straight into `loadSqlFiles`;
- * - a zero-padded ordinal name prefix so the loader's per-round lexicographic
- *   `name` sort reproduces topo order (D4 option `a`);
+ * - one statement per output `SqlFile`;
+ * - a zero-padded ordinal name prefix so a caller that lex-sorts by name
+ *   keeps topo order;
  * - every input statement preserved exactly once — including statements
  *   pg-topo cannot classify (`UNKNOWN`) and statements trapped in a cycle;
  * - statement text carried verbatim;
@@ -22,9 +22,12 @@ import {
   __setPgTopoImporterForTests,
   analyzeForShadow,
   canReorder,
+  classesByFileFromAnalyzed,
   orderForShadow,
+  preorderFilesByKind,
   ReorderParseError,
   ReorderUnavailableError,
+  splitAndReorderFile,
   type OrderedSqlFile,
 } from "./sql-order.ts";
 import type { SqlFile } from "./load-sql-files.ts";
@@ -323,5 +326,141 @@ describe("analyzeForShadow — pg-topo diagnostics (lint)", () => {
         (d) => d.code === "CYCLE_DETECTED" || d.code === "PARSE_ERROR",
       ),
     ).toBe(false);
+  });
+});
+
+describe("kind pre-order (file-kind / statement-kind escalate)", () => {
+  test("policy-only aaa.sql / _cluster/aaa.sql sorts after CREATE TABLE", async () => {
+    const files = [
+      file(
+        "_cluster/aaa.sql",
+        "CREATE POLICY p ON public.t FOR ALL USING (true);",
+      ),
+      file("aaa.sql", "CREATE POLICY q ON public.t FOR ALL USING (true);"),
+      file("public/tables/t.sql", "CREATE TABLE public.t (id int);"),
+    ];
+    const analyzed = await analyzeForShadow(files);
+    const ordered = preorderFilesByKind(
+      files,
+      classesByFileFromAnalyzed(analyzed),
+    );
+    expect(ordered.map((f) => f.name)).toEqual([
+      "public/tables/t.sql",
+      "_cluster/aaa.sql",
+      "aaa.sql",
+    ]);
+  });
+
+  test("publication-only _cluster/publications.sql sorts after the table file", async () => {
+    const files = [
+      file(
+        "_cluster/publications.sql",
+        "ALTER PUBLICATION p ADD TABLE public.t;",
+      ),
+      file("public/tables/t.sql", "CREATE TABLE public.t (id int);"),
+    ];
+    const analyzed = await analyzeForShadow(files);
+    const ordered = preorderFilesByKind(
+      files,
+      classesByFileFromAnalyzed(analyzed),
+    );
+    expect(ordered.map((f) => f.name)).toEqual([
+      "public/tables/t.sql",
+      "_cluster/publications.sql",
+    ]);
+  });
+
+  test("mixed CREATE TABLE + CREATE POLICY is not forced last", async () => {
+    const files = [
+      file(
+        "public/tables/t.sql",
+        "CREATE TABLE public.t (id int);\nCREATE POLICY p ON public.t FOR ALL USING (true);",
+      ),
+      file("zzz.sql", "CREATE TABLE public.u (id int);"),
+    ];
+    const analyzed = await analyzeForShadow(files);
+    const ordered = preorderFilesByKind(
+      files,
+      classesByFileFromAnalyzed(analyzed),
+    );
+    expect(ordered.map((f) => f.name)).toEqual([
+      "public/tables/t.sql",
+      "zzz.sql",
+    ]);
+  });
+
+  test("filename last-resort only when a file has no classes", () => {
+    const files = [
+      file("_cluster/publications.sql", "-- unparsed"),
+      file("public/tables/t.sql", "-- unparsed"),
+    ];
+    const empty = new Map<string, string[]>();
+    expect(preorderFilesByKind(files, empty).map((f) => f.name)).toEqual([
+      "_cluster/publications.sql",
+      "public/tables/t.sql",
+    ]);
+    expect(
+      preorderFilesByKind(files, empty, { filenameFallback: true }).map(
+        (f) => f.name,
+      ),
+    ).toEqual(["public/tables/t.sql", "_cluster/publications.sql"]);
+  });
+
+  test("splitAndReorderFile puts CREATE TABLE before ALTER PUBLICATION", async () => {
+    const mixed = file(
+      "mixed.sql",
+      "ALTER PUBLICATION p ADD TABLE public.t;\nCREATE TABLE public.t (id int);",
+    );
+    const analyzed = await analyzeForShadow([mixed]);
+    const split = splitAndReorderFile(mixed, analyzed);
+    expect(
+      split.map((f) => f.sql.toLowerCase().replace(/\s+/g, " ").trim()),
+    ).toEqual([
+      "create table public.t (id int);",
+      "alter publication p add table public.t;",
+    ]);
+  });
+
+  test("splitAndReorderFile puts CREATE POLICY before ALTER PUBLICATION", async () => {
+    const mixed = file(
+      "mixed.sql",
+      "ALTER PUBLICATION p ADD TABLE public.t;\nCREATE POLICY q ON public.t FOR ALL USING (true);",
+    );
+    const analyzed = await analyzeForShadow([mixed]);
+    const split = splitAndReorderFile(mixed, analyzed);
+    expect(
+      split.map((f) => f.sql.toLowerCase().replace(/\s+/g, " ").trim()),
+    ).toEqual([
+      "create policy q on public.t for all using (true);",
+      "alter publication p add table public.t;",
+    ]);
+  });
+
+  test("splitAndReorderFile leaves the file intact when classify is incomplete", async () => {
+    const mixed = file(
+      "mixed.sql",
+      "CREATE TABLE public.t (id int);\nCREATE TABEL public.u (id int;",
+    );
+    const analyzed = await analyzeForShadow([mixed]);
+    expect(splitAndReorderFile(mixed, analyzed)).toEqual([mixed]);
+  });
+
+  test("splitAndReorderFile matches remainder statements exactly", async () => {
+    const full = file(
+      "schemas.sql",
+      "CREATE SCHEMA a;\nCREATE SCHEMA app;\nALTER PUBLICATION p ADD TABLE public.t;",
+    );
+    const analyzed = await analyzeForShadow([full]);
+    const remainder = file(
+      "schemas.sql",
+      "CREATE SCHEMA app;\nALTER PUBLICATION p ADD TABLE public.t;",
+    );
+    const split = splitAndReorderFile(remainder, analyzed);
+    expect(
+      split.map((f) => f.sql.toLowerCase().replace(/\s+/g, " ").trim()),
+    ).toEqual([
+      "create schema app;",
+      "alter publication p add table public.t;",
+    ]);
   });
 });

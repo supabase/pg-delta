@@ -26,6 +26,7 @@ export {
 } from "./ssl-config.ts";
 
 export {
+  applyManifestLoadOrder,
   EXPORT_MANIFEST_FILE,
   readExportManifest,
   writeExportManifest,

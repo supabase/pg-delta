@@ -16,6 +16,7 @@ import {
   findDefaultPrivilegeStatements,
   findSessionSettingStatements,
   findTransactionControl,
+  resolveReorderOnFailure,
   stripClusterDdl,
 } from "./load-sql-files.ts";
 
@@ -265,5 +266,22 @@ describe("findDefaultPrivilegeStatements — reorder barrier", () => {
         `CREATE FUNCTION f() RETURNS text LANGUAGE sql AS 'SELECT ''ALTER DEFAULT PRIVILEGES''';`,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("resolveReorderOnFailure", () => {
+  test("reorderOnFailure wins when both aliases are set", () => {
+    expect(
+      resolveReorderOnFailure({ reorder: false, reorderOnFailure: true }),
+    ).toBe(true);
+    expect(
+      resolveReorderOnFailure({ reorder: true, reorderOnFailure: false }),
+    ).toBe(false);
+  });
+
+  test("either alias alone opts out, default is true", () => {
+    expect(resolveReorderOnFailure({ reorder: false })).toBe(false);
+    expect(resolveReorderOnFailure({ reorderOnFailure: false })).toBe(false);
+    expect(resolveReorderOnFailure({})).toBe(true);
   });
 });

@@ -104,6 +104,7 @@ export {
 } from "./frontends/export-sql-files.ts";
 export { saveSnapshot, loadSnapshot } from "./frontends/snapshot-file.ts";
 export {
+  applyManifestLoadOrder,
   EXPORT_MANIFEST_FILE,
   readExportManifest,
   writeExportManifest,
