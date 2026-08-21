@@ -74,18 +74,14 @@ Run `pgdelta <command> --help` for flags.
 
 ## How it works
 
-```text
-extract   read a database into a fact base
-          (one content-addressed fact per table, column, constraint, policy, grant, …)
-   ↓
-diff      compare two fact bases → deltas (generic; zero per-object-type code)
-   ↓
-plan      deltas → ordered atomic DDL actions
-          (one rule table, one dependency graph, one deterministic sort)
-   ↓
-prove     apply to a throwaway clone, re-extract, compare
-   ↓
-apply     execute against the real target
+```mermaid
+flowchart TB
+    EXTRACT["<b>extract</b> — read a database into a fact base<br/><i>one content-addressed fact per table, column, constraint, policy, grant, …</i>"]
+    DIFF["<b>diff</b> — compare two fact bases → deltas<br/><i>generic; zero per-object-type code</i>"]
+    PLAN["<b>plan</b> — deltas → ordered atomic DDL actions<br/><i>one rule table, one dependency graph, one deterministic sort</i>"]
+    PROVE["<b>prove</b> — apply to a throwaway clone, re-extract, compare"]
+    APPLY["<b>apply</b> — execute against the real target"]
+    EXTRACT --> DIFF --> PLAN --> PROVE --> APPLY
 ```
 
 Because everything lives at one grain — the fact — the diff needs no per-kind
@@ -194,7 +190,8 @@ migration channel first. It is catalog-sourced (no SQL parsing), non-blocking by
 default, and blocking under `--strict-coverage`.
 
 Frontends that own the migration channel can automate delivery instead of asking
-the user to. `listCustomFiles(root)` returns every `_custom/**/*.sql` with its
+the user to. `listCustomFiles(root)` (from `@supabase/pg-delta/frontends`)
+returns every `_custom/**/*.sql` with its
 body and parsed directives, plus a `delivered` flag (a recorded migration, or an
 explicit `none`); a frontend appends the undelivered ones to the catch-up
 migration it already generates and stamps the directive back, taking run-once
@@ -268,7 +265,7 @@ PGDELTA_NEXT_SOAK=200 bun test tests/generative.test.ts  # bigger generative soa
 bun scripts/benchmark.ts                                 # timing numbers
 ```
 
-The **corpus** (`corpus/`, 321 scenarios) is the primary correctness gate: every
+The **corpus** (`corpus/`, 331 scenarios) is the primary correctness gate: every
 scenario is proven in both directions, with compact and uncompacted plan
 artifacts built and applied independently — so compaction is enforced as
 cosmetic rather than load-bearing. CI runs it across PostgreSQL 14–18.

@@ -37,20 +37,18 @@ lives in exactly *two* forms — is in
 
 ## The pipeline
 
-```
-            ┌─ live DB ────────────┐
-            │                      ▼
-.sql files ─┴─► shadow DB ──►  extract  ──►  fact base
-                                                │
-                                              diff (vs the other side)
-                                                │
-                                                ▼
-                                            deltas ──► plan ──► actions
-                                                                  │
-                                                       ┌──────────┴───────────┐
-                                                       ▼                      ▼
-                                                     apply                  prove
-                                                  (the target)          (a clone)
+```mermaid
+flowchart LR
+    LIVE[("live DB")] --> EXTRACT
+    SQL[".sql files"] --> SHADOW[("shadow DB")]
+    SHADOW --> EXTRACT
+    EXTRACT["extract"] --> FB["fact base"]
+    FB --> DIFF["diff<br/><i>(vs the other side)</i>"]
+    DIFF --> DELTAS["deltas"]
+    DELTAS --> PLAN["plan"]
+    PLAN --> ACTIONS["actions"]
+    ACTIONS --> PROVE["prove<br/><i>(a clone)</i>"]
+    ACTIONS --> APPLY["apply<br/><i>(the target)</i>"]
 ```
 
 Five steps, each its own document when you want the depth:

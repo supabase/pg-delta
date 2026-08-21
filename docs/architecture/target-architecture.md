@@ -115,33 +115,20 @@ storage detail; it is what makes P2 hold.
 
 ## 3. The architecture
 
-```text
-frontends:   live DB ──(single-snapshot extract)──┐
-             SQL files ──(shadow-DB elaboration)──┼──▶  FACT BASE
-             snapshot JSON ───────────────────────┘     normalized fact rows + parent &
-                                                        dependency edges; content hash per
-                                                        fact, Merkle rollups along parents
-                                  │
-                  generic diff: rollup-guided descent → fact-level DELTAS
-                  (hash compare — zero per-type code, O(changed))
-                                  │
-                     RULE TABLE  ◀── the only per-type logic in the system
-                                  │
-                          ATOMIC ACTIONS  (≈ 1:1 with deltas)
-              each declares produces / consumes / destroys, lock class,
-              rewrite risk, data-loss class, transactionality
-                                  │
-              ONE dependency graph → one deterministic topological sort
-              (a cycle is a rule bug caught by CI, not a runtime repair job)
-                                  │
-              optional COMPACTION: merge adjacent actions into idiomatic DDL
-              by joining facts along parent relations, only where no edge
-              crosses the merge (cosmetics; off for machines)
-                                  │
-                   PLAN = ordered deltas + fingerprints + safety report
-                                  │
-            ┌── PROOF: apply to scratch clone, re-extract, hash-compare ──┐
-            └──────────── apply (lock-aware segmented txns) ──────────────┘
+```mermaid
+flowchart TB
+    LIVE["live DB<br/><i>(single-snapshot extract)</i>"] --> FB
+    FILES["SQL files<br/><i>(shadow-DB elaboration)</i>"] --> FB
+    SNAP["snapshot JSON"] --> FB
+    FB["<b>FACT BASE</b><br/>normalized fact rows + parent & dependency edges;<br/>content hash per fact, Merkle rollups along parents"]
+    FB --> DIFF["<b>generic diff</b>: rollup-guided descent → fact-level <b>DELTAS</b><br/><i>(hash compare — zero per-type code, O(changed))</i>"]
+    RULES["<b>RULE TABLE</b><br/>the only per-type logic in the system"] --> ACTIONS
+    DIFF --> ACTIONS["<b>ATOMIC ACTIONS</b> <i>(≈ 1:1 with deltas)</i><br/>each declares produces / consumes / destroys, lock class,<br/>rewrite risk, data-loss class, transactionality"]
+    ACTIONS --> SORT["<b>ONE dependency graph</b> → one deterministic topological sort<br/><i>(a cycle is a rule bug caught by CI, not a runtime repair job)</i>"]
+    SORT --> COMPACT["optional <b>COMPACTION</b>: merge adjacent actions into idiomatic DDL<br/>by joining facts along parent relations, only where no edge<br/>crosses the merge <i>(cosmetics; off for machines)</i>"]
+    COMPACT --> PLAN["<b>PLAN</b> = ordered deltas + fingerprints + safety report"]
+    PLAN --> PROOF["<b>PROOF</b>: apply to scratch clone,<br/>re-extract, hash-compare"]
+    PLAN --> APPLY["<b>apply</b><br/><i>(lock-aware segmented txns)</i>"]
 ```
 
 ### 3.1 The fact base: a normalized, content-addressed relation
