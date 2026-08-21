@@ -16,16 +16,29 @@ async function captureError(promise: Promise<unknown>): Promise<unknown> {
   );
 }
 
+/** PG 14 still grants CREATE on `public` to PUBLIC; a locked schema fails
+ *  SET ROLE the same way on every supported version. */
+async function lockSchemaForRole(
+  pool: { query: (sql: string) => Promise<unknown> },
+  role: string,
+  schema: string,
+): Promise<void> {
+  await pool.query(`CREATE ROLE ${role} NOLOGIN`);
+  await pool.query(`CREATE SCHEMA ${schema}`);
+  await pool.query(`REVOKE ALL ON SCHEMA ${schema} FROM PUBLIC`);
+  await pool.query(`REVOKE ALL ON SCHEMA ${schema} FROM ${role}`);
+}
+
 describe("loadSqlFiles — connectionReuse", () => {
   test("reconnect-on-stuck warns and finishes after SET ROLE pollution", async () => {
     const shadow = await createTestDb("pollute_reconnect");
     try {
-      await shadow.pool.query(`CREATE ROLE load_weak NOLOGIN`);
+      await lockSchemaForRole(shadow.pool, "load_weak", "locked");
       const warnings: string[] = [];
       const result = await loadSqlFiles(
         [
           { name: "00_set.sql", sql: "SET ROLE load_weak;" },
-          { name: "01_table.sql", sql: "CREATE TABLE public.t (id integer);" },
+          { name: "01_table.sql", sql: "CREATE TABLE locked.t (id integer);" },
         ],
         shadow.pool,
         {
@@ -35,7 +48,7 @@ describe("loadSqlFiles — connectionReuse", () => {
         },
       );
       expect(
-        result.factBase.has({ kind: "table", schema: "public", name: "t" }),
+        result.factBase.has({ kind: "table", schema: "locked", name: "t" }),
       ).toBe(true);
       expect(
         result.diagnostics.some((d) => d.code === "session_pollution"),
@@ -53,14 +66,14 @@ describe("loadSqlFiles — connectionReuse", () => {
   test("connectionReuse keep throws stuck without a second connect", async () => {
     const shadow = await createTestDb("pollute_keep");
     try {
-      await shadow.pool.query(`CREATE ROLE load_weak_keep NOLOGIN`);
+      await lockSchemaForRole(shadow.pool, "load_weak_keep", "locked");
       const err = await captureError(
         loadSqlFiles(
           [
             { name: "00_set.sql", sql: "SET ROLE load_weak_keep;" },
             {
               name: "01_table.sql",
-              sql: "CREATE TABLE public.t (id integer);",
+              sql: "CREATE TABLE locked.t (id integer);",
             },
           ],
           shadow.pool,
