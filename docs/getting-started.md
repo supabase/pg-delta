@@ -23,19 +23,14 @@ You can drive it two ways:
 
 Everything flows through one pipeline:
 
-```
-extract   read a database into a "fact base" (one fact per object: table,
-          column, constraint, policy, grant, … — all content-addressed)
-   ↓
-diff      compare two fact bases → a list of deltas (add / remove / set / link)
-   ↓
-plan      turn deltas into ordered, atomic DDL actions (one dependency graph,
-          one deterministic sort — no cycle-breakers)
-   ↓
-prove     apply the plan to a throwaway clone, re-extract, and check the result
-          equals the desired state AND seeded rows survived  ← the safety net
-   ↓
-apply     run the plan against the real target (fingerprint-gated)
+```mermaid
+flowchart TB
+    EXTRACT["<b>extract</b> — read a database into a <i>fact base</i><br/>one fact per object: table, column, constraint,<br/>policy, grant, … — all content-addressed"]
+    DIFF["<b>diff</b> — compare two fact bases → a list of deltas<br/><i>(add / remove / set / link / unlink)</i>"]
+    PLAN["<b>plan</b> — turn deltas into ordered, atomic DDL actions<br/><i>one dependency graph, one deterministic sort — no cycle-breakers</i>"]
+    PROVE["<b>prove</b> — apply the plan to a throwaway clone, re-extract, and check the<br/>result equals the desired state AND seeded rows survived — <b>the safety net</b>"]
+    APPLY["<b>apply</b> — run the plan against the real target <i>(fingerprint-gated)</i>"]
+    EXTRACT --> DIFF --> PLAN --> PROVE --> APPLY
 ```
 
 The desired state can come from **another live database** or from your
@@ -59,7 +54,9 @@ pgdelta <command> [flags]
 ```
 
 `pgdelta help` prints the command list. Exit codes: **0** success,
-**1** runtime failure (or drift detected), **2** bad arguments.
+**1** runtime failure (or drift detected), **2** bad arguments, **3** blocking
+diagnostics (e.g. the `--strict-coverage` refusal, or `render` on a plan with
+no actions).
 
 ### Flow 1 — migrate one database to match another
 
@@ -107,7 +104,7 @@ fingerprint check; it never authorizes data loss.
 
 `prove` always prints the plan's projection-audit result. Current plans show a
 summary of raw source/desired differences hidden by policy, baseline,
-capability, management-scope, or reference-only projection, with a stable reason
+capability, management-scope, `managedBy`, or reference-only projection, with a stable reason
 code and classification for each suppression; legacy plans report the audit as
 unavailable and ask you to re-plan. Human detail is bounded to 50 entries and 10
 suppressions per selected entry by default. When more entries exist, selection
@@ -129,9 +126,10 @@ legacy plan that predates projection audits; re-plan before relying on that gate
 ### Flow 2 — declarative: keep your schema as `.sql` files
 
 Author your schema as ordinary `.sql` files in a directory; order doesn't matter
-(the loader resolves dependencies across files in bounded rounds). `schema apply`
-loads them into a **shadow** database, extracts that as the desired state, and
-migrates the target to match:
+(the loader resolves dependencies across files in bounded rounds, and a
+statement-level reordering assist is on by default — `--no-reorder` opts out).
+`schema apply` loads them into a **shadow** database, extracts that as the
+desired state, and migrates the target to match:
 
 ```bash
 pgdelta schema apply \
@@ -181,9 +179,12 @@ Export the inverse — a live database back out to `.sql` files:
 pgdelta schema export --source "$SOURCE_URL" --out-dir ./schema
 # Writes one directory per schema at the root plus a reserved _cluster/ for
 # objects that belong to no schema:
-#   ./schema/_cluster/roles.sql
 #   ./schema/app/schema.sql
 #   ./schema/app/tables/users.sql
+#   ./schema/_cluster/publications.sql
+# The default --scope database omits cluster-global roles/memberships; add
+# --scope cluster to export them too (./schema/_cluster/roles.sql).
+#
 # --path-style nested reproduces the historical schemas/app/tables/users.sql +
 # cluster/roles.sql tree (composes with every --layout).
 #
@@ -198,10 +199,12 @@ pgdelta schema export --source "$SOURCE_URL" --out-dir ./schema
 #   --flat-schemas partman,audit                (one file per category)
 #   --no-group-partitions                       (keep partition children separate)
 #
-# --format-options pretty-prints the exported SQL (any layout; off by default):
+# The exported SQL is pretty-printed by default (lowercase keywords, width 180).
+# --format-options overrides the knobs; --no-format turns formatting off
+# (the two are mutually exclusive):
 #   --format-options '{"keywordCase":"upper","maxWidth":180}'
-# It is cosmetic — the load(export(db)) ≡ db guarantee still holds. The same
-# formatter is available as a library helper at @supabase/pg-delta/sql-format
+# Formatting is cosmetic — the load(export(db)) ≡ db guarantee still holds. The
+# same formatter is available as a library helper at @supabase/pg-delta/sql-format
 # (formatSqlStatements).
 ```
 
@@ -225,18 +228,22 @@ has drifted (and prints the deltas) — handy in CI.
 |---|---|---|
 | `diff` | Print the deltas between two live DBs | `--source` `--desired` `[--strict-coverage]` |
 | `plan` | Produce a plan artifact (JSON) | `--source` `--desired` `[--out]` `[--profile]` `[--renames]` `[--no-compact]` `[--accept-rename]` `[--restrict-to-applier]` `[--strict-coverage]` |
+| `render` | Write a plan out as reviewable `.sql` | `--plan` `--out` `[--allow-drops]` |
 | `apply` | Apply a plan to a target | `--plan` `--target` `[--profile]` `[--force]` `[--allow-data-loss]` |
 | `prove` | Apply a plan to a clone and verify convergence + data preservation | `--plan` `--clone` `--desired-snapshot` `[--profile]` `[--strict-audit]` `[--audit-all]` `[--trusted-local-host]` `[--allow-remote-clone]` `[--allow-unverified-source-identity]` |
 | `snapshot` | Save a database's fact base to a file | `--source` `--out` `[--strict-coverage]` |
 | `drift` | Compare a live DB against a saved snapshot | `--env` `--snapshot` `[--strict-coverage]` |
-| `schema export` | Export a live DB to `.sql` files | `--source` `--out-dir` `[--layout]` `[--path-style]` `[--profile]` `[--strict-coverage]` |
-| `schema apply` | Load `.sql` files via a shadow DB and migrate a target | `--dir` `[--shadow]` `--target` `[--scope]` `[--isolated-shadow]` `[--renames]` `[--accept-rename]` `[--force]` `[--allow-data-loss]` `[--trusted-local-host]` `[--allow-remote-shadow]` `[--profile]` `[--restrict-to-applier]` `[--strict-coverage]` `[--dry-run]` `[--verbose]` `[--out-plan]` |
+| `schema export` | Export a live DB to `.sql` files | `--source` `--out-dir` `[--scope]` `[--layout]` `[--path-style]` `[--format-options]` `[--no-format]` `[--profile]` `[--strict-coverage]` |
+| `schema apply` | Load `.sql` files via a shadow DB and migrate a target | `--dir` `[--shadow]` `--target` `[--scope]` `[--isolated-shadow]` `[--renames]` `[--accept-rename]` `[--force]` `[--allow-data-loss]` `[--no-reorder]` `[--trusted-local-host]` `[--allow-remote-shadow]` `[--profile]` `[--restrict-to-applier]` `[--strict-coverage]` `[--dry-run]` `[--verbose]` `[--out-plan]` |
+| `schema lint` | Statically check `.sql` files for load-order problems (no database) | `--dir` `[--custom-migration-refs]` |
 
 Common flags, explained:
 
-- **`--profile raw\|supabase`** — selects an *integration profile* (default `raw`).
-  `supabase` knows about Supabase-managed roles/schemas/extensions and excludes
-  them from the diff. See [Profiles](#profiles) below.
+- **`--profile raw\|supabase\|<path>`** — selects an *integration profile*
+  (default `raw`). `supabase` knows about Supabase-managed
+  roles/schemas/extensions and excludes them from the diff; a path (containing
+  `/` or ending in `.json`) loads a custom profile. See [Profiles](#profiles)
+  below.
 - **`--strict-coverage`** — refuse to act while user objects exist in a kind the
   engine doesn't model yet (instead of silently ignoring them).
 - **`--strict-audit`** — on `prove`, fail when the plan's projection audit has
@@ -255,10 +262,10 @@ Common flags, explained:
 
 ## Programmatic API
 
-The package ships TypeScript source via subpath exports. The everything-entry is
-`@supabase/pg-delta`; each stage is also importable on its own
-(`/extract`, `/plan`, `/apply`, `/proof`, `/frontends`, `/core`, `/policy`,
-`/integrations`).
+The everything-entry is `@supabase/pg-delta`; each stage is also importable on
+its own (`/extract`, `/plan`, `/apply`, `/proof`, `/frontends`, `/core`,
+`/policy`, `/integrations`, `/sql-order`, `/sql-format`). Bun consumers get the
+TypeScript source directly; Node and Deno get the compiled `dist/` JS.
 
 It takes [`pg`](https://node-postgres.com/) `Pool`s as input.
 
@@ -371,7 +378,8 @@ const thePlan = plan(sourceFb, factBase, ctx.planOptions);
 await apply(thePlan, targetPool, ctx.applyOptions);
 ```
 
-- **`raw`** (default) — no handlers, no policy: diff everything.
+- **`raw`** (default) — no policy: diff everything. (It ships one presence-only
+  handler, for `vault`, so vault-encrypted state is detected rather than read.)
 - **`supabase`** — excludes Supabase-managed roles, schemas, and extensions, and
   captures stateful-extension objects (e.g. pg_partman children) so they aren't
   dropped.

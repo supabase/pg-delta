@@ -120,9 +120,9 @@ that belong to no schema:
 ```text
 schema/
   _cluster/
-    roles.sql
-    publications.sql
-    extensions/pgcrypto.sql
+    roles.sql                 ← cluster-global roles/memberships appear under
+    publications.sql             --scope cluster (the default --scope database
+    extensions/pgcrypto.sql      omits them)
   app/
     schema.sql
     tables/users.sql          ← columns, defaults, constraints, indexes,
