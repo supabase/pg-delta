@@ -6,6 +6,7 @@ export const OBJECT_KINDS = [
   "extension",
   "foreign_data_wrapper",
   "foreign_server",
+  "access_method",
   "type",
   "domain",
   "collation",
@@ -13,6 +14,9 @@ export const OBJECT_KINDS = [
   "table",
   "constraint",
   "index",
+  "operator",
+  "operator_class",
+  "operator_family",
   "function",
   "procedure",
   "aggregate",
@@ -53,6 +57,12 @@ export type ObjectRef = {
   schema?: string;
   name: string;
   signature?: string;
+  exactKind?: boolean;
+  exactSignature?: boolean;
+  omitIfNoLocalProducer?: boolean;
+  alternativeKey?: string;
+  implicitProvider?: boolean;
+  explicitSchema?: boolean;
 };
 
 export type AnnotationHints = {

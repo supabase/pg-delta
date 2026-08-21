@@ -11,6 +11,7 @@ import {
   createObjectRef,
   createObjectRefFromAst,
   DEFAULT_SCHEMA,
+  isBuiltInObjectRef,
   splitQualifiedName,
 } from "../model/object-ref.ts";
 import type { ObjectRef } from "../model/types.ts";
@@ -28,7 +29,15 @@ type ExpressionDependencyOptions = {
 };
 
 const signaturePartFromTypeRef = (typeRef: ObjectRef): string =>
-  typeRef.schema ? `${typeRef.schema}.${typeRef.name}` : typeRef.name;
+  typeRef.kind === "type" &&
+  typeRef.schema?.toLowerCase() === "pg_catalog" &&
+  typeRef.explicitSchema === true
+    ? `${typeRef.schema}.${typeRef.name}`
+    : isBuiltInObjectRef(typeRef)
+      ? typeRef.name
+      : typeRef.schema
+        ? `${typeRef.schema}.${typeRef.name}`
+        : typeRef.name;
 
 const typeCastNodeFromExpression = (
   expressionNode: unknown,

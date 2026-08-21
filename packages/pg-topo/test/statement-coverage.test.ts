@@ -26,6 +26,96 @@ describe("statement coverage", () => {
     expect(orderedSql[2]).toContain("create table app.users");
   });
 
+  test("orders range type before table using it", async () => {
+    const result = await analyzeAndSort([
+      "create table app.events(id int primary key, during app.int_range not null);",
+      "create type app.int_range as range (subtype = int4);",
+      "create schema app;",
+    ]);
+    const unknownCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
+    ).length;
+    const unresolvedCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    ).length;
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+
+    expect(unknownCount).toBe(0);
+    expect(unresolvedCount).toBe(0);
+    expect(orderedSql[0]).toContain("create schema app");
+    expect(orderedSql[1]).toContain("create type app.int_range");
+    expect(orderedSql[2]).toContain("create table app.events");
+  });
+
+  test("orders range type after custom subtype", async () => {
+    const result = await analyzeAndSort([
+      "create type app.price_range as range (subtype = app.price);",
+      "create domain app.price as numeric check (value >= 0);",
+      "create schema app;",
+    ]);
+    const unknownCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
+    ).length;
+    const unresolvedDiagnostics = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const schemaIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create schema app"),
+    );
+    const subtypeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create domain app.price"),
+    );
+    const rangeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app.price_range"),
+    );
+
+    expect(unknownCount).toBe(0);
+    expect(unresolvedDiagnostics).toHaveLength(0);
+    expect(schemaIndex).toBeGreaterThan(-1);
+    expect(subtypeIndex).toBeGreaterThan(schemaIndex);
+    expect(rangeIndex).toBeGreaterThan(subtypeIndex);
+  });
+
+  test("orders range type after canonical and subtype_diff functions", async () => {
+    const result = await analyzeAndSort([
+      "create type app.positive_int_range as range (subtype = int4, canonical = app.positive_int_range_canonical, subtype_diff = app.positive_int_range_subdiff);",
+      "create function app.positive_int_range_subdiff(a int4, b int4) returns float8 language sql immutable as 'select (a - b)::float8';",
+      "create function app.positive_int_range_canonical(value app.positive_int_range) returns app.positive_int_range language internal immutable as 'int4range_canonical';",
+      "create type app.positive_int_range;",
+      "create schema app;",
+    ]);
+    const unknownCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
+    ).length;
+    const unresolvedCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    ).length;
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const canonicalIndex = orderedSql.findIndex((sql) =>
+      sql.includes("positive_int_range_canonical"),
+    );
+    const subtypeDiffIndex = orderedSql.findIndex((sql) =>
+      sql.includes("positive_int_range_subdiff"),
+    );
+    const rangeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app.positive_int_range as range"),
+    );
+
+    expect(unknownCount).toBe(0);
+    expect(unresolvedCount).toBe(0);
+    expect(canonicalIndex).toBeGreaterThan(-1);
+    expect(subtypeDiffIndex).toBeGreaterThan(-1);
+    expect(rangeIndex).toBeGreaterThan(canonicalIndex);
+    expect(rangeIndex).toBeGreaterThan(subtypeDiffIndex);
+  });
+
   test("orders create role/schema before schema grant", async () => {
     const result = await analyzeAndSort([
       "grant usage on schema app to app_user;",

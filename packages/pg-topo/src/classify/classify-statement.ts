@@ -7,6 +7,7 @@ export type StatementClass =
   | "CREATE_EXTENSION"
   | "CREATE_FOREIGN_DATA_WRAPPER"
   | "CREATE_FOREIGN_SERVER"
+  | "CREATE_ACCESS_METHOD"
   | "CREATE_TYPE"
   | "CREATE_ROLE"
   | "CREATE_PUBLICATION"
@@ -20,6 +21,9 @@ export type StatementClass =
   | "CREATE_TABLE"
   | "ALTER_TABLE"
   | "CREATE_INDEX"
+  | "CREATE_OPERATOR"
+  | "CREATE_OPERATOR_CLASS"
+  | "CREATE_OPERATOR_FAMILY"
   | "CREATE_FUNCTION"
   | "CREATE_PROCEDURE"
   | "CREATE_AGGREGATE"
@@ -48,6 +52,7 @@ const CLASS_BY_AST_NODE: Record<string, StatementClass> = {
   AlterSeqStmt: "ALTER_SEQUENCE",
   AlterSubscriptionStmt: "ALTER_SUBSCRIPTION",
   CommentStmt: "COMMENT",
+  CreateAmStmt: "CREATE_ACCESS_METHOD",
   CreatePLangStmt: "CREATE_LANGUAGE",
   CompositeTypeStmt: "CREATE_TYPE",
   CreateEnumStmt: "CREATE_TYPE",
@@ -57,9 +62,12 @@ const CLASS_BY_AST_NODE: Record<string, StatementClass> = {
   CreateFdwStmt: "CREATE_FOREIGN_DATA_WRAPPER",
   CreateForeignServerStmt: "CREATE_FOREIGN_SERVER",
   CreateFunctionStmt: "CREATE_FUNCTION",
+  CreateOpClassStmt: "CREATE_OPERATOR_CLASS",
+  CreateOpFamilyStmt: "CREATE_OPERATOR_FAMILY",
   CreatePublicationStmt: "CREATE_PUBLICATION",
   CreateRoleStmt: "CREATE_ROLE",
   CreatePolicyStmt: "CREATE_POLICY",
+  CreateRangeStmt: "CREATE_TYPE",
   CreateSchemaStmt: "CREATE_SCHEMA",
   CreateSeqStmt: "CREATE_SEQUENCE",
   CreateSubscriptionStmt: "CREATE_SUBSCRIPTION",
@@ -122,6 +130,12 @@ export const classifyStatement = (ast: unknown): StatementClass => {
     if (defineStmt?.kind === "OBJECT_AGGREGATE") {
       return "CREATE_AGGREGATE";
     }
+    if (defineStmt?.kind === "OBJECT_OPERATOR") {
+      return "CREATE_OPERATOR";
+    }
+    if (defineStmt?.kind === "OBJECT_TYPE") {
+      return "CREATE_TYPE";
+    }
     return "UNKNOWN";
   }
 
@@ -148,9 +162,13 @@ const PHASE_BY_CLASS: Record<Exclude<StatementClass, "UNKNOWN">, PhaseTag> = {
   CREATE_EXTENSION: "bootstrap",
   CREATE_FOREIGN_DATA_WRAPPER: "bootstrap",
   CREATE_FOREIGN_SERVER: "bootstrap",
+  CREATE_ACCESS_METHOD: "pre_data",
   CREATE_FUNCTION: "routines",
   CREATE_AGGREGATE: "routines",
   CREATE_INDEX: "post_data",
+  CREATE_OPERATOR: "routines",
+  CREATE_OPERATOR_CLASS: "pre_data",
+  CREATE_OPERATOR_FAMILY: "pre_data",
   CREATE_LANGUAGE: "bootstrap",
   CREATE_MATERIALIZED_VIEW: "post_data",
   ALTER_PUBLICATION: "post_data",

@@ -52,4 +52,31 @@ describe("object reference normalization", () => {
       false,
     );
   });
+
+  test("isBuiltInObjectRef treats polymorphic pseudo-types as built-ins", () => {
+    for (const name of [
+      "anycompatible",
+      "anycompatiblearray",
+      "anycompatiblenonarray",
+      "anycompatiblerange",
+      "anycompatiblemultirange",
+      "anynonarray",
+    ]) {
+      expect(isBuiltInObjectRef({ kind: "type", name })).toBe(true);
+    }
+  });
+
+  test("isBuiltInObjectRef preserves schema-qualified arrays that shadow built-ins", () => {
+    expect(isBuiltInObjectRef({ kind: "type", name: "int4[]" })).toBe(true);
+    expect(
+      isBuiltInObjectRef({
+        kind: "type",
+        schema: "pg_catalog",
+        name: "int4[]",
+      }),
+    ).toBe(true);
+    expect(
+      isBuiltInObjectRef({ kind: "type", schema: "app", name: "int4[]" }),
+    ).toBe(false);
+  });
 });

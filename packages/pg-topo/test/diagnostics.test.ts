@@ -138,6 +138,445 @@ describe("diagnostics", () => {
     expect(unresolvedWith.length).toBeLessThan(unresolvedWithout.length);
   });
 
+  test("external base type providers satisfy generated array type requirements", async () => {
+    const result = await analyzeAndSort(
+      ["create schema app;", "create table app.events(values app.score[]);"],
+      {
+        externalProviders: [{ kind: "type", schema: "app", name: "score" }],
+      },
+    );
+    const unresolvedArrayType = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ref.schema === "app" &&
+            ref.name === "score[]",
+        ) === true,
+    );
+
+    expect(unresolvedArrayType).toHaveLength(0);
+  });
+
+  test("external range providers do not invent default multirange requirements", async () => {
+    const withoutMultirangeProvider = await analyzeAndSort(
+      [
+        "create schema app;",
+        "create table app.events(spans app.period_multirange);",
+      ],
+      {
+        externalProviders: [
+          {
+            kind: "type",
+            schema: "app",
+            name: "period",
+            signature: "(range)",
+          },
+        ],
+      },
+    );
+    const missingImplicitMultirange =
+      withoutMultirangeProvider.diagnostics.filter(
+        (diagnostic) =>
+          diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+          diagnostic.objectRefs?.some(
+            (ref) =>
+              ref.kind === "type" &&
+              ref.schema === "app" &&
+              ref.name === "period_multirange",
+          ) === true,
+      );
+
+    const withMultirangeProvider = await analyzeAndSort(
+      [
+        "create schema app;",
+        "create table app.events(spans app.period_multirange);",
+      ],
+      {
+        externalProviders: [
+          {
+            kind: "type",
+            schema: "app",
+            name: "period",
+            signature: "(range)",
+          },
+          {
+            kind: "type",
+            schema: "app",
+            name: "period_multirange",
+            signature: "(multirange)",
+          },
+        ],
+      },
+    );
+    const unresolvedExplicitMultirange =
+      withMultirangeProvider.diagnostics.filter(
+        (diagnostic) =>
+          diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+          diagnostic.objectRefs?.some(
+            (ref) =>
+              ref.kind === "type" &&
+              ref.schema === "app" &&
+              ref.name === "period_multirange",
+          ) === true,
+      );
+
+    expect(missingImplicitMultirange).toHaveLength(1);
+    expect(unresolvedExplicitMultirange).toHaveLength(0);
+  });
+
+  test("does not report unresolved unqualified built-in operator class and family comments", async () => {
+    const result = await analyzeAndSort([
+      "comment on operator class int4_ops using btree is 'built-in int4 opclass';",
+      "comment on operator family integer_ops using btree is 'built-in integer opfamily';",
+    ]);
+    const unresolvedBuiltIns = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            (ref.kind === "operator_class" && ref.name === "int4_ops") ||
+            (ref.kind === "operator_family" && ref.name === "integer_ops"),
+        ) === true,
+    );
+
+    expect(unresolvedBuiltIns).toHaveLength(0);
+  });
+
+  test("external domain providers satisfy generated array type requirements", async () => {
+    const result = await analyzeAndSort(
+      [
+        "create schema app;",
+        "create table app.events(emails app.email_domain[]);",
+        "create table app.audit(emails app.other_domain[]);",
+      ],
+      {
+        externalProviders: [
+          { kind: "domain", schema: "app", name: "email_domain" },
+        ],
+      },
+    );
+    const providedDomainArray = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ref.schema === "app" &&
+            ref.name === "email_domain[]",
+        ) === true,
+    );
+    const unrelatedDomainArray = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ref.schema === "app" &&
+            ref.name === "other_domain[]",
+        ) === true,
+    );
+
+    expect(providedDomainArray).toHaveLength(0);
+    expect(unrelatedDomainArray).toHaveLength(1);
+  });
+
+  test("external relation providers satisfy generated row type array requirements", async () => {
+    const result = await analyzeAndSort(
+      [
+        "create schema app;",
+        "create table app.children(parents app.events[]);",
+      ],
+      {
+        externalProviders: [{ kind: "table", schema: "app", name: "events" }],
+      },
+    );
+    const unresolvedRowTypeArray = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ref.schema === "app" &&
+            ref.name === "events[]",
+        ) === true,
+    );
+
+    expect(unresolvedRowTypeArray).toHaveLength(0);
+  });
+
+  test("reports self references through generated array types", async () => {
+    const tableResult = await analyzeAndSort([
+      "create schema app;",
+      "create table app.events(parents app.events[]);",
+    ]);
+    const rangeResult = await analyzeAndSort([
+      "create schema app;",
+      "create type app.r as range (subtype = app.r[]);",
+    ]);
+    const rangeMultirangeResult = await analyzeAndSort([
+      "create schema app;",
+      "create type app.r as range (subtype = app.r_multirange);",
+    ]);
+    const explicitRangeMultirangeResult = await analyzeAndSort([
+      "create schema app;",
+      "create type app.r as range (subtype = app.mr, multirange_type_name = app.mr);",
+    ]);
+    const domainResult = await analyzeAndSort([
+      "create schema app;",
+      "create domain app.email_domain as app.email_domain[];",
+    ]);
+    const selfTableArray = tableResult.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ref.schema === "app" &&
+            ref.name === "events[]",
+        ) === true,
+    );
+    const selfRangeArray = rangeResult.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" && ref.schema === "app" && ref.name === "r[]",
+        ) === true,
+    );
+    const selfRangeMultirange = rangeMultirangeResult.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ref.schema === "app" &&
+            ref.name === "r_multirange",
+        ) === true,
+    );
+    const selfExplicitRangeMultirange =
+      explicitRangeMultirangeResult.diagnostics.filter(
+        (diagnostic) =>
+          diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+          diagnostic.objectRefs?.some(
+            (ref) =>
+              ref.kind === "type" && ref.schema === "app" && ref.name === "mr",
+          ) === true,
+      );
+    const selfDomainArray = domainResult.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ref.schema === "app" &&
+            ref.name === "email_domain[]",
+        ) === true,
+    );
+
+    expect(selfTableArray).toHaveLength(1);
+    expect(selfRangeArray).toHaveLength(1);
+    expect(selfRangeMultirange).toHaveLength(1);
+    expect(selfExplicitRangeMultirange).toHaveLength(1);
+    expect(selfDomainArray).toHaveLength(1);
+  });
+
+  test("external operator class providers satisfy omitted range subtype defaults", async () => {
+    const sql = [
+      "create schema app;",
+      "create type app.score as (value int4);",
+      "create type app.score_range as range (subtype = app.score);",
+    ];
+    const withoutProviders = await analyzeAndSort(sql);
+    const missingDefaultWithout = withoutProviders.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        d.message.includes("No default btree operator class provider"),
+    );
+    expect(missingDefaultWithout.length).toBeGreaterThan(0);
+
+    const withProviders = await analyzeAndSort(sql, {
+      externalProviders: [
+        {
+          kind: "operator_class",
+          schema: "app",
+          name: "score_ops",
+          signature: "(btree,app.score)",
+          implicitProvider: true,
+        },
+      ],
+    });
+    const missingDefaultWith = withProviders.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        d.message.includes("No default btree operator class provider"),
+    );
+    expect(missingDefaultWith).toHaveLength(0);
+  });
+
+  test("external enum subtype providers do not require range default opclass providers", async () => {
+    const result = await analyzeAndSort(
+      [
+        "create schema app;",
+        "create type app.mood_range as range (subtype = app.mood);",
+      ],
+      {
+        externalProviders: [
+          { kind: "type", schema: "app", name: "mood", signature: "(enum)" },
+        ],
+      },
+    );
+    const unresolved = result.diagnostics.filter(
+      (d) => d.code === "UNRESOLVED_DEPENDENCY",
+    );
+    const missingDefault = unresolved.filter((d) =>
+      d.message.includes("No default btree operator class provider"),
+    );
+
+    expect(unresolved).toHaveLength(0);
+    expect(missingDefault).toHaveLength(0);
+  });
+
+  test("external multirange providers satisfy multirange default opclasses", async () => {
+    const result = await analyzeAndSort(
+      [
+        "create schema app;",
+        "create type app.wrap as range (subtype = app.period_multirange);",
+      ],
+      {
+        externalProviders: [
+          { kind: "type", schema: "app", name: "period", signature: "(range)" },
+          {
+            kind: "type",
+            schema: "app",
+            name: "period_multirange",
+            signature: "(multirange)",
+          },
+        ],
+      },
+    );
+    const unresolved = result.diagnostics.filter(
+      (d) => d.code === "UNRESOLVED_DEPENDENCY",
+    );
+    const missingDefault = unresolved.filter((d) =>
+      d.message.includes("No default btree operator class provider"),
+    );
+
+    expect(unresolved).toHaveLength(0);
+    expect(missingDefault).toHaveLength(0);
+  });
+
+  test("external custom subtype providers still require range default opclass providers", async () => {
+    const result = await analyzeAndSort(
+      [
+        "create schema app;",
+        "create type app.score_range as range (subtype = app.score);",
+      ],
+      {
+        externalProviders: [{ kind: "type", schema: "app", name: "score" }],
+      },
+    );
+    const missingDefault = result.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        d.message.includes(
+          "No default btree operator class provider found for range subtype 'app.score'",
+        ),
+    );
+
+    expect(missingDefault).toHaveLength(1);
+  });
+
+  test("external range operator class providers must match the omitted subtype", async () => {
+    const sql = [
+      "create schema app;",
+      "create type app.score as (value int4);",
+      "create type app.other_score as (value int4);",
+      "create type app.score_range as range (subtype = app.score);",
+    ];
+    const result = await analyzeAndSort(sql, {
+      externalProviders: [
+        {
+          kind: "operator_class",
+          schema: "app",
+          name: "other_score_ops",
+          signature: "(btree,app.other_score)",
+        },
+      ],
+    });
+    const missingDefault = result.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        d.message.includes(
+          "No default btree operator class provider found for range subtype 'app.score'",
+        ),
+    );
+
+    expect(missingDefault).toHaveLength(1);
+  });
+
+  test("external non-default operator class providers do not satisfy omitted range subtype defaults", async () => {
+    const result = await analyzeAndSort(
+      [
+        "create schema app;",
+        "create type app.score as (value int4);",
+        "create type app.score_range as range (subtype = app.score);",
+      ],
+      {
+        externalProviders: [
+          {
+            kind: "operator_class",
+            schema: "app",
+            name: "score_ops",
+            signature: "(btree,app.score)",
+          },
+        ],
+      },
+    );
+    const missingDefault = result.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        d.message.includes(
+          "No default btree operator class provider found for range subtype 'app.score'",
+        ),
+    );
+
+    expect(missingDefault).toHaveLength(1);
+  });
+
+  test("external operator class providers satisfy identity comment signatures", async () => {
+    const result = await analyzeAndSort(
+      [
+        "create schema app;",
+        "comment on operator class app.ops using btree is 'external';",
+      ],
+      {
+        externalProviders: [
+          {
+            kind: "operator_class",
+            schema: "app",
+            name: "ops",
+            signature: "(btree,int4)",
+          },
+        ],
+      },
+    );
+    const unresolvedOperatorClass = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "operator_class" &&
+            ref.schema === "app" &&
+            ref.name === "ops" &&
+            ref.signature === "(btree)",
+        ) === true,
+    );
+
+    expect(unresolvedOperatorClass).toHaveLength(0);
+  });
+
   test("externalProviders with signature mismatch uses compatibility (e.g. timezone)", async () => {
     const sql = [
       "create table public.events(ts timestamptz default timezone('utc'::text, now()) not null);",

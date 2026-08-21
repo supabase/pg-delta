@@ -1,4 +1,9 @@
-import { createObjectRefFromAst, DEFAULT_SCHEMA } from "../model/object-ref.ts";
+import {
+  createObjectRefFromAst,
+  DEFAULT_SCHEMA,
+  isBuiltInObjectRef,
+  markExplicitSchemaRef,
+} from "../model/object-ref.ts";
 import type { ObjectRef } from "../model/types.ts";
 import { asRecord } from "../utils/ast.ts";
 
@@ -33,6 +38,8 @@ export const objectKindFromObjType = (
   switch (objType) {
     case "OBJECT_AGGREGATE":
       return "aggregate";
+    case "OBJECT_ACCESS_METHOD":
+      return "access_method";
     case "OBJECT_COLLATION":
       return "collation";
     case "OBJECT_DOMAIN":
@@ -49,6 +56,12 @@ export const objectKindFromObjType = (
       return "function";
     case "OBJECT_INDEX":
       return "index";
+    case "OBJECT_OPERATOR":
+      return "operator";
+    case "OBJECT_OPCLASS":
+      return "operator_class";
+    case "OBJECT_OPFAMILY":
+      return "operator_family";
     case "OBJECT_LANGUAGE":
       return "language";
     case "OBJECT_MATVIEW":
@@ -104,11 +117,12 @@ export const objectFromNameParts = (
       return null;
     }
 
-    return createObjectRefFromAst(
+    const ref = createObjectRefFromAst(
       kind,
       `${relationName}.${objectName}`,
       parts.at(-3) ?? fallbackSchema,
     );
+    return parts.length >= 3 ? markExplicitSchemaRef(ref) : ref;
   }
 
   if (parts.length === 1) {
@@ -122,6 +136,7 @@ export const objectFromNameParts = (
       kind === "extension" ||
       kind === "foreign_data_wrapper" ||
       kind === "foreign_server" ||
+      kind === "access_method" ||
       kind === "publication" ||
       kind === "subscription" ||
       kind === "role"
@@ -131,11 +146,37 @@ export const objectFromNameParts = (
     return createObjectRefFromAst(kind, first, fallbackSchema);
   }
 
-  return createObjectRefFromAst(
-    kind,
-    parts.at(-1) ?? "",
-    parts.at(-2) ?? fallbackSchema,
+  return markExplicitSchemaRef(
+    createObjectRefFromAst(
+      kind,
+      parts.at(-1) ?? "",
+      parts.at(-2) ?? fallbackSchema,
+    ),
   );
+};
+
+const objectFromOperatorAccessMethodNameParts = (
+  kind: "operator_class" | "operator_family",
+  parts: string[],
+): ObjectRef | null => {
+  if (parts.length < 2) {
+    return objectFromNameParts(kind, parts);
+  }
+
+  const accessMethod = parts[0];
+  const objectName = parts.at(-1);
+  const schemaName = parts.length >= 3 ? parts.at(-2) : DEFAULT_SCHEMA;
+  if (!accessMethod || !objectName) {
+    return null;
+  }
+
+  const ref = createObjectRefFromAst(
+    kind,
+    objectName,
+    schemaName,
+    `(${accessMethod})`,
+  );
+  return parts.length >= 3 ? markExplicitSchemaRef(ref) : ref;
 };
 
 export const typeFromTypeNameNode = (
@@ -146,8 +187,47 @@ export const typeFromTypeNameNode = (
     return null;
   }
   const nameParts = extractNameParts(typeNameRecord.names);
-  return objectFromNameParts("type", nameParts, undefined);
+  const typeRef = objectFromNameParts("type", nameParts, undefined);
+  if (
+    typeRef &&
+    Array.isArray(typeNameRecord.arrayBounds) &&
+    typeNameRecord.arrayBounds.length > 0
+  ) {
+    const arrayName = `${typeRef.name}[]`;
+    const hasExplicitSchema = nameParts.length > 1;
+    const schema = typeRef.schema?.toLowerCase();
+    if (
+      !hasExplicitSchema ||
+      schema === "pg_catalog" ||
+      schema === "information_schema"
+    ) {
+      const builtInArrayRef = createObjectRefFromAst("type", arrayName);
+      if (isBuiltInObjectRef(builtInArrayRef)) {
+        return builtInArrayRef;
+      }
+    }
+
+    const arrayRef = createObjectRefFromAst("type", arrayName, typeRef.schema);
+    return hasExplicitSchema ? markExplicitSchemaRef(arrayRef) : arrayRef;
+  }
+  return typeRef;
 };
+
+const typeNameNodeFromArg = (argNode: unknown): unknown => {
+  const argRecord = asRecord(argNode);
+  return asRecord(argRecord?.TypeName) ?? argNode;
+};
+
+const typeSignaturePart = (typeRef: ObjectRef): string =>
+  typeRef.kind === "type" &&
+  typeRef.schema?.toLowerCase() === "pg_catalog" &&
+  typeRef.explicitSchema === true
+    ? `${typeRef.schema}.${typeRef.name}`
+    : isBuiltInObjectRef(typeRef)
+      ? typeRef.name
+      : typeRef.schema
+        ? `${typeRef.schema}.${typeRef.name}`
+        : typeRef.name;
 
 export const relationFromRangeVarNode = (
   rangeVarNode: unknown,
@@ -284,6 +364,7 @@ export const parseNamedObjectRef = (
       kind === "extension" ||
       kind === "foreign_data_wrapper" ||
       kind === "foreign_server" ||
+      kind === "access_method" ||
       kind === "publication" ||
       kind === "subscription" ||
       kind === "role"
@@ -295,7 +376,11 @@ export const parseNamedObjectRef = (
 
   const listNode = asRecord(nodeRecord.List);
   if (listNode) {
-    return objectFromNameParts(kind, extractNameParts(listNode.items));
+    const nameParts = extractNameParts(listNode.items);
+    if (kind === "operator_class" || kind === "operator_family") {
+      return objectFromOperatorAccessMethodNameParts(kind, nameParts);
+    }
+    return objectFromNameParts(kind, nameParts);
   }
 
   const rangeVarRef = relationFromRangeVarNode(
@@ -322,13 +407,11 @@ export const parseNamedObjectRef = (
     }
 
     const signatureParts = args.map((argNode) => {
-      const typeRef = typeFromTypeNameNode(argNode);
+      const typeRef = typeFromTypeNameNode(typeNameNodeFromArg(argNode));
       if (!typeRef) {
         return "unknown";
       }
-      return typeRef.schema
-        ? `${typeRef.schema}.${typeRef.name}`
-        : typeRef.name;
+      return typeSignaturePart(typeRef);
     });
 
     return createObjectRefFromAst(

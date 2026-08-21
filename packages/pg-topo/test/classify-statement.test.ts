@@ -62,6 +62,67 @@ describe("classifyStatement", () => {
     ).toBe("CREATE_TABLE");
   });
 
+  test("returns CREATE_TYPE for CreateRangeStmt", () => {
+    expect(
+      classifyStatement({
+        CreateRangeStmt: {
+          typeName: [{ String: { sval: "app" } }, { String: { sval: "ids" } }],
+        },
+      }),
+    ).toBe("CREATE_TYPE");
+  });
+
+  test("returns CREATE_TYPE for shell type DefineStmt", () => {
+    expect(
+      classifyStatement({
+        DefineStmt: {
+          kind: "OBJECT_TYPE",
+          defnames: [
+            { String: { sval: "app" } },
+            { String: { sval: "int_range" } },
+          ],
+        },
+      }),
+    ).toBe("CREATE_TYPE");
+  });
+
+  test("returns CREATE_OPERATOR_CLASS for CreateOpClassStmt", () => {
+    expect(
+      classifyStatement({
+        CreateOpClassStmt: {
+          opclassname: [
+            { String: { sval: "app" } },
+            { String: { sval: "int4_range_ops" } },
+          ],
+        },
+      }),
+    ).toBe("CREATE_OPERATOR_CLASS");
+  });
+
+  test("returns CREATE_OPERATOR_FAMILY for CreateOpFamilyStmt", () => {
+    expect(
+      classifyStatement({
+        CreateOpFamilyStmt: {
+          opfamilyname: [
+            { String: { sval: "app" } },
+            { String: { sval: "score_family" } },
+          ],
+        },
+      }),
+    ).toBe("CREATE_OPERATOR_FAMILY");
+  });
+
+  test("returns CREATE_OPERATOR for operator DefineStmt", () => {
+    expect(
+      classifyStatement({
+        DefineStmt: {
+          kind: "OBJECT_OPERATOR",
+          defnames: [{ String: { sval: "app" } }, { String: { sval: "<#" } }],
+        },
+      }),
+    ).toBe("CREATE_OPERATOR");
+  });
+
   test("returns REVOKE when GrantStmt has is_grant false", () => {
     expect(
       classifyStatement({

@@ -6,9 +6,11 @@ import {
   keyRefForTableColumns,
   objectFromNameParts,
   objectKindFromObjType,
+  parseNamedObjectRef,
   relationFromRangeVarNode,
   typeFromTypeNameNode,
 } from "../src/extract/shared-refs";
+import { isBuiltInObjectRef } from "../src/model/object-ref";
 
 describe("extractStringValue", () => {
   test("returns undefined for null or non-object", () => {
@@ -79,6 +81,48 @@ describe("objectFromNameParts", () => {
   test("returns ref for multi-part (schema.name)", () => {
     const ref = objectFromNameParts("table", ["app", "users"], "public");
     expect(ref).toEqual({ kind: "table", name: "users", schema: "app" });
+  });
+
+  test("preserves operator class and family access methods", () => {
+    const operatorClassRef = parseNamedObjectRef(
+      {
+        List: {
+          items: [
+            { String: { sval: "btree" } },
+            { String: { sval: "app" } },
+            { String: { sval: "score_ops" } },
+          ],
+        },
+      },
+      "operator_class",
+    );
+    const operatorFamilyRef = parseNamedObjectRef(
+      {
+        List: {
+          items: [
+            { String: { sval: "hash" } },
+            { String: { sval: "app" } },
+            { String: { sval: "score_ops" } },
+          ],
+        },
+      },
+      "operator_family",
+    );
+
+    expect(operatorClassRef).toMatchObject({
+      kind: "operator_class",
+      name: "score_ops",
+      schema: "app",
+      signature: "(btree)",
+    });
+    expect(operatorClassRef?.explicitSchema).toBe(true);
+    expect(operatorFamilyRef).toMatchObject({
+      kind: "operator_family",
+      name: "score_ops",
+      schema: "app",
+      signature: "(hash)",
+    });
+    expect(operatorFamilyRef?.explicitSchema).toBe(true);
   });
 
   test("trigger and policy use relation.objectName identity so COMMENT ON resolves to CREATE", () => {
@@ -229,5 +273,54 @@ describe("typeFromTypeNameNode", () => {
       name: "user_role",
       schema: "app",
     });
+  });
+
+  test("collapses multidimensional arrays to the single PostgreSQL array type", () => {
+    expect(
+      typeFromTypeNameNode({
+        names: [{ String: { sval: "int4" } }],
+        arrayBounds: [{}, {}],
+      }),
+    ).toEqual({
+      kind: "type",
+      name: "int4[]",
+    });
+    expect(
+      typeFromTypeNameNode({
+        names: [{ String: { sval: "app" } }, { String: { sval: "score" } }],
+        arrayBounds: [{}, {}],
+      }),
+    ).toEqual({
+      kind: "type",
+      name: "score[]",
+      schema: "app",
+    });
+  });
+
+  test("preserves schema-qualified array types that shadow built-ins", () => {
+    expect(
+      typeFromTypeNameNode({
+        names: [{ String: { sval: "app" } }, { String: { sval: "int4" } }],
+        arrayBounds: [{}],
+      }),
+    ).toEqual({
+      kind: "type",
+      name: "int4[]",
+      schema: "app",
+    });
+  });
+
+  test("does not treat explicitly public array types as built-in", () => {
+    const ref = typeFromTypeNameNode({
+      names: [{ String: { sval: "public" } }, { String: { sval: "int4" } }],
+      arrayBounds: [{}],
+    });
+
+    expect(ref).toEqual({
+      kind: "type",
+      name: "int4[]",
+      schema: "public",
+    });
+    expect(ref ? isBuiltInObjectRef(ref) : undefined).toBe(false);
   });
 });

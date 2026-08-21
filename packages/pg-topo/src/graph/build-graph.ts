@@ -1,8 +1,16 @@
 import {
   isKindCompatible,
+  operatorClassSignaturesCompatible,
   signaturesCompatible,
 } from "../model/object-compat.ts";
-import { isBuiltInObjectRef, objectRefKey } from "../model/object-ref.ts";
+import {
+  alternativeRefKey,
+  isBuiltInObjectRef,
+  isShellTypeRef,
+  objectRefKey,
+  requiresExactKind,
+  requiresExactSignature,
+} from "../model/object-ref.ts";
 import type {
   Diagnostic,
   GraphEdgeReason,
@@ -21,6 +29,31 @@ export type GraphState = {
   producersByKey: Map<string, number[]>;
   diagnostics: Diagnostic[];
 };
+
+const POSTGRES_IDENTIFIER_MAX_BYTES = 63;
+const textEncoder = new TextEncoder();
+
+const clipPostgresIdentifier = (
+  identifier: string,
+  maxBytes = POSTGRES_IDENTIFIER_MAX_BYTES,
+): string => {
+  let clipped = "";
+  let byteLength = 0;
+
+  for (const char of identifier) {
+    const charLength = textEncoder.encode(char).length;
+    if (byteLength + charLength > maxBytes) {
+      break;
+    }
+    clipped += char;
+    byteLength += charLength;
+  }
+
+  return clipped;
+};
+
+const generatedArrayTypeName = (typeName: string): string =>
+  clipPostgresIdentifier(`_${typeName}`);
 
 const edgeKey = (fromIndex: number, toIndex: number): string =>
   `${fromIndex}->${toIndex}`;
@@ -75,6 +108,12 @@ const sqlExcerpt = (sql: string, maxLength = 80): string => {
 const statementLabel = (node: StatementNode): string =>
   `${node.id.filePath}:${node.id.statementIndex}${node.id.sourceOffset != null ? `@${node.id.sourceOffset}` : ""} (${sqlExcerpt(node.sql)})`;
 
+const relationRowTypeProviderKinds = new Set([
+  "table",
+  "view",
+  "materialized_view",
+]);
+
 const externalProviderSatisfies = (
   requiredRef: ObjectRef,
   externalByName: Map<string, ObjectRef[]>,
@@ -84,6 +123,9 @@ const externalProviderSatisfies = (
     return false;
   }
   for (const provider of candidates) {
+    if (requiresExactKind(requiredRef) && provider.kind !== requiredRef.kind) {
+      continue;
+    }
     if (!isKindCompatible(requiredRef.kind, provider.kind)) {
       continue;
     }
@@ -94,11 +136,20 @@ const externalProviderSatisfies = (
     ) {
       continue;
     }
-    if (
-      !signaturesCompatible(requiredRef.signature, provider.signature, {
-        allowVariadicProviderTail: true,
-      })
-    ) {
+    const requireExactSignature = requiresExactSignature(requiredRef);
+    const signaturesMatch =
+      requiredRef.kind === "operator_class" &&
+      provider.kind === "operator_class"
+        ? operatorClassSignaturesCompatible(
+            requiredRef.signature,
+            provider.signature,
+          )
+        : signaturesCompatible(requiredRef.signature, provider.signature, {
+            allowVariadicProviderTail: true,
+            rejectPolymorphicProviderArgs: requireExactSignature,
+            requireExactArity: requireExactSignature,
+          });
+    if (!signaturesMatch) {
       continue;
     }
     return true;
@@ -117,6 +168,12 @@ const candidateObjectKeysForRequirement = (
       continue;
     }
     for (const providedRef of node.provides) {
+      if (
+        requiresExactKind(requiredRef) &&
+        providedRef.kind !== requiredRef.kind
+      ) {
+        continue;
+      }
       if (!isKindCompatible(requiredRef.kind, providedRef.kind)) {
         continue;
       }
@@ -152,6 +209,15 @@ const producerIndicesForRequirement = (
     }
 
     const hasMatchingProvide = node.provides.some((providedRef) => {
+      if (isShellTypeRef(providedRef)) {
+        return false;
+      }
+      if (
+        requiresExactKind(requiredRef) &&
+        providedRef.kind !== requiredRef.kind
+      ) {
+        return false;
+      }
       if (!isKindCompatible(requiredRef.kind, providedRef.kind)) {
         return false;
       }
@@ -161,7 +227,19 @@ const producerIndicesForRequirement = (
       if (requiredRef.schema && providedRef.schema !== requiredRef.schema) {
         return false;
       }
-      if (!signaturesCompatible(requiredRef.signature, providedRef.signature)) {
+      const requireExactSignature = requiresExactSignature(requiredRef);
+      const signaturesMatch =
+        requiredRef.kind === "operator_class" &&
+        providedRef.kind === "operator_class"
+          ? operatorClassSignaturesCompatible(
+              requiredRef.signature,
+              providedRef.signature,
+            )
+          : signaturesCompatible(requiredRef.signature, providedRef.signature, {
+              rejectPolymorphicProviderArgs: requireExactSignature,
+              requireExactArity: requireExactSignature,
+            });
+      if (!signaturesMatch) {
         return false;
       }
       return true;
@@ -172,6 +250,146 @@ const producerIndicesForRequirement = (
     }
   }
   return indices;
+};
+
+const hasCompatibleProvidedObject = (
+  requiredRef: ObjectRef,
+  providedRefs: ObjectRef[],
+): boolean =>
+  providedRefs.some((providedRef) => {
+    if (
+      requiresExactKind(requiredRef) &&
+      providedRef.kind !== requiredRef.kind
+    ) {
+      return false;
+    }
+    if (!isKindCompatible(requiredRef.kind, providedRef.kind)) {
+      return false;
+    }
+    if (requiredRef.name !== providedRef.name) {
+      return false;
+    }
+    if (requiredRef.schema && providedRef.schema !== requiredRef.schema) {
+      return false;
+    }
+    const requireExactSignature = requiresExactSignature(requiredRef);
+    return requiredRef.kind === "operator_class" &&
+      providedRef.kind === "operator_class"
+      ? operatorClassSignaturesCompatible(
+          requiredRef.signature,
+          providedRef.signature,
+        )
+      : signaturesCompatible(requiredRef.signature, providedRef.signature, {
+          rejectPolymorphicProviderArgs: requireExactSignature,
+          requireExactArity: requireExactSignature,
+        });
+  });
+
+const findShellTypeProducerIndex = (
+  requiredRef: ObjectRef,
+  nodes: StatementNode[],
+): number | undefined => {
+  if (requiredRef.kind !== "type") {
+    return undefined;
+  }
+
+  for (
+    let producerIndex = 0;
+    producerIndex < nodes.length;
+    producerIndex += 1
+  ) {
+    const node = nodes[producerIndex];
+    if (!node) {
+      continue;
+    }
+    const hasShellType = node.provides.some(
+      (providedRef) =>
+        isShellTypeRef(providedRef) &&
+        hasCompatibleProvidedObject(requiredRef, [providedRef]),
+    );
+    if (hasShellType) {
+      return producerIndex;
+    }
+  }
+
+  return undefined;
+};
+
+// Range canonical/subtype_diff support routines can legally depend on a shell
+// type while the final CREATE TYPE ... AS RANGE depends on those routines.
+const producerRequiresConsumer = (
+  producer: StatementNode,
+  consumer: StatementNode,
+): boolean =>
+  producer.requires.some((requiredRef) =>
+    hasCompatibleProvidedObject(requiredRef, consumer.provides),
+  );
+
+const isRoutineCallbackConsumer = (consumer: StatementNode): boolean =>
+  consumer.statementClass === "CREATE_FUNCTION" ||
+  consumer.statementClass === "CREATE_PROCEDURE" ||
+  consumer.statementClass === "CREATE_AGGREGATE";
+
+const hasLocalProducerForRequirement = (
+  requiredRef: ObjectRef,
+  consumerIndex: number,
+  nodes: StatementNode[],
+): boolean => {
+  const requiredKey = objectRefKey(requiredRef);
+  for (let index = 0; index < nodes.length; index += 1) {
+    if (index === consumerIndex) {
+      continue;
+    }
+    const node = nodes[index];
+    if (!node) {
+      continue;
+    }
+    if (
+      node.provides.some(
+        (providedRef) => objectRefKey(providedRef) === requiredKey,
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return producerIndicesForRequirement(requiredRef, nodes).some(
+    (producerIndex) => producerIndex !== consumerIndex,
+  );
+};
+
+const resolvableRequirements = (
+  requiredRefs: ObjectRef[],
+  consumerIndex: number,
+  nodes: StatementNode[],
+  externalByName: Map<string, ObjectRef[]>,
+): ObjectRef[] => {
+  const result: ObjectRef[] = [];
+  const alternativeGroups = new Map<string, ObjectRef[]>();
+
+  for (const requiredRef of requiredRefs) {
+    const alternativeKey = alternativeRefKey(requiredRef);
+    if (!alternativeKey) {
+      result.push(requiredRef);
+      continue;
+    }
+
+    const group = alternativeGroups.get(alternativeKey) ?? [];
+    group.push(requiredRef);
+    alternativeGroups.set(alternativeKey, group);
+  }
+
+  for (const group of alternativeGroups.values()) {
+    const matchedRefs = group.filter(
+      (requiredRef) =>
+        isBuiltInObjectRef(requiredRef) ||
+        hasLocalProducerForRequirement(requiredRef, consumerIndex, nodes) ||
+        externalProviderSatisfies(requiredRef, externalByName),
+    );
+    result.push(...(matchedRefs.length > 0 ? matchedRefs : group.slice(0, 1)));
+  }
+
+  return result;
 };
 
 export const buildGraph = (
@@ -190,12 +408,32 @@ export const buildGraph = (
   };
 
   const externalByName = new Map<string, ObjectRef[]>();
+  const addExternalProvider = (ref: ObjectRef): void => {
+    const key = ref.name.toLowerCase();
+    const list = externalByName.get(key) ?? [];
+    list.push(ref);
+    externalByName.set(key, list);
+  };
   if (externalProviders) {
     for (const ref of externalProviders) {
-      const key = ref.name.toLowerCase();
-      const list = externalByName.get(key) ?? [];
-      list.push(ref);
-      externalByName.set(key, list);
+      addExternalProvider(ref);
+      if (
+        (ref.kind === "type" ||
+          ref.kind === "domain" ||
+          relationRowTypeProviderKinds.has(ref.kind)) &&
+        !ref.name.endsWith("[]")
+      ) {
+        addExternalProvider({
+          kind: "type",
+          schema: ref.schema,
+          name: `${ref.name}[]`,
+        });
+        addExternalProvider({
+          kind: "type",
+          schema: ref.schema,
+          name: generatedArrayTypeName(ref.name),
+        });
+      }
     }
   }
 
@@ -247,7 +485,12 @@ export const buildGraph = (
     if (!consumer) {
       continue;
     }
-    for (const requiredRef of consumer.requires) {
+    for (const requiredRef of resolvableRequirements(
+      consumer.requires,
+      consumerIndex,
+      nodes,
+      externalByName,
+    )) {
       if (isBuiltInObjectRef(requiredRef)) {
         continue;
       }
@@ -257,6 +500,25 @@ export const buildGraph = (
 
       if (producerIndices.length === 1) {
         const producerIndex = producerIndices[0];
+        const producer =
+          typeof producerIndex === "number" ? nodes[producerIndex] : undefined;
+        const shellTypeProducerIndex = findShellTypeProducerIndex(
+          requiredRef,
+          nodes,
+        );
+        if (
+          typeof shellTypeProducerIndex === "number" &&
+          shellTypeProducerIndex !== consumerIndex &&
+          isRoutineCallbackConsumer(consumer) &&
+          producer &&
+          producerRequiresConsumer(producer, consumer)
+        ) {
+          addEdge(graphState, shellTypeProducerIndex, consumerIndex, {
+            reason: "requires_compatible",
+            objectRef: requiredRef,
+          });
+          continue;
+        }
         if (
           typeof producerIndex === "number" &&
           producerIndex !== consumerIndex
@@ -310,6 +572,24 @@ export const buildGraph = (
       if (compatibleProducerIndices.length === 1) {
         const producerIndex = compatibleProducerIndices[0];
         if (typeof producerIndex !== "number") {
+          continue;
+        }
+        const producer = nodes[producerIndex];
+        const shellTypeProducerIndex = findShellTypeProducerIndex(
+          requiredRef,
+          nodes,
+        );
+        if (
+          typeof shellTypeProducerIndex === "number" &&
+          shellTypeProducerIndex !== consumerIndex &&
+          isRoutineCallbackConsumer(consumer) &&
+          producer &&
+          producerRequiresConsumer(producer, consumer)
+        ) {
+          addEdge(graphState, shellTypeProducerIndex, consumerIndex, {
+            reason: "requires_compatible",
+            objectRef: requiredRef,
+          });
           continue;
         }
         addEdge(graphState, producerIndex, consumerIndex, {
