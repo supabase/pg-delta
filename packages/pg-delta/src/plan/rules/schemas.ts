@@ -61,20 +61,24 @@ export const schemaRules: Record<string, KindRules> = {
     // express this — the `deptype='e'` schema→extension edge never exists, so
     // `_schemaIsMember` was always false and the rule always emitted the clause
     // (da8ce04 regression). See docs/architecture/managed-view-architecture.md.
-    create: (fact, view, _params, sourceView) => {
+    create: (fact, view, params, sourceView) => {
       const schemaName = str(p(fact, "schema"));
       const schemaId: StableId = { kind: "schema", name: schemaName };
       const schemaPresent =
         sourceView?.get(schemaId) !== undefined ||
         (view.get(schemaId) !== undefined && !view.isReferenceOnly(schemaId));
       const name = qid((fact.id as { name: string }).name);
+      // IF NOT EXISTS no-ops if the name is already installed (no relocate,
+      // no version change). Off by default so plan/apply stay fail-loud.
+      const ifNotExists =
+        params?.["createExtensionIfNotExists"] === true ? " IF NOT EXISTS" : "";
       return [
         schemaPresent
           ? {
-              sql: `CREATE EXTENSION ${name} SCHEMA ${qid(schemaName)}`,
+              sql: `CREATE EXTENSION${ifNotExists} ${name} SCHEMA ${qid(schemaName)}`,
               consumes: [schemaId],
             }
-          : { sql: `CREATE EXTENSION ${name}` },
+          : { sql: `CREATE EXTENSION${ifNotExists} ${name}` },
       ];
     },
     // DROP EXTENSION cascades to its member objects (pg_depend deptype 'e'), but

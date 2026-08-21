@@ -73,7 +73,10 @@ export interface ActionSpec {
 /** Named serialize parameters the rule table consumes. Policies (stage 8)
  *  set them; referencing an unknown name is a plan-time error, not a
  *  silent no-op. */
-export const KNOWN_PARAMS: ReadonlySet<string> = new Set(["concurrentIndexes"]);
+export const KNOWN_PARAMS: ReadonlySet<string> = new Set([
+  "concurrentIndexes",
+  "createExtensionIfNotExists",
+]);
 export type PlanParams = Record<string, unknown>;
 
 export type AttributeRule =

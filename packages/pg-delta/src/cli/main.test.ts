@@ -28,6 +28,13 @@ describe("schema help", () => {
     expect(stdout).toContain("--verbose");
     expect(stdout).toContain("--out-plan");
   });
+
+  test("lists schema export create-extension-if-not-exists", async () => {
+    const { stdout, stderr, exitCode } = await runHelp("schema", "--help");
+
+    expect({ exitCode, stderr }).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(stdout).toContain("--create-extension-if-not-exists");
+  });
 });
 
 describe("top-level help", () => {

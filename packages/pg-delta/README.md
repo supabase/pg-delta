@@ -134,7 +134,7 @@ schema/
     functions/add.sql
 ```
 
-Two flags shape this tree, and they compose:
+These flags shape this tree, and they compose:
 
 - `--path-style flat|nested` — where the two **root** segments live. `flat` is
   the default (shown above). `nested` reproduces the historical
@@ -147,6 +147,12 @@ Two flags shape this tree, and they compose:
 - `--layout by-object|ordered|grouped` — how statements are distributed across
   files: one file per object (default), numbered files in dependency order, or
   the category-ordered "nice" export with opt-in grouping.
+- `--create-extension-if-not-exists` — emit `CREATE EXTENSION IF NOT EXISTS`
+  instead of plain `CREATE`. Opt-in for bootstrap replay against a cluster that
+  already has the extension. If the name is already installed, PostgreSQL
+  notices and no-ops — it does not relocate or change version. `schema apply`
+  does not need this: the planner only emits `CREATE EXTENSION` when the
+  extension is absent.
 
 The loader is structure-agnostic — `schema apply --dir` reads every `.sql`
 under the directory recursively — so the layout is purely a readability

@@ -49,6 +49,8 @@ export interface BuildSchemaExportOptions {
   defaultOwner?: string | null;
   /** Soft warnings (e.g. default-owner vs connection-role mismatch). */
   onWarning?: (message: string) => void;
+  /** Render `CREATE EXTENSION IF NOT EXISTS`. Off by default. */
+  createExtensionIfNotExists?: boolean;
 }
 
 export interface SchemaExportResult {
@@ -155,6 +157,9 @@ export async function buildSchemaExport(
       : {}),
     ...(options.onWarning !== undefined
       ? { onWarning: options.onWarning }
+      : {}),
+    ...(options.createExtensionIfNotExists === true
+      ? { createExtensionIfNotExists: true }
       : {}),
   });
 

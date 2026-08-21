@@ -16,7 +16,7 @@ import { describe, expect, test } from "bun:test";
 import type { Fact } from "../../core/fact.ts";
 import type { Payload } from "../../core/hash.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
-import type { FactView } from "../rules.ts";
+import type { FactView, PlanParams } from "../rules.ts";
 import { schemaRules } from "./schemas.ts";
 
 /** Minimal FactView: `present` ids resolve via get(); `refOnly` ids report
@@ -43,12 +43,13 @@ function createSql(
   payload: Payload,
   sourceView: FactView,
   desiredView: FactView = EMPTY,
+  params?: PlanParams,
 ): string {
   const fact: Fact = { id: { kind: "extension", name: "x" }, payload };
   return schemaRules.extension!.create(
     fact,
     desiredView,
-    undefined,
+    params,
     sourceView,
   )[0]!.sql;
 }
@@ -109,5 +110,42 @@ describe("CREATE EXTENSION schema clause (presence-based)", () => {
         EMPTY,
       ),
     ).toBe(`CREATE EXTENSION "x"`);
+  });
+});
+
+describe("CREATE EXTENSION IF NOT EXISTS (serialize param)", () => {
+  const ifNotExists: PlanParams = { createExtensionIfNotExists: true };
+
+  test("flag on → IF NOT EXISTS, SCHEMA form unchanged", () => {
+    expect(
+      createSql(
+        { schema: "extensions", _relocatable: true },
+        view([sch("extensions")], [sch("extensions")]),
+        EMPTY,
+        ifNotExists,
+      ),
+    ).toBe(`CREATE EXTENSION IF NOT EXISTS "x" SCHEMA "extensions"`);
+  });
+
+  test("flag on → IF NOT EXISTS, bare form unchanged", () => {
+    expect(
+      createSql(
+        { schema: "pgmq", _relocatable: false, _schemaIsMember: false },
+        EMPTY,
+        view([sch("pgmq")], [sch("pgmq")]),
+        ifNotExists,
+      ),
+    ).toBe(`CREATE EXTENSION IF NOT EXISTS "x"`);
+  });
+
+  test("flag false stays plain CREATE", () => {
+    expect(
+      createSql(
+        { schema: "extensions", _relocatable: true },
+        view([sch("extensions")], [sch("extensions")]),
+        EMPTY,
+        { createExtensionIfNotExists: false },
+      ),
+    ).toBe(`CREATE EXTENSION "x" SCHEMA "extensions"`);
   });
 });

@@ -91,6 +91,11 @@ export interface ExportOptions {
    *  instead of throwing "no intent rule registered". Omit for profiles with no
    *  intent handlers. */
   intentRules?: IntentRuleIndex;
+  /** Render `CREATE EXTENSION IF NOT EXISTS` instead of bare `CREATE`.
+   *  Export-only: bootstrap replay against a pre-installed extension is a
+   *  no-op. Off by default so plan/apply stay fail-loud. Does not relocate
+   *  or change version if the extension already exists. */
+  createExtensionIfNotExists?: boolean;
 }
 
 /** Longest filename COMPONENT most filesystems accept (ext4/APFS/NTFS). The
@@ -956,6 +961,9 @@ export function exportSqlFiles(
       : {}),
     ...(options.intentRules !== undefined
       ? { intentRules: options.intentRules }
+      : {}),
+    ...(options.createExtensionIfNotExists === true
+      ? { params: { createExtensionIfNotExists: true } }
       : {}),
   });
 

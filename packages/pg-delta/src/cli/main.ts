@@ -76,6 +76,7 @@ Commands:
   snapshot       --source <pg-url> --out <file>
   schema export  --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
                  [--path-style flat|nested]   (flat: <schema>/…, _cluster/…)
+                 [--create-extension-if-not-exists]
                  [--format-options <json>]   (pretty-print SQL; any layout)
                  grouped adds: [--grouping-mode single-file|subdirectory]
                  [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
@@ -206,6 +207,7 @@ pgdelta schema <subcommand> [options]
 Subcommands:
   schema export  --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
                  [--path-style flat|nested]   (flat: <schema>/…, _cluster/…)
+                 [--create-extension-if-not-exists]
                  [--format-options <json>]   (pretty-print SQL; any layout)
                  grouped adds: [--grouping-mode single-file|subdirectory]
                  [--group-patterns <json>] [--flat-schemas <csv>] [--no-group-partitions]
