@@ -400,6 +400,101 @@ function normalizeSql(sql: string): string {
   return sql.replace(/\s+/g, " ").trim().replace(/;$/, "");
 }
 
+export type LoadAssistLocation = {
+  file: string;
+  line?: number;
+  excerpt?: string;
+};
+
+export type LoadAssistFailure = LoadAssistLocation & {
+  error?: string;
+  after?: LoadAssistLocation;
+};
+
+function compactAssistExcerpt(sql: string): string {
+  const text = sql.replace(/\s+/g, " ").trim();
+  return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+}
+
+function lineOfUnit(
+  originalSql: string | undefined,
+  unit: OrderedSqlFile,
+): number | undefined {
+  if (originalSql === undefined) return undefined;
+  if (unit.provenance.sourceOffset !== undefined) {
+    return originalSql.slice(0, unit.provenance.sourceOffset).split("\n")
+      .length;
+  }
+  const idx = originalSql.indexOf(unit.sql.trim());
+  if (idx < 0) return undefined;
+  return originalSql.slice(0, idx).split("\n").length;
+}
+
+function locationOfUnit(
+  unit: OrderedSqlFile,
+  originalSqlByName: ReadonlyMap<string, string>,
+): LoadAssistLocation {
+  const file = unit.provenance.filePath;
+  const line = lineOfUnit(originalSqlByName.get(file), unit);
+  const excerpt = compactAssistExcerpt(unit.sql);
+  return line === undefined ? { file, excerpt } : { file, line, excerpt };
+}
+
+function matchFailedUnit(
+  analyzed: ShadowOrderResult,
+  failure: LoadAssistFailure,
+  originalSql: string | undefined,
+): OrderedSqlFile | undefined {
+  const units = analyzed.files.filter(
+    (file) => file.provenance.filePath === failure.file,
+  );
+  if (units.length === 0) return undefined;
+  if (failure.excerpt !== undefined) {
+    const needle = normalizeSql(failure.excerpt.replace(/…$/, ""));
+    const hit = units.find((unit) => {
+      const hay = normalizeSql(unit.sql);
+      return hay.includes(needle) || needle.includes(hay);
+    });
+    if (hit !== undefined) return hit;
+  }
+  if (failure.line !== undefined) {
+    const hit = units.find(
+      (unit) => lineOfUnit(originalSql, unit) === failure.line,
+    );
+    if (hit !== undefined) return hit;
+  }
+  return [...units].sort(
+    (a, b) => a.provenance.statementIndex - b.provenance.statementIndex,
+  )[0];
+}
+
+/** Point a stuck statement at the topo statement that should run before it. */
+export function attachReorderPredecessors(
+  failures: readonly LoadAssistFailure[],
+  analyzed: ShadowOrderResult,
+  originalSqlByName: ReadonlyMap<string, string>,
+): LoadAssistFailure[] {
+  return failures.map((failure) => {
+    const unit = matchFailedUnit(
+      analyzed,
+      failure,
+      originalSqlByName.get(failure.file),
+    );
+    if (unit === undefined) return failure;
+    const index = analyzed.files.indexOf(unit);
+    if (index <= 0) return failure;
+    const sameFileBefore = analyzed.files
+      .slice(0, index)
+      .filter((file) => file.provenance.filePath === unit.provenance.filePath);
+    const predecessor = sameFileBefore.at(-1) ?? analyzed.files[index - 1];
+    if (predecessor === undefined) return failure;
+    return {
+      ...failure,
+      after: locationOfUnit(predecessor, originalSqlByName),
+    };
+  });
+}
+
 /** Split one file (or a fallback remainder) into statement units, late-kind last. */
 export function splitAndReorderFile(
   file: SqlFile,

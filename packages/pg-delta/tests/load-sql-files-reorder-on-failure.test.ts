@@ -56,8 +56,15 @@ describe("loadSqlFiles — reorderOnFailure", () => {
       expect(
         result.diagnostics.some((d) => d.code === "reorder_on_failure"),
       ).toBe(true);
-      expect(warnings.join("\n")).toMatch(/statement-kind|statement kind/i);
-      expect(warnings.join("\n")).toMatch(/tables/i);
+      const reorder = result.diagnostics.find(
+        (d) => d.code === "reorder_on_failure",
+      );
+      expect(reorder?.message).toMatch(/statement-kind/);
+      expect(reorder?.message).toMatch(/loadOrder/);
+      expect(warnings.join("\n")).toMatch(/statement-kind/);
+      expect(warnings.join("\n")).not.toContain("ALTER PUBLICATION");
+      const failures = reorder?.context?.["failures"];
+      expect(Array.isArray(failures) && failures.length > 0).toBe(true);
     } finally {
       await shadow.drop();
     }

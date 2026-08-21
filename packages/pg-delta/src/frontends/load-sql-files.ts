@@ -198,6 +198,50 @@ async function applyStatementFallback(
   }
 }
 
+type DescribedFailure = {
+  message: string;
+  line?: number;
+  excerpt?: string;
+};
+
+type LoadFailure = {
+  file: SqlFile;
+} & DescribedFailure;
+
+function compactSqlExcerpt(sql: string): string {
+  const text = sql.replace(/\s+/g, " ").trim();
+  return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+}
+
+function firstSqlExcerpt(sql: string): string | undefined {
+  const line = sql
+    .split("\n")
+    .map((part) => part.trim())
+    .find((part) => part.length > 0 && !part.startsWith("--"));
+  return line === undefined ? undefined : compactSqlExcerpt(line);
+}
+
+function statementContainingOffset(
+  sql: string,
+  offset: number,
+): string | undefined {
+  const stmts = splitSqlStatements(sql);
+  let searchFrom = 0;
+  for (const stmt of stmts) {
+    const start = sql.indexOf(stmt, searchFrom);
+    if (start === -1) continue;
+    const end = start + stmt.length;
+    if (offset >= start && offset < end) return compactSqlExcerpt(stmt);
+    searchFrom = end;
+  }
+  return undefined;
+}
+
+function errorWithoutLocation(message: string): string {
+  const idx = message.lastIndexOf(" — at line ");
+  return idx === -1 ? message : message.slice(0, idx);
+}
+
 /**
  * Enrich a failed file's error with the offending statement's location. A file
  * is applied as ONE multi-statement query, so node-postgres sets `position` (a
@@ -206,7 +250,7 @@ async function applyStatementFallback(
  * WHICH statement failed inside a multi-statement file, not just the file name +
  * bare message. The position comes straight from PostgreSQL — no SQL parsing.
  */
-function describeFileFailure(sql: string, error: unknown): string {
+function describeFileFailure(sql: string, error: unknown): DescribedFailure {
   const base = error instanceof Error ? error.message : String(error);
   const raw = (error as { position?: unknown } | null)?.position;
   const pos =
@@ -215,14 +259,24 @@ function describeFileFailure(sql: string, error: unknown): string {
       : typeof raw === "number"
         ? raw
         : Number.NaN;
-  if (!Number.isFinite(pos) || pos < 1 || pos > sql.length) return base;
+  const fallback = firstSqlExcerpt(sql);
+  if (!Number.isFinite(pos) || pos < 1 || pos > sql.length) {
+    return fallback === undefined
+      ? { message: base }
+      : { message: base, line: 1, excerpt: fallback };
+  }
   const before = sql.slice(0, pos - 1);
   const line = before.split("\n").length;
   const lineStart = before.lastIndexOf("\n") + 1;
   const nl = sql.indexOf("\n", pos - 1);
   const lineText = sql.slice(lineStart, nl === -1 ? undefined : nl).trim();
-  const excerpt = lineText.length > 80 ? `${lineText.slice(0, 80)}…` : lineText;
-  return `${base} — at line ${line}: ${excerpt}`;
+  const excerpt =
+    statementContainingOffset(sql, pos - 1) ?? compactSqlExcerpt(lineText);
+  return {
+    message: `${base} — at line ${line}: ${excerpt}`,
+    line,
+    excerpt,
+  };
 }
 
 /**
@@ -768,32 +822,25 @@ export function resolveReorderOnFailure(options: {
   return true;
 }
 
-function formatLoadFileNames(
-  failures: Array<{ file: SqlFile; message: string }>,
-): string {
-  return [...new Set(failures.map((f) => f.file.name))].join(", ");
+function sessionPollutionMessage(): string {
+  return "New connection unblocked a stuck load (session poisoning).";
 }
 
-function sessionPollutionMessage(
-  stuck: Array<{ file: SqlFile; message: string }>,
-): string {
-  return (
-    `A new connection unblocked a stuck same-connection shadow load (session pollution). ` +
-    `Stuck pending files: ${formatLoadFileNames(stuck)}. ` +
-    `Please open an issue at https://github.com/supabase/postgres/issues with the failed ALTER PUBLICATION and the follow-on CREATE POLICY / owner error.`
-  );
+function reorderOnFailureMessage(kind: "file-kind" | "statement-kind"): string {
+  return `Default load order stuck; reordered (${kind}). Set loadOrder on .pgdelta-export.json.`;
 }
 
-function reorderOnFailureMessage(
-  kind: "file-kind" | "statement-kind",
-  stuck: Array<{ file: SqlFile; message: string }>,
-): string {
-  return (
-    `The default file order stuck, so the loader reordered on failure (${kind}). ` +
-    `Stuck files: ${formatLoadFileNames(stuck)}. ` +
-    `You can permanently fix this by putting tables and extensions before policy-only and ALTER PUBLICATION files ` +
-    `(or by setting loadOrder on .pgdelta-export.json to that emission order) so the default order succeeds next time.`
-  );
+/** File/line/excerpt live on `context` so `onWarning` stays free of statement text. */
+function loadAssistContext(stuck: LoadFailure[]): Record<string, unknown> {
+  return {
+    files: [...new Set(stuck.map((f) => f.file.name))],
+    failures: stuck.map((f) => ({
+      file: f.file.name,
+      ...(f.line !== undefined ? { line: f.line } : {}),
+      ...(f.excerpt !== undefined ? { excerpt: f.excerpt } : {}),
+      error: errorWithoutLocation(f.message),
+    })),
+  };
 }
 
 export async function loadSqlFiles(
@@ -936,7 +983,7 @@ export async function loadSqlFiles(
   let stageDiagnostics: Diagnostic[] = [];
   // the most recent round's per-file failures, retained so a budget-exhaustion
   // error can report WHY each still-pending file failed (review P1 #2).
-  let lastFailures: Array<{ file: SqlFile; message: string }> = [];
+  let lastFailures: LoadFailure[] = [];
   // per-file count of CONSECUTIVE rounds a file failed with the SAME message, so
   // a stuck / non-converged error can say "failed identically in N round(s)" —
   // a file whose error never changes is a genuine missing dependency (or cycle),
@@ -951,8 +998,8 @@ export async function loadSqlFiles(
   let reconnectUnblocked = false;
   let fileKindTried = false;
   let statementKindTried = false;
-  let failuresBeforeReconnect: Array<{ file: SqlFile; message: string }> = [];
-  let failuresBeforeReorder: Array<{ file: SqlFile; message: string }> = [];
+  let failuresBeforeReconnect: LoadFailure[] = [];
+  let failuresBeforeReorder: LoadFailure[] = [];
   let client: PoolClient = await shadow.connect();
   let clientOpen = true;
   const releaseClient = async (discard = false): Promise<void> => {
@@ -1023,7 +1070,7 @@ export async function loadSqlFiles(
         );
       }
       rounds++;
-      const failures: Array<{ file: SqlFile; message: string }> = [];
+      const failures: LoadFailure[] = [];
       const next: SqlFile[] = [];
       let progressed = false;
       for (const file of pending) {
@@ -1062,30 +1109,30 @@ export async function loadSqlFiles(
                 name: file.name,
                 sql: split.remainder,
               };
-              const message = describeFileFailure(remainder.sql, split.error);
+              const described = describeFileFailure(remainder.sql, split.error);
               const prev = failStreak.get(file.name);
               failStreak.set(file.name, {
-                message,
+                message: described.message,
                 count:
-                  prev !== undefined && prev.message === message
+                  prev !== undefined && prev.message === described.message
                     ? prev.count + 1
                     : 1,
               });
-              failures.push({ file: remainder, message });
+              failures.push({ file: remainder, ...described });
               next.push(remainder);
               continue;
             }
           }
-          const message = describeFileFailure(file.sql, error);
+          const described = describeFileFailure(file.sql, error);
           const prev = failStreak.get(file.name);
           failStreak.set(file.name, {
-            message,
+            message: described.message,
             count:
-              prev !== undefined && prev.message === message
+              prev !== undefined && prev.message === described.message
                 ? prev.count + 1
                 : 1,
           });
-          failures.push({ file, message });
+          failures.push({ file, ...described });
           next.push(file);
         }
       }
@@ -1162,11 +1209,12 @@ export async function loadSqlFiles(
         });
         if (fileKindTried || statementKindTried) {
           const kind = statementKindTried ? "statement-kind" : "file-kind";
-          const message = reorderOnFailureMessage(kind, failuresBeforeReorder);
+          const message = reorderOnFailureMessage(kind);
           details.push({
             code: "reorder_on_failure",
             severity: "warning",
             message,
+            context: loadAssistContext(failuresBeforeReorder),
           });
           options.onWarning?.(message);
         }
@@ -1183,21 +1231,23 @@ export async function loadSqlFiles(
     }
 
     if (reconnectUnblocked) {
-      const message = sessionPollutionMessage(failuresBeforeReconnect);
+      const message = sessionPollutionMessage();
       stageDiagnostics.push({
         code: "session_pollution",
         severity: "warning",
         message,
+        context: loadAssistContext(failuresBeforeReconnect),
       });
       options.onWarning?.(message);
     }
     if (fileKindTried || statementKindTried) {
       const kind = statementKindTried ? "statement-kind" : "file-kind";
-      const message = reorderOnFailureMessage(kind, failuresBeforeReorder);
+      const message = reorderOnFailureMessage(kind);
       stageDiagnostics.push({
         code: "reorder_on_failure",
         severity: "warning",
         message,
+        context: loadAssistContext(failuresBeforeReorder),
       });
       options.onWarning?.(message);
     }

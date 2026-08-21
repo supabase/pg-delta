@@ -53,10 +53,15 @@ describe("loadSqlFiles — connectionReuse", () => {
       expect(
         result.diagnostics.some((d) => d.code === "session_pollution"),
       ).toBe(true);
-      expect(warnings.join("\n")).toMatch(/session pollution/i);
-      expect(warnings.join("\n")).toContain(
-        "https://github.com/supabase/postgres/issues",
+      const pollution = result.diagnostics.find(
+        (d) => d.code === "session_pollution",
       );
+      expect(pollution?.message).toMatch(/session poisoning/i);
+      expect(pollution?.message).not.toContain("github.com");
+      const failures = pollution?.context?.["failures"];
+      expect(Array.isArray(failures) && failures.length > 0).toBe(true);
+      expect(warnings.join("\n")).toMatch(/session poisoning/i);
+      expect(warnings.join("\n")).not.toContain("CREATE TABLE");
     } finally {
       await shadow.pool.query(`DROP ROLE IF EXISTS load_weak`).catch(() => {});
       await shadow.drop();
@@ -124,7 +129,7 @@ describe("loadSqlFiles — connectionReuse", () => {
       expect(
         result.factBase.has({ kind: "view", schema: "public", name: "v" }),
       ).toBe(true);
-      expect(warnings.some((w) => /session pollution/i.test(w))).toBe(false);
+      expect(warnings.some((w) => /session poisoning/i.test(w))).toBe(false);
       expect(
         result.diagnostics.some((d) => d.code === "session_pollution"),
       ).toBe(false);

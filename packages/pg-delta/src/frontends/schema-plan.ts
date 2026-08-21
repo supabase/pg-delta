@@ -44,10 +44,12 @@ import { applyManifestLoadOrder } from "./export-manifest.ts";
 import { deriveAssumedSchemaSeed } from "./seed-assumed-schemas.ts";
 import {
   analyzeForShadow,
+  attachReorderPredecessors,
   classesByFileFromAnalyzed,
   preorderFilesByKind,
   ReorderUnavailableError,
   splitAndReorderFile,
+  type LoadAssistFailure,
   type OrderedSqlFile,
   type ShadowLoadCycle,
 } from "./sql-order.ts";
@@ -335,6 +337,54 @@ export interface PlanSchemaFilesOptions {
  *  each server again. */
 function majorOf(pgVersion: string): number {
   return Number.parseInt(pgVersion, 10);
+}
+
+function readLoadAssistFailures(value: unknown): LoadAssistFailure[] {
+  if (!Array.isArray(value)) return [];
+  const failures: LoadAssistFailure[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null || !("file" in item)) {
+      continue;
+    }
+    if (typeof item.file !== "string") continue;
+    failures.push({
+      file: item.file,
+      ...("line" in item && typeof item.line === "number"
+        ? { line: item.line }
+        : {}),
+      ...("excerpt" in item && typeof item.excerpt === "string"
+        ? { excerpt: item.excerpt }
+        : {}),
+      ...("error" in item && typeof item.error === "string"
+        ? { error: item.error }
+        : {}),
+    });
+  }
+  return failures;
+}
+
+function enrichLoadAssistDiagnostics(
+  diagnostics: Diagnostic[],
+  analyzed: Awaited<ReturnType<typeof analyzeForShadow>> | null,
+  originalSqlByName: ReadonlyMap<string, string>,
+): Diagnostic[] {
+  if (analyzed === null) return diagnostics;
+  return diagnostics.map((diagnostic) => {
+    if (diagnostic.code !== "reorder_on_failure") return diagnostic;
+    const failures = readLoadAssistFailures(diagnostic.context?.["failures"]);
+    if (failures.length === 0) return diagnostic;
+    return {
+      ...diagnostic,
+      context: {
+        ...diagnostic.context,
+        failures: attachReorderPredecessors(
+          failures,
+          analyzed,
+          originalSqlByName,
+        ),
+      },
+    };
+  });
 }
 
 export interface PlanSchemaFilesResult {
@@ -735,7 +785,11 @@ export async function planSchemaFiles(
 
   return {
     plan: thePlan,
-    loadDiagnostics: loadResult.diagnostics,
+    loadDiagnostics: enrichLoadAssistDiagnostics(
+      loadResult.diagnostics,
+      analyzed,
+      originalSqlByName,
+    ),
     targetDiagnostics: targetResult.diagnostics,
     driftDiagnostics,
     skipped: prepared.skipped,
