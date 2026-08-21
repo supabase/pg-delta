@@ -53,10 +53,38 @@ describe("loadSqlFiles — connectionReuse", () => {
       expect(
         result.diagnostics.some((d) => d.code === "session_pollution"),
       ).toBe(true);
-      expect(warnings.join("\n")).toMatch(/session pollution/i);
-      expect(warnings.join("\n")).toContain(
-        "https://github.com/supabase/postgres/issues",
+      const pollution = result.diagnostics.find(
+        (d) => d.code === "session_pollution",
       );
+      expect(pollution?.message).toMatchInlineSnapshot(`
+        "New connection unblocked a stuck load (session poisoning).
+          stuck 01_table.sql:1 CREATE TABLE locked.t (id integer) (permission denied for schema locked)
+          earlier 00_set.sql:1 SET ROLE load_weak
+        Remove session-setting statements from declarative SQL, or do not share that session with later DDL."
+      `);
+      expect(warnings.join("\n")).toEqual(pollution?.message ?? "");
+      expect(pollution?.context).toMatchInlineSnapshot(`
+        {
+          "earlier": [
+            {
+              "excerpt": "SET ROLE load_weak",
+              "file": "00_set.sql",
+              "line": 1,
+            },
+          ],
+          "failures": [
+            {
+              "error": "permission denied for schema locked",
+              "excerpt": "CREATE TABLE locked.t (id integer)",
+              "file": "01_table.sql",
+              "line": 1,
+            },
+          ],
+          "files": [
+            "01_table.sql",
+          ],
+        }
+      `);
     } finally {
       await shadow.pool.query(`DROP ROLE IF EXISTS load_weak`).catch(() => {});
       await shadow.drop();
@@ -124,7 +152,7 @@ describe("loadSqlFiles — connectionReuse", () => {
       expect(
         result.factBase.has({ kind: "view", schema: "public", name: "v" }),
       ).toBe(true);
-      expect(warnings.some((w) => /session pollution/i.test(w))).toBe(false);
+      expect(warnings.some((w) => /session poisoning/i.test(w))).toBe(false);
       expect(
         result.diagnostics.some((d) => d.code === "session_pollution"),
       ).toBe(false);

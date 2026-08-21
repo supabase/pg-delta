@@ -21,6 +21,7 @@ import { describe, expect, test } from "bun:test";
 import {
   __setPgTopoImporterForTests,
   analyzeForShadow,
+  attachReorderPredecessors,
   canReorder,
   classesByFileFromAnalyzed,
   orderForShadow,
@@ -443,6 +444,75 @@ describe("kind pre-order (file-kind / statement-kind escalate)", () => {
     );
     const analyzed = await analyzeForShadow([mixed]);
     expect(splitAndReorderFile(mixed, analyzed)).toEqual([mixed]);
+  });
+
+  test("attachReorderPredecessors points ALTER PUBLICATION at the prior CREATE TABLE", async () => {
+    const earlier = file("other.sql", "CREATE TABLE public.u (id int);");
+    const mixed = file(
+      "mixed.sql",
+      "ALTER PUBLICATION p ADD TABLE public.t;\nCREATE TABLE public.t (id int);",
+    );
+    const analyzed = await analyzeForShadow([earlier, mixed]);
+    const [enriched] = attachReorderPredecessors(
+      [
+        {
+          file: "mixed.sql",
+          line: 1,
+          excerpt: "ALTER PUBLICATION p ADD TABLE public.t;",
+        },
+      ],
+      analyzed,
+      new Map([
+        [earlier.name, earlier.sql],
+        [mixed.name, mixed.sql],
+      ]),
+    );
+    expect(enriched?.after?.file).toBe("mixed.sql");
+    expect(enriched?.after?.line).toBe(2);
+    expect(enriched?.after?.excerpt?.toLowerCase()).toContain("create table");
+    expect(enriched?.after?.file).not.toBe("other.sql");
+  });
+
+  test("attachReorderPredecessors omits after when the statement cannot be matched", async () => {
+    const mixed = file(
+      "mixed.sql",
+      "CREATE TABLE public.t (id int);\nALTER PUBLICATION p ADD TABLE public.t;",
+    );
+    const analyzed = await analyzeForShadow([mixed]);
+    const [enriched] = attachReorderPredecessors(
+      [{ file: "mixed.sql", line: 99, excerpt: "CREATE WIDGET no.such;" }],
+      analyzed,
+      new Map([[mixed.name, mixed.sql]]),
+    );
+    expect(enriched?.after).toBeUndefined();
+  });
+
+  test("attachReorderPredecessors names the other file for a late ALTER PUBLICATION", async () => {
+    const table = file(
+      "public/tables/t.sql",
+      "CREATE TABLE public.t (id int);",
+    );
+    const pub = file(
+      "_cluster/publications.sql",
+      "ALTER PUBLICATION p ADD TABLE public.t;",
+    );
+    const analyzed = await analyzeForShadow([pub, table]);
+    const [enriched] = attachReorderPredecessors(
+      [
+        {
+          file: "_cluster/publications.sql",
+          line: 1,
+          excerpt: "ALTER PUBLICATION p ADD TABLE public.t;",
+        },
+      ],
+      analyzed,
+      new Map([
+        [table.name, table.sql],
+        [pub.name, pub.sql],
+      ]),
+    );
+    expect(enriched?.after?.file).toBe("public/tables/t.sql");
+    expect(enriched?.after?.excerpt?.toLowerCase()).toContain("create table");
   });
 
   test("splitAndReorderFile matches remainder statements exactly", async () => {

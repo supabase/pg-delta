@@ -54,6 +54,8 @@ describe("public API surface", () => {
       "utf-8",
     );
     expect(frontendSrc).toContain("type LoadSqlFilesOptions");
+    expect(src).toContain("LoadAssistFailure");
+    expect(frontendSrc).toContain("LoadAssistFailure");
 
     // Named type for the loadSqlFiles third argument. Pinning
     // `strictDataStatements: true` is valid and documents the schema-first /

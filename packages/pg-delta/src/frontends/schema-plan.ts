@@ -44,6 +44,7 @@ import { applyManifestLoadOrder } from "./export-manifest.ts";
 import { deriveAssumedSchemaSeed } from "./seed-assumed-schemas.ts";
 import {
   analyzeForShadow,
+  attachReorderPredecessors,
   classesByFileFromAnalyzed,
   preorderFilesByKind,
   ReorderUnavailableError,
@@ -662,6 +663,8 @@ export async function planSchemaFiles(
         : {}),
       ...(analyzed !== null
         ? {
+            enrichLoadAssistFailures: (failures) =>
+              attachReorderPredecessors(failures, analyzed, originalSqlByName),
             reorderFilesByKind: (pending: SqlFile[]) =>
               preorderFilesByKind(
                 pending,
