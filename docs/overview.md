@@ -135,16 +135,17 @@ flowchart LR
     VIEW --> DIFF["generic diff<br/>(zero per-kind code)"]
     DIFF --> RULES["rule table →<br/>atomic actions"]
     RULES --> GRAPH["one dependency graph →<br/>one deterministic sort"]
-    GRAPH --> APPLY["apply<br/>(single txn,<br/>per-statement attribution)"]
+    GRAPH --> APPLY["apply<br/>(lock-aware segmented txns,<br/>per-statement attribution)"]
     GRAPH --> PROVE{{"PROVE on a clone:<br/>state == target?<br/>data preserved?"}}
     PROVE -->|yes| TRUST["trusted migration"]
     PROVE -->|drift| REJECT["rejected in CI"]
 ```
 
 Everything flows at **one granularity — the fact.** A table, column, constraint,
-index, policy, ACL entry, ownership edge, extension membership: each is its own
-content-addressed fact. State, diff, dependencies, and actions all live at that
-same grain, so:
+index, policy, ACL entry: each is its own content-addressed fact — and ownership
+and extension membership ride beside them as dependency edges (`owner`,
+`memberOfExtension`), data rather than payload fields. State, diff,
+dependencies, and actions all live at that same grain, so:
 
 - **diff is generic** — a rollup-guided descent emitting `add`/`remove`/`set`/
   `link`/`unlink` deltas, with *zero per-type code*;
@@ -256,9 +257,10 @@ inconsistent code paths (`excludeManaged`, `excludeExtensionMembers`, post-diff
 be a `skipAuthorization` boolean threaded through every serializer; now **ownership
 is an edge**, and projecting a role out of the view simply prunes that edge — the
 parameter ceases to exist *structurally*, not as a workaround. The same move
-turned `skipSchema` into the catalog fact `extrelocatable`. All of it collapses
-into one `resolveView(facts, policy, capability)` applied identically before
-`plan()` and `prove()`. See
+turned `skipSchema` into catalog-sourced state (`pg_extension.extrelocatable`,
+carried as the extension fact's `_relocatable` metadata). All of it collapses
+into one `resolveView(facts, policy, capability, baseline)` applied identically
+before `plan()` and `prove()`. See
 [architecture/managed-view-architecture.md](architecture/managed-view-architecture.md).
 
 **Stateful extensions keep their data.** pgmq, pg_cron and pg_partman create
@@ -279,7 +281,7 @@ construction: it manages X, or it tells you it doesn't.
 **Ordering is correct by construction.** No cycle-breaker registry that grows by
 one entry per field-discovered cycle — at fact grain there are no cycles to break.
 
-**The core library is lean.** `createPlan` consumers no longer pull a WASM SQL
+**The core library is lean.** `plan()` consumers no longer pull a WASM SQL
 parser into the trusted path. PostgreSQL does the elaboration.
 
 **It resolves most known issues by design.** Of **134 tracked issues** in the
@@ -310,9 +312,12 @@ output (gated by an edge-set oracle + the full corpus on PG 14–18):
 | `extract` (cold, ~12k objects) | 1,881 ms | 453 ms | **4.2×** |
 | `extract` (re-extract, warm) | 1,523 ms | 323 ms | 4.7× |
 
-Parallel snapshot extraction was then *re-profiled and deferred*: after the
-rewrite the resolver is one unsplittable query that caps the parallel ceiling
-below 2×, not worth a consistency-critical refactor.
+Parallel snapshot extraction was then *re-profiled and de-prioritized* — after
+the rewrite the resolver is one unsplittable query that caps the parallel
+ceiling below 2×. It has since shipped as an **opt-in** knob:
+`ExtractOptions.concurrency` fans extraction families over connections that all
+import one exported snapshot (byte-identical output, capped at 8); the default
+remains serial.
 
 **Memory.** The content-addressed fact base is lean — measured at **~660 bytes
 per fact**; two full catalogs plus the diff and plan for a ~12k-object database
@@ -331,9 +336,11 @@ pathological schema into an actionable diagnostic instead of a hang.
 
 Honest boundaries matter as much as the wins:
 
-- **Same 7-stage pipeline shape and the `creates/drops/requires` change
-  contract** — this was the old engine's genuinely good idea; the rebuild keeps
-  it and makes the layers generic.
+- **Same 7-stage pipeline shape and the same change-contract idea** — the old
+  engine's `creates/drops/requires` survives as each action's
+  `produces` / `consumes` / `destroys` (+ `releases`) edges; this was the old
+  engine's genuinely good idea, and the rebuild keeps it while making the
+  layers generic.
 - **Data diffing (DML) is permanently out of scope** — this is a schema tool.
 
 What v1 does **not** yet do (each documented, regression-free, with a trigger to
@@ -343,11 +350,12 @@ revisit):
 |---|---|---|
 | *Model* rare kinds (casts, operators, text-search, statistics, languages, transforms) | They are **detected and reported**, never silently dropped; modeling is demand-driven | [COVERAGE.md](../packages/pg-delta/COVERAGE.md), [roadmap/backlog.md](roadmap/backlog.md) |
 | Extension-intent **Phase B** (replay extension objects on rebuild) | Phase A (don't-drop) ships; replay is blocked on a declarative-format decision | [roadmap/extension-intent-phase-b.md](roadmap/extension-intent-phase-b.md) |
-| Parallel snapshot extraction | Re-profiled: < 2× win for high refactor risk | [roadmap/backlog.md](roadmap/backlog.md) |
 | Committed Supabase baseline snapshot | The supabase profile's filter rules hide every known platform object class; the baseline is a long-tail increment over them | [roadmap/backlog.md](roadmap/backlog.md) |
 
-Consumers migrate once, at the cutover parity bar: the public surface stays the
-`createPlan` / `applyPlan` facade, on a new major, with a migration guide.
+Consumers migrate once, at the cutover parity bar: the old `createPlan` /
+`applyPlan` facade maps onto the new `plan` / `apply` / `provePlan` surface, on
+a new major, with a migration guide
+([MIGRATION.md](../packages/pg-delta/MIGRATION.md)).
 
 ---
 

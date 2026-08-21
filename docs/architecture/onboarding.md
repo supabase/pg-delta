@@ -13,7 +13,7 @@ flowchart TD
   SqlFiles["SQL-file frontend\nsrc/frontends/load-sql-files.ts"] --> FB
   FB --> View["resolveView\nsrc/policy/policy.ts\n(policy · capability · baseline)"]
   View --> Diff["diff\nsrc/core/diff.ts\n(generic, zero per-kind code)"]
-  Diff --> Plan["plan\nsrc/plan/plan.ts + rules.ts\n(rule table → one action graph)"]
+  Diff --> Plan["plan\nsrc/plan/plan.ts → phases/ + rules.ts\n(rule table → one action graph,\nsorted by src/plan/graph.ts)"]
   Plan --> Apply["apply\nsrc/apply/apply.ts"]
   Plan --> Prove["provePlan\nsrc/proof/prove.ts\n(apply to a clone, re-extract, compare)"]
   Corpus["corpus/ scenarios\n(a.sql / b.sql)"] --> Prove
@@ -25,7 +25,7 @@ Answers to the five questions a newcomer asks:
 |---|---|
 | Where do facts come from? | `src/extract/extract.ts` orchestrates per-family extractors (`src/extract/*.ts` — e.g. `relations.ts`, `foreign.ts`, `types.ts`; shared `pg_depend` resolver in `dependencies.ts`) over a live DB; `src/frontends/load-sql-files.ts` does `.sql` → shadow DB → extract. Both produce a `FactBase`. |
 | What is a fact? | `src/core/fact.ts` — a content-addressed `{ id: StableId, parent?, payload }`. Identity lives in `src/core/stable-id.ts`; hashing in `src/core/hash.ts`. |
-| How is ordering decided? | `src/plan/plan.ts` builds atomic actions from the rule registry (`src/plan/rules.ts`, with per-family rules in `src/plan/rules/*.ts`) and orders them with one topological sort over the dependency graph (`src/plan/internal.ts`). At fact grain there are no cycles to break. |
+| How is ordering decided? | `src/plan/plan.ts` orchestrates four phases under `src/plan/phases/` (`change-set` → `replacement-expansion` → `action-emitter` → `action-graph`). Actions come from the rule registry (`src/plan/rules.ts`, with per-family rules in `src/plan/rules/*.ts`); the one deterministic topological sort is `topoSort` in `src/plan/graph.ts` (graph-construction building blocks and compaction live in `src/plan/internal.ts`). At fact grain there are no cycles to break. |
 | What proves a change safe? | `src/proof/prove.ts` — applies the plan to a throwaway clone, re-extracts, and checks the fact hashes match (state) and seeded rows survive (data). |
 | Where does product-specific scope live? | `src/policy/` — `resolveView(facts, policy, capability, baseline)` projects the managed view; `src/policy/supabase.ts` is the Supabase package. Never in core diff/plan. |
 
