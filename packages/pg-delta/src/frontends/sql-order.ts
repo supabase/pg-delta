@@ -29,6 +29,11 @@
  */
 import type { AnalyzeOptions, ObjectRef, StatementId } from "@supabase/pg-topo";
 import type { SqlFile } from "./load-sql-files.ts";
+import {
+  compactSqlExcerpt,
+  type LoadAssistFailure,
+  type LoadAssistLocation,
+} from "./load-assist.ts";
 import { splitSqlStatements } from "./sql-format/format-utils.ts";
 
 /** Provenance back to the authored source, so a caller can render
@@ -400,22 +405,6 @@ function normalizeSql(sql: string): string {
   return sql.replace(/\s+/g, " ").trim().replace(/;$/, "");
 }
 
-export type LoadAssistLocation = {
-  file: string;
-  line?: number;
-  excerpt?: string;
-};
-
-export type LoadAssistFailure = LoadAssistLocation & {
-  error?: string;
-  after?: LoadAssistLocation;
-};
-
-function compactAssistExcerpt(sql: string): string {
-  const text = sql.replace(/\s+/g, " ").trim();
-  return text.length > 80 ? `${text.slice(0, 80)}…` : text;
-}
-
 function lineOfUnit(
   originalSql: string | undefined,
   unit: OrderedSqlFile,
@@ -436,7 +425,7 @@ function locationOfUnit(
 ): LoadAssistLocation {
   const file = unit.provenance.filePath;
   const line = lineOfUnit(originalSqlByName.get(file), unit);
-  const excerpt = compactAssistExcerpt(unit.sql);
+  const excerpt = compactSqlExcerpt(unit.sql);
   return line === undefined ? { file, excerpt } : { file, line, excerpt };
 }
 
@@ -463,9 +452,7 @@ function matchFailedUnit(
     );
     if (hit !== undefined) return hit;
   }
-  return [...units].sort(
-    (a, b) => a.provenance.statementIndex - b.provenance.statementIndex,
-  )[0];
+  return undefined;
 }
 
 /** Point a stuck statement at the topo statement that should run before it. */

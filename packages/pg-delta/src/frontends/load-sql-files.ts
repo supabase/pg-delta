@@ -63,6 +63,15 @@ import {
 } from "../extract/extract.ts";
 import { notExtensionMember, USER_SCHEMA_FILTER } from "../extract/scope.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
+import {
+  compactSqlExcerpt,
+  errorWithoutLocation,
+  formatReorderOnFailureMessage,
+  formatSessionPollutionMessage,
+  toLoadAssistContext,
+  type LoadAssistFailure,
+  type LoadAssistLocation,
+} from "./load-assist.ts";
 import { splitSqlStatements } from "./sql-format/format-utils.ts";
 
 /** SQLSTATE 25001 ("active_sql_transaction") — raised when a statement that
@@ -176,8 +185,14 @@ async function applyStatementFallback(
   sql: string,
 ): Promise<
   | { status: "done" }
-  | { status: "prefix"; remainder: string; error: unknown }
-  | { status: "none" }
+  | {
+      status: "prefix";
+      remainder: string;
+      error: unknown;
+      failedSql: string;
+      failedIndex: number;
+    }
+  | { status: "none"; failedSql?: string; failedIndex?: number }
 > {
   const stmts = splitSqlStatements(sql);
   if (stmts.length <= 1) return { status: "none" };
@@ -189,11 +204,19 @@ async function applyStatementFallback(
     return { status: "done" };
   } catch (error) {
     if (error instanceof ShadowLoadError) throw error;
-    if (i === 0) return { status: "none" };
+    if (i === 0) {
+      return {
+        status: "none",
+        failedSql: joinStatements([stmts[0]!]),
+        failedIndex: 0,
+      };
+    }
     return {
       status: "prefix",
       remainder: joinStatements(stmts.slice(i)),
       error,
+      failedSql: joinStatements([stmts[i]!]),
+      failedIndex: i,
     };
   }
 }
@@ -208,49 +231,88 @@ type LoadFailure = {
   file: SqlFile;
 } & DescribedFailure;
 
-function compactSqlExcerpt(sql: string): string {
-  const text = sql.replace(/\s+/g, " ").trim();
-  return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+function lineAt(sql: string, offset: number): number {
+  return sql.slice(0, offset).split("\n").length;
 }
 
-function firstSqlExcerpt(sql: string): string | undefined {
-  const line = sql
-    .split("\n")
-    .map((part) => part.trim())
-    .find((part) => part.length > 0 && !part.startsWith("--"));
-  return line === undefined ? undefined : compactSqlExcerpt(line);
-}
-
-function statementContainingOffset(
+function locateAt(
   sql: string,
   offset: number,
-): string | undefined {
-  const stmts = splitSqlStatements(sql);
+  excerptSql?: string,
+): { line: number; excerpt: string } {
+  const line = lineAt(sql, offset);
+  if (excerptSql !== undefined) {
+    return { line, excerpt: compactSqlExcerpt(excerptSql) };
+  }
+  const lineStart = sql.slice(0, offset).lastIndexOf("\n") + 1;
+  const nl = sql.indexOf("\n", offset);
+  const lineText = sql.slice(lineStart, nl === -1 ? undefined : nl).trim();
+  return { line, excerpt: compactSqlExcerpt(lineText) };
+}
+
+function statementAtOffset(
+  sql: string,
+  stmts: readonly string[],
+  offset: number,
+): { start: number; text: string } | undefined {
   let searchFrom = 0;
   for (const stmt of stmts) {
     const start = sql.indexOf(stmt, searchFrom);
     if (start === -1) continue;
     const end = start + stmt.length;
-    if (offset >= start && offset < end) return compactSqlExcerpt(stmt);
+    if (offset >= start && offset < end) return { start, text: stmt };
     searchFrom = end;
   }
   return undefined;
 }
 
-function errorWithoutLocation(message: string): string {
-  const idx = message.lastIndexOf(" — at line ");
-  return idx === -1 ? message : message.slice(0, idx);
+function normalizeStmt(sql: string): string {
+  return sql.replace(/\s+/g, " ").trim().replace(/;$/, "");
+}
+
+function occurrenceBefore(stmts: readonly string[], index: number): number {
+  const target = normalizeStmt(stmts[index] ?? "");
+  if (target.length === 0) return 0;
+  let seen = 0;
+  for (let i = 0; i < index; i++) {
+    if (normalizeStmt(stmts[i]!) === target) seen++;
+  }
+  return seen;
+}
+
+function indexOfStatement(
+  sql: string,
+  stmts: readonly string[],
+  statement: string,
+  occurrence = 0,
+): number {
+  const needle = normalizeStmt(statement);
+  if (needle.length === 0) return -1;
+  let seen = 0;
+  let searchFrom = 0;
+  for (const stmt of stmts) {
+    const start = sql.indexOf(stmt, searchFrom);
+    if (start === -1) continue;
+    if (normalizeStmt(stmt) === needle) {
+      if (seen === occurrence) return start;
+      seen++;
+    }
+    searchFrom = start + stmt.length;
+  }
+  return -1;
 }
 
 /**
- * Enrich a failed file's error with the offending statement's location. A file
- * is applied as ONE multi-statement query, so node-postgres sets `position` (a
- * 1-based character offset into the file's SQL) on the DatabaseError. Turn that
- * into an "at line N: <excerpt>" suffix so a stuck / non-converged load reports
- * WHICH statement failed inside a multi-statement file, not just the file name +
- * bare message. The position comes straight from PostgreSQL — no SQL parsing.
+ * Map a Postgres `position` (1-based, relative to the query that was sent)
+ * back to the authored file. Statement fallback sends one statement at a
+ * time, so `sentSql` may be a remainder or a single replayed statement.
  */
-function describeFileFailure(sql: string, error: unknown): DescribedFailure {
+function describeFileFailure(
+  sentSql: string,
+  error: unknown,
+  authoredSql?: string,
+  source?: { sql: string; failedIndex: number },
+): DescribedFailure {
   const base = error instanceof Error ? error.message : String(error);
   const raw = (error as { position?: unknown } | null)?.position;
   const pos =
@@ -259,24 +321,77 @@ function describeFileFailure(sql: string, error: unknown): DescribedFailure {
       : typeof raw === "number"
         ? raw
         : Number.NaN;
-  const fallback = firstSqlExcerpt(sql);
-  if (!Number.isFinite(pos) || pos < 1 || pos > sql.length) {
-    return fallback === undefined
-      ? { message: base }
-      : { message: base, line: 1, excerpt: fallback };
+  const authored = authoredSql ?? sentSql;
+  const authoredStmts = splitSqlStatements(authored);
+  const sentStmts =
+    sentSql === authored ? authoredStmts : splitSqlStatements(sentSql);
+  if (source !== undefined) {
+    const sourceStmts =
+      source.sql === authored ? authoredStmts : splitSqlStatements(source.sql);
+    const failed = sourceStmts[source.failedIndex];
+    if (failed !== undefined) {
+      const authoredStart = indexOfStatement(
+        authored,
+        authoredStmts,
+        failed,
+        occurrenceBefore(sourceStmts, source.failedIndex),
+      );
+      if (authoredStart >= 0) {
+        const loc = locateAt(authored, authoredStart, failed);
+        return {
+          message: `${base} — at line ${loc.line}: ${loc.excerpt}`,
+          line: loc.line,
+          excerpt: loc.excerpt,
+        };
+      }
+    }
   }
-  const before = sql.slice(0, pos - 1);
-  const line = before.split("\n").length;
-  const lineStart = before.lastIndexOf("\n") + 1;
-  const nl = sql.indexOf("\n", pos - 1);
-  const lineText = sql.slice(lineStart, nl === -1 ? undefined : nl).trim();
-  const excerpt =
-    statementContainingOffset(sql, pos - 1) ?? compactSqlExcerpt(lineText);
-  return {
-    message: `${base} — at line ${line}: ${excerpt}`,
-    line,
-    excerpt,
-  };
+  if (Number.isFinite(pos) && pos >= 1 && pos <= sentSql.length) {
+    const sentHit = statementAtOffset(sentSql, sentStmts, pos - 1);
+    if (authored !== sentSql && sentHit !== undefined) {
+      const authoredStart = indexOfStatement(
+        authored,
+        authoredStmts,
+        sentHit.text,
+      );
+      if (authoredStart >= 0) {
+        const inner = Math.max(0, pos - 1 - sentHit.start);
+        const loc = locateAt(authored, authoredStart + inner, sentHit.text);
+        return {
+          message: `${base} — at line ${loc.line}: ${loc.excerpt}`,
+          line: loc.line,
+          excerpt: loc.excerpt,
+        };
+      }
+    }
+    const loc = locateAt(sentSql, pos - 1, sentHit?.text);
+    return {
+      message: `${base} — at line ${loc.line}: ${loc.excerpt}`,
+      line: loc.line,
+      excerpt: loc.excerpt,
+    };
+  }
+  if (sentStmts.length === 1) {
+    const authoredStart = indexOfStatement(
+      authored,
+      authoredStmts,
+      sentStmts[0]!,
+    );
+    if (authoredStart >= 0) {
+      const loc = locateAt(authored, authoredStart, sentStmts[0]);
+      return {
+        message: `${base} — at line ${loc.line}: ${loc.excerpt}`,
+        line: loc.line,
+        excerpt: loc.excerpt,
+      };
+    }
+    return { message: base, excerpt: compactSqlExcerpt(sentStmts[0]!) };
+  }
+  if (authoredStmts.length === 1) {
+    const excerpt = compactSqlExcerpt(authoredStmts[0]!);
+    return { message: base, line: 1, excerpt };
+  }
+  return { message: base };
 }
 
 /**
@@ -810,6 +925,10 @@ export interface LoadSqlFilesOptions {
   reorderFilesByKind?: (files: SqlFile[]) => SqlFile[] | Promise<SqlFile[]>;
   /** Assist: split one file into kind-ordered statement units (stage 4). */
   splitFileByKind?: (file: SqlFile) => SqlFile[] | Promise<SqlFile[]>;
+  /** Attach `after` predecessors before assist warnings are emitted. */
+  enrichLoadAssistFailures?: (
+    failures: LoadAssistFailure[],
+  ) => LoadAssistFailure[];
 }
 
 /** `reorderOnFailure` wins when both aliases are set. Default true. */
@@ -822,25 +941,41 @@ export function resolveReorderOnFailure(options: {
   return true;
 }
 
-function sessionPollutionMessage(): string {
-  return "New connection unblocked a stuck load (session poisoning).";
+function toAssistFailures(
+  stuck: LoadFailure[],
+  enrich?: (failures: LoadAssistFailure[]) => LoadAssistFailure[],
+): LoadAssistFailure[] {
+  const failures: LoadAssistFailure[] = stuck.map((item) => ({
+    file: item.file.name,
+    ...(item.line !== undefined ? { line: item.line } : {}),
+    ...(item.excerpt !== undefined ? { excerpt: item.excerpt } : {}),
+    error: errorWithoutLocation(item.message),
+  }));
+  return enrich !== undefined ? enrich(failures) : failures;
 }
 
-function reorderOnFailureMessage(kind: "file-kind" | "statement-kind"): string {
-  return `Default load order stuck; reordered (${kind}). Set loadOrder on .pgdelta-export.json.`;
-}
-
-/** File/line/excerpt live on `context` so `onWarning` stays free of statement text. */
-function loadAssistContext(stuck: LoadFailure[]): Record<string, unknown> {
-  return {
-    files: [...new Set(stuck.map((f) => f.file.name))],
-    failures: stuck.map((f) => ({
-      file: f.file.name,
-      ...(f.line !== undefined ? { line: f.line } : {}),
-      ...(f.excerpt !== undefined ? { excerpt: f.excerpt } : {}),
-      error: errorWithoutLocation(f.message),
-    })),
-  };
+function persistentSessionSettingLocations(
+  file: SqlFile,
+): LoadAssistLocation[] {
+  if (findSessionSettingStatements(file.sql).length === 0) return [];
+  const locs: LoadAssistLocation[] = [];
+  let searchFrom = 0;
+  for (const stmt of splitSqlStatements(file.sql)) {
+    const start = file.sql.indexOf(stmt, searchFrom);
+    if (start === -1) continue;
+    searchFrom = start + stmt.length;
+    const leading = stmt.replace(/^\s+/, "");
+    if (/^set\s+local\b/i.test(leading) || /^reset\b/i.test(leading)) {
+      continue;
+    }
+    if (findSessionSettingStatements(stmt).length === 0) continue;
+    locs.push({
+      file: file.name,
+      line: lineAt(file.sql, start),
+      excerpt: compactSqlExcerpt(stmt),
+    });
+  }
+  return locs;
 }
 
 export async function loadSqlFiles(
@@ -974,6 +1109,14 @@ export async function loadSqlFiles(
 
   // Caller array order is the default (export loadOrder or lex collect).
   let pending = [...files];
+  const authoredSqlByName = new Map(files.map((file) => [file.name, file.sql]));
+  const appliedFiles: SqlFile[] = [];
+  const appliedNames = new Set<string>();
+  const recordApplied = (file: SqlFile): void => {
+    if (appliedNames.has(file.name)) return;
+    appliedNames.add(file.name);
+    appliedFiles.push(file);
+  };
   let rounds = 0;
   // body-validation warnings for SEEDED-schema routines (populated below,
   // outside the try/finally so the final result can merge them in).
@@ -999,6 +1142,7 @@ export async function loadSqlFiles(
   let fileKindTried = false;
   let statementKindTried = false;
   let failuresBeforeReconnect: LoadFailure[] = [];
+  let earlierSessionSettings: LoadAssistLocation[] = [];
   let failuresBeforeReorder: LoadFailure[] = [];
   let client: PoolClient = await shadow.connect();
   let clientOpen = true;
@@ -1073,11 +1217,27 @@ export async function loadSqlFiles(
       const failures: LoadFailure[] = [];
       const next: SqlFile[] = [];
       let progressed = false;
+      const recordFailure = (
+        target: SqlFile,
+        described: DescribedFailure,
+      ): void => {
+        const prev = failStreak.get(target.name);
+        failStreak.set(target.name, {
+          message: described.message,
+          count:
+            prev !== undefined && prev.message === described.message
+              ? prev.count + 1
+              : 1,
+        });
+        failures.push({ file: target, ...described });
+        next.push(target);
+      };
       for (const file of pending) {
         try {
           await applyFile(client, file.sql);
           progressed = true;
           failStreak.delete(file.name);
+          recordApplied(file);
         } catch (error) {
           // A ShadowLoadError from applyFile is a deterministic policy refusal
           // (mixed non-transactional file, or a non-allowlisted non-transactional
@@ -1090,6 +1250,7 @@ export async function loadSqlFiles(
           // would commit them alone and change where later DDL lands.
           // ALTER DEFAULT PRIVILEGES is the same: committing it early would
           // grant later objects created by sibling files.
+          let sentSql = file.sql;
           if (
             statementFallback &&
             findSessionSettingStatements(file.sql).length === 0 &&
@@ -1100,6 +1261,7 @@ export async function loadSqlFiles(
               progressed = true;
               splitFiles.add(file.name);
               failStreak.delete(file.name);
+              recordApplied(file);
               continue;
             }
             if (split.status === "prefix") {
@@ -1109,37 +1271,50 @@ export async function loadSqlFiles(
                 name: file.name,
                 sql: split.remainder,
               };
-              const described = describeFileFailure(remainder.sql, split.error);
-              const prev = failStreak.get(file.name);
-              failStreak.set(file.name, {
-                message: described.message,
-                count:
-                  prev !== undefined && prev.message === described.message
-                    ? prev.count + 1
-                    : 1,
-              });
-              failures.push({ file: remainder, ...described });
-              next.push(remainder);
+              recordFailure(
+                remainder,
+                describeFileFailure(
+                  split.failedSql,
+                  split.error,
+                  authoredSqlByName.get(file.name),
+                  { sql: file.sql, failedIndex: split.failedIndex },
+                ),
+              );
+              continue;
+            }
+            if (split.failedSql !== undefined) {
+              sentSql = split.failedSql;
+            }
+            if (split.failedIndex !== undefined) {
+              recordFailure(
+                file,
+                describeFileFailure(
+                  sentSql,
+                  error,
+                  authoredSqlByName.get(file.name),
+                  { sql: file.sql, failedIndex: split.failedIndex },
+                ),
+              );
               continue;
             }
           }
-          const described = describeFileFailure(file.sql, error);
-          const prev = failStreak.get(file.name);
-          failStreak.set(file.name, {
-            message: described.message,
-            count:
-              prev !== undefined && prev.message === described.message
-                ? prev.count + 1
-                : 1,
-          });
-          failures.push({ file, ...described });
-          next.push(file);
+          recordFailure(
+            file,
+            describeFileFailure(
+              sentSql,
+              error,
+              authoredSqlByName.get(file.name),
+            ),
+          );
         }
       }
       if (!progressed) {
         lastFailures = failures;
         if (connectionReuse === "reconnect-on-stuck" && !reconnected) {
           failuresBeforeReconnect = failures;
+          earlierSessionSettings = appliedFiles.flatMap(
+            persistentSessionSettingLocations,
+          );
           await releaseClient(true);
           client = await shadow.connect();
           clientOpen = true;
@@ -1209,12 +1384,16 @@ export async function loadSqlFiles(
         });
         if (fileKindTried || statementKindTried) {
           const kind = statementKindTried ? "statement-kind" : "file-kind";
-          const message = reorderOnFailureMessage(kind);
+          const assist = toAssistFailures(
+            failuresBeforeReorder,
+            options.enrichLoadAssistFailures,
+          );
+          const message = formatReorderOnFailureMessage(kind, assist);
           details.push({
             code: "reorder_on_failure",
             severity: "warning",
             message,
-            context: loadAssistContext(failuresBeforeReorder),
+            context: toLoadAssistContext(assist, { kind }),
           });
           options.onWarning?.(message);
         }
@@ -1231,23 +1410,47 @@ export async function loadSqlFiles(
     }
 
     if (reconnectUnblocked) {
-      const message = sessionPollutionMessage();
+      const assist = toAssistFailures(
+        failuresBeforeReconnect,
+        options.enrichLoadAssistFailures,
+      );
+      const message = formatSessionPollutionMessage(
+        assist,
+        earlierSessionSettings,
+      );
       stageDiagnostics.push({
         code: "session_pollution",
         severity: "warning",
         message,
-        context: loadAssistContext(failuresBeforeReconnect),
+        context: toLoadAssistContext(assist, {
+          earlier: earlierSessionSettings,
+        }),
       });
       options.onWarning?.(message);
     }
     if (fileKindTried || statementKindTried) {
       const kind = statementKindTried ? "statement-kind" : "file-kind";
-      const message = reorderOnFailureMessage(kind);
+      const assist = toAssistFailures(
+        failuresBeforeReorder,
+        options.enrichLoadAssistFailures,
+      );
+      const suggestedLoadOrder =
+        kind === "file-kind" && splitFiles.size === 0
+          ? appliedFiles.map((file) => file.name.split(/[\\/]/).join("/"))
+          : undefined;
+      const message = formatReorderOnFailureMessage(
+        kind,
+        assist,
+        suggestedLoadOrder,
+      );
       stageDiagnostics.push({
         code: "reorder_on_failure",
         severity: "warning",
         message,
-        context: loadAssistContext(failuresBeforeReorder),
+        context: toLoadAssistContext(assist, {
+          kind,
+          ...(suggestedLoadOrder !== undefined ? { suggestedLoadOrder } : {}),
+        }),
       });
       options.onWarning?.(message);
     }

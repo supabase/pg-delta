@@ -8,6 +8,7 @@ import {
 } from "../src/frontends/load-sql-files.ts";
 import {
   analyzeForShadow,
+  attachReorderPredecessors,
   classesByFileFromAnalyzed,
   preorderFilesByKind,
   splitAndReorderFile,
@@ -34,12 +35,17 @@ describe("loadSqlFiles — reorderOnFailure", () => {
     const shadow = await createTestDb("rof_stmt");
     try {
       const analyzed = await analyzeForShadow(MIXED_ADD_THEN_TABLE);
+      const originalSqlByName = new Map(
+        MIXED_ADD_THEN_TABLE.map((file) => [file.name, file.sql]),
+      );
       const warnings: string[] = [];
       let fileKindCalls = 0;
       const result = await loadSqlFiles(MIXED_ADD_THEN_TABLE, shadow.pool, {
         connectionReuse: "keep",
         reorderOnFailure: true,
         onWarning: (m) => warnings.push(m),
+        enrichLoadAssistFailures: (failures) =>
+          attachReorderPredecessors(failures, analyzed, originalSqlByName),
         reorderFilesByKind: (pending) => {
           fileKindCalls++;
           return preorderFilesByKind(
@@ -59,12 +65,34 @@ describe("loadSqlFiles — reorderOnFailure", () => {
       const reorder = result.diagnostics.find(
         (d) => d.code === "reorder_on_failure",
       );
-      expect(reorder?.message).toMatch(/statement-kind/);
-      expect(reorder?.message).toMatch(/loadOrder/);
-      expect(warnings.join("\n")).toMatch(/statement-kind/);
-      expect(warnings.join("\n")).not.toContain("ALTER PUBLICATION");
-      const failures = reorder?.context?.["failures"];
-      expect(Array.isArray(failures) && failures.length > 0).toBe(true);
+      expect(reorder?.message).toMatchInlineSnapshot(`
+        "Default load order stuck; reordered (statement-kind).
+          move 01_mixed.sql:1 ALTER PUBLICATION p ADD TABLE public.t
+          after 01_mixed.sql:2 CREATE TABLE public.t (id integer);
+        loadOrder cannot fix same-file order — edit or split the file."
+      `);
+      expect(warnings.join("\n")).toEqual(reorder?.message ?? "");
+      expect(reorder?.context).toMatchInlineSnapshot(`
+        {
+          "failures": [
+            {
+              "after": {
+                "excerpt": "CREATE TABLE public.t (id integer);",
+                "file": "01_mixed.sql",
+                "line": 2,
+              },
+              "error": "relation "public.t" does not exist",
+              "excerpt": "ALTER PUBLICATION p ADD TABLE public.t",
+              "file": "01_mixed.sql",
+              "line": 1,
+            },
+          ],
+          "files": [
+            "01_mixed.sql",
+          ],
+          "kind": "statement-kind",
+        }
+      `);
     } finally {
       await shadow.drop();
     }

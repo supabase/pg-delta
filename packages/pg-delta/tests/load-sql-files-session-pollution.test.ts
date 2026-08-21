@@ -56,12 +56,35 @@ describe("loadSqlFiles — connectionReuse", () => {
       const pollution = result.diagnostics.find(
         (d) => d.code === "session_pollution",
       );
-      expect(pollution?.message).toMatch(/session poisoning/i);
-      expect(pollution?.message).not.toContain("github.com");
-      const failures = pollution?.context?.["failures"];
-      expect(Array.isArray(failures) && failures.length > 0).toBe(true);
-      expect(warnings.join("\n")).toMatch(/session poisoning/i);
-      expect(warnings.join("\n")).not.toContain("CREATE TABLE");
+      expect(pollution?.message).toMatchInlineSnapshot(`
+        "New connection unblocked a stuck load (session poisoning).
+          stuck 01_table.sql:1 CREATE TABLE locked.t (id integer) (permission denied for schema locked)
+          earlier 00_set.sql:1 SET ROLE load_weak
+        Remove session-setting statements from declarative SQL, or do not share that session with later DDL."
+      `);
+      expect(warnings.join("\n")).toEqual(pollution?.message ?? "");
+      expect(pollution?.context).toMatchInlineSnapshot(`
+        {
+          "earlier": [
+            {
+              "excerpt": "SET ROLE load_weak",
+              "file": "00_set.sql",
+              "line": 1,
+            },
+          ],
+          "failures": [
+            {
+              "error": "permission denied for schema locked",
+              "excerpt": "CREATE TABLE locked.t (id integer)",
+              "file": "01_table.sql",
+              "line": 1,
+            },
+          ],
+          "files": [
+            "01_table.sql",
+          ],
+        }
+      `);
     } finally {
       await shadow.pool.query(`DROP ROLE IF EXISTS load_weak`).catch(() => {});
       await shadow.drop();
