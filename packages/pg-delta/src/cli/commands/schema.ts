@@ -434,7 +434,7 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
           `  [--path-style flat|nested] (flat, the default: <schema>/tables/t.sql + _cluster/roles.sql; nested: the historical schemas/<schema>/… + cluster/…)\n` +
           `  [--default-owner <role|none>] (which owner stays implicit; default: profile default or the database owner; "none" emits every OWNER TO)\n` +
           `  [--prune-unmanaged] (delete .sql files in --out-dir this export does not own; refuse otherwise)\n` +
-          `  [--create-extension-if-not-exists] (emit CREATE EXTENSION IF NOT EXISTS; no-op if already installed)\n` +
+          `  [--create-extension-if-not-exists] (CREATE EXTENSION only; other statements stay plain CREATE)\n` +
           `  [--format-options '{"keywordCase":"upper","maxWidth":180}'] [--no-format]\n` +
           `    (SQL is pretty-printed by default: lowercase keywords, width 180; any layout)\n` +
           `  Grouped-layout options (only with --layout grouped):\n` +

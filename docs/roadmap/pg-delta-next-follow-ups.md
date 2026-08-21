@@ -1473,3 +1473,16 @@ in the wild:
   #434. A shared fix must retain quote delimiters for every shadow precheck,
   accept exact lowercase quoted API names, and keep PostgreSQL's case-folding
   behavior for unquoted names.
+
+## PR #444 review triage (Codex) — idempotent export is CREATE EXTENSION only
+
+- **Deferred — `CREATE SCHEMA IF NOT EXISTS` for managed install schemas.**
+  `--create-extension-if-not-exists` only rewrites `CREATE EXTENSION`. A
+  managed non-public install schema (`partman`, a user `app` schema, …) still
+  exports as plain `CREATE SCHEMA`, so replaying the whole directory onto a
+  cluster that already has that schema fails before the extension no-op.
+  `schema apply` does not need this: it diffs and only emits CREATE when the
+  object is absent. A general idempotent-DDL export (schema / table / type
+  `IF NOT EXISTS`, `DROP IF EXISTS`) was an explicit non-goal of #444. If a
+  later flag wants full-tree bootstrap replay, start with the schemas that
+  `CREATE EXTENSION … SCHEMA` consumes.

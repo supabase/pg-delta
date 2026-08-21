@@ -148,11 +148,12 @@ These flags shape this tree, and they compose:
   files: one file per object (default), numbered files in dependency order, or
   the category-ordered "nice" export with opt-in grouping.
 - `--create-extension-if-not-exists` — emit `CREATE EXTENSION IF NOT EXISTS`
-  instead of plain `CREATE`. Opt-in for bootstrap replay against a cluster that
-  already has the extension. If the name is already installed, PostgreSQL
-  notices and no-ops — it does not relocate or change version. `schema apply`
-  does not need this: the planner only emits `CREATE EXTENSION` when the
-  extension is absent.
+  instead of plain `CREATE`. Only that statement is guarded: a managed
+  `CREATE SCHEMA` in the same export stays plain `CREATE` and will fail if
+  the schema already exists. If the extension name is already installed,
+  PostgreSQL notices and no-ops — it does not relocate or change version.
+  `schema apply` does not need this: the planner only emits `CREATE EXTENSION`
+  when the extension is absent.
 
 The loader is structure-agnostic — `schema apply --dir` reads every `.sql`
 under the directory recursively — so the layout is purely a readability
