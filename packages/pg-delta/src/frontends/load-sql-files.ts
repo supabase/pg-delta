@@ -758,7 +758,11 @@ export interface LoadSqlFilesOptions {
   splitFileByKind?: (file: SqlFile) => SqlFile[] | Promise<SqlFile[]>;
 }
 
-function resolveReorderOnFailure(options: LoadSqlFilesOptions): boolean {
+/** `reorderOnFailure` wins when both aliases are set. Default true. */
+export function resolveReorderOnFailure(options: {
+  reorderOnFailure?: boolean;
+  reorder?: boolean;
+}): boolean {
   if (options.reorderOnFailure !== undefined) return options.reorderOnFailure;
   if (options.reorder !== undefined) return options.reorder;
   return true;

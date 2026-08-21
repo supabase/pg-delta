@@ -167,6 +167,7 @@ export function applyManifestLoadOrder<T extends { name: string }>(
   }
   const byName = new Map(files.map((f) => [posixRelName(f.name), f]));
   const seen = new Set<string>();
+  const included = new Set<T>();
   const ordered: T[] = [];
   for (const path of loadOrder) {
     if (seen.has(path)) continue;
@@ -174,11 +175,13 @@ export function applyManifestLoadOrder<T extends { name: string }>(
     if (file !== undefined) {
       ordered.push(file);
       seen.add(path);
+      included.add(file);
     }
   }
   for (const file of files) {
-    if (!seen.has(posixRelName(file.name))) {
+    if (!included.has(file)) {
       ordered.push(file);
+      included.add(file);
     }
   }
   return ordered;

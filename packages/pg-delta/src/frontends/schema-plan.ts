@@ -35,6 +35,7 @@ import {
   findDefaultPrivilegeStatements,
   findMatchingStatements,
   loadSqlFiles,
+  resolveReorderOnFailure,
   ShadowLoadError,
   stripClusterDdl,
   type SqlFile,
@@ -591,8 +592,7 @@ export async function planSchemaFiles(
     }
   }
 
-  const reorderOnFailure =
-    options.reorderOnFailure !== false && options.reorder !== false;
+  const reorderOnFailure = resolveReorderOnFailure(options);
   let orderedFiles: OrderedSqlFile[] | null = null;
   let cycles: ShadowLoadCycle[] = [];
   const loadInput = applyManifestLoadOrder(files, options.manifest?.loadOrder);

@@ -126,6 +126,13 @@ describe("export manifest", () => {
       "_cluster/publications.sql",
       "extra.sql",
     ]);
+    const collided = [
+      { name: "schema\\a.sql", sql: "-- win" },
+      { name: "schema/a.sql", sql: "-- posix" },
+    ];
+    expect(
+      applyManifestLoadOrder(collided, ["schema/a.sql"]).map((f) => f.sql),
+    ).toEqual(["-- posix", "-- win"]);
   });
 
   test("drops a wrong-typed files field (non-array or non-string members)", () => {
