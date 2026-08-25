@@ -313,9 +313,9 @@ Deviations from the sketch, each deliberate:
 flowchart TB
     LIVE["live DB"] --> EX
     FILES["SQL files → shadow"] --> EX
-    SNAP["snapshot"] --> EX
     EX["<b>core extract</b>: pg_catalog → schema facts<br/><b>handler capture</b>: ext catalogs → intent facts + managedBy edges<br/><i>(one exported snapshot; integration-aware extract)</i>"]
     EX --> FB["<b>ONE FACT BASE</b> — schema facts + intent facts + edges<br/><i>(managedBy edges mark operationally-created objects)</i>"]
+    SNAP["snapshot<br/><i>(already a serialized fact base)</i>"] --> FB
     FB -->|"resolveView: managedBy provenance → project out&nbsp;&nbsp;(Deliverable A)"| DIFF["<b>generic hash diff</b> → deltas<br/><i>(schema + intent, one Delta type, O(changed))</i>"]
     DIFF --> RULES["<b>ONE rule table</b> (schema rules + registered handler intent rules) → actions"]
     RULES --> GRAPH["<b>ONE graph</b> → one deterministic sort<br/><i>(replay actions are ordinary nodes, wired by consumes / produces)</i>"]

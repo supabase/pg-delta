@@ -32,8 +32,9 @@ flowchart TB
     VIEW --> EFFD["effectiveDesired"]
     EFFS --> DIFF["diff"]
     EFFD --> DIFF
-    DIFF --> CHAIN["deltas → rules → actions → graph → sort → apply"]
-    CHAIN --> PROVE["provePlan<br/><i>(re-extract is run through the SAME view)</i>"]
+    DIFF --> CHAIN["deltas → rules → actions → graph → sort"]
+    CHAIN --> PROVE["provePlan on a clone<br/><i>(re-extract is run through the SAME view)</i>"]
+    CHAIN --> APPLY["apply<br/><i>(the target)</i>"]
 ```
 
 ## Why this is forced by the constraints (not a preference)

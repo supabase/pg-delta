@@ -383,8 +383,9 @@ const thePlan = plan(sourceFb, factBase, ctx.planOptions);
 await apply(thePlan, targetPool, ctx.applyOptions);
 ```
 
-- **`raw`** (default) — no policy: diff everything. (It ships one presence-only
-  handler, for `vault`, so vault-encrypted state is detected rather than read.)
+- **`raw`** (default) — no policy: diff everything. (It ships one handler, for
+  `vault`: extension presence plus best-effort plan warnings on structural use —
+  secret state is never read or captured.)
 - **`supabase`** — excludes Supabase-managed roles, schemas, and extensions, and
   captures stateful-extension objects (e.g. pg_partman children) so they aren't
   dropped.
