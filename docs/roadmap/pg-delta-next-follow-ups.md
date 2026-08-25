@@ -1473,3 +1473,29 @@ in the wild:
   #434. A shared fix must retain quote delimiters for every shadow precheck,
   accept exact lowercase quoted API names, and keep PostgreSQL's case-folding
   behavior for unquoted names.
+
+## PR #450 review triage (Codex) — pg-topo `privilege` payload
+
+PR #450 adds `StatementNode.privilege` from GrantStmt / AlterDefaultPrivilegesStmt
+so consumers can read default-ACL direction, roles, schema, and object kind
+without regex on `sql`. Four Codex P2s were deferred; they are real AST gaps,
+not the contract this PR promised.
+
+- **Deferred — map every privilege `objtype`.** `OBJECT_DATABASE` / tablespace /
+  large object / parameter fall through to `objectKind: ""`. This PR maps the
+  ADP / table kinds the consumer asked for (`tables`, `sequences`, `functions`,
+  …). Exhaustive cluster-object coverage is a later payload expansion.
+
+- **Deferred — `CURRENT_USER` / `CURRENT_ROLE` / `SESSION_USER`.**
+  `roleNameFromRoleSpec` already drops these (same hole on `requires[]`).
+  Hosted dumps name roles (`postgres`, `anon`). Do not change the shared
+  helper just to populate the new field.
+
+- **Deferred — column-scoped privileges.** `GRANT SELECT (email)` stores
+  `AccessPriv.cols`; the payload keeps `privileges: ["select"]`. Default ACL
+  and privilege-offer do not need column lists; exposing them is a shape change.
+
+- **Deferred — `WITH GRANT OPTION` / `REVOKE GRANT OPTION FOR`.** The AST
+  `grant_option` flag is dropped, so those statements look like a plain
+  grant/revoke. The consumer asked for GRANT vs REVOKE of the privilege
+  itself, not grant-option bookkeeping.
