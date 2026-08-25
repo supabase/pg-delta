@@ -135,9 +135,6 @@ alter default privileges for role postgres in schema public
 
     expect(result.ordered).toHaveLength(1);
     expect(result.ordered[0]?.statementClass).toBe("ALTER_DEFAULT_PRIVILEGES");
-    expect(result.ordered[0]?.sql.toLowerCase().startsWith("-- write")).toBe(
-      false,
-    );
     expect(result.ordered[0]?.privilege).toEqual({
       kind: "alter_default_privileges",
       isGrant: false,

@@ -3,10 +3,7 @@ import {
   loadModule as loadPlpgsqlParserModule,
   parseSql,
 } from "plpgsql-parser";
-import {
-  isPgTopoAnnotationLine,
-  parseAnnotations,
-} from "../annotations/parse-annotations.ts";
+import { parseAnnotations } from "../annotations/parse-annotations.ts";
 import type {
   AnnotationHints,
   Diagnostic,
@@ -49,80 +46,6 @@ const ensureStatementTerminator = (sql: string): string =>
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
-
-const skipNestedBlockComment = (text: string, start: number): number => {
-  let index = start + 2;
-  let depth = 1;
-  while (index < text.length && depth > 0) {
-    if (text[index] === "/" && text[index + 1] === "*") {
-      depth += 1;
-      index += 2;
-      continue;
-    }
-    if (text[index] === "*" && text[index + 1] === "/") {
-      depth -= 1;
-      index += 2;
-      continue;
-    }
-    index += 1;
-  }
-  return index;
-};
-
-const skipLineComment = (text: string, start: number): number => {
-  let index = start + 2;
-  while (index < text.length && text[index] !== "\n") {
-    index += 1;
-  }
-  return index;
-};
-
-/** File-level comments sit inside stmt 0's byte slice (`stmt_location` is
- *  omitted or 0). Collect `-- pg-topo:` lines; skip other leading trivia so
- *  sourceOffset / executable SQL start at the keyword. */
-const scanLeadingTrivia = (
-  text: string,
-  start: number,
-): { annotationLines: string[]; executableOffset: number } => {
-  let index = start;
-  const annotationLines: string[] = [];
-
-  while (index < text.length) {
-    const char = text[index];
-    if (char !== undefined && /\s/u.test(char)) {
-      index += 1;
-      continue;
-    }
-
-    if (char === "-" && text[index + 1] === "-") {
-      const lineEnd = skipLineComment(text, index);
-      const line = text.slice(index, lineEnd);
-      if (isPgTopoAnnotationLine(line)) {
-        annotationLines.push(line.replace(/\r$/u, ""));
-      }
-      index = lineEnd;
-      continue;
-    }
-
-    if (char === "/" && text[index + 1] === "*") {
-      index = skipNestedBlockComment(text, index);
-      continue;
-    }
-
-    return { annotationLines, executableOffset: index };
-  }
-
-  return { annotationLines, executableOffset: index };
-};
-
-const stripNonAnnotationLeadingTrivia = (sql: string): string => {
-  const { annotationLines, executableOffset } = scanLeadingTrivia(sql, 0);
-  const executable = sql.slice(executableOffset);
-  if (annotationLines.length === 0) {
-    return executable;
-  }
-  return `${annotationLines.join("\n")}\n${executable}`;
-};
 
 /** Re-parse `candidate` and report whether it is executable on its own. */
 const reparses = (candidate: string): boolean => {
@@ -182,10 +105,10 @@ const extractStatementSql = async (
     length > 0 &&
     location + length <= contentBytes.length
   ) {
-    const sliced = stripNonAnnotationLeadingTrivia(
-      textDecoder.decode(contentBytes.subarray(location, location + length)),
-    );
-    if (sliced.trim().length > 0) {
+    const sliced = textDecoder
+      .decode(contentBytes.subarray(location, location + length))
+      .trim();
+    if (sliced.length > 0) {
       const candidate = ensureStatementTerminator(sliced);
       if (reparses(candidate)) {
         return candidate;
@@ -272,12 +195,17 @@ export const parseSqlContent = async (
     }
     const annotationResult = parseAnnotations(sql);
 
-    // stmt_location is a byte offset (often 0/omitted for statement 0). Convert
-    // to a character offset, then skip trivia so the id points at the keyword.
-    const sourceOffset = scanLeadingTrivia(
-      content,
-      byteToCharOffset(statement.stmt_location ?? 0),
-    ).executableOffset;
+    // Advance past leading whitespace so sourceOffset points to the first character
+    // of the statement (e.g. "CREATE"); statement IDs and diagnostics then refer to
+    // the real start of the statement for display and editor jump-to.
+    // stmt_location is a byte offset; convert to a character offset first.
+    let sourceOffset = byteToCharOffset(statement.stmt_location ?? 0);
+    while (
+      sourceOffset < content.length &&
+      /\s/.test(content[sourceOffset] ?? "")
+    ) {
+      sourceOffset += 1;
+    }
     statements.push({
       id: {
         filePath: sourceLabel,

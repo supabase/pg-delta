@@ -90,7 +90,6 @@ flowchart TD
 - Ensures parser module loaded once (`loadModule`)
 - Parses file content into parser statements
 - Extracts statement SQL using `stmt_location`/`stmt_len`
-- Strips leading non-annotation trivia (`--` / nested `/* */`) so file-level preamble is not glued onto statement 0; `-- pg-topo:` lines immediately above a statement stay on that statement
 - Falls back to deparse when sliced SQL is not executable
 - Normalizes statement terminators (`;`)
 - Parses `pg-topo` annotations per statement
