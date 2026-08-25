@@ -63,6 +63,15 @@ import {
 } from "../extract/extract.ts";
 import { notExtensionMember, USER_SCHEMA_FILTER } from "../extract/scope.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
+import {
+  compactSqlExcerpt,
+  errorWithoutLocation,
+  formatReorderOnFailureMessage,
+  formatSessionPollutionMessage,
+  toLoadAssistContext,
+  type LoadAssistFailure,
+  type LoadAssistLocation,
+} from "./load-assist.ts";
 import { splitSqlStatements } from "./sql-format/format-utils.ts";
 
 /** SQLSTATE 25001 ("active_sql_transaction") — raised when a statement that
@@ -176,8 +185,14 @@ async function applyStatementFallback(
   sql: string,
 ): Promise<
   | { status: "done" }
-  | { status: "prefix"; remainder: string; error: unknown }
-  | { status: "none" }
+  | {
+      status: "prefix";
+      remainder: string;
+      error: unknown;
+      failedSql: string;
+      failedIndex: number;
+    }
+  | { status: "none"; failedSql?: string; failedIndex?: number }
 > {
   const stmts = splitSqlStatements(sql);
   if (stmts.length <= 1) return { status: "none" };
@@ -189,24 +204,115 @@ async function applyStatementFallback(
     return { status: "done" };
   } catch (error) {
     if (error instanceof ShadowLoadError) throw error;
-    if (i === 0) return { status: "none" };
+    if (i === 0) {
+      return {
+        status: "none",
+        failedSql: joinStatements([stmts[0]!]),
+        failedIndex: 0,
+      };
+    }
     return {
       status: "prefix",
       remainder: joinStatements(stmts.slice(i)),
       error,
+      failedSql: joinStatements([stmts[i]!]),
+      failedIndex: i,
     };
   }
 }
 
+type DescribedFailure = {
+  message: string;
+  line?: number;
+  excerpt?: string;
+};
+
+type LoadFailure = {
+  file: SqlFile;
+} & DescribedFailure;
+
+function lineAt(sql: string, offset: number): number {
+  return sql.slice(0, offset).split("\n").length;
+}
+
+function locateAt(
+  sql: string,
+  offset: number,
+  excerptSql?: string,
+): { line: number; excerpt: string } {
+  const line = lineAt(sql, offset);
+  if (excerptSql !== undefined) {
+    return { line, excerpt: compactSqlExcerpt(excerptSql) };
+  }
+  const lineStart = sql.slice(0, offset).lastIndexOf("\n") + 1;
+  const nl = sql.indexOf("\n", offset);
+  const lineText = sql.slice(lineStart, nl === -1 ? undefined : nl).trim();
+  return { line, excerpt: compactSqlExcerpt(lineText) };
+}
+
+function statementAtOffset(
+  sql: string,
+  stmts: readonly string[],
+  offset: number,
+): { start: number; text: string } | undefined {
+  let searchFrom = 0;
+  for (const stmt of stmts) {
+    const start = sql.indexOf(stmt, searchFrom);
+    if (start === -1) continue;
+    const end = start + stmt.length;
+    if (offset >= start && offset < end) return { start, text: stmt };
+    searchFrom = end;
+  }
+  return undefined;
+}
+
+function normalizeStmt(sql: string): string {
+  return sql.replace(/\s+/g, " ").trim().replace(/;$/, "");
+}
+
+function occurrenceBefore(stmts: readonly string[], index: number): number {
+  const target = normalizeStmt(stmts[index] ?? "");
+  if (target.length === 0) return 0;
+  let seen = 0;
+  for (let i = 0; i < index; i++) {
+    if (normalizeStmt(stmts[i]!) === target) seen++;
+  }
+  return seen;
+}
+
+function indexOfStatement(
+  sql: string,
+  stmts: readonly string[],
+  statement: string,
+  occurrence = 0,
+): number {
+  const needle = normalizeStmt(statement);
+  if (needle.length === 0) return -1;
+  let seen = 0;
+  let searchFrom = 0;
+  for (const stmt of stmts) {
+    const start = sql.indexOf(stmt, searchFrom);
+    if (start === -1) continue;
+    if (normalizeStmt(stmt) === needle) {
+      if (seen === occurrence) return start;
+      seen++;
+    }
+    searchFrom = start + stmt.length;
+  }
+  return -1;
+}
+
 /**
- * Enrich a failed file's error with the offending statement's location. A file
- * is applied as ONE multi-statement query, so node-postgres sets `position` (a
- * 1-based character offset into the file's SQL) on the DatabaseError. Turn that
- * into an "at line N: <excerpt>" suffix so a stuck / non-converged load reports
- * WHICH statement failed inside a multi-statement file, not just the file name +
- * bare message. The position comes straight from PostgreSQL — no SQL parsing.
+ * Map a Postgres `position` (1-based, relative to the query that was sent)
+ * back to the authored file. Statement fallback sends one statement at a
+ * time, so `sentSql` may be a remainder or a single replayed statement.
  */
-function describeFileFailure(sql: string, error: unknown): string {
+function describeFileFailure(
+  sentSql: string,
+  error: unknown,
+  authoredSql?: string,
+  source?: { sql: string; failedIndex: number },
+): DescribedFailure {
   const base = error instanceof Error ? error.message : String(error);
   const raw = (error as { position?: unknown } | null)?.position;
   const pos =
@@ -215,14 +321,77 @@ function describeFileFailure(sql: string, error: unknown): string {
       : typeof raw === "number"
         ? raw
         : Number.NaN;
-  if (!Number.isFinite(pos) || pos < 1 || pos > sql.length) return base;
-  const before = sql.slice(0, pos - 1);
-  const line = before.split("\n").length;
-  const lineStart = before.lastIndexOf("\n") + 1;
-  const nl = sql.indexOf("\n", pos - 1);
-  const lineText = sql.slice(lineStart, nl === -1 ? undefined : nl).trim();
-  const excerpt = lineText.length > 80 ? `${lineText.slice(0, 80)}…` : lineText;
-  return `${base} — at line ${line}: ${excerpt}`;
+  const authored = authoredSql ?? sentSql;
+  const authoredStmts = splitSqlStatements(authored);
+  const sentStmts =
+    sentSql === authored ? authoredStmts : splitSqlStatements(sentSql);
+  if (source !== undefined) {
+    const sourceStmts =
+      source.sql === authored ? authoredStmts : splitSqlStatements(source.sql);
+    const failed = sourceStmts[source.failedIndex];
+    if (failed !== undefined) {
+      const authoredStart = indexOfStatement(
+        authored,
+        authoredStmts,
+        failed,
+        occurrenceBefore(sourceStmts, source.failedIndex),
+      );
+      if (authoredStart >= 0) {
+        const loc = locateAt(authored, authoredStart, failed);
+        return {
+          message: `${base} — at line ${loc.line}: ${loc.excerpt}`,
+          line: loc.line,
+          excerpt: loc.excerpt,
+        };
+      }
+    }
+  }
+  if (Number.isFinite(pos) && pos >= 1 && pos <= sentSql.length) {
+    const sentHit = statementAtOffset(sentSql, sentStmts, pos - 1);
+    if (authored !== sentSql && sentHit !== undefined) {
+      const authoredStart = indexOfStatement(
+        authored,
+        authoredStmts,
+        sentHit.text,
+      );
+      if (authoredStart >= 0) {
+        const inner = Math.max(0, pos - 1 - sentHit.start);
+        const loc = locateAt(authored, authoredStart + inner, sentHit.text);
+        return {
+          message: `${base} — at line ${loc.line}: ${loc.excerpt}`,
+          line: loc.line,
+          excerpt: loc.excerpt,
+        };
+      }
+    }
+    const loc = locateAt(sentSql, pos - 1, sentHit?.text);
+    return {
+      message: `${base} — at line ${loc.line}: ${loc.excerpt}`,
+      line: loc.line,
+      excerpt: loc.excerpt,
+    };
+  }
+  if (sentStmts.length === 1) {
+    const authoredStart = indexOfStatement(
+      authored,
+      authoredStmts,
+      sentStmts[0]!,
+    );
+    if (authoredStart >= 0) {
+      const loc = locateAt(authored, authoredStart, sentStmts[0]);
+      return {
+        message: `${base} — at line ${loc.line}: ${loc.excerpt}`,
+        line: loc.line,
+        excerpt: loc.excerpt,
+      };
+    }
+    return { message: base, excerpt: compactSqlExcerpt(sentStmts[0]!) };
+  }
+  if (authoredStmts.length === 1) {
+    const excerpt = compactSqlExcerpt(authoredStmts[0]!);
+    return { message: base, line: 1, excerpt };
+  }
+  return { message: base };
 }
 
 /**
@@ -744,6 +913,69 @@ export interface LoadSqlFilesOptions {
    *  statements (`SET search_path`, `SET ROLE`, `SET LOCAL`, …) stay
    *  file-atomic so those settings cannot expire between statements. */
   statementFallback?: boolean;
+  /** Default `"reconnect-on-stuck"`. `"keep"` never opens a second connection. */
+  connectionReuse?: "keep" | "reconnect-on-stuck";
+  /** After default order (and reconnect) stick, allow file-kind then
+   *  statement-kind. Default true. */
+  reorderOnFailure?: boolean;
+  /** Same gate as {@link reorderOnFailure} (`false` opts out of escalate). */
+  reorder?: boolean;
+  onWarning?: (message: string) => void;
+  /** Assist: sort whole files by kind (stage 3). Loader does not parse SQL. */
+  reorderFilesByKind?: (files: SqlFile[]) => SqlFile[] | Promise<SqlFile[]>;
+  /** Assist: split one file into kind-ordered statement units (stage 4). */
+  splitFileByKind?: (file: SqlFile) => SqlFile[] | Promise<SqlFile[]>;
+  /** Attach `after` predecessors before assist warnings are emitted. */
+  enrichLoadAssistFailures?: (
+    failures: LoadAssistFailure[],
+  ) => LoadAssistFailure[];
+}
+
+/** `reorderOnFailure` wins when both aliases are set. Default true. */
+export function resolveReorderOnFailure(options: {
+  reorderOnFailure?: boolean;
+  reorder?: boolean;
+}): boolean {
+  if (options.reorderOnFailure !== undefined) return options.reorderOnFailure;
+  if (options.reorder !== undefined) return options.reorder;
+  return true;
+}
+
+function toAssistFailures(
+  stuck: LoadFailure[],
+  enrich?: (failures: LoadAssistFailure[]) => LoadAssistFailure[],
+): LoadAssistFailure[] {
+  const failures: LoadAssistFailure[] = stuck.map((item) => ({
+    file: item.file.name,
+    ...(item.line !== undefined ? { line: item.line } : {}),
+    ...(item.excerpt !== undefined ? { excerpt: item.excerpt } : {}),
+    error: errorWithoutLocation(item.message),
+  }));
+  return enrich !== undefined ? enrich(failures) : failures;
+}
+
+function persistentSessionSettingLocations(
+  file: SqlFile,
+): LoadAssistLocation[] {
+  if (findSessionSettingStatements(file.sql).length === 0) return [];
+  const locs: LoadAssistLocation[] = [];
+  let searchFrom = 0;
+  for (const stmt of splitSqlStatements(file.sql)) {
+    const start = file.sql.indexOf(stmt, searchFrom);
+    if (start === -1) continue;
+    searchFrom = start + stmt.length;
+    const leading = stmt.replace(/^\s+/, "");
+    if (/^set\s+local\b/i.test(leading) || /^reset\b/i.test(leading)) {
+      continue;
+    }
+    if (findSessionSettingStatements(stmt).length === 0) continue;
+    locs.push({
+      file: file.name,
+      line: lineAt(file.sql, start),
+      excerpt: compactSqlExcerpt(stmt),
+    });
+  }
+  return locs;
 }
 
 export async function loadSqlFiles(
@@ -760,10 +992,12 @@ export async function loadSqlFiles(
   // backstop for non-deterministic SQL, NOT a depth limit — it must scale with
   // the file count (floor 25 preserves the small-schema default). A fixed 25
   // used to wrongly fail any chain deeper than 25 that was still making progress.
-  const maxRounds = options.maxRounds ?? Math.max(files.length + 1, 25);
+  let maxRounds = options.maxRounds ?? Math.max(files.length + 1, 25);
   const mode = options.mode ?? "databaseScratch";
   const extractShadow = options.extract ?? extract;
   const statementFallback = options.statementFallback ?? true;
+  const connectionReuse = options.connectionReuse ?? "reconnect-on-stuck";
+  const reorderOnFailure = resolveReorderOnFailure(options);
 
   // the shadow must be empty — verify by observation. Schemas the caller
   // pre-seeded (Phase 2b assumed schemas) are exempt: they were deliberately
@@ -873,17 +1107,26 @@ export async function loadSqlFiles(
           ORDER BY 1, 2`)
       : null;
 
-  // bounded retry rounds at file granularity (fail-safe ordering)
-  let pending = [...files].sort((a, b) => (a.name < b.name ? -1 : 1));
+  // Caller array order is the default (export loadOrder or lex collect).
+  let pending = [...files];
+  const authoredSqlByName = new Map(files.map((file) => [file.name, file.sql]));
+  const appliedFiles: SqlFile[] = [];
+  const appliedNames = new Set<string>();
+  const recordApplied = (file: SqlFile): void => {
+    if (appliedNames.has(file.name)) return;
+    appliedNames.add(file.name);
+    appliedFiles.push(file);
+  };
   let rounds = 0;
   // body-validation warnings for SEEDED-schema routines (populated below,
   // outside the try/finally so the final result can merge them in).
   let seededBodyWarnings: Diagnostic[] = [];
   // non-fatal `data_statement` observations (same lifetime rationale).
   let dataStatementWarnings: Diagnostic[] = [];
+  let stageDiagnostics: Diagnostic[] = [];
   // the most recent round's per-file failures, retained so a budget-exhaustion
   // error can report WHY each still-pending file failed (review P1 #2).
-  let lastFailures: Array<{ file: SqlFile; message: string }> = [];
+  let lastFailures: LoadFailure[] = [];
   // per-file count of CONSECUTIVE rounds a file failed with the SAME message, so
   // a stuck / non-converged error can say "failed identically in N round(s)" —
   // a file whose error never changes is a genuine missing dependency (or cycle),
@@ -894,9 +1137,39 @@ export async function loadSqlFiles(
     roles: ReadonlySet<string>;
     member: string;
   } | null = null;
-  const client = await shadow.connect();
+  let reconnected = false;
+  let reconnectUnblocked = false;
+  let fileKindTried = false;
+  let statementKindTried = false;
+  let failuresBeforeReconnect: LoadFailure[] = [];
+  let earlierSessionSettings: LoadAssistLocation[] = [];
+  let failuresBeforeReorder: LoadFailure[] = [];
+  let client: PoolClient = await shadow.connect();
+  let clientOpen = true;
+  const releaseClient = async (discard = false): Promise<void> => {
+    if (!clientOpen) return;
+    clientOpen = false;
+    await client.query(`RESET ROLE`).catch(() => {});
+    await client.query(`RESET SESSION AUTHORIZATION`).catch(() => {});
+    await client.query(`RESET check_function_bodies`).catch(() => {});
+    if (discard) {
+      client.release(new Error("discard poisoned shadow-load session"));
+    } else {
+      client.release();
+    }
+  };
+  const applyPreamble = async (c: PoolClient): Promise<void> => {
+    await c.query(`SET check_function_bodies = off`);
+    try {
+      await c.query(
+        `SELECT set_config('createrole_self_grant', 'set, inherit', false)`,
+      );
+    } catch {
+      /* PG < 16 or GUC unavailable */
+    }
+  };
   try {
-    await client.query(`SET check_function_bodies = off`);
+    await applyPreamble(client);
     // PG 16+: CREATE ROLE no longer auto-grants the creator membership in the
     // new role. Supabase's non-superuser `postgres` (CREATEROLE) then fails
     // `CREATE SCHEMA … AUTHORIZATION new_role` with "must be able to SET ROLE"
@@ -941,14 +1214,30 @@ export async function loadSqlFiles(
         );
       }
       rounds++;
-      const failures: Array<{ file: SqlFile; message: string }> = [];
+      const failures: LoadFailure[] = [];
       const next: SqlFile[] = [];
       let progressed = false;
+      const recordFailure = (
+        target: SqlFile,
+        described: DescribedFailure,
+      ): void => {
+        const prev = failStreak.get(target.name);
+        failStreak.set(target.name, {
+          message: described.message,
+          count:
+            prev !== undefined && prev.message === described.message
+              ? prev.count + 1
+              : 1,
+        });
+        failures.push({ file: target, ...described });
+        next.push(target);
+      };
       for (const file of pending) {
         try {
           await applyFile(client, file.sql);
           progressed = true;
           failStreak.delete(file.name);
+          recordApplied(file);
         } catch (error) {
           // A ShadowLoadError from applyFile is a deterministic policy refusal
           // (mixed non-transactional file, or a non-allowlisted non-transactional
@@ -961,6 +1250,7 @@ export async function loadSqlFiles(
           // would commit them alone and change where later DDL lands.
           // ALTER DEFAULT PRIVILEGES is the same: committing it early would
           // grant later objects created by sibling files.
+          let sentSql = file.sql;
           if (
             statementFallback &&
             findSessionSettingStatements(file.sql).length === 0 &&
@@ -971,6 +1261,7 @@ export async function loadSqlFiles(
               progressed = true;
               splitFiles.add(file.name);
               failStreak.delete(file.name);
+              recordApplied(file);
               continue;
             }
             if (split.status === "prefix") {
@@ -980,56 +1271,188 @@ export async function loadSqlFiles(
                 name: file.name,
                 sql: split.remainder,
               };
-              const message = describeFileFailure(remainder.sql, split.error);
-              const prev = failStreak.get(file.name);
-              failStreak.set(file.name, {
-                message,
-                count:
-                  prev !== undefined && prev.message === message
-                    ? prev.count + 1
-                    : 1,
-              });
-              failures.push({ file: remainder, message });
-              next.push(remainder);
+              recordFailure(
+                remainder,
+                describeFileFailure(
+                  split.failedSql,
+                  split.error,
+                  authoredSqlByName.get(file.name),
+                  { sql: file.sql, failedIndex: split.failedIndex },
+                ),
+              );
+              continue;
+            }
+            if (split.failedSql !== undefined) {
+              sentSql = split.failedSql;
+            }
+            if (split.failedIndex !== undefined) {
+              recordFailure(
+                file,
+                describeFileFailure(
+                  sentSql,
+                  error,
+                  authoredSqlByName.get(file.name),
+                  { sql: file.sql, failedIndex: split.failedIndex },
+                ),
+              );
               continue;
             }
           }
-          const message = describeFileFailure(file.sql, error);
-          const prev = failStreak.get(file.name);
-          failStreak.set(file.name, {
-            message,
-            count:
-              prev !== undefined && prev.message === message
-                ? prev.count + 1
-                : 1,
-          });
-          failures.push({ file, message });
-          next.push(file);
+          recordFailure(
+            file,
+            describeFileFailure(
+              sentSql,
+              error,
+              authoredSqlByName.get(file.name),
+            ),
+          );
         }
       }
       if (!progressed) {
-        // no progress: stuck — inspect for mutual-FK situation, then fail loud
+        lastFailures = failures;
+        if (connectionReuse === "reconnect-on-stuck" && !reconnected) {
+          failuresBeforeReconnect = failures;
+          earlierSessionSettings = appliedFiles.flatMap(
+            persistentSessionSettingLocations,
+          );
+          await releaseClient(true);
+          client = await shadow.connect();
+          clientOpen = true;
+          await applyPreamble(client);
+          reconnected = true;
+          pending = next;
+          maxRounds = Math.max(maxRounds, rounds + pending.length + 1);
+          continue;
+        }
+        if (
+          reorderOnFailure &&
+          !fileKindTried &&
+          options.reorderFilesByKind !== undefined
+        ) {
+          failuresBeforeReorder = failures;
+          fileKindTried = true;
+          pending = await options.reorderFilesByKind(next);
+          maxRounds = Math.max(maxRounds, rounds + pending.length + 1);
+          continue;
+        }
+        if (
+          reorderOnFailure &&
+          !statementKindTried &&
+          options.splitFileByKind !== undefined
+        ) {
+          if (failuresBeforeReorder.length === 0) {
+            failuresBeforeReorder = failures;
+          }
+          statementKindTried = true;
+          const split: SqlFile[] = [];
+          for (const file of next) {
+            if (
+              findSessionSettingStatements(file.sql).length > 0 ||
+              findDefaultPrivilegeStatements(file.sql).length > 0
+            ) {
+              split.push(file);
+              continue;
+            }
+            const units = await options.splitFileByKind(file);
+            if (units.length <= 1) {
+              split.push(units[0] ?? file);
+              continue;
+            }
+            split.push({
+              name: file.name,
+              sql: joinStatements(units.map((unit) => unit.sql)),
+            });
+          }
+          pending = split;
+          maxRounds = Math.max(maxRounds, rounds + pending.length + 1);
+          continue;
+        }
         const mutualFkHint = detectMutualFk(failures)
           ? " Tip: if two tables reference each other with inline REFERENCES clauses, split one foreign key into a separate ALTER TABLE … ADD CONSTRAINT statement."
           : "";
+        const details: Diagnostic[] = failures.map((f) => {
+          const streak = failStreak.get(f.file.name);
+          const streakNote =
+            streak !== undefined && streak.count > 1
+              ? ` (failed identically in ${streak.count} round(s) — likely a genuine missing dependency, not ordering)`
+              : "";
+          return {
+            code: "stuck_statement",
+            severity: "error" as const,
+            message: `${f.file.name}: ${f.message}${streakNote}`,
+          };
+        });
+        if (fileKindTried || statementKindTried) {
+          const kind = statementKindTried ? "statement-kind" : "file-kind";
+          const assist = toAssistFailures(
+            failuresBeforeReorder,
+            options.enrichLoadAssistFailures,
+          );
+          const message = formatReorderOnFailureMessage(kind, assist);
+          details.push({
+            code: "reorder_on_failure",
+            severity: "warning",
+            message,
+            context: toLoadAssistContext(assist, { kind }),
+          });
+          options.onWarning?.(message);
+        }
         throw new ShadowLoadError(
           `shadow load stuck after ${rounds} round(s): ${next.length} file(s) cannot apply${mutualFkHint}`,
-          failures.map((f) => {
-            const streak = failStreak.get(f.file.name);
-            const streakNote =
-              streak !== undefined && streak.count > 1
-                ? ` (failed identically in ${streak.count} round(s) — likely a genuine missing dependency, not ordering)`
-                : "";
-            return {
-              code: "stuck_statement",
-              severity: "error",
-              message: `${f.file.name}: ${f.message}${streakNote}`,
-            };
-          }),
+          details,
         );
+      }
+      if (reconnected && !fileKindTried && !statementKindTried) {
+        reconnectUnblocked = true;
       }
       lastFailures = failures;
       pending = next;
+    }
+
+    if (reconnectUnblocked) {
+      const assist = toAssistFailures(
+        failuresBeforeReconnect,
+        options.enrichLoadAssistFailures,
+      );
+      const message = formatSessionPollutionMessage(
+        assist,
+        earlierSessionSettings,
+      );
+      stageDiagnostics.push({
+        code: "session_pollution",
+        severity: "warning",
+        message,
+        context: toLoadAssistContext(assist, {
+          earlier: earlierSessionSettings,
+        }),
+      });
+      options.onWarning?.(message);
+    }
+    if (fileKindTried || statementKindTried) {
+      const kind = statementKindTried ? "statement-kind" : "file-kind";
+      const assist = toAssistFailures(
+        failuresBeforeReorder,
+        options.enrichLoadAssistFailures,
+      );
+      const suggestedLoadOrder =
+        kind === "file-kind" && splitFiles.size === 0
+          ? appliedFiles.map((file) => file.name.split(/[\\/]/).join("/"))
+          : undefined;
+      const message = formatReorderOnFailureMessage(
+        kind,
+        assist,
+        suggestedLoadOrder,
+      );
+      stageDiagnostics.push({
+        code: "reorder_on_failure",
+        severity: "warning",
+        message,
+        context: toLoadAssistContext(assist, {
+          kind,
+          ...(suggestedLoadOrder !== undefined ? { suggestedLoadOrder } : {}),
+        }),
+      });
+      options.onWarning?.(message);
     }
 
     // Capture createrole_self_grant bootstrap grants for post-extract stripping.
@@ -1325,7 +1748,7 @@ export async function loadSqlFiles(
     // on-success snapshot comparison above — survives an aborted load. Reverse it
     // BEFORE the finally releases the pooled client. `applyFile` ROLLBACKs on
     // failure, so `client` is in a clean transaction state here.
-    if (mode === "databaseScratch") {
+    if (mode === "databaseScratch" && clientOpen) {
       const restoreDiags = await restoreScratchClusterState(
         client,
         rolesBefore,
@@ -1337,11 +1760,7 @@ export async function loadSqlFiles(
     }
     throw err;
   } finally {
-    // restore the GUC even when load fails early (before the on-success reset
-    // at the body-validation step) — otherwise the pooled client returns with
-    // check_function_bodies still off (review P2).
-    await client.query(`RESET check_function_bodies`).catch(() => {});
-    client.release();
+    await releaseClient();
   }
 
   // provenance tag: mark the fact base as originating from SQL files. The
@@ -1377,6 +1796,7 @@ export async function loadSqlFiles(
       ...result.diagnostics,
       ...seededBodyWarnings,
       ...dataStatementWarnings,
+      ...stageDiagnostics,
     ],
     rounds,
     preExistingPopulatedTables,

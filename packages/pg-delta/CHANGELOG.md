@@ -1,5 +1,17 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.46
+
+### Patch Changes
+
+- 83d7180: Shadow-load assist warnings name the stuck file:line, the statement to move (or a suggested loadOrder), and session-setting statements that poisoned the connection. The same text is emitted through `onWarning` and `loadDiagnostics`.
+
+## 1.0.0-alpha.45
+
+### Patch Changes
+
+- fee149f: Shadow load uses export `loadOrder` (else caller/lex order) first, reconnects once on a stuck session, then `reorderOnFailure` file-kind / statement-kind with a warning so authors can fix the tree.
+
 ## 1.0.0-alpha.44
 
 ### Patch Changes

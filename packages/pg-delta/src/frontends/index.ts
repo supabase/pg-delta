@@ -10,6 +10,8 @@ export {
   type LoadSqlFilesOptions,
 } from "./load-sql-files.ts";
 
+export type { LoadAssistFailure, LoadAssistLocation } from "./load-assist.ts";
+
 export {
   exportSqlFiles,
   type ExportOptions,
@@ -26,6 +28,7 @@ export {
 } from "./ssl-config.ts";
 
 export {
+  applyManifestLoadOrder,
   EXPORT_MANIFEST_FILE,
   readExportManifest,
   writeExportManifest,

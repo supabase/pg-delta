@@ -54,14 +54,20 @@ describe("public API surface", () => {
       "utf-8",
     );
     expect(frontendSrc).toContain("type LoadSqlFilesOptions");
+    expect(src).toContain("LoadAssistFailure");
+    expect(frontendSrc).toContain("LoadAssistFailure");
 
     // Named type for the loadSqlFiles third argument. Pinning
     // `strictDataStatements: true` is valid and documents the schema-first /
     // Supabase CLI adapter contract without flipping the library default.
     const options = {
       strictDataStatements: true,
+      connectionReuse: "reconnect-on-stuck",
+      reorderOnFailure: true,
     } satisfies LoadSqlFilesOptions;
     expect(options.strictDataStatements).toBe(true);
+    expect(options.connectionReuse).toBe("reconnect-on-stuck");
+    expect(options.reorderOnFailure).toBe(true);
   });
 
   test("the integrations subpath exposes the full profile surface", () => {

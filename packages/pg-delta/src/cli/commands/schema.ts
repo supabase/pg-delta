@@ -57,16 +57,9 @@
  *   statement depending on one will fail on the target. Deliver it through your
  *   migration channel first. `--strict-coverage` makes it blocking.
  *
- *   By default the SQL files are passed through the statement-reordering assist
- *   (target-architecture §4.4.1): each file is split into one-statement units
- *   and topologically pre-sorted before loading, so authoring order within a
- *   file no longer matters and the shadow loader converges in fewer rounds. The
- *   assist is advisory — Postgres still elaborates the shadow — so it can only
- *   fail to BUILD the shadow (a visible error), never corrupt the desired state.
- *
- *   --no-reorder
- *     Skip the reordering assist and load the raw files at file granularity
- *     (the original behavior). Useful for debugging a stuck load.
+ *   Shadow load tries authored / export `loadOrder` first (then reconnects
+ *   once if the session looks poisoned). `--no-reorder` skips the later
+ *   file-kind / statement-kind escalate so a stuck load stays stuck.
  *
  *   --accept-rename <from>=<to>
  *     Confirm one rename candidate by the encoded stable-ids shown in a prior
@@ -391,8 +384,9 @@ export function writeExportFiles(
     written: scaffoldedCustomReadme,
     skippedSymlink: customReadmeSkippedSymlink,
   } = scaffoldCustomReadme(outRoot);
-  const ownedFiles = files.map((file) => file.name.split(sep).join("/")).sort();
-  writeExportManifest(outRoot, { ...manifest, files: ownedFiles });
+  const loadOrder = files.map((file) => file.name.split(sep).join("/"));
+  const ownedFiles = [...loadOrder].sort();
+  writeExportManifest(outRoot, { ...manifest, files: ownedFiles, loadOrder });
   return {
     removed,
     unmanaged,

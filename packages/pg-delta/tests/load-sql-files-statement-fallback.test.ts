@@ -132,11 +132,13 @@ describe("loadSqlFiles — statementFallback", () => {
         error = e;
       }
       expect(error).toBeInstanceOf(ShadowLoadError);
-      expect(
-        (error as ShadowLoadError).details.some(
-          (d) => d.code === "stuck_statement",
-        ),
-      ).toBe(true);
+      const stuck = (error as ShadowLoadError).details.find(
+        (d) => d.code === "stuck_statement",
+      );
+      expect(stuck).toBeDefined();
+      expect(stuck?.message).toMatchInlineSnapshot(
+        `"_cluster/publications.sql: relation "public.missing" does not exist — at line 4: ALTER PUBLICATION p ADD TABLE public.missing (failed identically in 3 round(s) — likely a genuine missing dependency, not ordering)"`,
+      );
       const { rows } = await shadow.pool.query<{ n: number }>(`
         SELECT count(*)::int AS n
         FROM pg_publication_rel pr

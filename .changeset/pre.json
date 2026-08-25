@@ -160,6 +160,8 @@
     "seeded-routine-validation-identity",
     "seq-bounds-public-roles-parse-guard-acl-dedup",
     "serial-owned-by-table-file",
+    "shadow-load-assist-context",
+    "shadow-load-order-escalate",
     "short-poems-happen",
     "sixty-experts-move",
     "skip-function-validation",

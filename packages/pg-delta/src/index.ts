@@ -97,6 +97,10 @@ export {
   type LoadResult,
   type LoadSqlFilesOptions,
 } from "./frontends/load-sql-files.ts";
+export type {
+  LoadAssistFailure,
+  LoadAssistLocation,
+} from "./frontends/load-assist.ts";
 export {
   exportSqlFiles,
   type ExportOptions,
@@ -104,6 +108,7 @@ export {
 } from "./frontends/export-sql-files.ts";
 export { saveSnapshot, loadSnapshot } from "./frontends/snapshot-file.ts";
 export {
+  applyManifestLoadOrder,
   EXPORT_MANIFEST_FILE,
   readExportManifest,
   writeExportManifest,
