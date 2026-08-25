@@ -670,7 +670,8 @@ subpath does. In pg-delta's own CLI the assist is **escalate-on-failure**:
 `schema apply` loads in the export manifest's `loadOrder` (else authored
 order) first, reconnects once on a poisoned session, and only then reorders —
 file-kind, then statement-kind — with a warning naming what to move
-(`--no-reorder` skips the escalation, so a stuck load stays stuck); other
+(`--no-reorder` disables only the reordering stages; the one-time reconnect
+still applies); other
 consumers (supabase/cli) opt in by adding pg-topo themselves and calling the
 subpath.
 When the peer is absent the subpath throws a typed `ReorderUnavailableError`

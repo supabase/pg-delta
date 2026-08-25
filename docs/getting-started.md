@@ -129,8 +129,9 @@ Author your schema as ordinary `.sql` files in a directory; order doesn't matter
 (the loader resolves dependencies across files in bounded rounds; if a load
 still sticks it reconnects once and then escalates to kind-based reordering,
 warning you exactly which statement to move — `--no-reorder` opts out of the
-escalation). `schema apply` loads them into a **shadow** database, extracts
-that as the desired state, and migrates the target to match:
+reordering, though the one-time reconnect still applies). `schema apply` loads
+them into a **shadow** database, extracts that as the desired state, and
+migrates the target to match:
 
 ```bash
 pgdelta schema apply \
@@ -211,6 +212,8 @@ pgdelta schema export --source "$SOURCE_URL" --out-dir ./schema
 # The export also drops a .pgdelta-export.json manifest (profile, scope,
 # redaction mode, owned files, load order); schema apply reads it back so the
 # directory round-trips under the same settings and loads in the recorded order.
+# A custom profile is recorded by id only — pass the same --profile <path>
+# again at apply time (built-in raw/supabase profiles need no flag).
 ```
 
 > The shadow database must be fresh and empty. When `--shadow` is omitted in

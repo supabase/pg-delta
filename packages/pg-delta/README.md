@@ -235,8 +235,10 @@ publication/subscription DDL), then splits the stuck file into kind-ordered
 statement units. Every escalation emits a warning naming the stuck `file:line`,
 the statement to move (or a suggested `loadOrder`), and any session-poisoning
 statements — so you can fix the authored tree instead of depending on the
-rescue. `--no-reorder` (API: `reorderOnFailure: false`) skips the escalation,
-so a stuck load stays stuck.
+rescue. `--no-reorder` (API: `reorderOnFailure: false`) disables only the two
+reordering stages — the one-time reconnect still applies — so a load the
+default order cannot satisfy fails with Postgres's own errors instead of
+being rescued.
 
 The kind classification rides on
 [`@supabase/pg-topo`](https://www.npmjs.com/package/@supabase/pg-topo):
