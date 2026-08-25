@@ -242,7 +242,8 @@ re-implemented inside an imperative diff.
   workflow. Four specifics the shadow loader owns:
   - **Ordering is best-effort and fail-safe.** Files may not arrive
     apply-ordered; the loader follows the export manifest's recorded
-    `loadOrder` when present (else authored order), retries deferred
+    `loadOrder` when present (else lexicographic path order on the CLI;
+    caller-array order in the library), retries deferred
     statements in bounded rounds *against the shadow*, and on a stuck load
     escalates — reconnect once, then kind-based reordering via the
     dev-layer static analyzer. This does not violate P1: ordering
@@ -667,8 +668,8 @@ trusted component. pg-topo is loaded through a guarded dynamic `import()` and
 declared an *optional peer dependency*; merely importing the core never pulls
 the libpg-query WASM parser — only calling the `@supabase/pg-delta/sql-order`
 subpath does. In pg-delta's own CLI the assist is **escalate-on-failure**:
-`schema apply` loads in the export manifest's `loadOrder` (else authored
-order) first, reconnects once on a poisoned session, and only then reorders —
+`schema apply` loads in the export manifest's `loadOrder` (else lexicographic
+path order) first, reconnects once on a poisoned session, and only then reorders —
 file-kind, then statement-kind — with a warning naming what to move
 (`--no-reorder` disables only the reordering stages; the one-time reconnect
 still applies); other

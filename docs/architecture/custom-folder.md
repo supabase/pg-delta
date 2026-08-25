@@ -51,7 +51,7 @@ survives regeneration.
 | `schema export` — unmanaged scan | `.sql` files under `_custom/` are neither owned nor unmanaged: they never trigger the refusal and are never listed in the manifest. |
 | `schema export` — prune | The `_custom/` subtree is never walked; `--prune-unmanaged` never deletes anything inside it. |
 | `schema export` — scaffold | On export, if `_custom/README.md` does not exist, it is created with the contract documentation (template in §6). `README.md` is not `.sql`, so the loader and pruner ignore it. |
-| `schema apply` | No change: the recursive glob already loads `_custom/**/*.sql` into the shadow, and the bounded retry-round loader (plus the on-failure reorder escalation) absorbs ordering. |
+| `schema apply` | No change: the recursive glob already loads `_custom/**/*.sql` into the shadow, and the bounded retry-round loader absorbs cross-file ordering (the on-failure escalation additionally rescues late-kind statements — policies, publication/subscription DDL; statements within a `_custom` file otherwise apply in authored order). |
 | `schema lint` | New warnings — see §4. |
 | `unmodeled_kind` diagnostic | Message gains a hint pointing at `_custom/` (§5). |
 

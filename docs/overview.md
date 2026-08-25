@@ -9,8 +9,8 @@
 > single safety net: **every migration is applied to a throwaway clone and
 > proven to converge, with your data intact, before you trust it.** At rewrite
 > cutover the engine was **~11,500 lines (79% smaller)** — a **rewrite-era
-> snapshot**. As of **2026-08-21** the published package is **~37.6k non-test
-> LOC / 129 files** (engine slice ~23.0k; product surface ~14.3k including
+> snapshot**. As of **2026-08-25** the published package is **~38.5k non-test
+> LOC / 130 files** (engine slice ~23.0k; product surface ~15.2k including
 > ~3.9k `sql-format`; see §4), with one rule table instead of ~100 hand-written
 > change classes, a correctness guarantee the old engine never had, and — as of
 > the first performance pass — **4.2× faster extraction**.
@@ -187,15 +187,15 @@ size.
 | libpg-query / WASM in trusted path | yes (hard dependency) | no (dev-time only) | **removed** |
 | Extract latency (~12k-object catalog) | ~1.88 s | ~0.45 s | **−76% (4.2×)** |
 
-### Size today (measured 2026-08-21)
+### Size today (measured 2026-08-25)
 
 Non-test `packages/pg-delta/src` (`find … ! -name '*.test.ts' | xargs wc -l`):
 
 | Budget | Scope | LOC |
 |---|---|---:|
 | **Engine slice** | `core` + `extract` + `plan` + `proof` + `apply` + `policy` + `integrations` | **22,973** |
-| **Product surface** | `frontends` + `cli` | **14,335** |
-| **Published package total** | all non-test `src/` (incl. root `index.ts`) | **37,630** / **129** files |
+| **Product surface** | `frontends` + `cli` | **15,168** |
+| **Published package total** | all non-test `src/` (incl. root `index.ts`) | **38,468** / **130** files |
 
 **Engine LOC** excludes `frontends/sql-format` (**3,888** LOC), which sits in
 the product-surface budget. Boundary: `./sql-format` is a package subpath export
@@ -230,7 +230,7 @@ asserting exact SQL strings. The new engine proves correctness *behaviourally*
 instead: a **331-scenario corpus, run in both directions (build and teardown)
 under the full proof loop, on PostgreSQL 14–18** (662 cases per version —
 all green aside from one pinned `EXPECTED_RED` teardown on PG16+; measured
-2026-08-21), plus a **generative soak** (below). Correctness is demonstrated by
+2026-08-25), plus a **generative soak** (below). Correctness is demonstrated by
 "apply it and re-extract — does it match?", not by pinning byte strings.
 
 - **Compact and uncompacted proof** — each scenario builds, applies, and proves
