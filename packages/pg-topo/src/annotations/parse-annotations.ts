@@ -25,6 +25,9 @@ const PHASES = new Set<PhaseTag>([
   "privileges",
 ]);
 
+export const isPgTopoAnnotationLine = (line: string): boolean =>
+  /^\s*--\s*pg-topo:/u.test(line);
+
 const leadingAnnotationLines = (sql: string): string[] => {
   const lines = sql.split(/\r?\n/u);
   const result: string[] = [];

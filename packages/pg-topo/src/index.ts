@@ -12,6 +12,7 @@ export type {
   ObjectKind,
   ObjectRef,
   PhaseTag,
+  PrivilegeTarget,
   StatementId,
   StatementNode,
 } from "./model/types.ts";

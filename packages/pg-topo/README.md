@@ -126,6 +126,7 @@ Additional exported types:
 - `ObjectKind`
 - `ObjectRef`
 - `PhaseTag`
+- `PrivilegeTarget`
 - `StatementId`
 
 ### `ordered`
@@ -133,11 +134,12 @@ Additional exported types:
 `ordered` is the deterministically ordered statement list.
 Each item includes:
 
-- original `sql`
+- statement `sql` (executable text plus any leading `pg-topo:` annotation comments; file-level and mid-file non-annotation comments are not attached)
 - `statementClass`
 - `phase`
 - extracted `provides` / `requires`
-- stable `id` (`filePath`, `statementIndex`)
+- optional `privilege` (GRANT / REVOKE / ALTER DEFAULT PRIVILEGES AST facts; not graph edges). `isGrant` is true only when the parser sets `is_grant` — REVOKE omits the field. `ALTER_DEFAULT_PRIVILEGES` stays that class for both directions so toposort weights do not change. Prefer this payload over regex on `sql`.
+- stable `id` (`filePath`, `statementIndex`, `sourceOffset` at the statement keyword)
 
 For the core `analyzeAndSort`, `filePath` uses synthetic source labels (e.g. `<input:0>`, `<input:1>`).  
 For `analyzeAndSortFromFiles`, `filePath` is the relative path to the source `.sql` file.
@@ -210,7 +212,8 @@ Supported directives:
 
 Notes:
 
-- only _leading_ comment lines are parsed as annotations
+- only _leading_ comment lines on a statement are parsed as annotations
+- file-level preamble (`--` / `/* */` before the first executable token, and mid-file comments between statements) is not part of `sql` and is not an annotation
 - invalid or conflicting annotations produce `INVALID_ANNOTATION` diagnostics
 - annotation directive prefix is `pg-topo:`
 
