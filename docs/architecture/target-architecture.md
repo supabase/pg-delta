@@ -241,15 +241,18 @@ re-implemented inside an imperative diff.
   reference matching in the trusted path. This *is* the declarative
   workflow. Four specifics the shadow loader owns:
   - **Ordering is best-effort and fail-safe.** Files may not arrive
-    apply-ordered; the loader may pre-sort with the dev-layer static
-    analyzer and/or retry deferred statements in bounded rounds *against
-    the shadow*. This does not violate P1: ordering assistance can only
-    fail to build the shadow — a visible error before anything is
-    extracted — never corrupt the desired state, because Postgres remains
-    the elaborator. (The objection to round-retry was as a *production
-    apply engine* against live targets; on a throwaway shadow it is
-    harmless.) The pre-sort is the **statement reordering assist** — an
-    opt-in, degradable layer above the parser-free loader; see §4.4.1.
+    apply-ordered; the loader follows the export manifest's recorded
+    `loadOrder` when present (else authored order), retries deferred
+    statements in bounded rounds *against the shadow*, and on a stuck load
+    escalates — reconnect once, then kind-based reordering via the
+    dev-layer static analyzer. This does not violate P1: ordering
+    assistance can only fail to build the shadow — a visible error before
+    anything is extracted — never corrupt the desired state, because
+    Postgres remains the elaborator. (The objection to round-retry was as
+    a *production apply engine* against live targets; on a throwaway
+    shadow it is harmless.) The kind-based escalation is the **statement
+    reordering assist** — a degradable layer above the parser-free loader;
+    see §4.4.1.
   - **Body validation is restored before extraction.** Loading runs with
     `check_function_bodies = off`; accepting the catalog without
     re-checking would admit a typo'd routine body into the desired state —
@@ -650,9 +653,9 @@ workflow exists to provide, and a regression in the rewrite.
 - The assist returns **one statement per `SqlFile`** with a zero-padded ordinal
   name prefix (`0007__schema/users.sql`). Fed that, the existing loader becomes
   statement-granular with **zero core change** — its rounds, transaction-control
-  rejection, non-transactional handling, and mutual-FK hint all carry over, and
-  its per-round lexicographic name sort reproduces the assist's order. The
-  loader cannot tell it was fed sorted statements.
+  rejection, non-transactional handling, and mutual-FK hint all carry over (a
+  caller that lex-sorts by name keeps the assist's order). The loader cannot
+  tell it was fed sorted statements.
 - Every input statement is preserved **exactly once** — including statements the
   analyzer cannot classify and statements trapped in a cycle (the analyzer's
   ordered output is a *total* order; cycle members land at a best-effort
@@ -663,9 +666,13 @@ workflow exists to provide, and a regression in the rewrite.
 trusted component. pg-topo is loaded through a guarded dynamic `import()` and
 declared an *optional peer dependency*; merely importing the core never pulls
 the libpg-query WASM parser — only calling the `@supabase/pg-delta/sql-order`
-subpath does. Reorder is always-on in pg-delta's own CLI (`schema apply`,
-with `--no-reorder` to reproduce raw file granularity); other consumers
-(supabase/cli) opt in by adding pg-topo themselves and calling the subpath.
+subpath does. In pg-delta's own CLI the assist is **escalate-on-failure**:
+`schema apply` loads in the export manifest's `loadOrder` (else authored
+order) first, reconnects once on a poisoned session, and only then reorders —
+file-kind, then statement-kind — with a warning naming what to move
+(`--no-reorder` skips the escalation, so a stuck load stays stuck); other
+consumers (supabase/cli) opt in by adding pg-topo themselves and calling the
+subpath.
 When the peer is absent the subpath throws a typed `ReorderUnavailableError`
 with an install hint (and `canReorder()` lets a caller probe instead of catch).
 

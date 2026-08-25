@@ -126,10 +126,11 @@ legacy plan that predates projection audits; re-plan before relying on that gate
 ### Flow 2 — declarative: keep your schema as `.sql` files
 
 Author your schema as ordinary `.sql` files in a directory; order doesn't matter
-(the loader resolves dependencies across files in bounded rounds, and a
-statement-level reordering assist is on by default — `--no-reorder` opts out).
-`schema apply` loads them into a **shadow** database, extracts that as the
-desired state, and migrates the target to match:
+(the loader resolves dependencies across files in bounded rounds; if a load
+still sticks it reconnects once and then escalates to kind-based reordering,
+warning you exactly which statement to move — `--no-reorder` opts out of the
+escalation). `schema apply` loads them into a **shadow** database, extracts
+that as the desired state, and migrates the target to match:
 
 ```bash
 pgdelta schema apply \
@@ -206,6 +207,10 @@ pgdelta schema export --source "$SOURCE_URL" --out-dir ./schema
 # Formatting is cosmetic — the load(export(db)) ≡ db guarantee still holds. The
 # same formatter is available as a library helper at @supabase/pg-delta/sql-format
 # (formatSqlStatements).
+#
+# The export also drops a .pgdelta-export.json manifest (profile, scope,
+# redaction mode, owned files, load order); schema apply reads it back so the
+# directory round-trips under the same settings and loads in the recorded order.
 ```
 
 > The shadow database must be fresh and empty. When `--shadow` is omitted in

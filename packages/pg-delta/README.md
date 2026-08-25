@@ -215,21 +215,31 @@ objects stay invisible with no per-command flag. The baseline's digest is
 stamped on plan and export artifacts and reconciled at apply/prove, so
 `plan == prove == apply` holds and a swapped or edited baseline fails loudly.
 
-## Statement reordering assist (opt-in)
+## Load order and the reordering assist
 
 `loadSqlFiles` is parser-free: it sequences whole *files* into the shadow, so it
-tolerates cross-file disorder. It never permutes statements inside a file.
-When a file cannot commit atomically, `statementFallback` (default on) keeps
-the prefix Postgres already accepted and retries the **remaining** statements
-in authored order after other files have progressed — it does not sort the
-file. Pass `false` for whole-file rollback. Files that contain session-setting
-statements (`SET search_path`, `SET ROLE`, any `SET LOCAL`, …) or
-`ALTER DEFAULT PRIVILEGES` stay file-atomic so those settings cannot expire
-or apply to sibling files' objects.
+tolerates cross-file disorder. A directory produced by `schema export` loads in
+the manifest's recorded `loadOrder` (`.pgdelta-export.json`); anything else
+loads in caller/lexicographic order. When a file cannot commit atomically,
+`statementFallback` (default on) keeps the prefix Postgres already accepted and
+retries the **remaining** statements in authored order after other files have
+progressed — it does not sort the file. Pass `false` for whole-file rollback.
+Files that contain session-setting statements (`SET search_path`, `SET ROLE`,
+any `SET LOCAL`, …) or `ALTER DEFAULT PRIVILEGES` stay file-atomic so those
+settings cannot expire or apply to sibling files' objects.
 
-The opt-in reordering assist is what actually reorders within a file: it
-splits files into one-statement units and topologically pre-sorts them via
-[`@supabase/pg-topo`](https://www.npmjs.com/package/@supabase/pg-topo).
+When the default order sticks, the loader **escalates instead of failing
+blind**: it reconnects once (a session-setting statement can poison the
+connection), then retries with late-kind files last (policies,
+publication/subscription DDL), then splits the stuck file into kind-ordered
+statement units. Every escalation emits a warning naming the stuck `file:line`,
+the statement to move (or a suggested `loadOrder`), and any session-poisoning
+statements — so you can fix the authored tree instead of depending on the
+rescue. `--no-reorder` (API: `reorderOnFailure: false`) skips the escalation,
+so a stuck load stays stuck.
+
+The kind classification rides on
+[`@supabase/pg-topo`](https://www.npmjs.com/package/@supabase/pg-topo):
 
 - **Subpath:** `@supabase/pg-delta/sql-order` exposes `orderForShadow(files)` /
   `analyzeForShadow(files)`, `canReorder()`, and the typed
@@ -237,9 +247,10 @@ splits files into one-statement units and topologically pre-sorts them via
 - **Dependency posture:** `@supabase/pg-topo` is an **optional peer**, loaded
   only through a guarded dynamic `import()`. Importing the core never pulls the
   libpg-query WASM parser. If the peer is absent the subpath throws with an
-  install hint; `canReorder()` probes instead.
-- **CLI:** `schema apply` runs the assist by default (`--no-reorder` opts out).
-  `schema lint --dir <dir>` runs the analyzer statically, with no database.
+  install hint; `canReorder()` probes instead, and `schema apply` warns and
+  loads raw at file granularity.
+- **CLI:** `schema lint --dir <dir>` runs the analyzer statically, with no
+  database.
 
 ## Documentation
 
