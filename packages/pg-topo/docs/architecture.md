@@ -111,6 +111,7 @@ Each statement yields:
 
 - `provides: ObjectRef[]`
 - `requires: ObjectRef[]`
+- optional `privilege` for `GrantStmt` / `AlterDefaultPrivilegesStmt` (direction, roles, schemas, object kind, privilege list). Graph edges stay on `requires` / `provides`; `ALTER_DEFAULT_PRIVILEGES` is not split by GRANT vs REVOKE.
 
 Extractor internals are split for readability:
 

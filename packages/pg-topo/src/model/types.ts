@@ -62,6 +62,22 @@ export type AnnotationHints = {
   provides: ObjectRef[];
 };
 
+/** AST facts for GRANT / REVOKE / ALTER DEFAULT PRIVILEGES. Not graph edges. */
+export type PrivilegeTarget = {
+  kind: "alter_default_privileges" | "grant" | "revoke";
+  isGrant: boolean;
+  /** FOR ROLE on ALTER DEFAULT PRIVILEGES. Empty when omitted, and on GrantStmt. */
+  grantors: string[];
+  /** IN SCHEMA on ALTER DEFAULT PRIVILEGES. Empty when omitted, and on GrantStmt
+   *  (including `ON ALL … IN SCHEMA`, which is not this field). */
+  schemas: string[];
+  /** TO / FROM roles. */
+  grantees: string[];
+  /** ON TABLES / SEQUENCES / FUNCTIONS / … from `objtype`. */
+  objectKind: string;
+  privileges: string[] | "all";
+};
+
 export type StatementNode = {
   id: StatementId;
   sql: string;
@@ -70,6 +86,7 @@ export type StatementNode = {
   requires: ObjectRef[];
   phase: PhaseTag;
   annotations: AnnotationHints;
+  privilege?: PrivilegeTarget;
 };
 
 export type DiagnosticCode =

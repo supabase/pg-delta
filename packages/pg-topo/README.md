@@ -126,6 +126,7 @@ Additional exported types:
 - `ObjectKind`
 - `ObjectRef`
 - `PhaseTag`
+- `PrivilegeTarget`
 - `StatementId`
 
 ### `ordered`
@@ -137,6 +138,7 @@ Each item includes:
 - `statementClass`
 - `phase`
 - extracted `provides` / `requires`
+- optional `privilege` (GRANT / REVOKE / ALTER DEFAULT PRIVILEGES AST facts; not graph edges). `isGrant` is true only when the parser sets `is_grant` — REVOKE omits the field. `ALTER_DEFAULT_PRIVILEGES` stays that class for both directions so toposort weights do not change. Prefer this payload over regex on `sql`.
 - stable `id` (`filePath`, `statementIndex`)
 
 For the core `analyzeAndSort`, `filePath` uses synthetic source labels (e.g. `<input:0>`, `<input:1>`).  
