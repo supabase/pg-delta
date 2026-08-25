@@ -1,5 +1,12 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.47
+
+### Patch Changes
+
+- Updated dependencies [7c9a23f]
+  - @supabase/pg-topo@1.0.0-alpha.6
+
 ## 1.0.0-alpha.46
 
 ### Patch Changes

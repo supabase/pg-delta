@@ -1,5 +1,11 @@
 # @supabase/pg-topo
 
+## 1.0.0-alpha.6
+
+### Minor Changes
+
+- 7c9a23f: Expose a typed `privilege` payload on GRANT / REVOKE / ALTER DEFAULT PRIVILEGES nodes so consumers can read direction, roles, schemas, and privileges from the AST instead of regex-matching `sql`.
+
 ## 1.0.0-alpha.5
 
 ### Patch Changes
