@@ -309,27 +309,18 @@ Deviations from the sketch, each deliberate:
 
 ## 4. Architecture
 
-```text
- live DB ──────────────┐   core extract:    pg_catalog        → schema facts
- SQL files ─ shadow ───┤   handler capture:  ext catalogs      → intent facts + managedBy edges
- snapshot ─────────────┘   (one exported snapshot; integration-aware extract)
-                │
-                ▼
-        ONE FACT BASE   schema facts + intent facts + edges
-                │        ( managedBy edges mark operationally-created objects )
-                │  resolveView:  managedBy provenance → project out   (Deliverable A)
-                ▼
-        generic hash diff  → deltas  (schema + intent, one Delta type, O(changed))
-                ▼
-        ONE rule table  (schema rules + registered handler intent rules) → actions
-                ▼
-        ONE graph → one deterministic sort
-        (replay actions are ordinary nodes, wired by consumes / produces)
-                ▼
-        PROOF: apply to clone → re-extract (core + handlers) → hash-compare both;
-        data-preservation seeds messages / partition rows
-                ▼
-        apply (segmented, transactionality-aware)
+```mermaid
+flowchart TB
+    LIVE["live DB"] --> EX
+    FILES["SQL files → shadow"] --> EX
+    EX["<b>core extract</b>: pg_catalog → schema facts<br/><b>handler capture</b>: ext catalogs → intent facts + managedBy edges<br/><i>(one exported snapshot; integration-aware extract)</i>"]
+    EX --> FB["<b>ONE FACT BASE</b> — schema facts + intent facts + edges<br/><i>(managedBy edges mark operationally-created objects)</i>"]
+    SNAP["snapshot<br/><i>(already a serialized fact base)</i>"] --> FB
+    FB -->|"resolveView: managedBy provenance → project out&nbsp;&nbsp;(Deliverable A)"| DIFF["<b>generic hash diff</b> → deltas<br/><i>(schema + intent, one Delta type, O(changed))</i>"]
+    DIFF --> RULES["<b>ONE rule table</b> (schema rules + registered handler intent rules) → actions"]
+    RULES --> GRAPH["<b>ONE graph</b> → one deterministic sort<br/><i>(replay actions are ordinary nodes, wired by consumes / produces)</i>"]
+    GRAPH --> PROOF["<b>PROOF</b>: apply to clone → re-extract (core + handlers) → hash-compare both;<br/>data-preservation seeds messages / partition rows"]
+    PROOF --> APPLY["<b>apply</b> <i>(segmented, transactionality-aware)</i>"]
 ```
 
 ### 4.1 The handler — a generic engine extension point

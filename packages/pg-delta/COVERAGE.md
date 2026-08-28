@@ -28,8 +28,8 @@ Most families are fully modeled end-to-end. The cases worth calling out — so
 | Constraints | table + domain + foreign-table CHECK | yes | foreign tables carry only CHECK (no PK/FK/UNIQUE/EXCLUSION); serialized via `ALTER FOREIGN TABLE` |
 | Foreign tables | yes (columns, options, local CHECK) | yes | inherit/partition-of foreign tables out of scope |
 | Security labels | yes (`SECURITY LABEL`) | yes | needs a provider; CI uses the `dummy_seclabel` image. See the dedicated scope note below for which targets are supported / diagnosed / out of scope |
-| Extension members | observed via `memberOfExtension` edges | projected out by default | sub-entity member families use the extract-time anti-join (tier-4-deferrals.md) |
-| Not modeled | — | — | casts, operators (class/family), text-search, statistics, transforms, user languages, parameter ACLs: **detected + reported** as `unmodeled_kind`, never silently dropped |
+| Extension members | observed via `memberOfExtension` edges | kept reference-only (never diff) | sub-entity member families use the extract-time anti-join (see the extension-members section below) |
+| Not modeled | — | — | casts, operators (incl. classes/families), text-search, statistics, transforms, user languages, parameter ACLs: **detected + reported** as `unmodeled_kind`, never silently dropped |
 
 Ownership is modeled as an `owner` EDGE (object --owner--> role), not a payload
 field: it diffs as an edge link/unlink that the planner renders as `ALTER …
@@ -125,8 +125,9 @@ per file with a `-- pgdelta-migration:` comment that `schema lint` checks. See
   the codec but not extracted; user-defined languages are rare and the
   built-ins (`sql`, `plpgsql`, `c`, `internal`) are not user state. Add a
   `language` extractor + rule when a real need appears.
-- **FTS configs/dictionaries/parsers/templates, operator classes/families as
-  first-class facts, casts, transforms, statistics objects** — out of v1 scope;
+- **FTS configs/dictionaries/parsers/templates, operators and operator
+  classes/families as first-class facts, casts, transforms, statistics
+  objects** — out of v1 scope;
   none are modeled, all are detected. Extension-provided variants are filtered
   at extract time (see below).
 - **Parameter ACLs** (`pg_parameter_acl`, PG 15+ — backs `GRANT SET ON
@@ -141,15 +142,17 @@ per file with a `-- pgdelta-migration:` comment that `schema lint` checks. See
   platform pins versions out of band; including it produces phantom diffs).
 - **Collation `collversion`** — excluded (host-glibc/ICU dependent).
 
-## Extension members: observed, projected by default (4b)
+## Extension members: observed, reference-only by default (4b)
 
 Extension-owned objects are **observed** at extraction as ordinary facts
 carrying a `memberOfExtension` edge to their extension — "provenance is data, an
-edge fact, not an extraction-time filter" (§3.1) — and then **projected out of
-the managed universe by default** in `plan()`/`prove()`
-(`excludeExtensionMembers`, the counterpart of `excludeManaged`). So policy-free
-behaviour is unchanged (members never diff), while raw `extract()` can see them
-with full ownership provenance.
+edge fact, not an extraction-time filter" (§3.1) — and then kept
+**reference-only** in the managed view that `plan()`/`prove()` diff
+(`extensionMemberClosure` / `extensionMemberReferenceOnly` inside
+`resolveView`): the member facts survive as addressable reference targets but
+never enter the diff, while their satellite customizations still can. So
+policy-free behaviour is unchanged (members never diff), while raw `extract()`
+can see them with full ownership provenance.
 
 Flipped (member-ROOT families, each observed + tagged, verified by the
 `extension-member-parity` pg_depend oracle): schemas, tables, sequences,
@@ -158,10 +161,11 @@ domains, enum/composite/range types, collations.
 
 A reference INTO a member (a user table column of an extension type, a default
 calling an extension function) resolves to the **extension**, not the member
-fact (the resolver's collapse branches): the member is projected out, so a
-member-targeted edge would be pruned with it and the dependent would lose its
-ordering on the extension. The collapsed edge points at the extension (which
-survives), so ordering holds — pinned by `extension-member-ordering`.
+fact — the `pg_depend` resolver collapses it in a single join keyed on the
+member's catalog identity. The member is reference-only in the managed view,
+so a member-targeted edge could never order the dependent's DDL; the collapsed
+edge points at the extension (a first-class fact that does plan), so ordering
+holds — pinned by `extension-member-ordering`.
 
 **Still filtered (documented, regression-free):** sub-entity families (columns,
 constraints, indexes, triggers, policies, rewrite rules) and rare member-root

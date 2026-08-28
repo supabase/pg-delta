@@ -37,20 +37,18 @@ lives in exactly *two* forms — is in
 
 ## The pipeline
 
-```
-            ┌─ live DB ────────────┐
-            │                      ▼
-.sql files ─┴─► shadow DB ──►  extract  ──►  fact base
-                                                │
-                                              diff (vs the other side)
-                                                │
-                                                ▼
-                                            deltas ──► plan ──► actions
-                                                                  │
-                                                       ┌──────────┴───────────┐
-                                                       ▼                      ▼
-                                                     apply                  prove
-                                                  (the target)          (a clone)
+```mermaid
+flowchart LR
+    LIVE[("live DB")] --> EXTRACT
+    SQL[".sql files"] --> SHADOW[("shadow DB")]
+    SHADOW --> EXTRACT
+    EXTRACT["extract"] --> FB["fact base"]
+    FB --> DIFF["diff<br/><i>(vs the other side)</i>"]
+    DIFF --> DELTAS["deltas"]
+    DELTAS --> PLAN["plan"]
+    PLAN --> ACTIONS["actions"]
+    ACTIONS --> PROVE["prove<br/><i>(a clone)</i>"]
+    ACTIONS --> APPLY["apply<br/><i>(the target)</i>"]
 ```
 
 Five steps, each its own document when you want the depth:
@@ -58,11 +56,14 @@ Five steps, each its own document when you want the depth:
 ### 1. Extract — a database becomes facts
 
 `extract()` reads a database in **one consistent snapshot** (a single
-`REPEATABLE READ` transaction, so the catalog can't shift under it) and produces
-a **fact base**. A *fact* is one addressable thing — a table, a column, a
-constraint, an index, a policy, an ACL grant, an ownership edge — captured as a
-content-addressed `{ id, payload }`. Identity is structured (schema + name +
-kind), never a fragile attnum or OID. DDL text is whatever
+`REPEATABLE READ` transaction by default; opt-in concurrency fans extraction
+families over connections that all import the same exported snapshot) and
+produces a **fact base**. A *fact* is one addressable thing — a table, a
+column, a constraint, an index, a policy, an ACL grant — captured as a
+content-addressed `{ id, payload }`. Alongside the facts sit **dependency
+edges** (`depends`, `owner`, `memberOfExtension`, `managedBy`): ownership and
+extension membership are edges, not payload fields. Identity is structured
+(schema + name + kind), never a fragile attnum or OID. DDL text is whatever
 PostgreSQL's own `pg_get_*def()` reports, so it's already canonical.
 
 The fact base is a Merkle tree: every fact has a hash, and parents roll up their
@@ -90,11 +91,12 @@ exist here.
 ### 4. Prove — a plan earns trust on a clone
 
 This is the safety net the old engine never had. `provePlan()` applies the plan
-to a **throwaway clone**, re-extracts it, and checks two things:
+to a **throwaway clone**, re-extracts it, and checks three things:
 
 - **State proof** — the result's fact hashes equal the desired state (zero drift).
-- **Data preservation** — rows in kept ordinary heap tables survive (and a table
-  rewritten without declaring it fails the proof).
+- **Data preservation** — rows in kept ordinary heap tables survive.
+- **Rewrite observation** — a table whose `relfilenode` changed under an action
+  that did not declare `rewriteRisk` fails the proof.
 
 Because re-extraction yields the same kind of facts, "did the migration work?"
 becomes a hash comparison, run automatically in CI — not a production incident.

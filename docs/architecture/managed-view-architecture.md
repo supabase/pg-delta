@@ -23,16 +23,18 @@ projection (`excludeManaged`/`excludeExtensionMembers`), delta-level filtering
 `skipSchema`) — collapses into one: **define the view, diff the view, prove the
 view.**
 
-```
-            raw source ─┐                          ┌─ raw desired
-                        ▼                          ▼
-                  view(facts, policy, capability)        ◀── ONE definition
-                        │                          │
-              effectiveSource ──── diff ──── effectiveDesired
-                        │
-                     deltas ── rules ── actions ── graph ── sort ── apply
-                        │
-                     provePlan  (re-extract is run through the SAME view)
+```mermaid
+flowchart TB
+    RAWS["raw source"] --> VIEW
+    RAWD["raw desired"] --> VIEW
+    VIEW{{"<b>view(facts, policy, capability)</b><br/>ONE definition, applied to both sides"}}
+    VIEW --> EFFS["effectiveSource"]
+    VIEW --> EFFD["effectiveDesired"]
+    EFFS --> DIFF["diff"]
+    EFFD --> DIFF
+    DIFF --> CHAIN["deltas → rules → actions → graph → sort"]
+    CHAIN --> PROVE["provePlan on a clone<br/><i>(re-extract is run through the SAME view)</i>"]
+    CHAIN --> APPLY["apply<br/><i>(the target)</i>"]
 ```
 
 ## Why this is forced by the constraints (not a preference)

@@ -74,18 +74,14 @@ Run `pgdelta <command> --help` for flags.
 
 ## How it works
 
-```text
-extract   read a database into a fact base
-          (one content-addressed fact per table, column, constraint, policy, grant, …)
-   ↓
-diff      compare two fact bases → deltas (generic; zero per-object-type code)
-   ↓
-plan      deltas → ordered atomic DDL actions
-          (one rule table, one dependency graph, one deterministic sort)
-   ↓
-prove     apply to a throwaway clone, re-extract, compare
-   ↓
-apply     execute against the real target
+```mermaid
+flowchart TB
+    EXTRACT["<b>extract</b> — read a database into a fact base<br/><i>one content-addressed fact per table, column, constraint, policy, grant, …</i>"]
+    DIFF["<b>diff</b> — compare two fact bases → deltas<br/><i>generic; zero per-object-type code</i>"]
+    PLAN["<b>plan</b> — deltas → ordered atomic DDL actions<br/><i>one rule table, one dependency graph, one deterministic sort</i>"]
+    PROVE["<b>prove</b> — apply to a throwaway clone, re-extract, compare"]
+    APPLY["<b>apply</b> — execute against the real target"]
+    EXTRACT --> DIFF --> PLAN --> PROVE --> APPLY
 ```
 
 Because everything lives at one grain — the fact — the diff needs no per-kind
@@ -124,9 +120,9 @@ that belong to no schema:
 ```text
 schema/
   _cluster/
-    roles.sql
-    publications.sql
-    extensions/pgcrypto.sql
+    roles.sql                 ← cluster-global roles/memberships appear under
+    publications.sql             --scope cluster (the default --scope database
+    extensions/pgcrypto.sql      omits them)
   app/
     schema.sql
     tables/users.sql          ← columns, defaults, constraints, indexes,
@@ -194,7 +190,8 @@ migration channel first. It is catalog-sourced (no SQL parsing), non-blocking by
 default, and blocking under `--strict-coverage`.
 
 Frontends that own the migration channel can automate delivery instead of asking
-the user to. `listCustomFiles(root)` returns every `_custom/**/*.sql` with its
+the user to. `listCustomFiles(root)` (from `@supabase/pg-delta/frontends`)
+returns every `_custom/**/*.sql` with its
 body and parsed directives, plus a `delivered` flag (a recorded migration, or an
 explicit `none`); a frontend appends the undelivered ones to the catch-up
 migration it already generates and stamps the directive back, taking run-once
@@ -218,21 +215,35 @@ objects stay invisible with no per-command flag. The baseline's digest is
 stamped on plan and export artifacts and reconciled at apply/prove, so
 `plan == prove == apply` holds and a swapped or edited baseline fails loudly.
 
-## Statement reordering assist (opt-in)
+## Load order and the reordering assist
 
 `loadSqlFiles` is parser-free: it sequences whole *files* into the shadow, so it
-tolerates cross-file disorder. It never permutes statements inside a file.
-When a file cannot commit atomically, `statementFallback` (default on) keeps
-the prefix Postgres already accepted and retries the **remaining** statements
-in authored order after other files have progressed — it does not sort the
-file. Pass `false` for whole-file rollback. Files that contain session-setting
-statements (`SET search_path`, `SET ROLE`, any `SET LOCAL`, …) or
-`ALTER DEFAULT PRIVILEGES` stay file-atomic so those settings cannot expire
-or apply to sibling files' objects.
+tolerates cross-file disorder. A directory produced by `schema export` loads in
+the manifest's recorded `loadOrder` (`.pgdelta-export.json`); anything else
+loads in caller/lexicographic order. When a file cannot commit atomically,
+`statementFallback` (default on) keeps the prefix Postgres already accepted and
+retries the **remaining** statements in authored order after other files have
+progressed — it does not sort the file. Pass `false` for whole-file rollback.
+Files that contain session-setting statements (`SET search_path`, `SET ROLE`,
+any `SET LOCAL`, …) or `ALTER DEFAULT PRIVILEGES` stay file-atomic so those
+settings cannot expire or apply to sibling files' objects.
 
-The opt-in reordering assist is what actually reorders within a file: it
-splits files into one-statement units and topologically pre-sorts them via
-[`@supabase/pg-topo`](https://www.npmjs.com/package/@supabase/pg-topo).
+When the default order sticks, the loader **escalates instead of failing
+blind**: it reconnects once (a session-setting statement can poison the
+connection); `schema apply` / `planSchemaFiles` then retry with late-kind
+files last (policies, publication/subscription DDL) and finally split the
+stuck file into kind-ordered statement units. (Direct `loadSqlFiles` callers
+get only the reconnect unless they supply the `reorderFilesByKind` /
+`splitFileByKind` callbacks.) Every escalation emits a warning naming the stuck `file:line`,
+the statement to move (or a suggested `loadOrder`), and any session-poisoning
+statements — so you can fix the authored tree instead of depending on the
+rescue. `--no-reorder` (API: `reorderOnFailure: false`) disables only the two
+reordering stages — the one-time reconnect still applies — so a load the
+default order cannot satisfy fails with Postgres's own errors instead of
+being rescued.
+
+The kind classification rides on
+[`@supabase/pg-topo`](https://www.npmjs.com/package/@supabase/pg-topo):
 
 - **Subpath:** `@supabase/pg-delta/sql-order` exposes `orderForShadow(files)` /
   `analyzeForShadow(files)`, `canReorder()`, and the typed
@@ -240,9 +251,10 @@ splits files into one-statement units and topologically pre-sorts them via
 - **Dependency posture:** `@supabase/pg-topo` is an **optional peer**, loaded
   only through a guarded dynamic `import()`. Importing the core never pulls the
   libpg-query WASM parser. If the peer is absent the subpath throws with an
-  install hint; `canReorder()` probes instead.
-- **CLI:** `schema apply` runs the assist by default (`--no-reorder` opts out).
-  `schema lint --dir <dir>` runs the analyzer statically, with no database.
+  install hint; `canReorder()` probes instead, and `schema apply` warns and
+  loads raw at file granularity.
+- **CLI:** `schema lint --dir <dir>` runs the analyzer statically, with no
+  database.
 
 ## Documentation
 
@@ -268,7 +280,7 @@ PGDELTA_NEXT_SOAK=200 bun test tests/generative.test.ts  # bigger generative soa
 bun scripts/benchmark.ts                                 # timing numbers
 ```
 
-The **corpus** (`corpus/`, 321 scenarios) is the primary correctness gate: every
+The **corpus** (`corpus/`, 331 scenarios) is the primary correctness gate: every
 scenario is proven in both directions, with compact and uncompacted plan
 artifacts built and applied independently — so compaction is enforced as
 cosmetic rather than load-bearing. CI runs it across PostgreSQL 14–18.
