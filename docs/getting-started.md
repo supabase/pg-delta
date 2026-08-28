@@ -243,7 +243,7 @@ has drifted (and prints the deltas) — handy in CI.
 | `drift` | Compare a live DB against a saved snapshot | `--env` `--snapshot` `[--strict-coverage]` |
 | `schema export` | Export a live DB to `.sql` files | `--source` `--out-dir` `[--scope]` `[--layout]` `[--path-style]` `[--format-options]` `[--no-format]` `[--profile]` `[--strict-coverage]` |
 | `schema apply` | Load `.sql` files via a shadow DB and migrate a target | `--dir` `[--shadow]` `--target` `[--scope]` `[--isolated-shadow]` `[--renames]` `[--accept-rename]` `[--force]` `[--allow-data-loss]` `[--no-reorder]` `[--trusted-local-host]` `[--allow-remote-shadow]` `[--profile]` `[--restrict-to-applier]` `[--strict-coverage]` `[--dry-run]` `[--verbose]` `[--out-plan]` |
-| `schema lint` | Statically check `.sql` files for load-order problems (no database) | `--dir` `[--custom-migration-refs]` |
+| `schema lint` | Statically check `.sql` files for load-order problems (no database) | `--dir` `[--custom-migration-refs warn\|off]` |
 
 Common flags, explained:
 

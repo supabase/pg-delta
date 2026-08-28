@@ -230,9 +230,11 @@ settings cannot expire or apply to sibling files' objects.
 
 When the default order sticks, the loader **escalates instead of failing
 blind**: it reconnects once (a session-setting statement can poison the
-connection), then retries with late-kind files last (policies,
-publication/subscription DDL), then splits the stuck file into kind-ordered
-statement units. Every escalation emits a warning naming the stuck `file:line`,
+connection); `schema apply` / `planSchemaFiles` then retry with late-kind
+files last (policies, publication/subscription DDL) and finally split the
+stuck file into kind-ordered statement units. (Direct `loadSqlFiles` callers
+get only the reconnect unless they supply the `reorderFilesByKind` /
+`splitFileByKind` callbacks.) Every escalation emits a warning naming the stuck `file:line`,
 the statement to move (or a suggested `loadOrder`), and any session-poisoning
 statements — so you can fix the authored tree instead of depending on the
 rescue. `--no-reorder` (API: `reorderOnFailure: false`) disables only the two
