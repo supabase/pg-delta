@@ -6,7 +6,11 @@ import {
   dedupeObjectRefs,
   splitQualifiedName,
 } from "../model/object-ref.ts";
-import type { AnnotationHints, ObjectRef } from "../model/types.ts";
+import type {
+  AnnotationHints,
+  ObjectRef,
+  PrivilegeTarget,
+} from "../model/types.ts";
 import { asRecord } from "../utils/ast.ts";
 import {
   addExpressionDependencies,
@@ -30,6 +34,86 @@ import {
 type ExtractDependenciesResult = {
   provides: ObjectRef[];
   requires: ObjectRef[];
+  privilege?: PrivilegeTarget;
+};
+
+const privilegeObjectKindFromObjType = (objtype: unknown): string => {
+  switch (objtype) {
+    case "OBJECT_TABLE":
+      return "tables";
+    case "OBJECT_SEQUENCE":
+      return "sequences";
+    case "OBJECT_FUNCTION":
+      return "functions";
+    case "OBJECT_PROCEDURE":
+      return "procedures";
+    case "OBJECT_ROUTINE":
+      return "routines";
+    case "OBJECT_TYPE":
+      return "types";
+    case "OBJECT_SCHEMA":
+      return "schemas";
+    default:
+      return objectKindFromObjType(objtype) ?? "";
+  }
+};
+
+const privilegesFromAccessPrivList = (
+  privileges: unknown,
+): string[] | "all" => {
+  if (!Array.isArray(privileges) || privileges.length === 0) {
+    return "all";
+  }
+  const names: string[] = [];
+  for (const item of privileges) {
+    const accessPriv = asRecord(asRecord(item)?.AccessPriv);
+    const privName = accessPriv?.priv_name;
+    if (typeof privName !== "string" || privName.length === 0) {
+      return "all";
+    }
+    names.push(privName.toLowerCase());
+  }
+  return names;
+};
+
+const normalizedRoleName = (roleSpecNode: unknown): string | null => {
+  const roleName = roleNameFromRoleSpec(roleSpecNode);
+  if (!roleName) {
+    return null;
+  }
+  return createObjectRefFromAst("role", roleName).name;
+};
+
+const roleNamesFromNodes = (nodes: unknown): string[] => {
+  if (!Array.isArray(nodes)) {
+    return [];
+  }
+  const names: string[] = [];
+  for (const node of nodes) {
+    const name = normalizedRoleName(asRecord(node)?.RoleSpec);
+    if (name) {
+      names.push(name);
+    }
+  }
+  return names;
+};
+
+const privilegeFromGrantAction = (
+  kind: PrivilegeTarget["kind"],
+  action: Record<string, unknown> | undefined,
+  grantors: string[],
+  schemas: string[],
+): PrivilegeTarget => {
+  const isGrant = action?.is_grant === true;
+  return {
+    kind,
+    isGrant,
+    grantors,
+    schemas,
+    grantees: roleNamesFromNodes(action?.grantees),
+    objectKind: privilegeObjectKindFromObjType(action?.objtype),
+    privileges: privilegesFromAccessPrivList(action?.privileges),
+  };
 };
 
 const extractCreateTableDependencies = (
@@ -469,18 +553,21 @@ const extractGrantDependencies = (
     }
   }
 
-  const grantees = Array.isArray(statementNode.grantees)
-    ? statementNode.grantees
-    : [];
-  for (const granteeNode of grantees) {
-    const roleSpec = asRecord(asRecord(granteeNode)?.RoleSpec);
-    const roleName = roleNameFromRoleSpec(roleSpec);
-    if (roleName) {
-      requires.push(createObjectRefFromAst("role", roleName));
-    }
+  for (const roleName of roleNamesFromNodes(statementNode.grantees)) {
+    requires.push(createObjectRefFromAst("role", roleName));
   }
 
-  return { provides, requires };
+  const isGrant = statementNode.is_grant === true;
+  return {
+    provides,
+    requires,
+    privilege: privilegeFromGrantAction(
+      isGrant ? "grant" : "revoke",
+      statementNode,
+      [],
+      [],
+    ),
+  };
 };
 
 const extractCommentDependencies = (
@@ -876,6 +963,8 @@ const extractAlterDefaultPrivilegesDependencies = (
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
+  const grantors: string[] = [];
+  const schemas: string[] = [];
 
   const options = Array.isArray(statementNode.options)
     ? statementNode.options
@@ -892,7 +981,9 @@ const extractAlterDefaultPrivilegesDependencies = (
       for (const roleNode of roles) {
         const roleName = roleNameFromRoleSpec(asRecord(roleNode)?.RoleSpec);
         if (roleName) {
-          requires.push(createObjectRefFromAst("role", roleName));
+          const ref = createObjectRefFromAst("role", roleName);
+          requires.push(ref);
+          grantors.push(ref.name);
         }
       }
     }
@@ -901,7 +992,9 @@ const extractAlterDefaultPrivilegesDependencies = (
       const schemaItems = asRecord(asRecord(defElem.arg)?.List)?.items;
       const names = extractNameParts(schemaItems);
       for (const schemaName of names) {
-        requires.push(createObjectRefFromAst("schema", schemaName));
+        const ref = createObjectRefFromAst("schema", schemaName);
+        requires.push(ref);
+        schemas.push(ref.name);
       }
     }
   }
@@ -915,7 +1008,16 @@ const extractAlterDefaultPrivilegesDependencies = (
     }
   }
 
-  return { provides, requires };
+  return {
+    provides,
+    requires,
+    privilege: privilegeFromGrantAction(
+      "alter_default_privileges",
+      action,
+      grantors,
+      schemas,
+    ),
+  };
 };
 
 const extractDoDependencies = (
@@ -1306,5 +1408,8 @@ export const extractDependencies = (
       ...annotations.requires,
       ...annotations.dependsOn,
     ]),
+    ...(extracted.privilege === undefined
+      ? {}
+      : { privilege: extracted.privilege }),
   };
 };

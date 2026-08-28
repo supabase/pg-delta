@@ -166,6 +166,9 @@ export const analyzeAndSort = async (
         parsedStatement.annotations.phase ??
         phaseForStatementClass(statementClass),
       annotations: parsedStatement.annotations,
+      ...(extraction.privilege === undefined
+        ? {}
+        : { privilege: extraction.privilege }),
     });
   }
 
