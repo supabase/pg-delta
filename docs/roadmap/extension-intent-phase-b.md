@@ -224,7 +224,7 @@ Order by complexity (validate the mechanism on the simplest first):
   native (no `p_type`).
 - **Opaque commands** (cron): never parse; order replay late (high `weight`);
   rely on run-time late binding; the proof catches a real ordering gap.
-- **Test image**: `supabase/postgres:17.6.1.135` (ships pg_partman/pgmq/pg_cron);
+- **Test image**: `supabase/postgres:17.6.1.167` (ships pg_partman/pgmq/pg_cron);
   `supabaseCluster()` in `tests/containers.ts`. Heavy — keep extension-intent
   integration tests in their own files reusing the lazy singleton.
 - **Deferred (B+)**: the typed `[extensions.*]` declarative block — the files

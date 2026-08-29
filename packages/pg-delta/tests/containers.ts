@@ -31,7 +31,7 @@ const PG_IMAGE = process.env["PGDELTA_TEST_IMAGE"] ?? "postgres:17-alpine";
  *  baseline-fixture pipeline (scripts/sync-supabase-base-images.ts) boots the
  *  exact same tag it validates against. */
 export const SUPABASE_IMAGE =
-  process.env["PGDELTA_SUPABASE_TEST_IMAGE"] ?? "supabase/postgres:17.6.1.135";
+  process.env["PGDELTA_SUPABASE_TEST_IMAGE"] ?? "supabase/postgres:17.6.1.167";
 
 /**
  * Self-gate for heavy bare-Supabase-image tests (`supabaseCluster()`).
@@ -347,11 +347,11 @@ async function startSupabaseCluster(): Promise<Cluster> {
   // (e.g. Studio's `ensure_rls`) drift owner and the Supabase profile then
   // excludes them from export.
   //
-  // The role + grant mirror the image's own migration
-  // `20260211120934_supabase_privileged_role.sql` (newer tags ship it; the pinned
-  // tag predates it) — idempotent, a no-op once the image includes it. Roles are
-  // cluster-global, so this runs ONCE at cluster start (a per-test CREATE ROLE
-  // would race across the shared databases).
+  // The role + grant match the image's
+  // `20260211120934_supabase_privileged_role.sql` (this pin ships it) —
+  // idempotent, a no-op. Roles are cluster-global, so this runs ONCE at
+  // cluster start (a per-test CREATE ROLE would race across the shared
+  // databases).
   await adminPool.query(`
     DO $$ BEGIN
       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'supabase_privileged_role') THEN
@@ -413,12 +413,11 @@ export async function startStandaloneSupabase(): Promise<StartedStandaloneSupaba
   // (e.g. Studio's `ensure_rls`) drift owner and the Supabase profile then
   // excludes them from export.
   //
-  // The role + grant mirror the image's own migration
-  // `20260211120934_supabase_privileged_role.sql` (newer tags ship it; the pinned
-  // tag predates it) — idempotent, a no-op once the image includes it.
-  // The co-located-shadow seed replays as this non-superuser role since the
-  // seed hardening in seed-assumed-schemas.ts (SUSET SET clauses stripped,
-  // platform ADP entries omitted).
+  // The role + grant match the image's
+  // `20260211120934_supabase_privileged_role.sql` (this pin ships it) —
+  // idempotent, a no-op. The co-located-shadow seed replays as this
+  // non-superuser role since the seed hardening in seed-assumed-schemas.ts
+  // (SUSET SET clauses stripped, platform ADP entries omitted).
   const adminPool = new pg.Pool({
     connectionString: `postgres://supabase_admin:postgres@${host}:${port}/postgres`,
     max: 1,

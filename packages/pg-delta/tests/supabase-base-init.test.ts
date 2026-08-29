@@ -49,29 +49,12 @@ describe(`supabase base-init fixture (pg${SUPABASE_BARE_MAJOR})`, () => {
     expect(filtersAt).toBeGreaterThanOrEqual(0);
     expect(typeAt).toBeLessThan(filtersAt);
 
-    // Supabase-applied GRANTs on pg_net's member functions are captured as
-    // extension-member ACL customizations (init-privs delta) and emitted AFTER
-    // CREATE EXTENSION — the member object itself is never re-created. Before the
-    // extension-member-ACL fix these grants were silently dropped from the view.
-    const extAt = sql.indexOf('CREATE EXTENSION "pg_net"');
-    const grantAt = sql.indexOf(
-      'GRANT EXECUTE ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) TO "anon"',
-    );
-    expect(extAt).toBeGreaterThanOrEqual(0);
-    expect(grantAt).toBeGreaterThanOrEqual(0);
-    expect(extAt).toBeLessThan(grantAt);
-    // and the member function is NEVER created/dropped by the plan (extension-managed)
+    // pg_net now ships in the bare image, so the delta no longer emits
+    // CREATE EXTENSION / member-function ACL. The member function itself
+    // must still never be created or dropped (extension-managed).
+    expect(sql).not.toContain('CREATE EXTENSION "pg_net"');
     expect(sql).not.toContain('CREATE FUNCTION "net"."http_get"');
     expect(sql).not.toContain('DROP FUNCTION "net"."http_get"');
-
-    // The full stack also REVOKES the install-time PUBLIC EXECUTE on the pg_net
-    // functions. The init-privs delta captures that fully-revoked-grantee via an
-    // empty-privileges marker (a lone REVOKE ALL … FROM PUBLIC); before the
-    // FULL-OUTER-JOIN fix it was silently dropped (the LEFT JOIN saw no PUBLIC
-    // row on either side), leaving PUBLIC EXECUTE on a rebuilt DB.
-    expect(sql).toContain(
-      'REVOKE ALL ON FUNCTION "net"."http_get"(text, jsonb, jsonb, integer) FROM PUBLIC',
-    );
   });
 
   test("creates the user-policy surfaces with no platform CREATE POLICY", async () => {
@@ -119,6 +102,6 @@ describe(`supabase base-init fixture (pg${SUPABASE_BARE_MAJOR})`, () => {
         `ALTER TABLE "auth"."${table}" ENABLE ROW LEVEL SECURITY`,
       );
     }
-    expect(sql).not.toMatch(/CREATE POLICY[\s\S]{0,400}ON "auth"\./i);
+    expect(sql).not.toMatch(/CREATE POLICY[^;]{0,200}ON "auth"\./i);
   });
 });

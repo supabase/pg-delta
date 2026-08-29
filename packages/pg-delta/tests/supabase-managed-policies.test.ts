@@ -40,9 +40,26 @@ import {
 import { applySupabaseBaseInit } from "./supabase-base-init.ts";
 
 const dbs: TestDb[] = [];
+const postgresPools: pg.Pool[] = [];
 afterAll(async () => {
-  await Promise.all(dbs.map((d) => d.drop().catch(() => {})));
+  await Promise.all([
+    ...postgresPools.map((p) => p.end().catch(() => {})),
+    ...dbs.map((d) => d.drop().catch(() => {})),
+  ]);
 });
+
+/** Non-superuser `postgres` pool — the real `--target` role on Cloud. Stand-in
+ *  tables stay `supabase_admin`-owned so apply exercises the policy_grants
+ *  bypass (including COMMENT ON POLICY, supautils ≥ 3.3.0). */
+function asPostgres(db: TestDb): pg.Pool {
+  if (db.postgresUri === undefined) {
+    throw new Error("supabase cluster TestDb is missing postgresUri");
+  }
+  const pool = new pg.Pool({ connectionString: db.postgresUri, max: 3 });
+  pool.on("error", () => {});
+  postgresPools.push(pool);
+  return pool;
+}
 
 const ALLOWLIST = SUPABASE_USER_POLICY_SURFACES;
 
@@ -412,6 +429,7 @@ describe.skipIf(!runSupabaseBareTests)(
     test("COMMENT ON POLICY round-trips with the policy (REAL-997)", async () => {
       const without = await makeDb("pol_cmt_wo");
       const withPolicy = await makeDb("pol_cmt_w", OBJECTS_POLICY_WITH_COMMENT);
+      const postgres = asPostgres(without);
 
       const createPlan = plan(
         (await extract(without.pool)).factBase,
@@ -426,7 +444,7 @@ describe.skipIf(!runSupabaseBareTests)(
         ),
       ).toBe(true);
 
-      const created = await apply(createPlan, without.pool, {
+      const created = await apply(createPlan, postgres, {
         fingerprintGate: false,
       });
       expect(created.status).toBe("applied");
@@ -464,7 +482,7 @@ describe.skipIf(!runSupabaseBareTests)(
           /COMMENT ON POLICY[\s\S]*IS NULL/.test(a.sql),
         ),
       ).toBe(true);
-      const dropped = await apply(dropCommentPlan, without.pool, {
+      const dropped = await apply(dropCommentPlan, postgres, {
         fingerprintGate: false,
       });
       expect(dropped.status).toBe("applied");

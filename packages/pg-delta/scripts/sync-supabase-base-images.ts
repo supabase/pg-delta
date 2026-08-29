@@ -49,7 +49,7 @@ import { SUPABASE_BARE_MAJOR, SUPABASE_IMAGE } from "../tests/containers.ts";
 import { supabaseBaseInitFixturePath } from "../tests/supabase-base-init.ts";
 
 const SUPABASE_BIN = process.env["SUPABASE_BIN"] ?? "supabase";
-const SUPABASE_TAG = SUPABASE_IMAGE.split(":")[1] ?? "17.6.1.135";
+const SUPABASE_TAG = SUPABASE_IMAGE.split(":")[1] ?? "17.6.1.167";
 // `supabase start` exposes the local stack DB on 54322 by default; we free that
 // port (step 1) before starting the temp project. Connect as `supabase_admin`
 // on both sides — pg-delta extract is current_user-sensitive for owner

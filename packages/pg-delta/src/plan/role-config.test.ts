@@ -42,4 +42,53 @@ describe("role create materializes GUC config", () => {
     );
     expect(sql).toContain(`ALTER ROLE "app_user" SET "lock_timeout" TO '1s'`);
   });
+
+  test("search_path list is per-element literals, not one quoted string", () => {
+    // SET search_path TO 'a, b, c' stores one schema named "a, b, c".
+    // SET search_path TO 'a', 'b', 'c' stores three schemas.
+    const actions = plan(
+      buildFactBase([], []),
+      buildFactBase(
+        [roleFact(["search_path=public, extensions, realtime"])],
+        [],
+      ),
+    ).actions;
+    const sql = actions.map((a) => a.sql);
+    expect(sql).toContain(
+      `ALTER ROLE "app_user" SET "search_path" TO 'public', 'extensions', 'realtime'`,
+    );
+    expect(sql).not.toContain(
+      `ALTER ROLE "app_user" SET "search_path" TO 'public, extensions, realtime'`,
+    );
+  });
+
+  test("search_path preserves $user and does not emit empty idents", () => {
+    const actions = plan(
+      buildFactBase([], []),
+      buildFactBase([roleFact(['search_path="$user", public'])], []),
+    ).actions;
+    expect(actions.map((a) => a.sql)).toContain(
+      `ALTER ROLE "app_user" SET "search_path" TO '$user', 'public'`,
+    );
+  });
+
+  test("empty search_path emits TO '' not TO \"\"", () => {
+    // ALTER ROLE … SET search_path TO '' stores search_path=""
+    const fromEmpty = plan(
+      buildFactBase([], []),
+      buildFactBase([roleFact(["search_path="])], []),
+    ).actions.map((a) => a.sql);
+    const fromQuotedEmpty = plan(
+      buildFactBase([], []),
+      buildFactBase([roleFact(['search_path=""'])], []),
+    ).actions.map((a) => a.sql);
+    expect(fromEmpty).toContain(
+      `ALTER ROLE "app_user" SET "search_path" TO ''`,
+    );
+    expect(fromQuotedEmpty).toContain(
+      `ALTER ROLE "app_user" SET "search_path" TO ''`,
+    );
+    expect(fromEmpty.join("\n")).not.toContain(`TO ""`);
+    expect(fromQuotedEmpty.join("\n")).not.toContain(`TO ""`);
+  });
 });

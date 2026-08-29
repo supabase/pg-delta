@@ -168,8 +168,9 @@ export type IdFieldPredicate = {
  *
  * All sub-fields are optional; only the provided ones are tested.
  * `kind` is tested by exact equality (kinds are enum values, not user strings).
- * `schema` and `name` are glob-matched; each accepts a single value or an array
- * (matches if any element matches).
+ * `schema`, `table`, and `name` are glob-matched; each accepts a single value
+ * or an array (matches if any element matches). `table` only matches
+ * sub-entity targets that carry that field.
  *
  * Replaces the three separate targetKind / targetSchema / targetName predicates.
  */

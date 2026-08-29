@@ -1087,7 +1087,11 @@ storage/realtime (per-table, mirroring `supautils.policy_grants`) and on auth
   supautils-configured image exercising the real ownership/grant matrix
   end-to-end (the current stand-in tables are owned by the applying role, so
   they validate diff/plan/export routing, not the platform's permission
-  boundary).
+  boundary). The COMMENT ON POLICY apply path is no longer in that bucket:
+  the pinned image is `supabase/postgres:17.6.1.167` (supautils 3.4.0, which
+  includes the 3.3.0 `COMMENT ON POLICY` elevation), and the REAL-997
+  integration test applies as non-owner `postgres` against
+  `supabase_admin`-owned stand-in tables.
 
 ## PR #412 review triage (Codex) — libpq sslmode semantics
 

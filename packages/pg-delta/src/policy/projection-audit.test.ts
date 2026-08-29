@@ -119,9 +119,8 @@ describe("attributed projection audit", () => {
   });
 
   test("target.table wildcard exclusion is a broad class selector: suspicious", () => {
-    // PR #453 added the `table` sub-field to the target predicate; the audit
-    // classifiers must see it, or `{ target: { schema, table: "*" } }` passes
-    // as "named" on the strength of the concrete schema alone.
+    // Classifiers must see `table`, or `{ target: { schema, table: "*" } }`
+    // passes as "named" on the strength of the concrete schema alone.
     const storageSchema = schema("storage");
     const objectsTable = table("storage", "objects");
     const objectsPolicy: StableId = {

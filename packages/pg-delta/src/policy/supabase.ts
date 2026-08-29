@@ -717,8 +717,9 @@ export const supabasePolicy: Policy = {
     //     the auth schema itself, not just tables inside auth).
     //
     // Carve-out: comments ON user policies on SUPABASE_USER_POLICY_SURFACES
-    // are user intent and are kept managed by the include rule above
-    // (first-match-wins), mirroring the policy-surface include vs Rule 4.
+    // and SUPABASE_USER_POLICY_SCHEMAS are user intent and are kept managed
+    // by the include rule above (first-match-wins), mirroring the
+    // policy-surface include vs Rule 4.
     {
       match: {
         all: [
