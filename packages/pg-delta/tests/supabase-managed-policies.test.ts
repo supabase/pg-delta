@@ -1,8 +1,12 @@
 /**
- * User RLS policies on storage.objects / storage.buckets / realtime.messages
- * must survive the supabase managed-schema filter, export as TABLE_SCOPED
- * satellites of a reference-only parent (no CREATE TABLE), and round-trip
- * through plan → apply → re-diff.
+ * User RLS policies on the storage / realtime allowlist surfaces
+ * (SUPABASE_USER_POLICY_SURFACES, mirroring the platform's
+ * `supautils.policy_grants`) must survive the supabase managed-schema filter,
+ * export as TABLE_SCOPED satellites of a reference-only parent (no CREATE
+ * TABLE), and round-trip through plan → apply → re-diff. Comments ON those
+ * policies are user intent too and must round-trip with them (REAL-997).
+ * The `auth` schema is covered SCHEMA-WIDE (Auth-team guarantee 2026-08-29:
+ * the service never ships or manages RLS policies on its own tables).
  *
  * `createDb()` on the shared supabase cluster is an empty database (template1),
  * not a copy of the image's `postgres` catalog — stand-in tables named like the
@@ -36,9 +40,26 @@ import {
 import { applySupabaseBaseInit } from "./supabase-base-init.ts";
 
 const dbs: TestDb[] = [];
+const postgresPools: pg.Pool[] = [];
 afterAll(async () => {
-  await Promise.all(dbs.map((d) => d.drop().catch(() => {})));
+  await Promise.all([
+    ...postgresPools.map((p) => p.end().catch(() => {})),
+    ...dbs.map((d) => d.drop().catch(() => {})),
+  ]);
 });
+
+/** Non-superuser `postgres` pool — the real `--target` role on Cloud. Stand-in
+ *  tables stay `supabase_admin`-owned so apply exercises the policy_grants
+ *  bypass (including COMMENT ON POLICY, supautils ≥ 3.3.0). */
+function asPostgres(db: TestDb): pg.Pool {
+  if (db.postgresUri === undefined) {
+    throw new Error("supabase cluster TestDb is missing postgresUri");
+  }
+  const pool = new pg.Pool({ connectionString: db.postgresUri, max: 3 });
+  pool.on("error", () => {});
+  postgresPools.push(pool);
+  return pool;
+}
 
 const ALLOWLIST = SUPABASE_USER_POLICY_SURFACES;
 
@@ -56,13 +77,37 @@ const STANDIN_SURFACES = `
     name text
   );
   ALTER TABLE storage.buckets ENABLE ROW LEVEL SECURITY;
+  CREATE TABLE IF NOT EXISTS storage.buckets_analytics (
+    id text PRIMARY KEY
+  );
+  ALTER TABLE storage.buckets_analytics ENABLE ROW LEVEL SECURITY;
+  CREATE TABLE IF NOT EXISTS storage.s3_multipart_uploads (
+    id text PRIMARY KEY,
+    bucket_id text
+  );
+  ALTER TABLE storage.s3_multipart_uploads ENABLE ROW LEVEL SECURITY;
+  CREATE TABLE IF NOT EXISTS storage.s3_multipart_uploads_parts (
+    id uuid PRIMARY KEY,
+    upload_id text
+  );
+  ALTER TABLE storage.s3_multipart_uploads_parts ENABLE ROW LEVEL SECURITY;
   CREATE SCHEMA IF NOT EXISTS realtime;
   CREATE TABLE IF NOT EXISTS realtime.messages (
     id uuid PRIMARY KEY,
     topic text
   );
   ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
+  CREATE TABLE IF NOT EXISTS realtime.subscription (
+    id bigint PRIMARY KEY,
+    subscription_id uuid
+  );
+  ALTER TABLE realtime.subscription ENABLE ROW LEVEL SECURITY;
   CREATE SCHEMA IF NOT EXISTS auth;
+  CREATE TABLE IF NOT EXISTS auth.users (
+    id uuid PRIMARY KEY,
+    email text
+  );
+  ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY;
   CREATE FUNCTION auth.uid() RETURNS uuid
     LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
 `;
@@ -90,6 +135,24 @@ const AUTH_UID_POLICY = `
   CREATE POLICY "owner can read" ON storage.objects
     FOR SELECT TO authenticated
     USING (owner = auth.uid());
+`;
+
+const SUBSCRIPTION_POLICY = `
+  CREATE POLICY "authenticated can read subscriptions" ON realtime.subscription
+    FOR SELECT TO authenticated
+    USING (true);
+`;
+
+const AUTH_USERS_POLICY = `
+  CREATE POLICY "own row only" ON auth.users
+    FOR SELECT TO authenticated
+    USING (id = auth.uid());
+`;
+
+const OBJECTS_POLICY_WITH_COMMENT = `
+  ${OBJECTS_POLICY}
+  COMMENT ON POLICY "Users can read own objects" ON storage.objects
+    IS 'customer note';
 `;
 
 const flat = flattenPolicy(supabasePolicy);
@@ -153,6 +216,21 @@ describe.skipIf(!runSupabaseBareTests)(
           .filter((fct) => isAllowlistPolicy(fct.id))
           .map((fct) => fct.id);
         expect(seeded).toEqual([]);
+
+        // auth is covered SCHEMA-WIDE (Auth-team guarantee: the service never
+        // ships policies on its own tables) — pin that the base init seeds
+        // zero policies anywhere in auth, and that the tables are there for
+        // the guarantee to be about.
+        const authTables = factBase
+          .facts()
+          .filter((fct) => fct.id.kind === "table" && fct.id.schema === "auth")
+          .map((fct) => (fct.id.kind === "table" ? fct.id.name : ""));
+        expect(authTables).toContain("users");
+        const authPolicies = factBase
+          .facts()
+          .filter((fct) => fct.id.kind === "policy" && fct.id.schema === "auth")
+          .map((fct) => fct.id);
+        expect(authPolicies).toEqual([]);
       } finally {
         await pool.end();
         await stack.stop();
@@ -265,6 +343,149 @@ describe.skipIf(!runSupabaseBareTests)(
         fingerprintGate: false,
       });
       expect(report.status).toBe("applied");
+      expect(
+        plan(
+          (await extract(without.pool)).factBase,
+          (await extract(withPolicy.pool)).factBase,
+          { policy: supabasePolicy },
+        ).actions,
+      ).toEqual([]);
+    }, 180_000);
+
+    test("diff/apply/converge a realtime.subscription policy", async () => {
+      const without = await makeDb("pol_sub_wo");
+      const withPolicy = await makeDb("pol_sub_w", SUBSCRIPTION_POLICY);
+      const sql = await planSql(without, withPolicy);
+      expect(sql.some((s) => /CREATE POLICY/.test(s))).toBe(true);
+      expect(sql.some((s) => /realtime"\."subscription/.test(s))).toBe(true);
+
+      const thePlan = plan(
+        (await extract(without.pool)).factBase,
+        (await extract(withPolicy.pool)).factBase,
+        { policy: supabasePolicy },
+      );
+      const report = await apply(thePlan, without.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.status).toBe("applied");
+      expect(
+        plan(
+          (await extract(without.pool)).factBase,
+          (await extract(withPolicy.pool)).factBase,
+          { policy: supabasePolicy },
+        ).actions,
+      ).toEqual([]);
+    }, 180_000);
+
+    test("diff/apply/converge an auth.users policy (schema-wide carve-out)", async () => {
+      const without = await makeDb("pol_auth_wo");
+      const withPolicy = await makeDb("pol_auth_w", AUTH_USERS_POLICY);
+      const sql = await planSql(without, withPolicy);
+      expect(sql.some((s) => /CREATE POLICY "own row only"/.test(s))).toBe(
+        true,
+      );
+      expect(sql.some((s) => /auth"\."users/.test(s))).toBe(true);
+      expect(sql.some((s) => /CREATE TABLE/i.test(s))).toBe(false);
+
+      const thePlan = plan(
+        (await extract(without.pool)).factBase,
+        (await extract(withPolicy.pool)).factBase,
+        { policy: supabasePolicy },
+      );
+      const report = await apply(thePlan, without.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.status).toBe("applied");
+      expect(
+        plan(
+          (await extract(without.pool)).factBase,
+          (await extract(withPolicy.pool)).factBase,
+          { policy: supabasePolicy },
+        ).actions,
+      ).toEqual([]);
+    }, 180_000);
+
+    test("export files the auth.users policy under the table without recreating it", async () => {
+      const db = await makeDb("pol_auth_export", AUTH_USERS_POLICY);
+      const { factBase } = await extract(db.pool);
+      const view = resolveView(factBase, supabasePolicy);
+      const files = exportSqlFiles(view, {
+        assumedSchemas: flat.assumedSchemas,
+        assumedRoles: flat.assumedRoles,
+      });
+      const allSql = files.map((f) => f.sql).join("\n");
+      expect(allSql).not.toMatch(/CREATE TABLE[^;]*"?users"?/i);
+      expect(allSql).not.toMatch(/ENABLE ROW LEVEL SECURITY/i);
+
+      const usersFile = files.find(
+        (f) =>
+          f.name === "auth/tables/users.sql" ||
+          f.name === "schemas/auth/tables/users.sql",
+      );
+      expect(usersFile).toBeDefined();
+      expect(usersFile?.sql).toMatch(/CREATE POLICY "own row only"/);
+    }, 180_000);
+
+    test("COMMENT ON POLICY round-trips with the policy (REAL-997)", async () => {
+      const without = await makeDb("pol_cmt_wo");
+      const withPolicy = await makeDb("pol_cmt_w", OBJECTS_POLICY_WITH_COMMENT);
+      const postgres = asPostgres(without);
+
+      const createPlan = plan(
+        (await extract(without.pool)).factBase,
+        (await extract(withPolicy.pool)).factBase,
+        { policy: supabasePolicy },
+      );
+      const createSql = createPlan.actions.map((a) => a.sql);
+      expect(createSql.some((s) => /CREATE POLICY/.test(s))).toBe(true);
+      expect(
+        createSql.some((s) =>
+          /COMMENT ON POLICY "Users can read own objects"/.test(s),
+        ),
+      ).toBe(true);
+
+      const created = await apply(createPlan, postgres, {
+        fingerprintGate: false,
+      });
+      expect(created.status).toBe("applied");
+      expect(
+        plan(
+          (await extract(without.pool)).factBase,
+          (await extract(withPolicy.pool)).factBase,
+          { policy: supabasePolicy },
+        ).actions,
+      ).toEqual([]);
+
+      // the comment exports next to its policy, still without CREATE TABLE
+      const { factBase } = await extract(withPolicy.pool);
+      const view = resolveView(factBase, supabasePolicy);
+      const files = exportSqlFiles(view, {
+        assumedSchemas: flat.assumedSchemas,
+        assumedRoles: flat.assumedRoles,
+      });
+      const allSql = files.map((f) => f.sql).join("\n");
+      expect(allSql).not.toMatch(/CREATE TABLE[^;]*"?objects"?/i);
+      expect(allSql).toMatch(/COMMENT ON POLICY "Users can read own objects"/);
+      expect(allSql).toMatch(/customer note/);
+
+      // dropping only the comment converges too (plans COMMENT … IS NULL)
+      await withPolicy.pool.query(
+        `COMMENT ON POLICY "Users can read own objects" ON storage.objects IS NULL`,
+      );
+      const dropCommentPlan = plan(
+        (await extract(without.pool)).factBase,
+        (await extract(withPolicy.pool)).factBase,
+        { policy: supabasePolicy },
+      );
+      expect(
+        dropCommentPlan.actions.some((a) =>
+          /COMMENT ON POLICY[\s\S]*IS NULL/.test(a.sql),
+        ),
+      ).toBe(true);
+      const dropped = await apply(dropCommentPlan, postgres, {
+        fingerprintGate: false,
+      });
+      expect(dropped.status).toBe("applied");
       expect(
         plan(
           (await extract(without.pool)).factBase,

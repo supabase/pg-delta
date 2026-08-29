@@ -1,0 +1,5 @@
+---
+"@supabase/pg-delta": minor
+---
+
+Keep user RLS policies and their `COMMENT ON POLICY` managed across the managed-schema surfaces the platform actually opens to users. The supabase profile's per-table allowlist now mirrors `supautils.policy_grants` for storage/realtime (adds `realtime.subscription`, `storage.buckets_analytics`, `storage.s3_multipart_uploads`, `storage.s3_multipart_uploads_parts`), and the `auth` schema is covered schema-wide: the Auth team guarantees the service never ships or manages RLS policies on its own tables, so every policy there is user intent — including on tables outside the grant list. Previously these policies (and all policy comments) were silently dropped from diffs, exports, and DB forks by the system-schema excludes. The policy DSL's `target` predicate gains a `table` sub-field to scope satellite rules to sub-entity targets. `storage.prefixes` is deferred to the next base-image sync; customer SELECT re-grants on auth tables are a recorded follow-up.

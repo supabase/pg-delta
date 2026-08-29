@@ -1031,16 +1031,67 @@ not defects reachable on the shipped policy):
 - **Refuted for the shipped policy — descendant closure covering "user-added"
   children of platform tables (Codex P1, round 4).** The claimed
   counterexample (a user-added `auth.users.custom_flag` column) is not
-  creatable on Supabase: `ADD COLUMN` / `CREATE INDEX` / `ADD CONSTRAINT` /
-  `CREATE POLICY` all require table OWNERSHIP, which the user's `postgres`
-  lacks on system-role-owned tables. The one user-creatable child — a trigger,
-  via the grantable TRIGGER privilege — is deliberately MANAGED (policy
-  include rule 3), so the plan PRODUCES it and the requirement guard never
-  consults the exemption for it. Desired-only FILTERED descendants of a
-  platform root can therefore only be platform-made (image upgrade), which is
-  exactly what the exemption must cover. Revisit together with the explicit
-  platform-owner designation above if any platform grants users DDL on
-  platform-owned relations.
+  creatable on Supabase: `ADD COLUMN` / `CREATE INDEX` / `ADD CONSTRAINT`
+  all require table OWNERSHIP, which the user's `postgres` lacks on
+  system-role-owned tables. The user-creatable children — a trigger, via the
+  grantable TRIGGER privilege, and (**correction, 2026-08-29**) an RLS
+  policy, via the platform's `supautils.policy_grants` GUC
+  (supabase/postgres `ansible/files/postgresql_config/supautils.conf.j2`,
+  which opens CREATE/ALTER/DROP POLICY to `postgres` on 24
+  auth/storage/realtime tables it does not own) — are deliberately MANAGED
+  (policy include rule 3 for triggers; the user-policy-surface include for
+  policies, per-table for storage/realtime and schema-wide for auth), so the
+  plan PRODUCES them and the requirement guard never consults the exemption
+  for them. The original note's premise "CREATE POLICY requires ownership"
+  was wrong on the Supabase platform; the conclusion stands because the
+  policy carve-out manages those children. Auth-team answers recorded
+  2026-08-29: (1) Auth never ships or manages RLS policies on its own tables
+  — all policies there are user-managed (the invariant the schema-wide auth
+  rule rests on); (2) the RLS/grant list drift on post-2024 auth tables is
+  deliberate, no catch-up planned.
+
+- **Follow-up — customer SELECT re-grants on auth tables (separate PR).**
+  `postgres` holds `SELECT ... WITH GRANT OPTION` on the 16 auth tables of
+  the 2024 `enable_rls_update_grants` migration, and the docs demonstrate
+  `grant select on auth.users to ...`, but Rule 10 drops all ACL satellites
+  on system-schema targets — so a customer's re-grant is lost on forks and
+  declarative round-trips, same class of bug as the policies. Unlike
+  policies, ACLs carry a grantor, so a clean provenance discriminator exists:
+  grantor = `postgres` → customer intent. Needs its own RED→GREEN pass over
+  the ACL include/exclude rules.
+
+## PR #453 review triage (Codex) — user-policy surfaces
+
+Context: PR #453 manages user RLS policies + `COMMENT ON POLICY` on
+storage/realtime (per-table, mirroring `supautils.policy_grants`) and on auth
+(schema-wide, per the Auth-team guarantee recorded above). One finding
+**deferred by design**:
+
+- **Deferred — the schema-wide auth rule can emit non-replayable DDL for a
+  DECLARED policy on a non-grant-listed auth table (Codex P2, round 1).**
+  Mechanics confirmed: applier capability v1 gates only FDW ACLs, so a user
+  who hand-declares `CREATE POLICY … ON auth.passkeys` (a table outside
+  `supautils.policy_grants`) gets a plan whose apply fails with PostgreSQL's
+  own "must be owner of table" as the non-owner `postgres`. Deferred because:
+  (a) the SOURCE direction can never produce such a policy — only
+  `supabase_auth_admin` could create one and the Auth team guarantees it never
+  will — so exports and DB-to-DB diffs never emit this spontaneously; (b) the
+  failing input is a user declaring DDL the platform forbids them to run, and
+  a loud PG error at apply is the honest diagnostic; (c) the alternative
+  (mirroring the grant list) reintroduces the silent-drop failure whenever the
+  platform widens `policy_grants` ahead of a pg-delta release — silent loss is
+  the bug class PR #433/#453 exist to fix. Possible follow-ups if this bites
+  in practice: a plan-time diagnostic when a managed policy's parent table is
+  reference-only and outside the grant list (accepting the grant-list coupling
+  the schema-wide rule deliberately avoids), and an integration leg on a
+  supautils-configured image exercising the real ownership/grant matrix
+  end-to-end (the current stand-in tables are owned by the applying role, so
+  they validate diff/plan/export routing, not the platform's permission
+  boundary). The COMMENT ON POLICY apply path is no longer in that bucket:
+  the pinned image is `supabase/postgres:17.6.1.167` (supautils 3.4.0, which
+  includes the 3.3.0 `COMMENT ON POLICY` elevation), and the REAL-997
+  integration test applies as non-owner `postgres` against
+  `supabase_admin`-owned stand-in tables.
 
 ## PR #412 review triage (Codex) — libpq sslmode semantics
 

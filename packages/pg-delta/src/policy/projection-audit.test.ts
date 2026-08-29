@@ -118,6 +118,85 @@ describe("attributed projection audit", () => {
     expect(audit.summary.suspicious).toBe(0);
   });
 
+  test("target.table wildcard exclusion is a broad class selector: suspicious", () => {
+    // Classifiers must see `table`, or `{ target: { schema, table: "*" } }`
+    // passes as "named" on the strength of the concrete schema alone.
+    const storageSchema = schema("storage");
+    const objectsTable = table("storage", "objects");
+    const objectsPolicy: StableId = {
+      kind: "policy",
+      schema: "storage",
+      table: "objects",
+      name: "user policy",
+    };
+    const policyComment = {
+      id: { kind: "comment", target: objectsPolicy } as StableId,
+      payload: { text: "note" },
+      parent: objectsPolicy,
+    };
+    const base = [
+      fact(storageSchema),
+      fact(objectsTable, {}, storageSchema),
+      fact(objectsPolicy, {}, objectsTable),
+    ];
+    const source = buildFactBase(base, []);
+    const desired = buildFactBase([...base, policyComment], []);
+    const policy: Policy = {
+      id: "wildcard-table",
+      filter: [
+        {
+          match: {
+            all: [
+              { kind: "comment" },
+              { target: { schema: "storage", table: "*" } },
+            ],
+          },
+          action: "exclude",
+        },
+      ],
+    };
+
+    const audit = auditManagedViewProjection(source, desired, { policy });
+    expect(audit.entries).toHaveLength(1);
+    expect(audit.entries[0]?.classification).toBe("suspicious");
+  });
+
+  test("target.table concrete exclusion names its surface: acknowledged", () => {
+    const storageSchema = schema("storage");
+    const objectsTable = table("storage", "objects");
+    const objectsPolicy: StableId = {
+      kind: "policy",
+      schema: "storage",
+      table: "objects",
+      name: "user policy",
+    };
+    const policyComment = {
+      id: { kind: "comment", target: objectsPolicy } as StableId,
+      payload: { text: "note" },
+      parent: objectsPolicy,
+    };
+    const base = [
+      fact(storageSchema),
+      fact(objectsTable, {}, storageSchema),
+      fact(objectsPolicy, {}, objectsTable),
+    ];
+    const source = buildFactBase(base, []);
+    const desired = buildFactBase([...base, policyComment], []);
+    const policy: Policy = {
+      id: "named-table",
+      filter: [
+        {
+          match: { target: { kind: "policy", table: "objects" } },
+          action: "exclude",
+        },
+      ],
+    };
+
+    const audit = auditManagedViewProjection(source, desired, { policy });
+    expect(audit.entries).toHaveLength(1);
+    expect(audit.entries[0]?.classification).toBe("acknowledged");
+  });
+
   test("partitionOf exclusion pinned to a concrete parent is acknowledged", () => {
     const realtimeSchema = schema("realtime");
     const partitionChild = table("realtime", "messages_2026_08_05");

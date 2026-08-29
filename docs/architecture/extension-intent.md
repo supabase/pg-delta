@@ -247,7 +247,7 @@ it is platform history, not something a policy can express.
 The sketch above predates the implementation. `src/policy/extensions/pg-partman.ts`
 is authoritative; its header carries the **full `part_config` column
 disposition table**, audited against **pg_partman 5.3.1** (the version shipped
-in `supabase/postgres:17.6.1.135`). All 29 columns of 5.3.1 are classified:
+in `supabase/postgres:17.6.1.167`). All 29 columns of 5.3.1 are classified:
 
 | class | count | what it is | how it replays |
 |---|---|---|---|

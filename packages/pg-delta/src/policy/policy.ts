@@ -30,12 +30,15 @@
  *   - `role` on membership facts (exclude memberships where role is a system role)
  *   - `table` on trigger/policy/etc. (filter triggers on pgmq queue tables)
  *
- * ### `{ target: { kind?: string|string[]; schema?: string|string[]; name?: string|string[] } }`
+ * ### `{ target: { kind?: string|string[]; schema?: string|string[]; table?: string|string[]; name?: string|string[] } }`
  * For satellite facts (acl, comment, securityLabel) whose id has a `target: StableId`
  * field: matches when ALL provided sub-fields match the target's corresponding fields.
  * Each sub-field is optional, glob-matched, and accepts a single value or an array.
  *   - `kind` matches target.kind (exact, no glob — kinds are enum values)
  *   - `schema` matches target.schema via glob
+ *   - `table` matches target.table via glob (sub-entity targets only: a
+ *     COMMENT ON POLICY satellite targets `{kind:"policy", schema, table, name}`;
+ *     without this a policy-comment rule could only scope by schema, REAL-997)
  *   - `name` matches target.name via glob
  * Replaces the three earlier satellite predicates targetKind/targetSchema/targetName.
  *
@@ -165,8 +168,9 @@ export type IdFieldPredicate = {
  *
  * All sub-fields are optional; only the provided ones are tested.
  * `kind` is tested by exact equality (kinds are enum values, not user strings).
- * `schema` and `name` are glob-matched; each accepts a single value or an array
- * (matches if any element matches).
+ * `schema`, `table`, and `name` are glob-matched; each accepts a single value
+ * or an array (matches if any element matches). `table` only matches
+ * sub-entity targets that carry that field.
  *
  * Replaces the three separate targetKind / targetSchema / targetName predicates.
  */
@@ -174,6 +178,10 @@ export type TargetPredicate = {
   target: {
     kind?: string | string[];
     schema?: string | string[];
+    /** For sub-entity targets (policy / trigger / column / …) whose StableId
+     *  carries a `table` field. A target without one (qualified kinds like
+     *  table/view) never matches when this is set. */
+    table?: string | string[];
     name?: string | string[];
   };
 };
@@ -530,6 +538,7 @@ export function factMatches(
     const {
       kind: kindFilter,
       schema: schemaFilter,
+      table: tableFilter,
       name: nameFilter,
     } = predicate.target;
 
@@ -549,6 +558,15 @@ export function factMatches(
         ? schemaFilter
         : [schemaFilter];
       if (!patterns.some((p) => globMatch(p, targetSchemaVal))) return false;
+    }
+
+    // table sub-field: glob match (sub-entity targets only — a target id
+    // without a `table` field never matches when the filter is set)
+    if (tableFilter !== undefined) {
+      const targetTableVal = targetObj["table"];
+      if (typeof targetTableVal !== "string") return false;
+      const patterns = Array.isArray(tableFilter) ? tableFilter : [tableFilter];
+      if (!patterns.some((p) => globMatch(p, targetTableVal))) return false;
     }
 
     // name sub-field: glob match
@@ -975,9 +993,11 @@ function isNamedObjectPredicate(predicate: Predicate): boolean {
   if ("idField" in predicate)
     return stringValues(predicate.idField.glob).every(noWildcard);
   if ("target" in predicate) {
-    const selectors = [predicate.target.name, predicate.target.schema].filter(
-      (value): value is string | string[] => value !== undefined,
-    );
+    const selectors = [
+      predicate.target.name,
+      predicate.target.schema,
+      predicate.target.table,
+    ].filter((value): value is string | string[] => value !== undefined);
     return (
       selectors.length > 0 &&
       selectors.every((value) => stringValues(value).every(noWildcard))
@@ -1017,7 +1037,11 @@ function containsWildcardMatcher(predicate: Predicate): boolean {
       (value) => !noWildcard(value),
     );
   if ("target" in predicate) {
-    return [predicate.target.name, predicate.target.schema]
+    return [
+      predicate.target.name,
+      predicate.target.schema,
+      predicate.target.table,
+    ]
       .filter((value): value is string | string[] => value !== undefined)
       .some((value) => stringValues(value).some((part) => !noWildcard(part)));
   }

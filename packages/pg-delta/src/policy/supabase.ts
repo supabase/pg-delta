@@ -183,12 +183,53 @@ const SUPABASE_SYSTEM_PUBLICATIONS = [
  *  in `tests/supabase-base-init.test.ts` and by the pristine guard in
  *  `tests/supabase-managed-policies.test.ts` after `applySupabaseBaseInit`);
  *  any policy present is user-authored. Policies have no owner — do not
- *  inspect `usingExpr`. */
+ *  inspect `usingExpr`.
+ *
+ *  Source of truth: the platform's `supautils.policy_grants` GUC — the tables
+ *  the non-superuser `postgres` role is ALLOWED to run CREATE/ALTER/DROP
+ *  POLICY on (supabase/postgres,
+ *  ansible/files/postgresql_config/supautils.conf.j2). Deliberate deltas from
+ *  that list:
+ *    - `auth.*` (16 tables in the grant): covered SCHEMA-WIDE via
+ *      SUPABASE_USER_POLICY_SCHEMAS below, not listed here.
+ *    - `storage.prefixes`: grantable, but absent from the pinned base-init
+ *      fixture (the pristine guard cannot vouch for it yet); add it with the
+ *      next Supabase image sync (`bun run sync-base-images`). */
 export const SUPABASE_USER_POLICY_SURFACES = [
   { schema: "storage", table: "objects" },
   { schema: "storage", table: "buckets" },
+  { schema: "storage", table: "buckets_analytics" },
+  { schema: "storage", table: "s3_multipart_uploads" },
+  { schema: "storage", table: "s3_multipart_uploads_parts" },
   { schema: "realtime", table: "messages" },
+  { schema: "realtime", table: "subscription" },
 ] as const;
+
+/** Managed schemas where EVERY RLS policy is user intent, whatever its table.
+ *
+ *  `auth` (Auth team, 2026-08-29): the service never ships or manages RLS
+ *  policies on its own tables — all policies there are user-managed. That
+ *  forward-looking guarantee is the invariant this rule rests on (policies
+ *  carry no owner, so one seeded policy would break the discriminator); the
+ *  pristine guard in `tests/supabase-managed-policies.test.ts` and the
+ *  fixture pin in `tests/supabase-base-init.test.ts` pin the observable half
+ *  (zero policies on auth in the base init).
+ *
+ *  Schema-wide rather than mirroring the supautils policy_grants table list
+ *  because the guarantee is schema-scoped: it round-trips the
+ *  legal-but-inert case (`auth.oauth_clients` is grantable but RLS is never
+ *  enabled) and is immune to grant-list drift (the post-2024 tables such as
+ *  `auth.passkeys` intentionally have no grant today — the Auth team
+ *  confirmed the drift is deliberate). auth never runs FORCE ROW LEVEL
+ *  SECURITY and `supabase_auth_admin` owns its tables, so a customer policy
+ *  cannot alter Auth's own runtime behavior; the one sharp edge is a policy
+ *  referencing a column that a service migration later rewrites (documented
+ *  "at your own risk" — backup-restore.mdx tells users these policies must
+ *  be restored, which is exactly what this rule makes pg-delta do).
+ *
+ *  storage / realtime stay on the per-table SURFACES list above until their
+ *  teams give the same forward-looking guarantee. */
+export const SUPABASE_USER_POLICY_SCHEMAS = ["auth"] as const;
 
 // ---------------------------------------------------------------------------
 // The Supabase policy
@@ -407,7 +448,9 @@ export const supabasePolicy: Policy = {
       action: "include",
     },
 
-    // User RLS on an explicit allowlist of managed-schema tables. Policies
+    // User RLS on managed-schema tables: an explicit per-table allowlist for
+    // storage/realtime, plus the schema-wide SUPABASE_USER_POLICY_SCHEMAS
+    // (auth — see the constant's doc for the Auth-team guarantee). Policies
     // have no owner, so the discriminator is the surface, not provenance.
     // MUST precede Rule 4 (first-match-wins): a policy's id.schema is the
     // table schema, so Rule 4 would otherwise exclude it. Because that
@@ -419,18 +462,53 @@ export const supabasePolicy: Policy = {
         all: [
           { kind: "policy" },
           {
-            any: SUPABASE_USER_POLICY_SURFACES.map((s) => ({
-              all: [
-                { schema: s.schema },
-                { idField: { field: "table", glob: s.table } },
-              ],
-            })),
+            any: [
+              ...SUPABASE_USER_POLICY_SURFACES.map((s) => ({
+                all: [
+                  { schema: s.schema },
+                  { idField: { field: "table", glob: s.table } },
+                ],
+              })),
+              ...SUPABASE_USER_POLICY_SCHEMAS.map((s) => ({ schema: s })),
+            ],
           },
         ],
       },
       action: "include",
       audit: {
         reasonCode: "supabase.user-policy-surface",
+        classification: "acknowledged",
+      },
+    },
+
+    // Comments ON those user policies are user intent too (REAL-997: realtime
+    // users document their policies with COMMENT ON POLICY). The policy fact
+    // is managed by the rule above, but its comment SATELLITE would still be
+    // excluded by Rule 10 (target.schema in SYSTEM_SCHEMAS) — dropped from
+    // exports (a fork loses the comment) and, for a declarative consumer,
+    // planned as `COMMENT ON POLICY … IS NULL`. Scoped per-surface via the
+    // target.table sub-field: a comment on a platform policy elsewhere in the
+    // schema, or on the surface TABLE itself, stays excluded. securityLabel /
+    // acl are not matched — PostgreSQL supports neither on policies.
+    {
+      match: {
+        all: [
+          { kind: "comment" },
+          {
+            any: [
+              ...SUPABASE_USER_POLICY_SURFACES.map((s) => ({
+                target: { kind: "policy", schema: s.schema, table: s.table },
+              })),
+              ...SUPABASE_USER_POLICY_SCHEMAS.map((s) => ({
+                target: { kind: "policy", schema: s },
+              })),
+            ],
+          },
+        ],
+      },
+      action: "include",
+      audit: {
+        reasonCode: "supabase.user-policy-surface-comment",
         classification: "acknowledged",
       },
     },
@@ -637,6 +715,11 @@ export const supabasePolicy: Policy = {
     //     which carry only a `name` field (no `schema`). We match schema-kind
     //     targets whose `name` is in SUPABASE_SYSTEM_SCHEMAS (covers ACLs on
     //     the auth schema itself, not just tables inside auth).
+    //
+    // Carve-out: comments ON user policies on SUPABASE_USER_POLICY_SURFACES
+    // and SUPABASE_USER_POLICY_SCHEMAS are user intent and are kept managed
+    // by the include rule above (first-match-wins), mirroring the
+    // policy-surface include vs Rule 4.
     {
       match: {
         all: [

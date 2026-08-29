@@ -13,12 +13,54 @@ import {
   roleFlagSql,
 } from "./helpers.ts";
 
+/** Parse a `pg_db_role_setting` search_path value into list elements.
+ *  One string literal is one element (`TO 'a, b'` → schema `a, b`).
+ *  Per-element literals (`TO 'a', 'b'`) match the catalog list form.
+ *  Empty (`TO ''`) stores `search_path=""`; `TO ""` is invalid SQL. */
+function searchPathToSql(value: string): string {
+  const parts: string[] = [];
+  let i = 0;
+  while (i < value.length) {
+    while (i < value.length && (value[i] === "," || value[i] === " ")) i++;
+    if (i >= value.length) break;
+    if (value[i] === '"') {
+      let ident = "";
+      i++;
+      while (i < value.length) {
+        if (value[i] === '"' && value[i + 1] === '"') {
+          ident += '"';
+          i += 2;
+          continue;
+        }
+        if (value[i] === '"') {
+          i++;
+          break;
+        }
+        ident += value[i];
+        i++;
+      }
+      parts.push(ident);
+    } else {
+      let ident = "";
+      while (i < value.length && value[i] !== ",") {
+        ident += value[i];
+        i++;
+      }
+      const trimmed = ident.trim();
+      if (trimmed !== "" || parts.length === 0) parts.push(trimmed);
+    }
+  }
+  if (parts.length === 0) return lit("");
+  return parts.map(lit).join(", ");
+}
+
 /** `ALTER ROLE <role> SET <key> TO <value>` — the single rendering of a role
  *  GUC config entry, shared by the create rule (materializing config on a fresh
  *  role) and the config set-delta alter (changing it later). `role` is already
  *  quoted by the caller. */
 function roleConfigSetSql(role: string, key: string, value: string): string {
-  return `ALTER ROLE ${role} SET ${qid(key)} TO ${lit(value)}`;
+  const rendered = key === "search_path" ? searchPathToSql(value) : lit(value);
+  return `ALTER ROLE ${role} SET ${qid(key)} TO ${rendered}`;
 }
 
 export const roleRules: Record<string, KindRules> = {

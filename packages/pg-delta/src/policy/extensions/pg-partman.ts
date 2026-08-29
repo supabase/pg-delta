@@ -37,7 +37,7 @@
  * dotted identifiers, so no quoting round-trip is lost by this choice.)
  *
  * ### `part_config` column disposition — audited against pg_partman 5.3.1
- * (the version in `supabase/postgres:17.6.1.135`). All 29 columns are
+ * (the version in `supabase/postgres:17.6.1.167`). All 29 columns are
  * accounted for; adding a column in a future partman version does NOT silently
  * vanish, because `payloadAttrs` is asserted to cover every captured key.
  *
