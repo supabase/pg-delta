@@ -24,7 +24,10 @@ import { extract } from "../src/extract/extract.ts";
 import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
 import { plan } from "../src/plan/plan.ts";
 import { flattenPolicy, resolveView } from "../src/policy/policy.ts";
-import { SUPABASE_SYSTEM_ROLES, supabasePolicy } from "../src/policy/supabase.ts";
+import {
+  SUPABASE_SYSTEM_ROLES,
+  supabasePolicy,
+} from "../src/policy/supabase.ts";
 import {
   runSupabaseBareTests,
   startStandaloneSupabase,
@@ -91,6 +94,11 @@ const STANDIN_SURFACES = `
   GRANT SELECT ON storage.objects TO postgres WITH GRANT OPTION;
 `;
 
+// Customer grants are executed AS `postgres` (dashboard / CLI both connect as
+// it), which matters for the reverse direction: PostgreSQL's REVOKE removes
+// only aclitems whose grantor is the revoking role, so a non-owner `postgres`
+// can undo exactly the grants it made — the platform reality this file
+// replays. Tests run this through asPostgres(db), never db.pool.
 const READER_GRANT = `
   GRANT SELECT ON auth.users TO ${READER_ROLE};
 `;
@@ -154,7 +162,8 @@ describe.skipIf(!runSupabaseBareTests)(
 
     test("diff/apply/converge a customer-role grant on auth.users as postgres", async () => {
       const without = await makeDb("grant_wo");
-      const withGrant = await makeDb("grant_w", READER_GRANT);
+      const withGrant = await makeDb("grant_w");
+      await asPostgres(withGrant).query(READER_GRANT);
       const postgres = asPostgres(without);
 
       const createPlan = plan(
@@ -167,9 +176,9 @@ describe.skipIf(!runSupabaseBareTests)(
       expect(createSql.some((s) => /CREATE ROLE/i.test(s))).toBe(false);
       expect(
         createSql.some((s) =>
-          new RegExp(`GRANT SELECT ON [^;]*users[^;]* TO "${READER_ROLE}"`).test(
-            s,
-          ),
+          new RegExp(
+            `GRANT SELECT ON [^;]*users[^;]* TO "${READER_ROLE}"`,
+          ).test(s),
         ),
       ).toBe(true);
 
@@ -211,7 +220,8 @@ describe.skipIf(!runSupabaseBareTests)(
     }, 180_000);
 
     test("export files the grant under the table without recreating it", async () => {
-      const db = await makeDb("grant_export", READER_GRANT);
+      const db = await makeDb("grant_export");
+      await asPostgres(db).query(READER_GRANT);
       const { factBase } = await extract(db.pool);
       const view = resolveView(factBase, supabasePolicy);
       const files = exportSqlFiles(view, {

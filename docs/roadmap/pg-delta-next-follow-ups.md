@@ -1050,15 +1050,33 @@ not defects reachable on the shipped policy):
   rule rests on); (2) the RLS/grant list drift on post-2024 auth tables is
   deliberate, no catch-up planned.
 
-- **Follow-up — customer SELECT re-grants on auth tables (separate PR).**
-  `postgres` holds `SELECT ... WITH GRANT OPTION` on the 16 auth tables of
-  the 2024 `enable_rls_update_grants` migration, and the docs demonstrate
-  `grant select on auth.users to ...`, but Rule 10 drops all ACL satellites
-  on system-schema targets — so a customer's re-grant is lost on forks and
-  declarative round-trips, same class of bug as the policies. Unlike
-  policies, ACLs carry a grantor, so a clean provenance discriminator exists:
-  grantor = `postgres` → customer intent. Needs its own RED→GREEN pass over
-  the ACL include/exclude rules.
+- **Shipped (Unit B, follow-up PR to #453) — customer re-grants on
+  managed-schema objects.** `postgres` holds `SELECT ... WITH GRANT OPTION`
+  on the 16 auth tables of the 2024 `enable_rls_update_grants` migration, and
+  the docs demonstrate `grant select on auth.users to ...`, but Rule 10
+  dropped all ACL satellites on system-schema targets — so a customer's
+  re-grant was lost on forks and declarative round-trips, same class of bug
+  as the policies. **Correction to this entry's original premise:** the
+  discriminator is the GRANTEE, not the grantor. PostgreSQL records a grantor
+  per aclitem, but pg-delta deliberately merges privileges across grantors at
+  extract time (effective-set model, `aclJson` in extract/scope.ts), and the
+  grantor differs between the live side (`postgres`) and the shadow side
+  (the loader role) for identical declared intent — a grantor-keyed filter
+  could never classify both sides of a diff symmetrically. A grantee-keyed
+  include is symmetric and sound: the platform can only grant to roles it
+  knows (system roles, API roles, `postgres`, PUBLIC, `pg_*`), so a
+  managed-schema ACL entry whose grantee is a customer-created role is
+  customer intent by construction (pinned by the pristine guard in
+  `tests/supabase-managed-grants.test.ts`).
+
+- **Deferred — customer grants TO the API roles (anon / authenticated /
+  service_role) or postgres on managed-schema objects.** These collide with
+  platform-seeded entries at the (target, grantee) fact grain (auth seeds
+  grants TO postgres; storage seeds grants TO the API roles on its tables),
+  so a grantee-keyed include cannot separate customer additions from platform
+  state. Needs init-privs-style subtraction or the committed Supabase
+  baseline (docs/roadmap/backlog.md) to expose only the customer delta —
+  same mechanism family as extension-member ACL customizations.
 
 ## PR #453 review triage (Codex) — user-policy surfaces
 

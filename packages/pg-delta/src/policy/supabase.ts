@@ -231,6 +231,33 @@ export const SUPABASE_USER_POLICY_SURFACES = [
  *  teams give the same forward-looking guarantee. */
 export const SUPABASE_USER_POLICY_SCHEMAS = ["auth"] as const;
 
+/** Every grantee the PLATFORM itself uses on managed-schema objects: the
+ *  system roles, `postgres` (auth's 2024 enable_rls_update_grants migration
+ *  grants it SELECT ... WITH GRANT OPTION), PUBLIC, and the pg_* built-ins.
+ *
+ *  A managed-schema ACL entry whose grantee is OUTSIDE this set is customer
+ *  intent by construction — the platform can only grant to roles it knows,
+ *  and customer-created roles are not among them (pinned by the pristine
+ *  guard in `tests/supabase-managed-grants.test.ts`). The discriminator is
+ *  the GRANTEE, deliberately not the grantor: extraction merges privileges
+ *  across grantors (effective-set model, `aclJson`), and the grantor differs
+ *  between the live side (`postgres`) and the shadow side (the loader role)
+ *  for identical declared intent, so a grantor-keyed rule could never
+ *  classify both sides of a diff symmetrically.
+ *
+ *  Grants TO these platform grantees on managed objects stay excluded even
+ *  when customer-authored (e.g. `GRANT ... ON storage.objects TO
+ *  authenticated`): they collide with platform-seeded entries at the
+ *  (target, grantee) fact grain, so separating the customer delta needs
+ *  init-privs-style subtraction or the committed baseline — recorded in
+ *  docs/roadmap/pg-delta-next-follow-ups.md. */
+export const SUPABASE_PLATFORM_GRANTEES = [
+  ...SUPABASE_SYSTEM_ROLES,
+  "postgres",
+  "PUBLIC",
+  "pg_*",
+] as const;
+
 // ---------------------------------------------------------------------------
 // The Supabase policy
 // ---------------------------------------------------------------------------
@@ -513,6 +540,54 @@ export const supabasePolicy: Policy = {
       },
     },
 
+    // User GRANTs to customer-created roles on managed-schema objects
+    // (CLI-1385 Phase 5, Unit B). Rule 10 would drop these ACL satellites, so
+    // a customer's `GRANT SELECT ON auth.users TO app_reader` — the pattern
+    // the backup-restore docs tell users to restore themselves — was lost on
+    // forks and declarative round-trips. The grantee outside
+    // SUPABASE_PLATFORM_GRANTEES is the discriminator (see that constant for
+    // why grantee, not grantor). Two target sub-rules mirror Rule 10:
+    // schema-carrying targets (tables, functions, sequences, ... — column
+    // grants ride along, the id's `column` field is not matched) and the
+    // managed schema itself (`GRANT USAGE ON SCHEMA auth TO app_reader`).
+    // FDW targets carry no schema, so Rule 9's unconditional FDW-ACL
+    // exclusion still wins for them. Replay rights on the platform:
+    // `postgres` holds WITH GRANT OPTION where the platform expects customer
+    // re-grants (the 2024 auth migration); where it does not, applying a
+    // hand-declared impossible grant fails with PostgreSQL's own permission
+    // error — the same loud-diagnostic posture as the schema-wide policy rule.
+    {
+      match: {
+        all: [
+          { kind: "acl" },
+          {
+            any: [
+              { target: { schema: [...SUPABASE_SYSTEM_SCHEMAS] } },
+              {
+                target: {
+                  kind: "schema",
+                  name: [...SUPABASE_SYSTEM_SCHEMAS],
+                },
+              },
+            ],
+          },
+          {
+            not: {
+              idField: {
+                field: "grantee",
+                glob: [...SUPABASE_PLATFORM_GRANTEES],
+              },
+            },
+          },
+        ],
+      },
+      action: "include",
+      audit: {
+        reasonCode: "supabase.user-grant",
+        classification: "acknowledged",
+      },
+    },
+
     // -------------------------------------------------------------------------
     // EXCLUDE rules — system objects the user cannot / should not manage
     // -------------------------------------------------------------------------
@@ -716,10 +791,11 @@ export const supabasePolicy: Policy = {
     //     targets whose `name` is in SUPABASE_SYSTEM_SCHEMAS (covers ACLs on
     //     the auth schema itself, not just tables inside auth).
     //
-    // Carve-out: comments ON user policies on SUPABASE_USER_POLICY_SURFACES
-    // and SUPABASE_USER_POLICY_SCHEMAS are user intent and are kept managed
-    // by the include rule above (first-match-wins), mirroring the
-    // policy-surface include vs Rule 4.
+    // Carve-outs (first-match-wins, via the include rules above): comments ON
+    // user policies on SUPABASE_USER_POLICY_SURFACES and
+    // SUPABASE_USER_POLICY_SCHEMAS, and ACLs whose grantee is outside
+    // SUPABASE_PLATFORM_GRANTEES (customer re-grants, Unit B) — both are user
+    // intent, mirroring the policy-surface include vs Rule 4.
     {
       match: {
         all: [

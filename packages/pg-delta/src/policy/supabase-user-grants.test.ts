@@ -18,7 +18,7 @@ import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { resolveView } from "./policy.ts";
-import { supabasePolicy } from "./supabase.ts";
+import { SUPABASE_PLATFORM_GRANTEES, supabasePolicy } from "./supabase.ts";
 
 const schema = (name: string): Fact => ({
   id: { kind: "schema", name },
@@ -85,6 +85,14 @@ function world(): Fact[] {
 
 describe("supabase policy — user GRANTs on managed-schema objects", () => {
   const view = resolveView(buildFactBase(world(), []), supabasePolicy);
+
+  test("platform grantees are the system roles plus postgres, PUBLIC, pg_*", () => {
+    expect(SUPABASE_PLATFORM_GRANTEES).toContain("postgres");
+    expect(SUPABASE_PLATFORM_GRANTEES).toContain("PUBLIC");
+    expect(SUPABASE_PLATFORM_GRANTEES).toContain("pg_*");
+    expect(SUPABASE_PLATFORM_GRANTEES).toContain("authenticated");
+    expect(SUPABASE_PLATFORM_GRANTEES).toContain("supabase_auth_admin");
+  });
 
   test("keeps grants TO customer roles on managed-schema objects managed", () => {
     for (const fact of [
