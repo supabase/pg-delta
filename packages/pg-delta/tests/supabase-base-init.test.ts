@@ -86,4 +86,39 @@ describe(`supabase base-init fixture (pg${SUPABASE_BARE_MAJOR})`, () => {
       );
     }
   });
+
+  test("enables RLS on the 2024-migration auth tables with no platform CREATE POLICY", async () => {
+    // The auth carve-out is SCHEMA-WIDE and rests on the Auth-team guarantee
+    // that the service never ships policies on its own tables (2026-08-29).
+    // Pin the observable half: the base init enables RLS on exactly the
+    // tables of auth's 20240612123726_enable_rls_update_grants migration and
+    // seeds zero policies anywhere in auth. The auth tables themselves ship
+    // in the bare image, so the fixture (a bare→full-stack delta) carries no
+    // CREATE TABLE for them — RLS enablement is the marker they exist.
+    const sql = await getSupabaseBaseInitSql();
+    const rlsEnabledAuthTables = [
+      "audit_log_entries",
+      "flow_state",
+      "identities",
+      "instances",
+      "mfa_amr_claims",
+      "mfa_challenges",
+      "mfa_factors",
+      "one_time_tokens",
+      "refresh_tokens",
+      "saml_providers",
+      "saml_relay_states",
+      "schema_migrations",
+      "sessions",
+      "sso_domains",
+      "sso_providers",
+      "users",
+    ];
+    for (const table of rlsEnabledAuthTables) {
+      expect(sql).toContain(
+        `ALTER TABLE "auth"."${table}" ENABLE ROW LEVEL SECURITY`,
+      );
+    }
+    expect(sql).not.toMatch(/CREATE POLICY[\s\S]{0,400}ON "auth"\./i);
+  });
 });

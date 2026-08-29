@@ -5,6 +5,8 @@
  * export as TABLE_SCOPED satellites of a reference-only parent (no CREATE
  * TABLE), and round-trip through plan → apply → re-diff. Comments ON those
  * policies are user intent too and must round-trip with them (REAL-997).
+ * The `auth` schema is covered SCHEMA-WIDE (Auth-team guarantee 2026-08-29:
+ * the service never ships or manages RLS policies on its own tables).
  *
  * `createDb()` on the shared supabase cluster is an empty database (template1),
  * not a copy of the image's `postgres` catalog — stand-in tables named like the
@@ -84,6 +86,11 @@ const STANDIN_SURFACES = `
   );
   ALTER TABLE realtime.subscription ENABLE ROW LEVEL SECURITY;
   CREATE SCHEMA IF NOT EXISTS auth;
+  CREATE TABLE IF NOT EXISTS auth.users (
+    id uuid PRIMARY KEY,
+    email text
+  );
+  ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY;
   CREATE FUNCTION auth.uid() RETURNS uuid
     LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
 `;
@@ -117,6 +124,12 @@ const SUBSCRIPTION_POLICY = `
   CREATE POLICY "authenticated can read subscriptions" ON realtime.subscription
     FOR SELECT TO authenticated
     USING (true);
+`;
+
+const AUTH_USERS_POLICY = `
+  CREATE POLICY "own row only" ON auth.users
+    FOR SELECT TO authenticated
+    USING (id = auth.uid());
 `;
 
 const OBJECTS_POLICY_WITH_COMMENT = `
@@ -186,6 +199,21 @@ describe.skipIf(!runSupabaseBareTests)(
           .filter((fct) => isAllowlistPolicy(fct.id))
           .map((fct) => fct.id);
         expect(seeded).toEqual([]);
+
+        // auth is covered SCHEMA-WIDE (Auth-team guarantee: the service never
+        // ships policies on its own tables) — pin that the base init seeds
+        // zero policies anywhere in auth, and that the tables are there for
+        // the guarantee to be about.
+        const authTables = factBase
+          .facts()
+          .filter((fct) => fct.id.kind === "table" && fct.id.schema === "auth")
+          .map((fct) => (fct.id.kind === "table" ? fct.id.name : ""));
+        expect(authTables).toContain("users");
+        const authPolicies = factBase
+          .facts()
+          .filter((fct) => fct.id.kind === "policy" && fct.id.schema === "auth")
+          .map((fct) => fct.id);
+        expect(authPolicies).toEqual([]);
       } finally {
         await pool.end();
         await stack.stop();
@@ -330,6 +358,55 @@ describe.skipIf(!runSupabaseBareTests)(
           { policy: supabasePolicy },
         ).actions,
       ).toEqual([]);
+    }, 180_000);
+
+    test("diff/apply/converge an auth.users policy (schema-wide carve-out)", async () => {
+      const without = await makeDb("pol_auth_wo");
+      const withPolicy = await makeDb("pol_auth_w", AUTH_USERS_POLICY);
+      const sql = await planSql(without, withPolicy);
+      expect(sql.some((s) => /CREATE POLICY "own row only"/.test(s))).toBe(
+        true,
+      );
+      expect(sql.some((s) => /auth"\."users/.test(s))).toBe(true);
+      expect(sql.some((s) => /CREATE TABLE/i.test(s))).toBe(false);
+
+      const thePlan = plan(
+        (await extract(without.pool)).factBase,
+        (await extract(withPolicy.pool)).factBase,
+        { policy: supabasePolicy },
+      );
+      const report = await apply(thePlan, without.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.status).toBe("applied");
+      expect(
+        plan(
+          (await extract(without.pool)).factBase,
+          (await extract(withPolicy.pool)).factBase,
+          { policy: supabasePolicy },
+        ).actions,
+      ).toEqual([]);
+    }, 180_000);
+
+    test("export files the auth.users policy under the table without recreating it", async () => {
+      const db = await makeDb("pol_auth_export", AUTH_USERS_POLICY);
+      const { factBase } = await extract(db.pool);
+      const view = resolveView(factBase, supabasePolicy);
+      const files = exportSqlFiles(view, {
+        assumedSchemas: flat.assumedSchemas,
+        assumedRoles: flat.assumedRoles,
+      });
+      const allSql = files.map((f) => f.sql).join("\n");
+      expect(allSql).not.toMatch(/CREATE TABLE[^;]*"?users"?/i);
+      expect(allSql).not.toMatch(/ENABLE ROW LEVEL SECURITY/i);
+
+      const usersFile = files.find(
+        (f) =>
+          f.name === "auth/tables/users.sql" ||
+          f.name === "schemas/auth/tables/users.sql",
+      );
+      expect(usersFile).toBeDefined();
+      expect(usersFile?.sql).toMatch(/CREATE POLICY "own row only"/);
     }, 180_000);
 
     test("COMMENT ON POLICY round-trips with the policy (REAL-997)", async () => {

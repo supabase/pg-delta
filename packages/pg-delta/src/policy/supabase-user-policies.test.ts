@@ -9,6 +9,11 @@
  * include, Rule 10 (satellites targeting system-schema objects) drops them
  * (REAL-997).
  *
+ * The `auth` schema is covered SCHEMA-WIDE rather than per table: the Auth
+ * team guarantees the service never ships or manages RLS policies on its own
+ * tables (2026-08-29), so every policy there is customer state regardless of
+ * whether supautils policy_grants covers the table.
+ *
  * Pure policy level — no DB.
  */
 import { describe, expect, test } from "bun:test";
@@ -75,15 +80,26 @@ const subscriptionPolicy = policy(
   "subscription",
   "own subscriptions",
 );
-const authUsersPolicy = policy("auth", "users", "users cannot do this");
+const authUsersPolicy = policy("auth", "users", "own row only");
+// grantable via supautils policy_grants but RLS never enabled — legal, inert,
+// still customer state
+const authOauthClientsPolicy = policy("auth", "oauth_clients", "own clients");
+// NOT in policy_grants (post-2024 table, deliberate) — schema-wide rule still
+// round-trips it if a policy ever exists there
+const authPasskeysPolicy = policy("auth", "passkeys", "own passkeys");
 const migrationsPolicy = policy("storage", "migrations", "no user policies");
 const publicPolicy = policy("public", "t", "public is unmanaged");
 
 const objectsPolicyComment = comment(objectsPolicy, "customer note");
 const subscriptionPolicyComment = comment(subscriptionPolicy, "customer note");
+const authUsersPolicyComment = comment(authUsersPolicy, "customer note");
 const migrationsPolicyComment = comment(migrationsPolicy, "platform note");
 const objectsTableComment = comment(
   table("storage", "objects"),
+  "platform table metadata",
+);
+const authUsersTableComment = comment(
+  table("auth", "users"),
   "platform table metadata",
 );
 
@@ -102,6 +118,8 @@ function world(): Fact[] {
     table("realtime", "messages"),
     table("realtime", "subscription"),
     table("auth", "users"),
+    table("auth", "oauth_clients"),
+    table("auth", "passkeys"),
     table("public", "t"),
     objectsPolicy,
     bucketsPolicy,
@@ -111,12 +129,16 @@ function world(): Fact[] {
     messagesPolicy,
     subscriptionPolicy,
     authUsersPolicy,
+    authOauthClientsPolicy,
+    authPasskeysPolicy,
     migrationsPolicy,
     publicPolicy,
     objectsPolicyComment,
     subscriptionPolicyComment,
+    authUsersPolicyComment,
     migrationsPolicyComment,
     objectsTableComment,
+    authUsersTableComment,
   ];
 }
 
@@ -150,8 +172,28 @@ describe("supabase policy — user RLS on managed-schema surfaces", () => {
     }
   });
 
+  test("keeps ANY policy on an auth table managed (schema-wide rule)", () => {
+    // The Auth team guarantee (2026-08-29): the service never ships or
+    // manages RLS policies on its own tables — every policy there is
+    // customer state. Schema-wide, not the supautils policy_grants table
+    // list: covers the grantable-but-RLS-off case (oauth_clients) and is
+    // immune to future grant-list drift (passkeys has no grant today).
+    for (const fact of [
+      authUsersPolicy,
+      authOauthClientsPolicy,
+      authPasskeysPolicy,
+    ]) {
+      expect(view.get(id(fact))).toBeDefined();
+      expect(view.referenceOnly.has(encodeId(id(fact)))).toBe(false);
+    }
+  });
+
   test("keeps comments ON allowlist policies managed (REAL-997)", () => {
-    for (const fact of [objectsPolicyComment, subscriptionPolicyComment]) {
+    for (const fact of [
+      objectsPolicyComment,
+      subscriptionPolicyComment,
+      authUsersPolicyComment,
+    ]) {
       expect(view.get(id(fact))).toBeDefined();
       expect(view.referenceOnly.has(encodeId(id(fact)))).toBe(false);
     }
@@ -165,12 +207,11 @@ describe("supabase policy — user RLS on managed-schema surfaces", () => {
     // the carve-out is scoped to POLICY targets: table metadata on the
     // allowlisted surfaces stays platform-managed
     expect(view.has(id(objectsTableComment))).toBe(false);
+    expect(view.has(id(authUsersTableComment))).toBe(false);
   });
 
   test("still projects policies off the allowlist as reference-only", () => {
     // assumed-schema + Rule 4: present so dependents resolve, never diffed
-    expect(view.get(id(authUsersPolicy))).toBeDefined();
-    expect(view.referenceOnly.has(encodeId(id(authUsersPolicy)))).toBe(true);
     expect(view.get(id(migrationsPolicy))).toBeDefined();
     expect(view.referenceOnly.has(encodeId(id(migrationsPolicy)))).toBe(true);
   });
