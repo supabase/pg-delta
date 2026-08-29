@@ -183,11 +183,28 @@ const SUPABASE_SYSTEM_PUBLICATIONS = [
  *  in `tests/supabase-base-init.test.ts` and by the pristine guard in
  *  `tests/supabase-managed-policies.test.ts` after `applySupabaseBaseInit`);
  *  any policy present is user-authored. Policies have no owner — do not
- *  inspect `usingExpr`. */
+ *  inspect `usingExpr`.
+ *
+ *  Source of truth: the platform's `supautils.policy_grants` GUC — the tables
+ *  the non-superuser `postgres` role is ALLOWED to run CREATE/ALTER/DROP
+ *  POLICY on (supabase/postgres,
+ *  ansible/files/postgresql_config/supautils.conf.j2). Deliberate deltas from
+ *  that list:
+ *    - `auth.*` (16 tables): grantable there too, but whether user RLS on auth
+ *      tables is supported user intent is pending an explicit decision with
+ *      the Auth team (REAL-997 follow-up) — misattributing a future
+ *      service-seeded policy as user intent is the risk.
+ *    - `storage.prefixes`: grantable, but absent from the pinned base-init
+ *      fixture (the pristine guard cannot vouch for it yet); add it with the
+ *      next Supabase image sync (`bun run sync-base-images`). */
 export const SUPABASE_USER_POLICY_SURFACES = [
   { schema: "storage", table: "objects" },
   { schema: "storage", table: "buckets" },
+  { schema: "storage", table: "buckets_analytics" },
+  { schema: "storage", table: "s3_multipart_uploads" },
+  { schema: "storage", table: "s3_multipart_uploads_parts" },
   { schema: "realtime", table: "messages" },
+  { schema: "realtime", table: "subscription" },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -435,6 +452,33 @@ export const supabasePolicy: Policy = {
       },
     },
 
+    // Comments ON those user policies are user intent too (REAL-997: realtime
+    // users document their policies with COMMENT ON POLICY). The policy fact
+    // is managed by the rule above, but its comment SATELLITE would still be
+    // excluded by Rule 10 (target.schema in SYSTEM_SCHEMAS) — dropped from
+    // exports (a fork loses the comment) and, for a declarative consumer,
+    // planned as `COMMENT ON POLICY … IS NULL`. Scoped per-surface via the
+    // target.table sub-field: a comment on a platform policy elsewhere in the
+    // schema, or on the surface TABLE itself, stays excluded. securityLabel /
+    // acl are not matched — PostgreSQL supports neither on policies.
+    {
+      match: {
+        all: [
+          { kind: "comment" },
+          {
+            any: SUPABASE_USER_POLICY_SURFACES.map((s) => ({
+              target: { kind: "policy", schema: s.schema, table: s.table },
+            })),
+          },
+        ],
+      },
+      action: "include",
+      audit: {
+        reasonCode: "supabase.user-policy-surface-comment",
+        classification: "acknowledged",
+      },
+    },
+
     // -------------------------------------------------------------------------
     // EXCLUDE rules — system objects the user cannot / should not manage
     // -------------------------------------------------------------------------
@@ -637,6 +681,10 @@ export const supabasePolicy: Policy = {
     //     which carry only a `name` field (no `schema`). We match schema-kind
     //     targets whose `name` is in SUPABASE_SYSTEM_SCHEMAS (covers ACLs on
     //     the auth schema itself, not just tables inside auth).
+    //
+    // Carve-out: comments ON user policies on SUPABASE_USER_POLICY_SURFACES
+    // are user intent and are kept managed by the include rule above
+    // (first-match-wins), mirroring the policy-surface include vs Rule 4.
     {
       match: {
         all: [
