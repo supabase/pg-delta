@@ -992,9 +992,11 @@ function isNamedObjectPredicate(predicate: Predicate): boolean {
   if ("idField" in predicate)
     return stringValues(predicate.idField.glob).every(noWildcard);
   if ("target" in predicate) {
-    const selectors = [predicate.target.name, predicate.target.schema].filter(
-      (value): value is string | string[] => value !== undefined,
-    );
+    const selectors = [
+      predicate.target.name,
+      predicate.target.schema,
+      predicate.target.table,
+    ].filter((value): value is string | string[] => value !== undefined);
     return (
       selectors.length > 0 &&
       selectors.every((value) => stringValues(value).every(noWildcard))
@@ -1034,7 +1036,11 @@ function containsWildcardMatcher(predicate: Predicate): boolean {
       (value) => !noWildcard(value),
     );
   if ("target" in predicate) {
-    return [predicate.target.name, predicate.target.schema]
+    return [
+      predicate.target.name,
+      predicate.target.schema,
+      predicate.target.table,
+    ]
       .filter((value): value is string | string[] => value !== undefined)
       .some((value) => stringValues(value).some((part) => !noWildcard(part)));
   }
