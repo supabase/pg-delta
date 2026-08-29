@@ -1031,16 +1031,34 @@ not defects reachable on the shipped policy):
 - **Refuted for the shipped policy — descendant closure covering "user-added"
   children of platform tables (Codex P1, round 4).** The claimed
   counterexample (a user-added `auth.users.custom_flag` column) is not
-  creatable on Supabase: `ADD COLUMN` / `CREATE INDEX` / `ADD CONSTRAINT` /
-  `CREATE POLICY` all require table OWNERSHIP, which the user's `postgres`
-  lacks on system-role-owned tables. The one user-creatable child — a trigger,
-  via the grantable TRIGGER privilege — is deliberately MANAGED (policy
-  include rule 3), so the plan PRODUCES it and the requirement guard never
-  consults the exemption for it. Desired-only FILTERED descendants of a
-  platform root can therefore only be platform-made (image upgrade), which is
-  exactly what the exemption must cover. Revisit together with the explicit
-  platform-owner designation above if any platform grants users DDL on
-  platform-owned relations.
+  creatable on Supabase: `ADD COLUMN` / `CREATE INDEX` / `ADD CONSTRAINT`
+  all require table OWNERSHIP, which the user's `postgres` lacks on
+  system-role-owned tables. The user-creatable children — a trigger, via the
+  grantable TRIGGER privilege, and (**correction, 2026-08-29**) an RLS
+  policy, via the platform's `supautils.policy_grants` GUC
+  (supabase/postgres `ansible/files/postgresql_config/supautils.conf.j2`,
+  which opens CREATE/ALTER/DROP POLICY to `postgres` on 24
+  auth/storage/realtime tables it does not own) — are deliberately MANAGED
+  (policy include rule 3 for triggers; the user-policy-surface include for
+  policies, per-table for storage/realtime and schema-wide for auth), so the
+  plan PRODUCES them and the requirement guard never consults the exemption
+  for them. The original note's premise "CREATE POLICY requires ownership"
+  was wrong on the Supabase platform; the conclusion stands because the
+  policy carve-out manages those children. Auth-team answers recorded
+  2026-08-29: (1) Auth never ships or manages RLS policies on its own tables
+  — all policies there are user-managed (the invariant the schema-wide auth
+  rule rests on); (2) the RLS/grant list drift on post-2024 auth tables is
+  deliberate, no catch-up planned.
+
+- **Follow-up — customer SELECT re-grants on auth tables (separate PR).**
+  `postgres` holds `SELECT ... WITH GRANT OPTION` on the 16 auth tables of
+  the 2024 `enable_rls_update_grants` migration, and the docs demonstrate
+  `grant select on auth.users to ...`, but Rule 10 drops all ACL satellites
+  on system-schema targets — so a customer's re-grant is lost on forks and
+  declarative round-trips, same class of bug as the policies. Unlike
+  policies, ACLs carry a grantor, so a clean provenance discriminator exists:
+  grantor = `postgres` → customer intent. Needs its own RED→GREEN pass over
+  the ACL include/exclude rules.
 
 ## PR #412 review triage (Codex) — libpq sslmode semantics
 

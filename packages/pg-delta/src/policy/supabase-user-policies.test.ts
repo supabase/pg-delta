@@ -20,7 +20,11 @@ import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { resolveView } from "./policy.ts";
-import { SUPABASE_USER_POLICY_SURFACES, supabasePolicy } from "./supabase.ts";
+import {
+  SUPABASE_USER_POLICY_SCHEMAS,
+  SUPABASE_USER_POLICY_SURFACES,
+  supabasePolicy,
+} from "./supabase.ts";
 
 const schema = (name: string): Fact => ({
   id: { kind: "schema", name },
@@ -170,6 +174,10 @@ describe("supabase policy — user RLS on managed-schema surfaces", () => {
       expect(view.get(id(fact))).toBeDefined();
       expect(view.referenceOnly.has(encodeId(id(fact)))).toBe(false);
     }
+  });
+
+  test("schema-wide coverage is auth only", () => {
+    expect([...SUPABASE_USER_POLICY_SCHEMAS]).toEqual(["auth"]);
   });
 
   test("keeps ANY policy on an auth table managed (schema-wide rule)", () => {

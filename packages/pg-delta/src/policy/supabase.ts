@@ -190,10 +190,8 @@ const SUPABASE_SYSTEM_PUBLICATIONS = [
  *  POLICY on (supabase/postgres,
  *  ansible/files/postgresql_config/supautils.conf.j2). Deliberate deltas from
  *  that list:
- *    - `auth.*` (16 tables): grantable there too, but whether user RLS on auth
- *      tables is supported user intent is pending an explicit decision with
- *      the Auth team (REAL-997 follow-up) — misattributing a future
- *      service-seeded policy as user intent is the risk.
+ *    - `auth.*` (16 tables in the grant): covered SCHEMA-WIDE via
+ *      SUPABASE_USER_POLICY_SCHEMAS below, not listed here.
  *    - `storage.prefixes`: grantable, but absent from the pinned base-init
  *      fixture (the pristine guard cannot vouch for it yet); add it with the
  *      next Supabase image sync (`bun run sync-base-images`). */
@@ -206,6 +204,32 @@ export const SUPABASE_USER_POLICY_SURFACES = [
   { schema: "realtime", table: "messages" },
   { schema: "realtime", table: "subscription" },
 ] as const;
+
+/** Managed schemas where EVERY RLS policy is user intent, whatever its table.
+ *
+ *  `auth` (Auth team, 2026-08-29): the service never ships or manages RLS
+ *  policies on its own tables — all policies there are user-managed. That
+ *  forward-looking guarantee is the invariant this rule rests on (policies
+ *  carry no owner, so one seeded policy would break the discriminator); the
+ *  pristine guard in `tests/supabase-managed-policies.test.ts` and the
+ *  fixture pin in `tests/supabase-base-init.test.ts` pin the observable half
+ *  (zero policies on auth in the base init).
+ *
+ *  Schema-wide rather than mirroring the supautils policy_grants table list
+ *  because the guarantee is schema-scoped: it round-trips the
+ *  legal-but-inert case (`auth.oauth_clients` is grantable but RLS is never
+ *  enabled) and is immune to grant-list drift (the post-2024 tables such as
+ *  `auth.passkeys` intentionally have no grant today — the Auth team
+ *  confirmed the drift is deliberate). auth never runs FORCE ROW LEVEL
+ *  SECURITY and `supabase_auth_admin` owns its tables, so a customer policy
+ *  cannot alter Auth's own runtime behavior; the one sharp edge is a policy
+ *  referencing a column that a service migration later rewrites (documented
+ *  "at your own risk" — backup-restore.mdx tells users these policies must
+ *  be restored, which is exactly what this rule makes pg-delta do).
+ *
+ *  storage / realtime stay on the per-table SURFACES list above until their
+ *  teams give the same forward-looking guarantee. */
+export const SUPABASE_USER_POLICY_SCHEMAS = ["auth"] as const;
 
 // ---------------------------------------------------------------------------
 // The Supabase policy
@@ -424,7 +448,9 @@ export const supabasePolicy: Policy = {
       action: "include",
     },
 
-    // User RLS on an explicit allowlist of managed-schema tables. Policies
+    // User RLS on managed-schema tables: an explicit per-table allowlist for
+    // storage/realtime, plus the schema-wide SUPABASE_USER_POLICY_SCHEMAS
+    // (auth — see the constant's doc for the Auth-team guarantee). Policies
     // have no owner, so the discriminator is the surface, not provenance.
     // MUST precede Rule 4 (first-match-wins): a policy's id.schema is the
     // table schema, so Rule 4 would otherwise exclude it. Because that
@@ -436,12 +462,15 @@ export const supabasePolicy: Policy = {
         all: [
           { kind: "policy" },
           {
-            any: SUPABASE_USER_POLICY_SURFACES.map((s) => ({
-              all: [
-                { schema: s.schema },
-                { idField: { field: "table", glob: s.table } },
-              ],
-            })),
+            any: [
+              ...SUPABASE_USER_POLICY_SURFACES.map((s) => ({
+                all: [
+                  { schema: s.schema },
+                  { idField: { field: "table", glob: s.table } },
+                ],
+              })),
+              ...SUPABASE_USER_POLICY_SCHEMAS.map((s) => ({ schema: s })),
+            ],
           },
         ],
       },
@@ -466,9 +495,14 @@ export const supabasePolicy: Policy = {
         all: [
           { kind: "comment" },
           {
-            any: SUPABASE_USER_POLICY_SURFACES.map((s) => ({
-              target: { kind: "policy", schema: s.schema, table: s.table },
-            })),
+            any: [
+              ...SUPABASE_USER_POLICY_SURFACES.map((s) => ({
+                target: { kind: "policy", schema: s.schema, table: s.table },
+              })),
+              ...SUPABASE_USER_POLICY_SCHEMAS.map((s) => ({
+                target: { kind: "policy", schema: s },
+              })),
+            ],
           },
         ],
       },
