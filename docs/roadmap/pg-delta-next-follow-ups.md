@@ -1060,6 +1060,35 @@ not defects reachable on the shipped policy):
   grantor = `postgres` → customer intent. Needs its own RED→GREEN pass over
   the ACL include/exclude rules.
 
+## PR #453 review triage (Codex) — user-policy surfaces
+
+Context: PR #453 manages user RLS policies + `COMMENT ON POLICY` on
+storage/realtime (per-table, mirroring `supautils.policy_grants`) and on auth
+(schema-wide, per the Auth-team guarantee recorded above). One finding
+**deferred by design**:
+
+- **Deferred — the schema-wide auth rule can emit non-replayable DDL for a
+  DECLARED policy on a non-grant-listed auth table (Codex P2, round 1).**
+  Mechanics confirmed: applier capability v1 gates only FDW ACLs, so a user
+  who hand-declares `CREATE POLICY … ON auth.passkeys` (a table outside
+  `supautils.policy_grants`) gets a plan whose apply fails with PostgreSQL's
+  own "must be owner of table" as the non-owner `postgres`. Deferred because:
+  (a) the SOURCE direction can never produce such a policy — only
+  `supabase_auth_admin` could create one and the Auth team guarantees it never
+  will — so exports and DB-to-DB diffs never emit this spontaneously; (b) the
+  failing input is a user declaring DDL the platform forbids them to run, and
+  a loud PG error at apply is the honest diagnostic; (c) the alternative
+  (mirroring the grant list) reintroduces the silent-drop failure whenever the
+  platform widens `policy_grants` ahead of a pg-delta release — silent loss is
+  the bug class PR #433/#453 exist to fix. Possible follow-ups if this bites
+  in practice: a plan-time diagnostic when a managed policy's parent table is
+  reference-only and outside the grant list (accepting the grant-list coupling
+  the schema-wide rule deliberately avoids), and an integration leg on a
+  supautils-configured image exercising the real ownership/grant matrix
+  end-to-end (the current stand-in tables are owned by the applying role, so
+  they validate diff/plan/export routing, not the platform's permission
+  boundary).
+
 ## PR #412 review triage (Codex) — libpq sslmode semantics
 
 Context: PR #412 restores the legacy engine's `sslmode` translation for
