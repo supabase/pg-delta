@@ -1,8 +1,10 @@
 /**
- * User RLS policies on storage.objects / storage.buckets / realtime.messages
- * must survive the supabase managed-schema filter, export as TABLE_SCOPED
- * satellites of a reference-only parent (no CREATE TABLE), and round-trip
- * through plan → apply → re-diff.
+ * User RLS policies on the storage / realtime allowlist surfaces
+ * (SUPABASE_USER_POLICY_SURFACES, mirroring the platform's
+ * `supautils.policy_grants`) must survive the supabase managed-schema filter,
+ * export as TABLE_SCOPED satellites of a reference-only parent (no CREATE
+ * TABLE), and round-trip through plan → apply → re-diff. Comments ON those
+ * policies are user intent too and must round-trip with them (REAL-997).
  *
  * `createDb()` on the shared supabase cluster is an empty database (template1),
  * not a copy of the image's `postgres` catalog — stand-in tables named like the
@@ -56,12 +58,31 @@ const STANDIN_SURFACES = `
     name text
   );
   ALTER TABLE storage.buckets ENABLE ROW LEVEL SECURITY;
+  CREATE TABLE IF NOT EXISTS storage.buckets_analytics (
+    id text PRIMARY KEY
+  );
+  ALTER TABLE storage.buckets_analytics ENABLE ROW LEVEL SECURITY;
+  CREATE TABLE IF NOT EXISTS storage.s3_multipart_uploads (
+    id text PRIMARY KEY,
+    bucket_id text
+  );
+  ALTER TABLE storage.s3_multipart_uploads ENABLE ROW LEVEL SECURITY;
+  CREATE TABLE IF NOT EXISTS storage.s3_multipart_uploads_parts (
+    id uuid PRIMARY KEY,
+    upload_id text
+  );
+  ALTER TABLE storage.s3_multipart_uploads_parts ENABLE ROW LEVEL SECURITY;
   CREATE SCHEMA IF NOT EXISTS realtime;
   CREATE TABLE IF NOT EXISTS realtime.messages (
     id uuid PRIMARY KEY,
     topic text
   );
   ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
+  CREATE TABLE IF NOT EXISTS realtime.subscription (
+    id bigint PRIMARY KEY,
+    subscription_id uuid
+  );
+  ALTER TABLE realtime.subscription ENABLE ROW LEVEL SECURITY;
   CREATE SCHEMA IF NOT EXISTS auth;
   CREATE FUNCTION auth.uid() RETURNS uuid
     LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
@@ -90,6 +111,18 @@ const AUTH_UID_POLICY = `
   CREATE POLICY "owner can read" ON storage.objects
     FOR SELECT TO authenticated
     USING (owner = auth.uid());
+`;
+
+const SUBSCRIPTION_POLICY = `
+  CREATE POLICY "authenticated can read subscriptions" ON realtime.subscription
+    FOR SELECT TO authenticated
+    USING (true);
+`;
+
+const OBJECTS_POLICY_WITH_COMMENT = `
+  ${OBJECTS_POLICY}
+  COMMENT ON POLICY "Users can read own objects" ON storage.objects
+    IS 'customer note';
 `;
 
 const flat = flattenPolicy(supabasePolicy);
@@ -265,6 +298,99 @@ describe.skipIf(!runSupabaseBareTests)(
         fingerprintGate: false,
       });
       expect(report.status).toBe("applied");
+      expect(
+        plan(
+          (await extract(without.pool)).factBase,
+          (await extract(withPolicy.pool)).factBase,
+          { policy: supabasePolicy },
+        ).actions,
+      ).toEqual([]);
+    }, 180_000);
+
+    test("diff/apply/converge a realtime.subscription policy", async () => {
+      const without = await makeDb("pol_sub_wo");
+      const withPolicy = await makeDb("pol_sub_w", SUBSCRIPTION_POLICY);
+      const sql = await planSql(without, withPolicy);
+      expect(sql.some((s) => /CREATE POLICY/.test(s))).toBe(true);
+      expect(sql.some((s) => /realtime"\."subscription/.test(s))).toBe(true);
+
+      const thePlan = plan(
+        (await extract(without.pool)).factBase,
+        (await extract(withPolicy.pool)).factBase,
+        { policy: supabasePolicy },
+      );
+      const report = await apply(thePlan, without.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.status).toBe("applied");
+      expect(
+        plan(
+          (await extract(without.pool)).factBase,
+          (await extract(withPolicy.pool)).factBase,
+          { policy: supabasePolicy },
+        ).actions,
+      ).toEqual([]);
+    }, 180_000);
+
+    test("COMMENT ON POLICY round-trips with the policy (REAL-997)", async () => {
+      const without = await makeDb("pol_cmt_wo");
+      const withPolicy = await makeDb("pol_cmt_w", OBJECTS_POLICY_WITH_COMMENT);
+
+      const createPlan = plan(
+        (await extract(without.pool)).factBase,
+        (await extract(withPolicy.pool)).factBase,
+        { policy: supabasePolicy },
+      );
+      const createSql = createPlan.actions.map((a) => a.sql);
+      expect(createSql.some((s) => /CREATE POLICY/.test(s))).toBe(true);
+      expect(
+        createSql.some((s) =>
+          /COMMENT ON POLICY "Users can read own objects"/.test(s),
+        ),
+      ).toBe(true);
+
+      const created = await apply(createPlan, without.pool, {
+        fingerprintGate: false,
+      });
+      expect(created.status).toBe("applied");
+      expect(
+        plan(
+          (await extract(without.pool)).factBase,
+          (await extract(withPolicy.pool)).factBase,
+          { policy: supabasePolicy },
+        ).actions,
+      ).toEqual([]);
+
+      // the comment exports next to its policy, still without CREATE TABLE
+      const { factBase } = await extract(withPolicy.pool);
+      const view = resolveView(factBase, supabasePolicy);
+      const files = exportSqlFiles(view, {
+        assumedSchemas: flat.assumedSchemas,
+        assumedRoles: flat.assumedRoles,
+      });
+      const allSql = files.map((f) => f.sql).join("\n");
+      expect(allSql).not.toMatch(/CREATE TABLE[^;]*"?objects"?/i);
+      expect(allSql).toMatch(/COMMENT ON POLICY "Users can read own objects"/);
+      expect(allSql).toMatch(/customer note/);
+
+      // dropping only the comment converges too (plans COMMENT … IS NULL)
+      await withPolicy.pool.query(
+        `COMMENT ON POLICY "Users can read own objects" ON storage.objects IS NULL`,
+      );
+      const dropCommentPlan = plan(
+        (await extract(without.pool)).factBase,
+        (await extract(withPolicy.pool)).factBase,
+        { policy: supabasePolicy },
+      );
+      expect(
+        dropCommentPlan.actions.some((a) =>
+          /COMMENT ON POLICY[\s\S]*IS NULL/.test(a.sql),
+        ),
+      ).toBe(true);
+      const dropped = await apply(dropCommentPlan, without.pool, {
+        fingerprintGate: false,
+      });
+      expect(dropped.status).toBe("applied");
       expect(
         plan(
           (await extract(without.pool)).factBase,
