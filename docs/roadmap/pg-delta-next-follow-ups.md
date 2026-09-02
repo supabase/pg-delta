@@ -1557,36 +1557,16 @@ PR #455 orders an in-place ALTER after the in-place ALTER of a direct
 dependency (SET DEFAULT vs ADD VALUE). Pairwise reciprocal depends (two
 domains whose defaults reference each other) were fixed in-PR so the new
 edge does not turn a valid fact cycle into an unsortable action graph.
-Two round-2 Codex P2s and one round-3 P2 are **deferred**:
+The stacked follow-up (transitive walk + skip an alter-after-dep edge
+that would close an action-graph cycle) **fixed** the three later
+Codex P2s:
 
-- **Deferred — n-cycles of in-place-altered facts (3+ domain defaults,
-  or a BEGIN ATOMIC function ring, all changing in one plan).** The
-  pairwise back-edge skip does not see `d1 → d2 → d3 → d1`, so the new
-  edges close an action-graph cycle and `topoSort` throws. Loud, not a
-  silent wrong order. The 2-node case is the one that showed up in
-  review; chasing n-node SCCs here is the same contract one hop at a
-  time. A later change can skip edges whose endpoints sit in the same
-  desired-depends SCC of currently-altered facts.
-
-- **Deferred — transitive `depends` (column default → unchanged domain
-  → enum being ADD VALUEd).** The new walk matches the produces walk:
-  one hop on `outgoingEdges(subject)`. A default `'c'::dst` over an
-  unchanged domain whose base type is the enum records `default →
-  domain`, so ADD VALUE still falls through to the weight tie-break and
-  can 22P02. Same hole already exists for CREATE of a new column/default
-  through that domain. Fixing it properly is a transitive walk (or
-  reachability-to-alterer) on **both** sides, with the SCC skip above,
-  not an alter-only special case.
-
-- **Deferred — action-graph cycle via a newly produced consumer
-  (domain default ← sequence, new column of that domain, sequence
-  OWNED BY the new column).** Desired `depends` is acyclic (`c → d →
-  q`); extract deliberately omits the OWNED BY auto-edge because it
-  would cycle with the column default. The new alter-after-dep edge
-  (`q ALTER → d ALTER`) plus the existing produces walk (`d ALTER →
-  ADD c`) plus OWNED BY consuming the new column (`ADD c → q ALTER`)
-  closes a 3-action cycle. Parent planner emitted ALTER DOMAIN, ADD
-  COLUMN, ALTER SEQUENCE. Same loud `topoSort` failure class as the
-  n-ring; the "don't add an edge that closes a cycle" check they want
-  is general action-graph reachability, not another one-off guard.
-  Round 3 of the same contract.
+- **Fixed — n-cycles of in-place-altered facts.** Closing edge of a
+  3-domain default ring is dropped when the other two already give a
+  path; `topoSort` no longer throws.
+- **Fixed — transitive `depends` (column default → unchanged domain →
+  enum ADD VALUE).** The alter-after-dep walk continues through
+  unchanged facts until it hits an in-place alterer.
+- **Fixed — OWNED BY sandwich cycle.** `q ALTER → d ALTER` is skipped
+  because `d ALTER → ADD c → q ALTER` already exists; apply order stays
+  ALTER DOMAIN, ADD COLUMN, ALTER SEQUENCE.

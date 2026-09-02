@@ -83,8 +83,7 @@ describe("plan() — in-place alter of a dependent follows its dependency's alte
     // ALTER DOMAIN … SET DEFAULT once both exist), both defaults changing in
     // one plan. Neither order is derivable from the fact graph and either
     // works at apply (both types exist throughout), so the edge must not be
-    // added in both directions — that would be an unsortable action graph
-    // where the previous behavior emitted both alters (Codex P2, PR #455).
+    // added in both directions — that would be an unsortable action graph.
     const d1: StableId = { kind: "domain", schema: "public", name: "d1" };
     const d2: StableId = { kind: "domain", schema: "public", name: "d2" };
     const domains = (def1: string, def2: string) =>
@@ -148,10 +147,22 @@ describe("plan() — in-place alter of a dependent follows its dependency's alte
           { from: d3, to: d1, kind: "depends" },
         ],
       );
-    const source = domains("(1)::public.d2", "(1)::public.d3", "(1)::public.d1");
-    const desired = domains("(2)::public.d2", "(2)::public.d3", "(2)::public.d1");
+    const source = domains(
+      "(1)::public.d2",
+      "(1)::public.d3",
+      "(1)::public.d1",
+    );
+    const desired = domains(
+      "(2)::public.d2",
+      "(2)::public.d3",
+      "(2)::public.d1",
+    );
     expect(() => plan(source, desired)).not.toThrow();
-    expect(plan(source, desired).actions.map((a) => a.sql).toSorted()).toEqual([
+    expect(
+      plan(source, desired)
+        .actions.map((a) => a.sql)
+        .toSorted(),
+    ).toEqual([
       `ALTER DOMAIN "public"."d1" SET DEFAULT (2)::public.d2`,
       `ALTER DOMAIN "public"."d2" SET DEFAULT (2)::public.d3`,
       `ALTER DOMAIN "public"."d3" SET DEFAULT (2)::public.d1`,
@@ -159,7 +170,11 @@ describe("plan() — in-place alter of a dependent follows its dependency's alte
   });
 
   test("SET DEFAULT through an unchanged domain is ordered after ADD VALUE", () => {
-    const domainId: StableId = { kind: "domain", schema: "public", name: "dst" };
+    const domainId: StableId = {
+      kind: "domain",
+      schema: "public",
+      name: "dst",
+    };
     const throughDomain = (values: string[], defaultValue: string) =>
       buildFactBase(
         [
@@ -211,7 +226,9 @@ describe("plan() — in-place alter of a dependent follows its dependency's alte
       table: "t",
       name: "c",
     };
-    const seqPayload = (ownedBy: unknown) => ({
+    const seqPayload = (
+      ownedBy: { schema: string; table: string; column: string } | null,
+    ) => ({
       dataType: "bigint",
       increment: "1",
       minValue: "1",
