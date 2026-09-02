@@ -1,5 +1,12 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.49
+
+### Patch Changes
+
+- 4eaaf18: fix(pg-delta): walk through unchanged dependencies when ordering in-place ALTERs, and skip an alter-after-dep edge that would close an action-graph cycle. A column default over an unchanged domain now waits for the underlying enum ADD VALUE; a 3-domain default ring and a domain-default + new-column + OWNED BY sandwich stay sortable.
+- 4eaaf18: fix(pg-delta): order an in-place ALTER of a dependent after the in-place ALTER of what it depends on. Adding an enum value and pointing an existing column's default at it in the same plan previously emitted `ALTER TABLE … SET DEFAULT 'c'::st` before `ALTER TYPE st ADD VALUE 'c'`, so apply failed with 22P02 (invalid input value for enum).
+
 ## 1.0.0-alpha.48
 
 ### Minor Changes
