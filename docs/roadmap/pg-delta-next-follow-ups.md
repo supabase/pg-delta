@@ -1557,7 +1557,7 @@ PR #455 orders an in-place ALTER after the in-place ALTER of a direct
 dependency (SET DEFAULT vs ADD VALUE). Pairwise reciprocal depends (two
 domains whose defaults reference each other) were fixed in-PR so the new
 edge does not turn a valid fact cycle into an unsortable action graph.
-Two round-2 Codex P2s are **deferred**:
+Two round-2 Codex P2s and one round-3 P2 are **deferred**:
 
 - **Deferred — n-cycles of in-place-altered facts (3+ domain defaults,
   or a BEGIN ATOMIC function ring, all changing in one plan).** The
@@ -1577,3 +1577,16 @@ Two round-2 Codex P2s are **deferred**:
   through that domain. Fixing it properly is a transitive walk (or
   reachability-to-alterer) on **both** sides, with the SCC skip above,
   not an alter-only special case.
+
+- **Deferred — action-graph cycle via a newly produced consumer
+  (domain default ← sequence, new column of that domain, sequence
+  OWNED BY the new column).** Desired `depends` is acyclic (`c → d →
+  q`); extract deliberately omits the OWNED BY auto-edge because it
+  would cycle with the column default. The new alter-after-dep edge
+  (`q ALTER → d ALTER`) plus the existing produces walk (`d ALTER →
+  ADD c`) plus OWNED BY consuming the new column (`ADD c → q ALTER`)
+  closes a 3-action cycle. Parent planner emitted ALTER DOMAIN, ADD
+  COLUMN, ALTER SEQUENCE. Same loud `topoSort` failure class as the
+  n-ring; the "don't add an edge that closes a cycle" check they want
+  is general action-graph reachability, not another one-off guard.
+  Round 3 of the same contract.
