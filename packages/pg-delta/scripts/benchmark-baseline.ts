@@ -70,6 +70,7 @@
  * NO URL, host, user or password — only timings, counts and the run label
  * (PGDELTA_BENCH_RUN_LABEL, optional nonsecret free text).
  */
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   appendFileSync,
@@ -346,23 +347,30 @@ async function phase<T>(
 
 async function runProcess(
   cmd: string[],
-  env: Record<string, string> = {},
 ): Promise<{ ms: number; stderr: string }> {
   const start = performance.now();
-  const proc = Bun.spawn(cmd, {
-    stdout: "ignore",
-    stderr: "pipe",
-    env: { ...process.env, ...env },
+  return new Promise((resolve, reject) => {
+    const proc = spawn(cmd[0]!, cmd.slice(1), {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    proc.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    proc.on("error", reject);
+    proc.on("close", (code) => {
+      const ms = performance.now() - start;
+      if (code !== 0) {
+        reject(
+          new Error(
+            `${cmd[0]} exited ${code}:\n${stderr.trim().slice(0, 2000)}`,
+          ),
+        );
+        return;
+      }
+      resolve({ ms, stderr });
+    });
   });
-  const stderr = await new Response(proc.stderr).text();
-  const code = await proc.exited;
-  const ms = performance.now() - start;
-  if (code !== 0) {
-    throw new Error(
-      `${cmd[0]} exited ${code}:\n${stderr.trim().slice(0, 2000)}`,
-    );
-  }
-  return { ms, stderr };
 }
 
 async function pgDumpIteration(
@@ -623,13 +631,10 @@ function median(values: number[]): number {
 }
 
 function hostPgDumpMajor(): number | undefined {
-  try {
-    const out = Bun.spawnSync(["pg_dump", "--version"]).stdout.toString();
-    const m = /\b(\d+)\.\d+/.exec(out);
-    return m ? Number(m[1]) : undefined;
-  } catch {
-    return undefined;
-  }
+  const res = spawnSync("pg_dump", ["--version"], { encoding: "utf8" });
+  if (res.error || res.status !== 0) return undefined;
+  const m = /\b(\d+)\.\d+/.exec(res.stdout);
+  return m ? Number(m[1]) : undefined;
 }
 
 async function serverMajor(pool: pg.Pool): Promise<number> {
@@ -881,7 +886,12 @@ async function main(argv: string[]): Promise<void> {
   }
 }
 
-if (import.meta.main) {
+// `import.meta.main` is Bun/Node 24+; the argv check covers Node 22
+// (`node --experimental-strip-types scripts/benchmark-baseline.ts`).
+const isMain =
+  (import.meta as { main?: boolean }).main ??
+  process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) {
   try {
     await main(process.argv.slice(2));
     process.exit(0);
