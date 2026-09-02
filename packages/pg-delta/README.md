@@ -278,6 +278,7 @@ PGDELTA_NEXT_ONLY=enum bun test tests/engine.test.ts     # one corpus subset
 PGDELTA_NEXT_SHARD=0/4 bun test tests/engine.test.ts     # one shard
 PGDELTA_NEXT_SOAK=200 bun test tests/generative.test.ts  # bigger generative soak
 bun scripts/benchmark.ts                                 # timing numbers
+bun scripts/benchmark-baseline.ts                        # pg-delta vs pg_dump --schema-only baseline of an empty db
 ```
 
 The **corpus** (`corpus/`, 331 scenarios) is the primary correctness gate: every

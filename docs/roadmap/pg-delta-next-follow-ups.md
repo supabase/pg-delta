@@ -1550,3 +1550,25 @@ not the contract this PR promised.
   `grant_option` flag is dropped, so those statements look like a plain
   grant/revoke. The consumer asked for GRANT vs REVOKE of the privilege
   itself, not grant-option bookkeeping.
+
+## Baseline benchmark triage (2026-09) — Bun apply-phase GC tax
+
+Found while benchmarking pg-delta against `pg_dump --schema-only` for the
+platform's branch baseline (`docs/benchmarks/baseline-vs-pg-dump.md`).
+
+### `apply()` is 3–6× slower under Bun than Node, scaling with live heap — P3
+
+Same 7 185-action plan, same container: Node 8.5 s, Bun 52.6 s (`--smol` off
+makes no difference). A CPU profile shows the time as client CPU in the pg
+driver's socket send path with Postgres idle, and it is heap-dependent: a bare
+extract → plan → apply script under Bun takes 17 s, retaining one extra fact
+base makes it 41.6 s, a second apply in that process 108.6 s. A plain `pg`
+DDL loop is not affected. Reads as JSC GC cost per statement round trip
+scaling with the live object graph (fact bases are large).
+
+Not a production concern (the platform worker and the published CLI run on
+Node) but the whole `tests/` suite applies under `bun test` with several fact
+bases alive per case, so corpus/integration wall time is paying this. Options
+to investigate: release fact bases before apply where the proof loop no longer
+needs them, `Bun.gc()` hints between phases, or confirming against a newer Bun
+and filing upstream with the profile in the benchmark doc.

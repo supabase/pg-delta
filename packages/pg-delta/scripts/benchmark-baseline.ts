@@ -69,6 +69,16 @@
  * Artifacts: `.bench-artifacts/baseline-<runId>.jsonl` (gitignored). They carry
  * NO URL, host, user or password — only timings, counts and the run label
  * (PGDELTA_BENCH_RUN_LABEL, optional nonsecret free text).
+ *
+ * RUNTIME MATTERS. Run it under Node for platform-faithful numbers:
+ *
+ *   node --experimental-transform-types scripts/benchmark-baseline.ts [flags]
+ *
+ * Under Bun the apply phase is 3–6× slower than under Node for the SAME plan,
+ * and the gap grows with the live heap (retained fact bases): Bun's GC cost per
+ * statement round trip scales with heap size, so a harness that keeps several
+ * fact bases alive (this one does, for the fidelity check) measures the GC, not
+ * pg-delta. See docs/benchmarks/baseline-vs-pg-dump.md for the measurements.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
