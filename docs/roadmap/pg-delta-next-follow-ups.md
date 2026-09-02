@@ -1572,3 +1572,34 @@ bases alive per case, so corpus/integration wall time is paying this. Options
 to investigate: release fact bases before apply where the proof loop no longer
 needs them, `Bun.gc()` hints between phases, or confirming against a newer Bun
 and filing upstream with the profile in the benchmark doc.
+
+### Checked-out clients have no `error` listener; a dropped socket is an uncaught exception — P1
+
+`scripts/repro-dropped-connection.ts` (Node 22): cutting the connection during
+`extract` or `apply` makes the awaited call fail correctly AND emits an
+unhandled `error` ("Connection terminated unexpectedly") on the checked-out
+`pg` client, because pg-pool detaches its listener on checkout and neither
+extractor nor executor attaches one. In a process without an
+`uncaughtException` handler (the platform worker) that is a crash that takes
+every other in-flight job down. Fix: attach an `error` listener to each
+client for as long as `extract`/`apply` hold it (and to the extraction
+worker clients under `concurrency > 1`), routing the error into the in-flight
+query's rejection.
+
+### `apply()` pays one round trip per action; batch each transactional segment — P2
+
+Measured in `docs/benchmarks/baseline-vs-pg-dump.md` ("Topology
+reproduction"): a 1 446-action plan costs 1 451 round trips on the target,
+so at the platform's 200 ms cross-region RTT apply alone is 295 s, while a
+harness prototype that sends each transactional segment as ONE multi-statement
+simple-protocol query (BEGIN, preamble, actions, COMMIT) costs 1 round trip
+and 0.9 s with identical results (zero residual deltas across 0/20/100/200 ms).
+Postgres applies `statement_timeout` per statement inside a multi-statement
+string, so the per-statement budget survives. What is lost is per-action
+failure attribution; recover it by re-running a failed segment statement by
+statement (the `makeBatchRunner` pattern from extraction already exists).
+Non-transactional actions keep their own round trip. Also worth folding the
+handler presence probes, parameter-ACL filter and unmodeled probe into the
+batched extraction setup (26 serial round trips per extraction today), and
+letting `apply` accept the already-extracted source view instead of
+re-extracting for the fingerprint gate (26 more).

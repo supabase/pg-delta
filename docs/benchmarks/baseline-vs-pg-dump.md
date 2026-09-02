@@ -116,6 +116,94 @@ PGDELTA_BENCH_TARGET_ADMIN_URL=postgres://…/postgres \
   intent) is not exercised by a stock-image fixture; run the harness against a
   Supabase image (`--image supabase/postgres:…`) to see it.
 
+## Topology reproduction: cross-region RTT and round trips
+
+The platform runs `init_migration` on the PRIMARY worker in `ap-southeast-1`
+against project databases in the customer's region, and Sentry shows a p50 of
+210 ms per db span on that task — essentially one RTT per statement. To
+reproduce that on a loopback container the harness now routes every connection
+through a per-side latency proxy (`scripts/lib/latency-proxy.ts`) that adds a
+configurable RTT and counts protocol round trips (`ReadyForQuery` messages),
+and it runs the shapes under discussion side by side:
+
+| pipeline           | shape                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------- |
+| `pg_dump+psql`     | `pg_dump --schema-only` → `psql -f` (one round trip per statement)                  |
+| `pg_dump+batch`    | same dump sent as ONE multi-statement query (the legacy branching service's pgx-batch shape) |
+| `pg-delta worker`  | pool 1, concurrency 1, fingerprint gate on — the `init_migration` task as deployed |
+| `pg-delta tuned`   | pool 5, concurrency 4, gate off — the proposed platform-side change                |
+| `pg-delta batched` | `tuned` + apply as ONE multi-statement query per transactional segment — prototype of the proposed executor change |
+
+Fixture: 2 schemas × 50 tables (100 tables, 4 315 facts, **1 446 actions** —
+the size band of the failing Sentry jobs, 1 084–1 764 actions). Node 22,
+`postgres:16-alpine`, one iteration per cell (RTT-bound results are
+deterministic: total ≈ round trips × RTT + the 0 ms cost).
+
+| pipeline           | rt target | rt source | 0 ms   | 20 ms  | 100 ms  | 200 ms  | residual deltas |
+| ------------------ | --------- | --------- | ------ | ------ | ------- | ------- | --------------- |
+| `pg_dump+psql`     | 1 683     | 193       | 2.0 s  | 42.5 s | 193.6 s | 381.8 s | 0               |
+| `pg_dump+batch`    | 2         | 193       | 1.0 s  | 5.4 s  | 21.5 s  | 41.1 s  | 0               |
+| `pg-delta worker`  | 1 504     | 26        | 2.6 s  | 34.8 s | 156.2 s | 307.7 s | 0               |
+| `pg-delta tuned`   | 1 487     | 35        | 2.2 s  | 33.2 s | 152.1 s | 300.1 s | 0               |
+| `pg-delta batched` | 37        | 35        | 1.6 s  | 2.1 s  | 3.9 s   | 6.6 s   | 0               |
+
+Round trips per phase, `pg-delta worker`: connect 4, profile 1, extract target
+26, extract source 26, fingerprint gate 26, apply **1 451** (1 446 actions +
+BEGIN, two `SET LOCAL`, COMMIT, one preamble round trip). `tuned` moves each
+extraction to 35 round trips spread over 4 streams (so wall time drops even
+though the count rises) and removes the gate's 26; apply is unchanged.
+`batched` collapses apply to 1.
+
+What this reproduces:
+
+- **The Sentry numbers.** At 200 ms the worker shape takes 307.7 s (5.1 min)
+  for 1 446 actions: 1 504 round trips × 0.2 s. The p50 of 5.5 min and the
+  6.5 min estimated for a 1 764-action plan fall out of the same line. Apply
+  is 294.6 s of the 307.7 s; the three serial extractions (78 round trips)
+  are the 16 s "before the first DDL" seen in the longest sampled trace.
+- **Why the legacy path did not pay this.** The dump itself costs 193 round
+  trips (39.6 s at 200 ms; pg_dump queries per object), but its pgx-batch
+  restore costs 2. `psql -f` would have paid 1 683 round trips and been slower
+  than pg-delta: the legacy advantage was the batch, not the dump.
+- **Which fix moves what.** `tuned` (pool + concurrency + no gate) saves 7.6 s
+  at 200 ms, all in extraction; it does nothing for the 295 s of apply.
+  `batched` makes the whole pipeline RTT-insensitive: 6.6 s at 200 ms, of
+  which 3.6 s is the remaining extraction round trips. Co-locating the worker
+  with the project (RTT ~1 ms) makes every shape land under 3 s for this
+  fixture, which is why it is the largest single platform-side win; batching
+  the executor is what makes pg-delta safe for any consumer that cannot
+  co-locate.
+- **Fidelity is unchanged by batching.** Every cell, including the
+  multi-statement prototypes, leaves zero residual deltas against the source.
+
+Reproduce a single cell:
+
+```sh
+node --experimental-transform-types scripts/benchmark-baseline.ts \
+  --schemas 2 --tables 50 --rtt 200 --variants worker,batched \
+  --restore batch --iterations 1 --warmups 0
+```
+
+## Dropped connections crash the host process
+
+`scripts/repro-dropped-connection.ts` cuts the proxied socket once during
+`extract` and once during `apply` (no superuser needed: the proxy destroys
+both halves, which is what a path reset or a killed backend looks like to the
+client). Under Node 22, both scenarios end the same way: the awaited call
+fails as it should — `extract` rejects, `apply` returns `status: "failed"` with
+`Connection terminated unexpectedly` — **and** a second copy of that error
+reaches `process.on("uncaughtException")`. The script only installs that
+handler to report; a worker has none, so each is a process exit and every
+other in-flight job on the instance dies with it (Sentry: 25 of 67
+`init_migration` events are `level:fatal`, `onuncaughtexception`).
+
+Mechanism: `pg` emits `error` on the client whose socket ended; pg-pool
+detaches its idle-error listener while a client is checked out; neither
+`extract` nor `apply` attaches one to the client they hold, and the worker's
+`pool.on("error")` covers idle clients only. Fix is in pg-delta (attach an
+error listener to every checked-out client for the duration of the hold).
+Follow-up recorded in `docs/roadmap/pg-delta-next-follow-ups.md`.
+
 ## Bun vs Node (why the headline numbers are Node)
 
 The same 500-table run (7 185 actions) under both runtimes, same container:
