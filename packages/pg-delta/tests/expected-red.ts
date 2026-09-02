@@ -27,4 +27,9 @@ export const EXPECTED_RED: ReadonlyMap<string, RedPin> = new Map<
   // reverse (teardown) direction is expected-red ON PG16+ ONLY — pre-16 has no
   // dependent tracking, plain REVOKE succeeds, and the scenario passes.
   ["role-membership-dedup--multi-grantor:reverse", { minMajor: 16 }],
+  // Reverse is an enum value-set rebuild (drop 'c') while DOMAIN dst still
+  // depends on the enum — the planner refuses that, same as any domain-over-enum
+  // shrink. Forward (ADD VALUE + SET DEFAULT through the domain) is the hole
+  // this pin's sibling scenario covers.
+  ["type-ops--enum-add-value-used-in-domain-default:reverse", {}],
 ]);

@@ -1550,3 +1550,23 @@ not the contract this PR promised.
   `grant_option` flag is dropped, so those statements look like a plain
   grant/revoke. The consumer asked for GRANT vs REVOKE of the privilege
   itself, not grant-option bookkeeping.
+
+## PR #455 review triage (Codex) — alter-after-dependency order
+
+PR #455 orders an in-place ALTER after the in-place ALTER of a direct
+dependency (SET DEFAULT vs ADD VALUE). Pairwise reciprocal depends (two
+domains whose defaults reference each other) were fixed in-PR so the new
+edge does not turn a valid fact cycle into an unsortable action graph.
+The stacked follow-up (transitive walk + skip an alter-after-dep edge
+that would close an action-graph cycle) **fixed** the three later
+Codex P2s:
+
+- **Fixed — n-cycles of in-place-altered facts.** Closing edge of a
+  3-domain default ring is dropped when the other two already give a
+  path; `topoSort` no longer throws.
+- **Fixed — transitive `depends` (column default → unchanged domain →
+  enum ADD VALUE).** The alter-after-dep walk continues through
+  unchanged facts until it hits an in-place alterer.
+- **Fixed — OWNED BY sandwich cycle.** `q ALTER → d ALTER` is skipped
+  because `d ALTER → ADD c → q ALTER` already exists; apply order stays
+  ALTER DOMAIN, ADD COLUMN, ALTER SEQUENCE.
