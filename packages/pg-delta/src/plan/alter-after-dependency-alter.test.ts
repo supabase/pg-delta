@@ -77,4 +77,39 @@ describe("plan() — in-place alter of a dependent follows its dependency's alte
     `);
     expect(addValue).toBeLessThan(setDefault);
   });
+
+  test("reciprocal dependencies between two altered facts do not form a cycle", () => {
+    // Two domains whose DEFAULT expressions reference each other (possible via
+    // ALTER DOMAIN … SET DEFAULT once both exist), both defaults changing in
+    // one plan. Neither order is derivable from the fact graph and either
+    // works at apply (both types exist throughout), so the edge must not be
+    // added in both directions — that would be an unsortable action graph
+    // where the previous behavior emitted both alters (Codex P2, PR #455).
+    const d1: StableId = { kind: "domain", schema: "public", name: "d1" };
+    const d2: StableId = { kind: "domain", schema: "public", name: "d2" };
+    const domains = (def1: string, def2: string) =>
+      buildFactBase(
+        [
+          { id: schemaId, payload: {} },
+          {
+            id: d1,
+            parent: schemaId,
+            payload: { baseType: "integer", notNull: false, default: def1 },
+          },
+          {
+            id: d2,
+            parent: schemaId,
+            payload: { baseType: "integer", notNull: false, default: def2 },
+          },
+        ] satisfies Fact[],
+        [
+          { from: d1, to: d2, kind: "depends" },
+          { from: d2, to: d1, kind: "depends" },
+        ],
+      );
+    const source = domains("(1)::public.d2", "(1)::public.d1");
+    const desired = domains("(2)::public.d2", "(2)::public.d1");
+    const sql = plan(source, desired).actions.map((a) => a.sql);
+    expect(sql).toMatchInlineSnapshot();
+  });
 });
