@@ -1,6 +1,6 @@
 /**
  * An in-place ALTER of a dependent must run AFTER the in-place ALTER of what
- * it depends on (Slack report, 2026-09-02): adding an enum value and pointing
+ * it depends on: adding an enum value and pointing
  * an EXISTING column's default at that value in the same plan emitted
  *
  *   ALTER TABLE … ALTER COLUMN … SET DEFAULT 'c'::st;   -- 22P02: invalid input
