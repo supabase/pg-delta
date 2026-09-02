@@ -1550,3 +1550,30 @@ not the contract this PR promised.
   `grant_option` flag is dropped, so those statements look like a plain
   grant/revoke. The consumer asked for GRANT vs REVOKE of the privilege
   itself, not grant-option bookkeeping.
+
+## PR #455 review triage (Codex) — alter-after-dependency order
+
+PR #455 orders an in-place ALTER after the in-place ALTER of a direct
+dependency (SET DEFAULT vs ADD VALUE). Pairwise reciprocal depends (two
+domains whose defaults reference each other) were fixed in-PR so the new
+edge does not turn a valid fact cycle into an unsortable action graph.
+Two round-2 Codex P2s are **deferred**:
+
+- **Deferred — n-cycles of in-place-altered facts (3+ domain defaults,
+  or a BEGIN ATOMIC function ring, all changing in one plan).** The
+  pairwise back-edge skip does not see `d1 → d2 → d3 → d1`, so the new
+  edges close an action-graph cycle and `topoSort` throws. Loud, not a
+  silent wrong order. The 2-node case is the one that showed up in
+  review; chasing n-node SCCs here is the same contract one hop at a
+  time. A later change can skip edges whose endpoints sit in the same
+  desired-depends SCC of currently-altered facts.
+
+- **Deferred — transitive `depends` (column default → unchanged domain
+  → enum being ADD VALUEd).** The new walk matches the produces walk:
+  one hop on `outgoingEdges(subject)`. A default `'c'::dst` over an
+  unchanged domain whose base type is the enum records `default →
+  domain`, so ADD VALUE still falls through to the weight tie-break and
+  can 22P02. Same hole already exists for CREATE of a new column/default
+  through that domain. Fixing it properly is a transitive walk (or
+  reachability-to-alterer) on **both** sides, with the SCC skip above,
+  not an alter-only special case.
