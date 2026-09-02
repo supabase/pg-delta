@@ -359,6 +359,12 @@ export function buildActionGraph(
     // Same guard as the produces side: a dependency alterer that itself
     // consumes our subject needs us first, so it is skipped. A dependency this
     // plan (re)produces orders through the producer edge above, not here.
+    // RECIPROCAL dependencies (two domains whose defaults reference each
+    // other — possible via ALTER DOMAIN … SET DEFAULT once both exist) derive
+    // no order from the fact graph, and either order applies since both
+    // objects exist throughout: adding the edge from both sides would make a
+    // valid fact cycle an unsortable action graph, so such pairs fall through
+    // to the tie-break as before (Codex P2, PR #455).
     if (action.verb === "alter") {
       const subject = action.consumes[0];
       if (subject !== undefined && desired.has(subject)) {
@@ -366,6 +372,10 @@ export function buildActionGraph(
         for (const edge of desired.outgoingEdges(subject)) {
           const targetKey = remember(edge.to);
           if (producerOf.has(targetKey)) continue;
+          const reciprocal = desired
+            .outgoingEdges(edge.to)
+            .some((back) => encodeId(back.to) === subjectKey);
+          if (reciprocal) continue;
           for (const alterer of alterersOf.get(targetKey) ?? []) {
             if (alterer === index) continue;
             const altererConsumesSubject = (

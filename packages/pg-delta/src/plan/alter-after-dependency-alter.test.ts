@@ -110,6 +110,11 @@ describe("plan() — in-place alter of a dependent follows its dependency's alte
     const source = domains("(1)::public.d2", "(1)::public.d1");
     const desired = domains("(2)::public.d2", "(2)::public.d1");
     const sql = plan(source, desired).actions.map((a) => a.sql);
-    expect(sql).toMatchInlineSnapshot();
+    expect(sql).toMatchInlineSnapshot(`
+      [
+        "ALTER DOMAIN "public"."d1" SET DEFAULT (2)::public.d2",
+        "ALTER DOMAIN "public"."d2" SET DEFAULT (2)::public.d1",
+      ]
+    `);
   });
 });
