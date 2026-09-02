@@ -269,6 +269,7 @@ export function buildActionGraph(
     alterersOf.set(key, list);
   });
 
+  const alterAfterDep: Array<[before: number, after: number]> = [];
   actions.forEach((action, index) => {
     for (const id of action.releases) {
       const destroyer = destroyerOf.get(remember(id));
@@ -349,39 +350,49 @@ export function buildActionGraph(
         );
       }
     }
-    // An in-place ALTER of a dependent runs AFTER the in-place alterers of what
-    // its subject depends on — the alter-side mirror of the produces-walk rule
-    // below ("create the dependent against its FINAL state"). An alter produces
-    // nothing, so without this edge the pair fell through to the weight
-    // tie-break: `ALTER TABLE … SET DEFAULT 'c'::st` (default, weight 6) sorted
-    // before `ALTER TYPE st ADD VALUE 'c'` (type, weight 7) and apply failed
-    // with 22P02 (the NEW column case never hit it — its default is CREATED).
-    // Same guard as the produces side: a dependency alterer that itself
-    // consumes our subject needs us first, so it is skipped. A dependency this
-    // plan (re)produces orders through the producer edge above, not here.
-    // RECIPROCAL dependencies (two domains whose defaults reference each
-    // other — possible via ALTER DOMAIN … SET DEFAULT once both exist) derive
-    // no order from the fact graph, and either order applies since both
-    // objects exist throughout: adding the edge from both sides would make a
-    // valid fact cycle an unsortable action graph, so such pairs fall through
-    // to the tie-break as before (Codex P2, PR #455).
+    // An in-place ALTER of a dependent runs AFTER in-place alterers of what
+    // its subject depends on — including through unchanged facts (a column
+    // default over a domain whose base enum is ADD VALUEd). Candidates are
+    // applied after this loop so produces/consumes edges already exist; an
+    // edge that would close an action-graph cycle is dropped (the remaining
+    // path is the runnable order). A mutual pair of altered facts is skipped
+    // here so both directions do not force an order; either apply works.
     if (action.verb === "alter") {
       const subject = action.consumes[0];
       if (subject !== undefined && desired.has(subject)) {
         const subjectKey = encodeId(subject);
-        for (const edge of desired.outgoingEdges(subject)) {
-          const targetKey = remember(edge.to);
-          if (producerOf.has(targetKey)) continue;
-          const reciprocal = desired
-            .outgoingEdges(edge.to)
-            .some((back) => encodeId(back.to) === subjectKey);
-          if (reciprocal) continue;
-          for (const alterer of alterersOf.get(targetKey) ?? []) {
-            if (alterer === index) continue;
-            const altererConsumesSubject = (
-              actions[alterer] as Action
-            ).consumes.some((c) => encodeId(c) === subjectKey);
-            if (!altererConsumesSubject) edges.push([alterer, index]);
+        const seen = new Set<string>([subjectKey]);
+        const queue: StableId[] = [subject];
+        while (queue.length > 0) {
+          const current = queue.shift() as StableId;
+          const fromSubject = encodeId(current) === subjectKey;
+          for (const edge of desired.outgoingEdges(current)) {
+            const targetKey = remember(edge.to);
+            if (seen.has(targetKey)) continue;
+            seen.add(targetKey);
+            if (producerOf.has(targetKey)) continue;
+            const alterers = alterersOf.get(targetKey) ?? [];
+            if (alterers.length > 0) {
+              if (
+                fromSubject &&
+                desired
+                  .outgoingEdges(edge.to)
+                  .some((back) => encodeId(back.to) === subjectKey)
+              ) {
+                continue;
+              }
+              for (const alterer of alterers) {
+                if (alterer === index) continue;
+                const altererConsumesSubject = (
+                  actions[alterer] as Action
+                ).consumes.some((c) => encodeId(c) === subjectKey);
+                if (!altererConsumesSubject) {
+                  alterAfterDep.push([alterer, index]);
+                }
+              }
+              continue;
+            }
+            queue.push(edge.to);
           }
         }
       }
@@ -543,7 +554,37 @@ export function buildActionGraph(
     }
   });
 
+  for (const [before, after] of alterAfterDep) {
+    if (!actionReaches(edges, after, before)) edges.push([before, after]);
+  }
   return edges;
+}
+
+/** True when `from` can reach `to` following `[before, after]` action edges. */
+function actionReaches(
+  edges: readonly [before: number, after: number][],
+  from: number,
+  to: number,
+): boolean {
+  if (from === to) return true;
+  const adj = new Map<number, number[]>();
+  for (const [u, v] of edges) {
+    const list = adj.get(u) ?? [];
+    list.push(v);
+    adj.set(u, list);
+  }
+  const seen = new Set<number>([from]);
+  const queue = [from];
+  while (queue.length > 0) {
+    const cur = queue.shift() as number;
+    for (const next of adj.get(cur) ?? []) {
+      if (next === to) return true;
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  return false;
 }
 
 /**
