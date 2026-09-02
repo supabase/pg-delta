@@ -349,6 +349,33 @@ export function buildActionGraph(
         );
       }
     }
+    // An in-place ALTER of a dependent runs AFTER the in-place alterers of what
+    // its subject depends on — the alter-side mirror of the produces-walk rule
+    // below ("create the dependent against its FINAL state"). An alter produces
+    // nothing, so without this edge the pair fell through to the weight
+    // tie-break: `ALTER TABLE … SET DEFAULT 'c'::st` (default, weight 6) sorted
+    // before `ALTER TYPE st ADD VALUE 'c'` (type, weight 7) and apply failed
+    // with 22P02 (the NEW column case never hit it — its default is CREATED).
+    // Same guard as the produces side: a dependency alterer that itself
+    // consumes our subject needs us first, so it is skipped. A dependency this
+    // plan (re)produces orders through the producer edge above, not here.
+    if (action.verb === "alter") {
+      const subject = action.consumes[0];
+      if (subject !== undefined && desired.has(subject)) {
+        const subjectKey = encodeId(subject);
+        for (const edge of desired.outgoingEdges(subject)) {
+          const targetKey = remember(edge.to);
+          if (producerOf.has(targetKey)) continue;
+          for (const alterer of alterersOf.get(targetKey) ?? []) {
+            if (alterer === index) continue;
+            const altererConsumesSubject = (
+              actions[alterer] as Action
+            ).consumes.some((c) => encodeId(c) === subjectKey);
+            if (!altererConsumesSubject) edges.push([alterer, index]);
+          }
+        }
+      }
+    }
     // An alter materializes nothing, so its expression fact is CONSUMED, not
     // produced: `VALIDATE CONSTRAINT` (NOT VALID → VALID) rescans every row and
     // `SET DEFAULT` / a generated-expression change re-evaluate the expression.

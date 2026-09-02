@@ -69,7 +69,12 @@ describe("plan() — in-place alter of a dependent follows its dependency's alte
     const setDefault = sql.findIndex((s) => s.includes("SET DEFAULT 'c'"));
     expect(addValue).toBeGreaterThanOrEqual(0);
     expect(setDefault).toBeGreaterThanOrEqual(0);
-    expect(sql).toMatchInlineSnapshot();
+    expect(sql).toMatchInlineSnapshot(`
+      [
+        "ALTER TYPE "public"."st" ADD VALUE 'c' AFTER 'b'",
+        "ALTER TABLE "public"."t" ALTER COLUMN "s" SET DEFAULT 'c'::public.st",
+      ]
+    `);
     expect(addValue).toBeLessThan(setDefault);
   });
 });
